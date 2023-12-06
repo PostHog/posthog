@@ -73,7 +73,7 @@ const PersonOverridesModes: Record<string, PersonOverridesMode | undefined> = {
     deferred: {
         getWriter: (hub) => new DeferredPersonOverrideWriter(hub.db.postgres),
         fetchPostgresPersonIdOverrides: async (hub, teamId) => {
-            await new DeferredPersonOverrideWorker(hub.db.postgres, 456).processPendingOverrides(hub.db.kafkaProducer)
+            await new DeferredPersonOverrideWorker(hub.db.postgres).processPendingOverrides(hub.db.kafkaProducer)
             return await fetchPostgresPersonIdOverrides(hub, teamId)
         },
     },
@@ -2104,15 +2104,13 @@ describe('deferred person overrides', () => {
     let teamId: number
 
     let writer: DeferredPersonOverrideWriter
-
-    const lockId = 456
     let worker: DeferredPersonOverrideWorker
 
     beforeAll(async () => {
         ;[hub, closeHub] = await createHub({})
         organizationId = await createOrganization(hub.db.postgres)
         writer = new DeferredPersonOverrideWriter(hub.db.postgres)
-        worker = new DeferredPersonOverrideWorker(hub.db.postgres, lockId)
+        worker = new DeferredPersonOverrideWorker(hub.db.postgres)
     })
 
     beforeEach(async () => {
@@ -2216,7 +2214,7 @@ describe('deferred person overrides', () => {
             .transaction(PostgresUse.COMMON_WRITE, '', async (tx) => {
                 const { rows } = await postgres.query(
                     tx,
-                    `SELECT pg_try_advisory_lock(${lockId}) as acquired, pg_backend_pid()`,
+                    `SELECT pg_try_advisory_lock(${worker.lockId}) as acquired, pg_backend_pid()`,
                     undefined,
                     ''
                 )

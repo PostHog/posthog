@@ -740,11 +740,11 @@ export class DeferredPersonOverrideWriter {
 }
 
 export class DeferredPersonOverrideWorker {
-    /**
-     * @param lockId the lock identifier/key used to ensure that only one
-     *               process is updating the overrides at a time
-     */
-    constructor(private postgres: PostgresRouter, private lockId: number = 567) {}
+    // The advisory lock identifier/key used to ensure that only one process is
+    // updating the overrides at a time.
+    public readonly lockId = 567
+
+    constructor(private postgres: PostgresRouter) {}
 
     /**
      * Process all (or up to the given limit) pending overrides.
