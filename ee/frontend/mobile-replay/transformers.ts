@@ -41,6 +41,7 @@ function* ids(): Generator<number> {
         yield i++
     }
 }
+
 const idSequence = ids()
 
 const BODY_ID = 5
@@ -220,12 +221,32 @@ function makeInputElement(
         return makeSelectElement(wireframe, children)
     }
 
-    return {
+    const theInputElement: serializedNodeWithId = {
         type: NodeType.Element,
         tagName: 'input',
         attributes: inputAttributes(wireframe),
         id: wireframe.id,
         childNodes: children,
+    }
+    if ('label' in wireframe) {
+        return {
+            type: NodeType.Element,
+            tagName: 'label',
+            attributes: {
+                style: makeStylesString(wireframe),
+            },
+            id: idSequence.next().value,
+            childNodes: [
+                theInputElement,
+                {
+                    type: NodeType.Text,
+                    textContent: wireframe.label || '',
+                    id: idSequence.next().value,
+                },
+            ],
+        }
+    } else {
+        return theInputElement
     }
 }
 

@@ -701,7 +701,7 @@ exports[`replay/transform transform inputs $inputType - hello 1`] = `
                   {
                     "attributes": {},
                     "childNodes": [],
-                    "id": 132,
+                    "id": 138,
                     "tagName": "div",
                     "type": 2,
                   },
@@ -775,7 +775,7 @@ exports[`replay/transform transform inputs button - click me 1`] = `
                         "type": 2,
                       },
                     ],
-                    "id": 126,
+                    "id": 132,
                     "tagName": "div",
                     "type": 2,
                   },
@@ -877,13 +877,28 @@ exports[`replay/transform transform inputs checkbox - $value 1`] = `
                     "childNodes": [
                       {
                         "attributes": {
-                          "checked": true,
                           "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "checkbox",
                         },
-                        "childNodes": [],
-                        "id": 12357,
-                        "tagName": "input",
+                        "childNodes": [
+                          {
+                            "attributes": {
+                              "checked": true,
+                              "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                              "type": "checkbox",
+                            },
+                            "childNodes": [],
+                            "id": 12357,
+                            "tagName": "input",
+                            "type": 2,
+                          },
+                          {
+                            "id": 124,
+                            "textContent": "first",
+                            "type": 3,
+                          },
+                        ],
+                        "id": 123,
+                        "tagName": "label",
                         "type": 2,
                       },
                     ],
@@ -952,15 +967,30 @@ exports[`replay/transform transform inputs checkbox - $value 2`] = `
                       {
                         "attributes": {
                           "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "checkbox",
                         },
-                        "childNodes": [],
-                        "id": 12357,
-                        "tagName": "input",
+                        "childNodes": [
+                          {
+                            "attributes": {
+                              "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                              "type": "checkbox",
+                            },
+                            "childNodes": [],
+                            "id": 12357,
+                            "tagName": "input",
+                            "type": 2,
+                          },
+                          {
+                            "id": 127,
+                            "textContent": "second",
+                            "type": 3,
+                          },
+                        ],
+                        "id": 126,
+                        "tagName": "label",
                         "type": 2,
                       },
                     ],
-                    "id": 123,
+                    "id": 125,
                     "tagName": "div",
                     "type": 2,
                   },
@@ -1024,18 +1054,33 @@ exports[`replay/transform transform inputs checkbox - $value 3`] = `
                     "childNodes": [
                       {
                         "attributes": {
-                          "checked": true,
-                          "disabled": true,
                           "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                          "type": "checkbox",
                         },
-                        "childNodes": [],
-                        "id": 12357,
-                        "tagName": "input",
+                        "childNodes": [
+                          {
+                            "attributes": {
+                              "checked": true,
+                              "disabled": true,
+                              "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                              "type": "checkbox",
+                            },
+                            "childNodes": [],
+                            "id": 12357,
+                            "tagName": "input",
+                            "type": 2,
+                          },
+                          {
+                            "id": 130,
+                            "textContent": "third",
+                            "type": 3,
+                          },
+                        ],
+                        "id": 129,
+                        "tagName": "label",
                         "type": 2,
                       },
                     ],
-                    "id": 124,
+                    "id": 128,
                     "tagName": "div",
                     "type": 2,
                   },
@@ -1109,7 +1154,7 @@ exports[`replay/transform transform inputs checkbox - $value 4`] = `
                         "type": 2,
                       },
                     ],
-                    "id": 125,
+                    "id": 131,
                     "tagName": "div",
                     "type": 2,
                   },
@@ -1476,7 +1521,7 @@ exports[`replay/transform transform inputs select - hello 1`] = `
                               "value": "hello",
                             },
                             "childNodes": [],
-                            "id": 130,
+                            "id": 136,
                             "tagName": "option",
                             "type": 2,
                           },
@@ -1485,7 +1530,7 @@ exports[`replay/transform transform inputs select - hello 1`] = `
                               "value": "world",
                             },
                             "childNodes": [],
-                            "id": 131,
+                            "id": 137,
                             "tagName": "option",
                             "type": 2,
                           },
@@ -1495,7 +1540,7 @@ exports[`replay/transform transform inputs select - hello 1`] = `
                         "type": 2,
                       },
                     ],
-                    "id": 129,
+                    "id": 135,
                     "tagName": "div",
                     "type": 2,
                   },
@@ -1789,7 +1834,7 @@ exports[`replay/transform transform inputs textArea - $value 1`] = `
                         "type": 2,
                       },
                     ],
-                    "id": 128,
+                    "id": 134,
                     "tagName": "div",
                     "type": 2,
                   },
@@ -1863,7 +1908,7 @@ exports[`replay/transform transform inputs textArea - hello 1`] = `
                         "type": 2,
                       },
                     ],
-                    "id": 127,
+                    "id": 133,
                     "tagName": "div",
                     "type": 2,
                   },
@@ -1958,6 +2003,19 @@ exports[`replay/transform transform inputs url - https://example.io 1`] = `
     },
     "timestamp": 1,
     "type": 2,
+  },
+]
+`;
+
+exports[`replay/transform transform inputs wrapping with labels 1`] = `
+[
+  {
+    "height": 30,
+    "id": 12359,
+    "inputType": "checkbox",
+    "label": "i will wrap the checkbox",
+    "type": "input",
+    "width": 100,
   },
 ]
 `;

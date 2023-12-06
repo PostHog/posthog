@@ -406,6 +406,20 @@ describe('replay/transform', () => {
                     ])
                 ).toMatchSnapshot()
             })
+            test('wrapping with labels', () => {
+                expect(
+                    posthogEEModule.mobileReplay?.transformToWeb([
+                        {
+                            id: 12359,
+                            width: 100,
+                            height: 30,
+                            type: 'input',
+                            inputType: 'checkbox',
+                            label: 'i will wrap the checkbox',
+                        },
+                    ])
+                ).toMatchSnapshot()
+            })
             test.each([
                 {
                     id: 12346,
