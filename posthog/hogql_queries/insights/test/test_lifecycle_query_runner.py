@@ -1149,10 +1149,10 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [
                 {
                     "status": "dormant",
-                    "data": [0.0, -1.0, -2.0, -1.0, 0.0, -2.0, 0.0, -1.0],
+                    "data": [-1.0, -2.0, -1.0, 0.0, -2.0, 0.0, -1.0, 0.0],
                 },
-                {"status": "new", "data": [1, 1, 0, 0, 1, 0, 0, 0]},
-                {"status": "resurrecting", "data": [0, 1, 1, 0, 1, 0, 1, 0]},
+                {"status": "new", "data": [1, 0, 0, 1, 0, 0, 0, 0]},
+                {"status": "resurrecting", "data": [1, 1, 0, 1, 0, 1, 0, 1]},
                 {"status": "returning", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
             ],
         )

@@ -416,7 +416,7 @@
                         [
                           dateDiff(
                               'Day',
-                              toStartOfDay(toDateTime('2020-06-10 07:00:00', 'US/Pacific')),
+                              toStartOfDay(toDateTime('2020-06-10 00:00:00', 'US/Pacific')),
                               toStartOfDay(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'US/Pacific'))
                           )
                       ] as breakdown_values

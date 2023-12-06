@@ -148,8 +148,8 @@
   '
   WITH 'day' AS selected_period,
        periods AS
-    (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2020-01-18 23:59:59', 'US/Pacific'))) AS start_of_period
-     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2020-01-11 00:00:00', 'US/Pacific')), dateTrunc('day', toDateTime('2020-01-18 23:59:59', 'US/Pacific') + INTERVAL 1 day))))
+    (SELECT dateSub(day, number, dateTrunc(selected_period, toDateTime('2020-01-19 23:59:59', 'US/Pacific'))) AS start_of_period
+     FROM numbers(dateDiff('day', dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'US/Pacific')), dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'US/Pacific') + INTERVAL 1 day))))
   SELECT groupArray(start_of_period) AS date,
          groupArray(counts) AS total,
          status
@@ -204,13 +204,13 @@
               HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = '$pageview'
-             AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-11 00:00:00', 'US/Pacific'))) - INTERVAL 1 day
-             AND timestamp < toDateTime(dateTrunc('day', toDateTime('2020-01-18 23:59:59', 'US/Pacific'))) + INTERVAL 1 day
+             AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'US/Pacific'))) - INTERVAL 1 day
+             AND timestamp < toDateTime(dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'US/Pacific'))) + INTERVAL 1 day
            GROUP BY pdi.person_id)
         GROUP BY start_of_period,
                  status)
-     WHERE start_of_period <= dateTrunc('day', toDateTime('2020-01-18 23:59:59', 'US/Pacific'))
-       AND start_of_period >= dateTrunc('day', toDateTime('2020-01-11 00:00:00', 'US/Pacific'))
+     WHERE start_of_period <= dateTrunc('day', toDateTime('2020-01-19 23:59:59', 'US/Pacific'))
+       AND start_of_period >= dateTrunc('day', toDateTime('2020-01-12 00:00:00', 'US/Pacific'))
      GROUP BY start_of_period,
               status
      ORDER BY start_of_period ASC)
