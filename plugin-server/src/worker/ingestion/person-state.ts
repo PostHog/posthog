@@ -706,6 +706,31 @@ export class PersonOverrideWriter {
 
         return id
     }
+
+    public async getPersonOverrides(teamId: number): Promise<PersonOverrideDetails[]> {
+        const { rows } = await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            SQL`
+                SELECT
+                    override.team_id,
+                    old_person.uuid as old_person_id,
+                    override_person.uuid as override_person_id,
+                    oldest_event
+                FROM posthog_personoverride override
+                LEFT OUTER JOIN posthog_personoverridemapping old_person
+                    ON override.team_id = old_person.team_id AND override.old_person_id = old_person.id
+                LEFT OUTER JOIN posthog_personoverridemapping override_person
+                    ON override.team_id = override_person.team_id AND override.override_person_id = override_person.id
+                WHERE override.team_id = ${teamId}
+            `,
+            undefined,
+            'getPersonOverrides'
+        )
+        return rows.map((row) => ({
+            ...row,
+            oldest_event: DateTime.fromISO(row.oldest_event),
+        }))
+    }
 }
 
 const deferredPersonOverridesWrittenCounter = new Counter({

@@ -2095,6 +2095,86 @@ describe('PersonState.update()', () => {
     })
 })
 
+describe('person overrides', () => {
+    let hub: Hub
+    let closeHub: () => Promise<void>
+
+    let organizationId: string
+    let teamId: number
+    let writer: PersonOverrideWriter
+
+    beforeAll(async () => {
+        ;[hub, closeHub] = await createHub({})
+        organizationId = await createOrganization(hub.db.postgres)
+        writer = new PersonOverrideWriter(hub.db.postgres)
+    })
+
+    beforeEach(async () => {
+        teamId = await createTeam(hub.db.postgres, organizationId)
+    })
+
+    afterAll(async () => {
+        await closeHub()
+    })
+
+    it('handles direct overrides', async () => {
+        const { postgres } = hub.db
+
+        const defaults = {
+            team_id: teamId,
+            oldest_event: DateTime.fromMillis(0),
+        }
+
+        const override = {
+            old_person_id: new UUIDT().toString(),
+            override_person_id: new UUIDT().toString(),
+        }
+
+        await postgres.transaction(PostgresUse.COMMON_WRITE, '', async (tx) => {
+            await writer.addPersonOverride(tx, { ...defaults, ...override })
+        })
+
+        expect(await writer.getPersonOverrides(teamId)).toEqual([{ ...defaults, ...override }])
+    })
+
+    it('handles transitive overrides', async () => {
+        const { postgres } = hub.db
+
+        const defaults = {
+            team_id: teamId,
+            oldest_event: DateTime.fromMillis(0),
+        }
+
+        const overrides = [
+            {
+                old_person_id: new UUIDT().toString(),
+                override_person_id: new UUIDT().toString(),
+            },
+        ]
+
+        overrides.push({
+            old_person_id: overrides[0].override_person_id,
+            override_person_id: new UUIDT().toString(),
+        })
+
+        await postgres.transaction(PostgresUse.COMMON_WRITE, '', async (tx) => {
+            for (const override of overrides) {
+                await writer.addPersonOverride(tx, { ...defaults, ...override })
+            }
+        })
+
+        expect(new Set(await writer.getPersonOverrides(teamId))).toEqual(
+            new Set(
+                overrides.map(({ old_person_id }) => ({
+                    old_person_id,
+                    override_person_id: overrides.at(-1)!.override_person_id,
+                    ...defaults,
+                }))
+            )
+        )
+    })
+})
+
 describe('deferred person overrides', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
