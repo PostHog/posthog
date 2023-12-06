@@ -6,3 +6,16 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+async-std = { version = "1.12" }
+chrono = { version = "0.4" }
+envconfig = { version = "0.10" }
+futures = "0.3"
+hook-common = { path = "../hook-common" }
+http = { version = "0.2" }
+reqwest = { version = "0.11" }
+serde = { version = "1.0" }
+serde_derive = { version = "1.0" }
+sqlx = { version = "0.7", features = [ "runtime-tokio", "tls-native-tls", "postgres", "uuid", "json", "chrono" ] }
+thiserror = { version = "1.0" }
+tokio = { version = "1.34", features = ["macros", "rt", "rt-multi-thread"] }
+url = { version = "2.2" }
