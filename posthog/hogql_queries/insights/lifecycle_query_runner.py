@@ -206,21 +206,15 @@ class LifecycleQueryRunner(QueryRunner):
         with self.timings.measure("date_range"):
             event_filters.append(
                 parse_expr(
-                    "timestamp >= {from} - {one_interval}",
-                    {
-                        "from": self.query_date_range.date_from_to_start_of_interval_hogql(),
-                        "one_interval": self.query_date_range.one_interval_period(),
-                    },
+                    "timestamp >= {date_from_start_of_interval} - {one_interval_period}",
+                    self.query_date_range.to_placeholders(),
                     timings=self.timings,
                 )
             )
             event_filters.append(
                 parse_expr(
-                    "timestamp < {to} + {one_interval}",
-                    {
-                        "to": self.query_date_range.date_to_to_start_of_interval_hogql(),
-                        "one_interval": self.query_date_range.one_interval_period(),
-                    },
+                    "timestamp < {date_to_start_of_interval} + {one_interval_period}",
+                    self.query_date_range.to_placeholders(),
                     timings=self.timings,
                 )
             )
@@ -311,9 +305,7 @@ class LifecycleQueryRunner(QueryRunner):
         with self.timings.measure("periods_query"):
             periods_query = parse_select(
                 """
-                    SELECT (
-                        {date_to_start_of_interval} - {number_interval_period}
-                    ) AS start_of_period
+                    SELECT ({date_to_start_of_interval} - {number_interval_period}) AS start_of_period
                     FROM numbers(dateDiff({interval}, {date_from_start_of_interval}, {date_to_plus_interval}))
                 """,
                 placeholders={
