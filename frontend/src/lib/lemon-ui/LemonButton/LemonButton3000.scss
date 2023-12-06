@@ -44,7 +44,8 @@
             line-height: 1.5rem;
             color: var(--lemon-button-color);
             text-align: left;
-            background: none;
+
+            // background: none;
             border-color: transparent;
             border-style: solid;
             border-width: var(--lemon-button-border-width);
@@ -166,7 +167,8 @@
                     var(--lemon-button-padding-right, var(--lemon-button-padding-horizontal))
                     calc(0.25rem + var(--lemon-button-chrome-depth) * 0.5)
                     var(--lemon-button-padding-left, var(--lemon-button-padding-horizontal));
-                background: transparent;
+
+                // background: transparent;
 
                 & > * {
                     z-index: 1; // Places button content above the ::after element

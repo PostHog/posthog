@@ -16,7 +16,7 @@
     appearance: none !important; // Important as this gets overridden by Ant styles...
     cursor: pointer;
     user-select: none;
-    background: none;
+    background: transparent;
     border: none;
     border-radius: var(--radius);
     transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease,
