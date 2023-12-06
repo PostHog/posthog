@@ -313,13 +313,13 @@ if ${conditional}:
 }
 
 export function AndroidSnippet({ flagKey, multivariant }: FeatureFlagSnippet): JSX.Element {
-    const clientSuffix = 'PostHog.with(this).'
+    const clientSuffix = 'PostHog.'
     const flagFunction = multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
 
-    const variantSuffix = multivariant ? ` == 'example-variant'` : ''
+    const variantSuffix = multivariant ? ` == "example-variant"` : ''
     return (
-        <CodeSnippet language={Language.Java} wrap>
-            {`if (${clientSuffix}${flagFunction}('${flagKey}') ${variantSuffix}) {
+        <CodeSnippet language={Language.Kotlin} wrap>
+            {`if (${clientSuffix}${flagFunction}("${flagKey}") ${variantSuffix}) {
     // do something
 }
             `}
