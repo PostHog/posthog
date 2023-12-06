@@ -20,6 +20,7 @@ import featureToolbar from 'public/3000/3000-toolbar.png'
 import { useEffect } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { SidePanelTab } from '~/types'
 
 import { KeyboardShortcut } from '../../components/KeyboardShortcut'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
@@ -70,7 +71,7 @@ const Image = ({
 }): JSX.Element => <img src={src} alt={alt} width={width} height={height} style={style} className="mt-2" />
 
 export const SidePanelWelcome = (): JSX.Element => {
-    const { closeSidePanel } = useActions(sidePanelStateLogic)
+    const { closeSidePanel, openSidePanel } = useActions(sidePanelStateLogic)
     const { isDarkModeOn } = useValues(themeLogic)
 
     useEffect(() => {
@@ -242,6 +243,22 @@ export const SidePanelWelcome = (): JSX.Element => {
                     </Card>
                 </Row>
 
+                <div className="gap-4 mb-4 flex">
+                    <LemonButton
+                        to={BLOG_POST_URL}
+                        targetBlank
+                        type="primary"
+                        sideIcon={<IconExternal className="text-xl" />}
+                    >
+                        Read the blog post
+                    </LemonButton>
+                    <LemonButton
+                        onClick={() => openSidePanel(SidePanelTab.Support, 'feedback:posthog-3000')}
+                        type="secondary"
+                    >
+                        Let us know what you think!
+                    </LemonButton>
+                </div>
                 <div className="-mb-3">
                     <IconArrowLeft className="text-base mr-2 inline" />
                     <span className="m-0">
@@ -249,7 +266,7 @@ export const SidePanelWelcome = (): JSX.Element => {
                         <span className="text-base font border p-1 rounded mx-1 w-6 h-6 inline-flex align-middle">
                             <IconEllipsis />
                         </span>{' '}
-                        menu
+                        menu.
                     </span>
                 </div>
             </div>
