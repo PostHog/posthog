@@ -35,7 +35,7 @@ kind: Service
 metadata:
   name: hobby-service-$HOSTNAME
   annotations:
-    service.beta.kubernetes.io/aws-load-balancer-type: "external"
+    service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
 #    tailscale.com/expose: "true"
 #    tailscale.com/hostname: hobby-$HOSTNAME
 #    tailscale.com/tags: tag:service
