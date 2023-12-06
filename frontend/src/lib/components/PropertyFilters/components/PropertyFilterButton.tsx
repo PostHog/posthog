@@ -3,7 +3,9 @@ import './PropertyFilterButton.scss'
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { CloseButton } from 'lib/components/CloseButton'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconClose } from 'lib/lemon-ui/icons'
 import { KEY_MAPPING } from 'lib/taxonomy'
 import { midEllipsis } from 'lib/utils'
@@ -24,6 +26,7 @@ export interface PropertyFilterButtonProps {
 export function PropertyFilterButton({ onClick, onClose, children, item }: PropertyFilterButtonProps): JSX.Element {
     const { cohortsById } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+    const { is3000 } = useFeatureFlag('POSTHOG_3000', 'test')
 
     const closable = onClose !== undefined
     const clickable = onClick !== undefined
@@ -52,17 +55,28 @@ export function PropertyFilterButton({ onClick, onClose, children, item }: Prope
                 {midEllipsis(label, 32)}
             </span>
             {closable && (
-                <LemonButton
-                    size="xsmall"
-                    icon={<IconClose />}
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        onClose()
-                    }}
-                    stealth
-                    className="p-0.5"
-                    status="stealth"
-                />
+                <>
+                    {is3000 ? (
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconClose />}
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                onClose()
+                            }}
+                            stealth
+                            className="p-0.5"
+                            status="stealth"
+                        />
+                    ) : (
+                        <CloseButton
+                            onClick={(e: MouseEvent) => {
+                                e.stopPropagation()
+                                onClose()
+                            }}
+                        />
+                    )}
+                </>
             )}
         </ButtonComponent>
     )
