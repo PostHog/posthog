@@ -142,7 +142,7 @@ export function CodeSnippet({
                 />
             </div>
             <SyntaxHighlighter
-                style={featureFlags[FEATURE_FLAGS.POSTHOG_3000] ? synthwave84 : okaidia}
+                style={featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test' ? synthwave84 : okaidia}
                 language={language}
                 wrapLines={wrap}
                 lineProps={{ style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } }}

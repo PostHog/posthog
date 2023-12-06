@@ -26,7 +26,7 @@ const Filters = (): JSX.Element => {
     } = useValues(webAnalyticsLogic)
     const { setWebAnalyticsFilters, setDates } = useActions(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const hasPosthog3000 = featureFlags[FEATURE_FLAGS.POSTHOG_3000]
+    const hasPosthog3000 = featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test'
 
     return (
         <div

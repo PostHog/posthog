@@ -24,12 +24,6 @@ describe('pluginsProcessEventStep()', () => {
     beforeEach(() => {
         runner = {
             nextStep: (...args: any[]) => args,
-            hub: {
-                statsd: {
-                    increment: jest.fn(),
-                    timing: jest.fn(),
-                },
-            },
         }
     })
 
@@ -49,7 +43,6 @@ describe('pluginsProcessEventStep()', () => {
         const response = await pluginsProcessEventStep(runner, pluginEvent)
 
         expect(response).toEqual(null)
-        expect(runner.hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.dropped_event', { teamID: '2' })
         expect(droppedEventCounterSpy).toHaveBeenCalledTimes(1)
     })
 })

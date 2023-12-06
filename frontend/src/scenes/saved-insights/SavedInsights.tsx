@@ -320,12 +320,13 @@ export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element
 export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const overrides3000: Partial<LemonButtonWithSideActionProps> = featureFlags[FEATURE_FLAGS.POSTHOG_3000]
-        ? {
-              size: 'small',
-              icon: <IconPlusMini />,
-          }
-        : {}
+    const overrides3000: Partial<LemonButtonWithSideActionProps> =
+        featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test'
+            ? {
+                  size: 'small',
+                  icon: <IconPlusMini />,
+              }
+            : {}
 
     return (
         <LemonButtonWithSideAction
