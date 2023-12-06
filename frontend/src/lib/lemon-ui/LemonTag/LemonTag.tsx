@@ -3,7 +3,7 @@ import './LemonTag.scss'
 import clsx from 'clsx'
 import { IconClose, IconEllipsis } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
-import { LemonButtonDropdown } from 'lib/lemon-ui/LemonButton/LemonButton'
+import { LemonButtonDropdown } from 'lib/lemon-ui/LemonButton'
 
 export type LemonTagType =
     | 'primary'
