@@ -10,6 +10,7 @@ from posthog.constants import (
     RetentionQueryType,
 )
 from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import property_to_expr, entity_to_expr
@@ -42,9 +43,9 @@ class RetentionQueryRunner(QueryRunner):
         team: Team,
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
-        in_export_context: Optional[bool] = None,
+        limit_context: Optional[LimitContext] = None,
     ):
-        super().__init__(query, team=team, timings=timings, modifiers=modifiers, in_export_context=in_export_context)
+        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
 
     def get_applicable_entity(self, event_query_type):
         default_entity = RetentionEntity(

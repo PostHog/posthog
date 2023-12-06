@@ -25,7 +25,7 @@ from posthog.temporal.batch_exports.batch_exports import (
     get_rows_count,
 )
 from posthog.temporal.batch_exports.clickhouse import get_client
-from posthog.temporal.batch_exports.logger import bind_batch_exports_logger
+from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
@@ -307,7 +307,7 @@ class S3InsertInputs:
 
 async def initialize_and_resume_multipart_upload(inputs: S3InsertInputs) -> tuple[S3MultiPartUpload, str]:
     """Initialize a S3MultiPartUpload and resume it from a hearbeat state if available."""
-    logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="S3")
+    logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="S3")
     key = get_s3_key(inputs)
 
     s3_upload = S3MultiPartUpload(
@@ -370,7 +370,7 @@ async def insert_into_s3_activity(inputs: S3InsertInputs):
     runs, timing out after say 30 seconds or something and upload multiple
     files.
     """
-    logger = await bind_batch_exports_logger(team_id=inputs.team_id, destination="S3")
+    logger = await bind_temporal_worker_logger(team_id=inputs.team_id, destination="S3")
     logger.info(
         "Exporting batch %s - %s",
         inputs.data_interval_start,

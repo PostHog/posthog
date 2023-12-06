@@ -33,7 +33,7 @@ import {
     IconSelectEvents,
     IconTableChart,
 } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonButtonWithSideAction, LemonButtonWithSideActionProps } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonWithSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -320,15 +320,16 @@ export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element
 export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const overrides3000: Partial<LemonButtonWithSideActionProps> = featureFlags[FEATURE_FLAGS.POSTHOG_3000]
-        ? {
-              size: 'small',
-              icon: <IconPlusMini />,
-          }
-        : {}
+    const overrides3000: Partial<LemonButtonWithSideActionProps> =
+        featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test'
+            ? {
+                  size: 'small',
+                  icon: <IconPlusMini />,
+              }
+            : {}
 
     return (
-        <LemonButtonWithSideAction
+        <LemonButton
             type="primary"
             to={urls.insightNew()}
             sideAction={{
@@ -344,7 +345,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
             {...overrides3000}
         >
             New insight
-        </LemonButtonWithSideAction>
+        </LemonButton>
     )
 }
 

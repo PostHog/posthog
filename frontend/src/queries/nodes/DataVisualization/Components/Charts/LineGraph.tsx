@@ -28,13 +28,11 @@ export const LineGraph = (): JSX.Element => {
 
         const data: ChartData = {
             labels: xData,
-            datasets: [
-                {
-                    label: 'Dataset 1',
-                    data: yData,
-                    borderColor: 'red',
-                },
-            ],
+            datasets: yData.map((n) => ({
+                label: 'Dataset 1',
+                data: n,
+                borderColor: 'red',
+            })),
         }
 
         const tickOptions: Partial<TickOptions> = {
@@ -139,7 +137,7 @@ export const LineGraph = (): JSX.Element => {
 
     return (
         <div className="DataVisualization__LineGraph rounded bg-bg-light relative flex flex-col p-2">
-            <div className="flex w-full h-full overflow-hidden">
+            <div className="flex flex-1 w-full h-full overflow-hidden">
                 <canvas ref={canvasRef} />
             </div>
         </div>

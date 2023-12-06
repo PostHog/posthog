@@ -652,7 +652,6 @@ describe('DB', () => {
         beforeEach(() => {
             jest.spyOn(db, 'fetchGroup')
             jest.spyOn(db, 'redisGet')
-            db.statsd = { increment: jest.fn(), timing: jest.fn() } as any
         })
 
         describe('one group', () => {
@@ -705,7 +704,6 @@ describe('DB', () => {
                 const groupDataMissingCounterSpy = jest.spyOn(dbMetrics.groupDataMissingCounter, 'inc')
                 await db.getGroupsColumns(2, [[0, 'unknown_key']])
 
-                expect(db.statsd?.increment).toHaveBeenLastCalledWith('groups_data_missing_entirely')
                 expect(groupDataMissingCounterSpy).toHaveBeenCalledTimes(1)
             })
         })

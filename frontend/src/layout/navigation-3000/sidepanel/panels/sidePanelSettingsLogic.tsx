@@ -43,7 +43,7 @@ export const sidePanelSettingsLogic = kea<sidePanelSettingsLogicType>([
 
     listeners(({ actions, values }) => ({
         openSettingsPanel: ({ settingsLogicProps }) => {
-            if (!values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
+            if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'control') {
                 LemonDialog.open({
                     title: 'Settings',
                     content: <Settings {...settingsLogicProps} hideSections logicKey="modal" />,

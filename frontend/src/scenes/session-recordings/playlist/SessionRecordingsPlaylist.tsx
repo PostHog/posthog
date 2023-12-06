@@ -335,7 +335,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                     <div className="SessionRecordingsPlaylist__player">
                         {activeSessionRecordingId ? (
                             <SessionRecordingPlayer
-                                playerKey="playlist"
+                                playerKey={props.logicKey ?? 'playlist'}
                                 sessionRecordingId={activeSessionRecordingId}
                                 matchingEventsMatchType={matchingEventsMatchType}
                                 playlistLogic={logic}

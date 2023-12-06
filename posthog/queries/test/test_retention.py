@@ -1563,14 +1563,14 @@ def retention_test_factory(retention):
             )
 
             result = retention().run(
-                RetentionFilter(data={"date_to": _date(10, hour=6)}, team=self.team),
+                RetentionFilter(data={"date_to": _date(10)}, team=self.team),
                 self.team,
             )
 
             self.team.timezone = "US/Pacific"
             self.team.save()
             result_pacific = retention().run(
-                RetentionFilter(data={"date_to": _date(10, hour=6)}, team=self.team),
+                RetentionFilter(data={"date_to": _date(10)}, team=self.team),
                 self.team,
             )
 

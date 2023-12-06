@@ -868,6 +868,8 @@ class TestLifecycle(TestLifecycleBase):
         filter_data = {
             "date_from": "2020-01-12T00:00:00Z",
             "date_to": "2020-01-19T00:00:00Z",
+            "date_from": "2020-01-12",
+            "date_to": "2020-01-19",
             "events": [{"id": "$pageview", "type": "events", "order": 0}],
             "shown_as": TRENDS_LIFECYCLE,
         }

@@ -27,10 +27,15 @@ WebRecording.args = {
     loading: false,
     onPropertyClick: () => {},
     recordingProperties: [
-        { value: 'Mac OS X', property: '$os', tooltipValue: 'Mac OS X' },
-        { value: 'Chrome', property: '$browser', tooltipValue: 'Chrome' },
-        { value: 'United States', property: '$geoip_country_code', tooltipValue: 'United States' },
-        { value: 'Desktop', property: '$device_type', tooltipValue: 'Desktop' },
+        { label: 'Mac OS X', value: 'Mac OS X', property: '$os', tooltipValue: 'Mac OS X' },
+        { label: 'Chrome', value: 'Chrome', property: '$browser', tooltipValue: 'Chrome' },
+        {
+            label: 'United States',
+            value: 'United States',
+            property: '$geoip_country_code',
+            tooltipValue: 'United States',
+        },
+        { label: 'Desktop', value: 'Desktop', property: '$device_type', tooltipValue: 'Desktop' },
     ],
 }
 
@@ -40,10 +45,15 @@ AndroidRecording.args = {
     loading: false,
     onPropertyClick: () => {},
     recordingProperties: [
-        { value: 'Android', property: '$os_name', tooltipValue: 'Android' },
-        { value: 'Awesome Fun App', property: '$app_name', tooltipValue: 'Awesome Fun App' },
-        { value: 'United States', property: '$geoip_country_code', tooltipValue: 'United States' },
-        { value: 'Mobile', property: '$device_type', tooltipValue: 'Mobile' },
+        { label: 'Android', value: 'Android', property: '$os_name', tooltipValue: 'Android' },
+        { label: 'Awesome Fun App', value: 'Awesome Fun App', property: '$app_name', tooltipValue: 'Awesome Fun App' },
+        {
+            label: 'United States',
+            value: 'United States',
+            property: '$geoip_country_code',
+            tooltipValue: 'United States',
+        },
+        { label: 'Mobile', value: 'Mobile', property: '$device_type', tooltipValue: 'Mobile' },
     ],
 }
 

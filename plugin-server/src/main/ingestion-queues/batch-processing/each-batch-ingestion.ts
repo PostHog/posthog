@@ -120,13 +120,7 @@ export async function eachBatchParallelIngestion(
         splitBatch.toProcess.sort((a, b) => a.length - b.length)
 
         ingestEventBatchingInputLengthSummary.observe(messages.length)
-        queue.pluginsServer.statsd?.histogram('ingest_event_batching.input_length', messages.length, {
-            key: metricKey,
-        })
         ingestEventBatchingBatchCountSummary.observe(splitBatch.toProcess.length)
-        queue.pluginsServer.statsd?.histogram('ingest_event_batching.batch_count', splitBatch.toProcess.length, {
-            key: metricKey,
-        })
         prepareSpan.finish()
 
         const processingPromises: Array<Promise<void>> = []

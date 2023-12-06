@@ -4,7 +4,7 @@ import { IconDelete, IconEllipsis } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { atColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Link } from 'lib/lemon-ui/Link'
 import { useEffect } from 'react'
 import { ContainsTypeFilters } from 'scenes/notebooks/NotebooksTable/ContainsTypeFilter'
@@ -39,8 +39,9 @@ function titleColumn(): LemonTableColumn<NotebookListItemType, 'title'> {
 }
 
 export function NotebooksTable(): JSX.Element {
-    const { notebooksAndTemplates, filters, notebooksLoading, notebookTemplates } = useValues(notebooksTableLogic)
-    const { loadNotebooks, setFilters } = useActions(notebooksTableLogic)
+    const { notebooksAndTemplates, filters, notebooksResponseLoading, notebookTemplates, sortValue, pagination } =
+        useValues(notebooksTableLogic)
+    const { loadNotebooks, setFilters, setSortValue } = useActions(notebooksTableLogic)
     const { meFirstMembers } = useValues(membersLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
 
@@ -50,11 +51,16 @@ export function NotebooksTable(): JSX.Element {
 
     const columns: LemonTableColumns<NotebookListItemType> = [
         titleColumn() as LemonTableColumn<NotebookListItemType, keyof NotebookListItemType | undefined>,
+
         createdByColumn<NotebookListItemType>() as LemonTableColumn<
             NotebookListItemType,
             keyof NotebookListItemType | undefined
         >,
-        createdAtColumn<NotebookListItemType>() as LemonTableColumn<
+        atColumn<NotebookListItemType>('created_at', 'Created') as LemonTableColumn<
+            NotebookListItemType,
+            keyof NotebookListItemType | undefined
+        >,
+        atColumn<NotebookListItemType>('last_modified_at', 'Last modified') as LemonTableColumn<
             NotebookListItemType,
             keyof NotebookListItemType | undefined
         >,
@@ -135,14 +141,18 @@ export function NotebooksTable(): JSX.Element {
             </div>
             <LemonTable
                 data-attr="notebooks-table"
-                pagination={{ pageSize: 100 }}
+                pagination={pagination}
                 dataSource={notebooksAndTemplates}
                 rowKey="short_id"
                 columns={columns}
-                loading={notebooksLoading}
+                loading={notebooksResponseLoading}
                 defaultSorting={{ columnKey: '-created_at', order: 1 }}
                 emptyState={`No notebooks matching your filters!`}
                 nouns={['notebook', 'notebooks']}
+                sorting={sortValue ? { columnKey: sortValue, order: sortValue.startsWith('-') ? -1 : 1 } : undefined}
+                onSort={(newSorting) =>
+                    setSortValue(newSorting ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}` : null)
+                }
             />
         </div>
     )

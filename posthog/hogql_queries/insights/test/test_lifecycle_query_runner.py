@@ -1109,7 +1109,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=DateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    dateRange=DateRange(date_from="2020-01-12", date_to="2020-01-19"),
                     interval=IntervalType.day,
                     series=[EventsNode(event="$pageview")],
                 ),
@@ -1135,7 +1135,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             LifecycleQueryRunner(
                 team=self.team,
                 query=LifecycleQuery(
-                    dateRange=DateRange(date_from="2020-01-12T00:00:00Z", date_to="2020-01-19T00:00:00Z"),
+                    dateRange=DateRange(date_from="2020-01-12", date_to="2020-01-19"),
                     interval=IntervalType.day,
                     series=[EventsNode(event="$pageview")],
                 ),

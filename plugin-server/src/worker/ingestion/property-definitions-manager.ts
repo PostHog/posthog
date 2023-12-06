@@ -1,5 +1,4 @@
 import { Properties } from '@posthog/plugin-scaffold'
-import { StatsD } from 'hot-shots'
 import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
 import { Summary } from 'prom-client'
@@ -59,18 +58,15 @@ export class PropertyDefinitionsManager {
     eventPropertiesCache: LRU<string, Set<string>> // Map<JSON.stringify([TeamId, Event], Set<Property>>
     eventLastSeenCache: LRU<string, number> // key: JSON.stringify([team_id, event]); value: parseInt(YYYYMMDD)
     propertyDefinitionsCache: PropertyDefinitionsCache
-    statsd?: StatsD
     private readonly lruCacheSize: number
 
     constructor(
         teamManager: TeamManager,
         groupTypeManager: GroupTypeManager,
         db: DB,
-        serverConfig: PluginsServerConfig,
-        statsd?: StatsD
+        serverConfig: PluginsServerConfig
     ) {
         this.db = db
-        this.statsd = statsd
         this.teamManager = teamManager
         this.groupTypeManager = groupTypeManager
         this.lruCacheSize = serverConfig.EVENT_PROPERTY_LRU_SIZE
@@ -90,7 +86,7 @@ export class PropertyDefinitionsManager {
             maxAge: ONE_HOUR * 24, // cache up to 24h
             updateAgeOnGet: true,
         })
-        this.propertyDefinitionsCache = new PropertyDefinitionsCache(serverConfig, statsd)
+        this.propertyDefinitionsCache = new PropertyDefinitionsCache(serverConfig)
     }
 
     public async updateEventNamesAndProperties(teamId: number, event: string, properties: Properties): Promise<void> {
@@ -118,7 +114,6 @@ export class PropertyDefinitionsManager {
             ])
         } finally {
             clearTimeout(timeout)
-            this.statsd?.timing('updateEventNamesAndProperties', timer)
             updateEventNamesAndPropertiesMsSummary.observe(Date.now() - timer.valueOf())
         }
     }

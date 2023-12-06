@@ -2,7 +2,7 @@ import { decompressSync, strFromU8 } from 'fflate'
 import { encodeParams } from 'kea-router'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { toParams } from 'lib/utils'
+import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
@@ -102,6 +102,7 @@ export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
 
 export interface ApiMethodOptions {
     signal?: AbortSignal
+    headers?: Record<string, any>
 }
 
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
@@ -1519,8 +1520,14 @@ const api = {
     },
 
     notebooks: {
-        async get(notebookId: NotebookType['short_id']): Promise<NotebookType> {
-            return await new ApiRequest().notebook(notebookId).get()
+        async get(
+            notebookId: NotebookType['short_id'],
+            params: Record<string, any> = {},
+            headers: Record<string, any> = {}
+        ): Promise<NotebookType> {
+            return await new ApiRequest().notebook(notebookId).withQueryString(toParams(params)).get({
+                headers,
+            })
         },
         async update(
             notebookId: NotebookType['short_id'],
@@ -1529,13 +1536,19 @@ const api = {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
         async list(
-            contains?: NotebookNodeResource[],
-            createdBy?: UserBasicType['uuid'],
-            search?: string
-        ): Promise<PaginatedResponse<NotebookType>> {
+            params: {
+                contains?: NotebookNodeResource[]
+                created_by?: UserBasicType['uuid']
+                search?: string
+                order?: string
+                offset?: number
+                limit?: number
+            } = {}
+        ): Promise<CountedPaginatedResponse<NotebookType>> {
             // TODO attrs could be a union of types like NotebookNodeRecordingAttributes
             const apiRequest = new ApiRequest().notebooks()
-            let q = {}
+            const { contains, ...queryParams } = objectClean(params)
+
             if (contains?.length) {
                 const containsString =
                     contains
@@ -1545,15 +1558,11 @@ const api = {
                             return `${target}${match}`
                         })
                         .join(',') || undefined
-                q = { ...q, contains: containsString, created_by: createdBy }
+
+                queryParams['contains'] = containsString
             }
-            if (createdBy) {
-                q = { ...q, created_by: createdBy }
-            }
-            if (search) {
-                q = { ...q, search: search }
-            }
-            return await apiRequest.withQueryString(q).get()
+
+            return await apiRequest.withQueryString(queryParams).get()
         },
         async create(data?: Pick<NotebookType, 'content' | 'text_content' | 'title'>): Promise<NotebookType> {
             return await new ApiRequest().notebooks().create({ data })
@@ -1842,6 +1851,7 @@ const api = {
             response = await fetch(url, {
                 signal: options?.signal,
                 headers: {
+                    ...objectClean(options?.headers ?? {}),
                     ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
                 },
             })
@@ -1865,6 +1875,7 @@ const api = {
         const response = await fetch(url, {
             method: 'PATCH',
             headers: {
+                ...objectClean(options?.headers ?? {}),
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                 ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
@@ -1897,6 +1908,7 @@ const api = {
         const response = await fetch(url, {
             method: 'POST',
             headers: {
+                ...objectClean(options?.headers ?? {}),
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                 ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
