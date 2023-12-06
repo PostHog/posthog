@@ -540,263 +540,6 @@ exports[`replay/transform transform child wireframes are processed 1`] = `
 ]
 `;
 
-exports[`replay/transform transform inputs $inputType - $value 1`] = `
-{
-  "data": {
-    "initialOffset": {
-      "left": 0,
-      "top": 0,
-    },
-    "node": {
-      "childNodes": [
-        {
-          "id": 2,
-          "name": "html",
-          "publicId": "",
-          "systemId": "",
-          "type": 1,
-        },
-        {
-          "attributes": {
-            "style": "height: 100vh; width: 100vw;",
-          },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [],
-              "id": 4,
-              "tagName": "head",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "style": "height: 100vh; width: 100vw;",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [],
-                  "id": 100,
-                  "tagName": "div",
-                  "type": 2,
-                },
-              ],
-              "id": 5,
-              "tagName": "body",
-              "type": 2,
-            },
-          ],
-          "id": 3,
-          "tagName": "html",
-          "type": 2,
-        },
-      ],
-      "id": 1,
-      "type": 0,
-    },
-  },
-  "timestamp": 1,
-  "type": 2,
-}
-`;
-
-exports[`replay/transform transform inputs $inputType - $value 2`] = `
-{
-  "data": {
-    "initialOffset": {
-      "left": 0,
-      "top": 0,
-    },
-    "node": {
-      "childNodes": [
-        {
-          "id": 2,
-          "name": "html",
-          "publicId": "",
-          "systemId": "",
-          "type": 1,
-        },
-        {
-          "attributes": {
-            "style": "height: 100vh; width: 100vw;",
-          },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [],
-              "id": 4,
-              "tagName": "head",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "style": "height: 100vh; width: 100vw;",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [],
-                  "id": 100,
-                  "tagName": "div",
-                  "type": 2,
-                },
-              ],
-              "id": 5,
-              "tagName": "body",
-              "type": 2,
-            },
-          ],
-          "id": 3,
-          "tagName": "html",
-          "type": 2,
-        },
-      ],
-      "id": 1,
-      "type": 0,
-    },
-  },
-  "timestamp": 1,
-  "type": 2,
-}
-`;
-
-exports[`replay/transform transform inputs $inputType - hello 1`] = `
-{
-  "data": {
-    "initialOffset": {
-      "left": 0,
-      "top": 0,
-    },
-    "node": {
-      "childNodes": [
-        {
-          "id": 2,
-          "name": "html",
-          "publicId": "",
-          "systemId": "",
-          "type": 1,
-        },
-        {
-          "attributes": {
-            "style": "height: 100vh; width: 100vw;",
-          },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [],
-              "id": 4,
-              "tagName": "head",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "style": "height: 100vh; width: 100vw;",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [],
-                  "id": 100,
-                  "tagName": "div",
-                  "type": 2,
-                },
-              ],
-              "id": 5,
-              "tagName": "body",
-              "type": 2,
-            },
-          ],
-          "id": 3,
-          "tagName": "html",
-          "type": 2,
-        },
-      ],
-      "id": 1,
-      "type": 0,
-    },
-  },
-  "timestamp": 1,
-  "type": 2,
-}
-`;
-
-exports[`replay/transform transform inputs button - click me 1`] = `
-{
-  "data": {
-    "initialOffset": {
-      "left": 0,
-      "top": 0,
-    },
-    "node": {
-      "childNodes": [
-        {
-          "id": 2,
-          "name": "html",
-          "publicId": "",
-          "systemId": "",
-          "type": 1,
-        },
-        {
-          "attributes": {
-            "style": "height: 100vh; width: 100vw;",
-          },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [],
-              "id": 4,
-              "tagName": "head",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "style": "height: 100vh; width: 100vw;",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "attributes": {
-                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                        "type": "button",
-                      },
-                      "childNodes": [
-                        {
-                          "id": 100,
-                          "textContent": "click me",
-                          "type": 3,
-                        },
-                      ],
-                      "id": 12358,
-                      "tagName": "button",
-                      "type": 2,
-                    },
-                  ],
-                  "id": 100,
-                  "tagName": "div",
-                  "type": 2,
-                },
-              ],
-              "id": 5,
-              "tagName": "body",
-              "type": 2,
-            },
-          ],
-          "id": 3,
-          "tagName": "html",
-          "type": 2,
-        },
-      ],
-      "id": 1,
-      "type": 0,
-    },
-  },
-  "timestamp": 1,
-  "type": 2,
-}
-`;
-
 exports[`replay/transform transform inputs buttons with nested elements 1`] = `
 {
   "data": {
@@ -884,7 +627,144 @@ exports[`replay/transform transform inputs buttons with nested elements 1`] = `
 }
 `;
 
-exports[`replay/transform transform inputs checkbox - $value 1`] = `
+exports[`replay/transform transform inputs input - $inputType - hello 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [],
+                  "id": 100,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - button - click me 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                        "type": "button",
+                      },
+                      "childNodes": [
+                        {
+                          "id": 100,
+                          "textContent": "click me",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 12358,
+                      "tagName": "button",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 100,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - checkbox - $value 1`] = `
 {
   "data": {
     "initialOffset": {
@@ -971,7 +851,7 @@ exports[`replay/transform transform inputs checkbox - $value 1`] = `
 }
 `;
 
-exports[`replay/transform transform inputs checkbox - $value 2`] = `
+exports[`replay/transform transform inputs input - checkbox - $value 2`] = `
 {
   "data": {
     "initialOffset": {
@@ -1057,7 +937,7 @@ exports[`replay/transform transform inputs checkbox - $value 2`] = `
 }
 `;
 
-exports[`replay/transform transform inputs checkbox - $value 3`] = `
+exports[`replay/transform transform inputs input - checkbox - $value 3`] = `
 {
   "data": {
     "initialOffset": {
@@ -1145,7 +1025,7 @@ exports[`replay/transform transform inputs checkbox - $value 3`] = `
 }
 `;
 
-exports[`replay/transform transform inputs checkbox - $value 4`] = `
+exports[`replay/transform transform inputs input - checkbox - $value 4`] = `
 {
   "data": {
     "initialOffset": {
@@ -1217,7 +1097,7 @@ exports[`replay/transform transform inputs checkbox - $value 4`] = `
 }
 `;
 
-exports[`replay/transform transform inputs email - $value 1`] = `
+exports[`replay/transform transform inputs input - email - $value 1`] = `
 {
   "data": {
     "initialOffset": {
@@ -1289,7 +1169,7 @@ exports[`replay/transform transform inputs email - $value 1`] = `
 }
 `;
 
-exports[`replay/transform transform inputs number - $value 1`] = `
+exports[`replay/transform transform inputs input - number - $value 1`] = `
 {
   "data": {
     "initialOffset": {
@@ -1361,7 +1241,7 @@ exports[`replay/transform transform inputs number - $value 1`] = `
 }
 `;
 
-exports[`replay/transform transform inputs password - $value 1`] = `
+exports[`replay/transform transform inputs input - password - $value 1`] = `
 {
   "data": {
     "initialOffset": {
@@ -1433,77 +1313,7 @@ exports[`replay/transform transform inputs password - $value 1`] = `
 }
 `;
 
-exports[`replay/transform transform inputs radio_group 1`] = `
-{
-  "data": {
-    "initialOffset": {
-      "left": 0,
-      "top": 0,
-    },
-    "node": {
-      "childNodes": [
-        {
-          "id": 2,
-          "name": "html",
-          "publicId": "",
-          "systemId": "",
-          "type": 1,
-        },
-        {
-          "attributes": {
-            "style": "height: 100vh; width: 100vw;",
-          },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [],
-              "id": 4,
-              "tagName": "head",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "style": "height: 100vh; width: 100vw;",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "attributes": {
-                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
-                      },
-                      "childNodes": [],
-                      "id": 54321,
-                      "tagName": "div",
-                      "type": 2,
-                    },
-                  ],
-                  "id": 100,
-                  "tagName": "div",
-                  "type": 2,
-                },
-              ],
-              "id": 5,
-              "tagName": "body",
-              "type": 2,
-            },
-          ],
-          "id": 3,
-          "tagName": "html",
-          "type": 2,
-        },
-      ],
-      "id": 1,
-      "type": 0,
-    },
-  },
-  "timestamp": 1,
-  "type": 2,
-}
-`;
-
-exports[`replay/transform transform inputs search - $value 1`] = `
+exports[`replay/transform transform inputs input - search - $value 1`] = `
 {
   "data": {
     "initialOffset": {
@@ -1575,7 +1385,7 @@ exports[`replay/transform transform inputs search - $value 1`] = `
 }
 `;
 
-exports[`replay/transform transform inputs select - hello 1`] = `
+exports[`replay/transform transform inputs input - select - hello 1`] = `
 {
   "data": {
     "initialOffset": {
@@ -1667,7 +1477,7 @@ exports[`replay/transform transform inputs select - hello 1`] = `
 }
 `;
 
-exports[`replay/transform transform inputs tel - $value 1`] = `
+exports[`replay/transform transform inputs input - tel - $value 1`] = `
 {
   "data": {
     "initialOffset": {
@@ -1740,7 +1550,7 @@ exports[`replay/transform transform inputs tel - $value 1`] = `
 }
 `;
 
-exports[`replay/transform transform inputs text - $value 1`] = `
+exports[`replay/transform transform inputs input - text - $value 1`] = `
 {
   "data": {
     "initialOffset": {
@@ -1812,7 +1622,7 @@ exports[`replay/transform transform inputs text - $value 1`] = `
 }
 `;
 
-exports[`replay/transform transform inputs text - hello 1`] = `
+exports[`replay/transform transform inputs input - text - hello 1`] = `
 {
   "data": {
     "initialOffset": {
@@ -1884,7 +1694,7 @@ exports[`replay/transform transform inputs text - hello 1`] = `
 }
 `;
 
-exports[`replay/transform transform inputs textArea - $value 1`] = `
+exports[`replay/transform transform inputs input - textArea - $value 1`] = `
 {
   "data": {
     "initialOffset": {
@@ -1956,7 +1766,7 @@ exports[`replay/transform transform inputs textArea - $value 1`] = `
 }
 `;
 
-exports[`replay/transform transform inputs textArea - hello 1`] = `
+exports[`replay/transform transform inputs input - textArea - hello 1`] = `
 {
   "data": {
     "initialOffset": {
@@ -2028,7 +1838,7 @@ exports[`replay/transform transform inputs textArea - hello 1`] = `
 }
 `;
 
-exports[`replay/transform transform inputs url - https://example.io 1`] = `
+exports[`replay/transform transform inputs input - url - https://example.io 1`] = `
 {
   "data": {
     "initialOffset": {
@@ -2073,6 +1883,206 @@ exports[`replay/transform transform inputs url - https://example.io 1`] = `
                       "childNodes": [],
                       "id": 12352,
                       "tagName": "input",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 100,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs radio group - $inputType - $value 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [],
+                  "id": 100,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs radio_group - $inputType - $value 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                      },
+                      "childNodes": [],
+                      "id": 123123,
+                      "tagName": "div",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 100,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs radio_group 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                      },
+                      "childNodes": [],
+                      "id": 54321,
+                      "tagName": "div",
                       "type": 2,
                     },
                   ],

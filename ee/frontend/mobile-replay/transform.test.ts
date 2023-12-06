@@ -545,11 +545,11 @@ describe('replay/transform', () => {
                     disabled: false,
                 },
                 {
-                    id: 12353,
+                    id: 123123,
                     width: 100,
                     height: 30,
-                    type: 'radio group',
-                    // no child nodes, ??
+                    type: 'radio_group',
+                    // oh, oh, no child nodes
                 },
                 {
                     id: 12354,
@@ -657,7 +657,7 @@ describe('replay/transform', () => {
                     value: 'hello',
                     options: ['hello', 'world'],
                 },
-            ])('$inputType - $value', (testCase) => {
+            ])('$type - $inputType - $value', (testCase) => {
                 expect(
                     posthogEEModule.mobileReplay?.transformEventToWeb({
                         type: 2,
