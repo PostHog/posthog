@@ -185,31 +185,24 @@ class QueryDateRange:
 
         return True
 
-    def date_from_to_start_of_interval_hogql(self) -> ast.Call:
+    def date_to_start_of_interval_hogql(self, date: ast.Expr) -> ast.Call:
         match self.interval_name:
             case "hour":
-                return ast.Call(name="toStartOfHour", args=[self.date_from_as_hogql()])
+                return ast.Call(name="toStartOfHour", args=[date])
             case "day":
-                return ast.Call(name="toStartOfDay", args=[self.date_from_as_hogql()])
+                return ast.Call(name="toStartOfDay", args=[date])
             case "week":
-                return ast.Call(name="toStartOfWeek", args=[self.date_from_as_hogql()])
+                return ast.Call(name="toStartOfWeek", args=[date])
             case "month":
-                return ast.Call(name="toStartOfMonth", args=[self.date_from_as_hogql()])
+                return ast.Call(name="toStartOfMonth", args=[date])
             case _:
                 raise HogQLException(message="Unknown interval name")
 
+    def date_from_to_start_of_interval_hogql(self) -> ast.Call:
+        return self.date_to_start_of_interval_hogql(self.date_from_as_hogql())
+
     def date_to_to_start_of_interval_hogql(self) -> ast.Call:
-        match self.interval_name:
-            case "hour":
-                return ast.Call(name="toStartOfHour", args=[self.date_to_as_hogql()])
-            case "day":
-                return ast.Call(name="toStartOfDay", args=[self.date_to_as_hogql()])
-            case "week":
-                return ast.Call(name="toStartOfWeek", args=[self.date_to_as_hogql()])
-            case "month":
-                return ast.Call(name="toStartOfMonth", args=[self.date_to_as_hogql()])
-            case _:
-                raise HogQLException(message="Unknown interval name")
+        return self.date_to_start_of_interval_hogql(self.date_to_as_hogql())
 
     def to_placeholders(self) -> Dict[str, ast.Expr]:
         return {
