@@ -34,12 +34,12 @@ apiVersion: v1
 kind: Service
 metadata:
   name: hobby-service-$HOSTNAME
-  annotations:
-    tailscale.com/expose: "true"
-    tailscale.com/hostname: hobby-$HOSTNAME
-    tailscale.com/tags: tag:service
-  finalizers:
-    - tailscale.com/finalizer
+#  annotations:
+#    tailscale.com/expose: "true"
+#    tailscale.com/hostname: hobby-$HOSTNAME
+#    tailscale.com/tags: tag:service
+#  finalizers:
+#    - tailscale.com/finalizer
 spec:
   selector:
     app: hobby-$HOSTNAME
@@ -47,4 +47,4 @@ spec:
     - protocol: TCP
       port: 80
       targetPort: 80
-  type: ClusterIP
+  type: LoadBalancer
