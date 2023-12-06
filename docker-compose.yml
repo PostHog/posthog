@@ -1,5 +1,6 @@
 services:
     db:
+        container_name: db
         image: docker.io/library/postgres:16-alpine
         restart: on-failure
         environment:
@@ -13,3 +14,27 @@ services:
         ports:
             - '15432:5432'
         command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000
+
+    setup_test_db:
+        container_name: setup-test-db
+        build:
+            context: .
+            dockerfile: Dockerfile.sqlx
+        restart: on-failure
+        command: >
+            sh -c "sqlx database create && sqlx migrate run"
+        requires:
+            - db
+        environment:
+            DATABASE_URL: postgres://posthog:posthog@db:5432/test_database
+        volumes:
+            - ./migrations:/sqlx/migrations/
+
+    echo_server:
+        image: docker.io/library/caddy:2
+        container_name: echo-server
+        restart: on-failure
+        ports:
+            - '18081:8081'
+        volumes:
+            - ./docker/echo-server/Caddyfile:/etc/caddy/Caddyfile
