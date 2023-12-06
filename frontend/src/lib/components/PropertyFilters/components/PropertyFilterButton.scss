@@ -9,24 +9,27 @@
     white-space: nowrap;
     user-select: none;
     background: var(--border);
-    border: 1px solid var(--border);
+    border: 1px solid transparent;
     border-radius: 2rem;
     outline: 0;
     transition: all 0.2s cubic-bezier(0.645, 0.045, 0.355, 1);
 
+    &:hover,
+    &:focus {
+        border-color: var(--border);
+    }
+
+    &:not(.PropertyFilterButton--clickable) {
+        border-color: transparent;
+    }
+
     &.PropertyFilterButton--clickable {
         touch-action: manipulation; // faster clicks
         cursor: pointer;
-        border-color: transparent;
     }
 
     &.PropertyFilterButton--closable {
         padding-right: 0.5rem;
-    }
-
-    &:hover,
-    &:focus {
-        border-color: var(--border);
     }
 
     > :not(.PropertyFilterButton-content) {
@@ -53,15 +56,13 @@
 
 .posthog-3000 {
     .PropertyFilterButton {
-        border: 1px solid var(--border-bold);
-
-        &.PropertyFilterButton--clickable {
-            border-color: transparent;
-        }
-
         &:hover,
         &:focus {
             border-color: var(--border-bold);
+        }
+
+        &:not(.PropertyFilterButton--clickable) {
+            border-color: transparent;
         }
     }
 }
