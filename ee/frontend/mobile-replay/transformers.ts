@@ -158,12 +158,12 @@ function inputAttributes<T extends wireframeInputComponent>(wireframe: T): attri
         case 'text_area':
             return {
                 ...attributes,
-                ...(wireframe.value ? { value: wireframe.value } : {}),
+                value: wireframe.value || '',
             }
         default:
             return {
                 ...attributes,
-                ...(wireframe.value ? { value: wireframe.value } : {}),
+                value: wireframe.value || '',
             }
     }
 }

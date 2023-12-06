@@ -1257,6 +1257,7 @@ exports[`replay/transform transform inputs email - $value 1`] = `
                       "attributes": {
                         "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                         "type": "email",
+                        "value": "",
                       },
                       "childNodes": [],
                       "id": 12349,
@@ -1328,6 +1329,7 @@ exports[`replay/transform transform inputs number - $value 1`] = `
                       "attributes": {
                         "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                         "type": "number",
+                        "value": "",
                       },
                       "childNodes": [],
                       "id": 12350,
@@ -1399,6 +1401,7 @@ exports[`replay/transform transform inputs password - $value 1`] = `
                       "attributes": {
                         "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                         "type": "password",
+                        "value": "",
                       },
                       "childNodes": [],
                       "id": 12348,
@@ -1540,6 +1543,7 @@ exports[`replay/transform transform inputs search - $value 1`] = `
                       "attributes": {
                         "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                         "type": "search",
+                        "value": "",
                       },
                       "childNodes": [],
                       "id": 12351,
@@ -1704,6 +1708,7 @@ exports[`replay/transform transform inputs tel - $value 1`] = `
                         "disabled": true,
                         "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                         "type": "tel",
+                        "value": "",
                       },
                       "childNodes": [],
                       "id": 12352,
@@ -1775,6 +1780,7 @@ exports[`replay/transform transform inputs text - $value 1`] = `
                       "attributes": {
                         "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                         "type": "text",
+                        "value": "",
                       },
                       "childNodes": [],
                       "id": 12347,
@@ -1918,6 +1924,7 @@ exports[`replay/transform transform inputs textArea - $value 1`] = `
                       "attributes": {
                         "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                         "type": "textArea",
+                        "value": "",
                       },
                       "childNodes": [],
                       "id": 12364,
