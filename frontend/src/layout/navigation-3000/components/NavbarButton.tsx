@@ -59,20 +59,22 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
         if (!isUsingNewNav) {
             buttonProps.active = here
         }
-        if (sideAction) {
-            // @ts-expect-error - in this case we are perfectly okay with assigning a sideAction
-            buttonProps.sideAction = {
-                ...sideAction,
-                divider: true,
-                'data-attr': `menu-item-${sideAction.identifier.toLowerCase()}`,
+        if (!isNavCollapsedActually) {
+            if (sideAction) {
+                // @ts-expect-error - in this case we are perfectly okay with assigning a sideAction
+                buttonProps.sideAction = {
+                    ...sideAction,
+                    divider: true,
+                    'data-attr': `menu-item-${sideAction.identifier.toLowerCase()}`,
+                }
+                buttonProps.sideIcon = null
+            } else if (keyboardShortcut) {
+                buttonProps.sideIcon = (
+                    <span className="text-xs">
+                        <KeyboardShortcut {...keyboardShortcut} />
+                    </span>
+                )
             }
-            buttonProps.sideIcon = null
-        } else if (!isNavCollapsedActually && keyboardShortcut) {
-            buttonProps.sideIcon = (
-                <span className="text-xs">
-                    <KeyboardShortcut {...keyboardShortcut} />
-                </span>
-            )
         }
 
         let content: JSX.Element | string | undefined
