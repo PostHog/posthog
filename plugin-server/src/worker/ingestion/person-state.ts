@@ -745,7 +745,11 @@ export class DeferredPersonOverrideWorker {
     // updating the overrides at a time.
     public readonly lockId = 567
 
-    constructor(private postgres: PostgresRouter, private kafkaProducer: KafkaProducerWrapper) {}
+    private writer: PersonOverrideWriter
+
+    constructor(private postgres: PostgresRouter, private kafkaProducer: KafkaProducerWrapper) {
+        this.writer = new PersonOverrideWriter(this.postgres)
+    }
 
     /**
      * Process all (or up to the given limit) pending overrides.
@@ -757,8 +761,6 @@ export class DeferredPersonOverrideWorker {
      * @returns the number of overrides processed
      */
     public async processPendingOverrides(limit?: number): Promise<number> {
-        const writer = new PersonOverrideWriter(this.postgres)
-
         return await this.postgres.transaction(PostgresUse.COMMON_WRITE, 'processPendingOverrides', async (tx) => {
             const {
                 rows: [{ acquired }],
@@ -783,7 +785,7 @@ export class DeferredPersonOverrideWorker {
 
             const messages: ProducerRecord[] = []
             for (const { id, ...mergeOperation } of rows) {
-                messages.push(...(await writer.addPersonOverride(tx, mergeOperation)))
+                messages.push(...(await this.writer.addPersonOverride(tx, mergeOperation)))
                 await this.postgres.query(
                     tx,
                     SQL`DELETE FROM posthog_pendingpersonoverride WHERE id = ${id}`,
