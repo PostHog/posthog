@@ -5,7 +5,7 @@ import api from 'lib/api'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import posthog from 'posthog-js'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
-import { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogicType'
+import type { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogicType'
 import { defaultNotebookContent, EditorFocusPosition, JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { LOCAL_NOTEBOOK_TEMPLATES } from 'scenes/notebooks/NotebookTemplates/notebookTemplates'
@@ -54,10 +54,10 @@ export const openNotebook = async (
         unmount()
     }
 }
+
 export const notebooksModel = kea<notebooksModelType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebooksModel']),
     actions({
-        setScratchpadNotebook: (notebook: NotebookListItemType) => ({ notebook }),
         createNotebook: (
             location: NotebookTarget,
             title?: string,
@@ -79,12 +79,7 @@ export const notebooksModel = kea<notebooksModelType>([
     }),
 
     reducers({
-        scratchpadNotebook: [
-            SCRATCHPAD_NOTEBOOK,
-            {
-                setScratchpadNotebook: (_, { notebook }) => notebook,
-            },
-        ],
+        scratchpadNotebook: [SCRATCHPAD_NOTEBOOK],
     }),
 
     loaders(({ actions, values }) => ({
