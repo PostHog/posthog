@@ -836,6 +836,7 @@ export type SearchableEntity =
     | 'experiment'
     | 'feature_flag'
     | 'notebook'
+    | 'survey'
 
 export type SearchListParams = { q: string; entities?: SearchableEntity[] }
 
