@@ -1,4 +1,4 @@
-import { LemonButton, LemonButtonWithSideActionProps } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconNotebook } from 'scenes/notebooks/IconNotebook'
@@ -9,7 +9,7 @@ export function NotebookButton(): JSX.Element {
     const { toggleVisibility } = useActions(notebookPanelLogic)
     const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
-    const overrides3000: Partial<LemonButtonWithSideActionProps> = is3000
+    const overrides3000: Partial<LemonButtonProps> = is3000
         ? {
               size: 'small',
               type: 'secondary',
