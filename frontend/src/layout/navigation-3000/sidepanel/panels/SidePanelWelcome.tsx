@@ -4,7 +4,6 @@ import { IconArrowLeft, IconEllipsis, IconExternal, IconX } from '@posthog/icons
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import featureCommandPalette from 'public/3000/3000-command-palette.png'
 import featureCommandPaletteDark from 'public/3000/3000-command-palette-dark.png'
 import featureDarkMode from 'public/3000/3000-dark-mode.png'
@@ -17,7 +16,6 @@ import featureSearchDark from 'public/3000/3000-search-dark.png'
 import featureSidePanel from 'public/3000/3000-side-panel.png'
 import featureSidePanelDark from 'public/3000/3000-side-panel-dark.png'
 import featureToolbar from 'public/3000/3000-toolbar.png'
-import { useEffect } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { SidePanelTab } from '~/types'
@@ -73,17 +71,6 @@ const Image = ({
 export const SidePanelWelcome = (): JSX.Element => {
     const { closeSidePanel, openSidePanel } = useActions(sidePanelStateLogic)
     const { isDarkModeOn } = useValues(themeLogic)
-
-    useEffect(() => {
-        return () => {
-            // Linked to the FF to ensure it isn't shown again
-            posthog.capture('3000 welcome acknowledged', {
-                $set: {
-                    [`3000-welcome-acknowledged`]: true,
-                },
-            })
-        }
-    }, [])
 
     return (
         <>

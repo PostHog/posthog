@@ -1,7 +1,9 @@
 import { afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 import { activationLogic } from 'lib/components/ActivationSidebar/activationLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { SidePanelTab } from '~/types'
@@ -46,7 +48,18 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             },
         ],
     })),
-
+    subscriptions({
+        welcomeAnnouncementAcknowledged: (welcomeAnnouncementAcknowledged) => {
+            if (welcomeAnnouncementAcknowledged) {
+                // Linked to the FF to ensure it isn't shown again
+                posthog.capture('3000 welcome acknowledged', {
+                    $set: {
+                        '3000-welcome-acknowledged': true,
+                    },
+                })
+            }
+        },
+    }),
     selectors({
         shouldShowWelcomeAnnouncement: [
             (s) => [s.welcomeAnnouncementAcknowledged, s.featureFlags],
