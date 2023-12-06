@@ -80,11 +80,13 @@
             --lemon-button-font-size: 0.75rem;
             --lemon-button-height: 1.6875rem;
             --lemon-button-gap: 0.25rem;
+            --lemon-button-side-action-icon-width: 1.25rem;
         }
 
         &.LemonButton--small {
             --lemon-button-padding-horizontal: 0.5rem;
             --lemon-button-height: 2.0625rem;
+            --lemon-button-gap: 0.25rem;
             --lemon-button-side-action-icon-width: 1.25rem;
         }
 
@@ -266,6 +268,7 @@
 
         &.LemonButtonWithSideAction__spacer--divider {
             padding: 0;
+            margin-left: calc(var(--lemon-button-padding-horizontal) / 2);
         }
     }
 
