@@ -1,5 +1,4 @@
 import * as Sentry from '@sentry/node'
-import { StatsD } from 'hot-shots'
 import { Consumer } from 'kafkajs'
 import { KafkaConsumer } from 'node-rdkafka'
 
@@ -9,7 +8,7 @@ import {
     kafkaConsumerEventRequestPendingMsSummary,
 } from './metrics'
 
-export function addMetricsEventListeners(consumer: Consumer, statsd: StatsD | undefined): void {
+export function addMetricsEventListeners(consumer: Consumer): void {
     const listenEvents = [
         consumer.events.GROUP_JOIN,
         consumer.events.CONNECT,
@@ -22,14 +21,11 @@ export function addMetricsEventListeners(consumer: Consumer, statsd: StatsD | un
 
     listenEvents.forEach((event) => {
         consumer.on(event, () => {
-            statsd?.increment('kafka_queue_consumer_event', { event })
             kafkaConsumerEventCounter.labels(event).inc()
         })
     })
 
     consumer.on(consumer.events.REQUEST, ({ payload }) => {
-        statsd?.timing('kafka_queue_consumer_event_request_duration', payload.duration, 0.01)
-        statsd?.timing('kafka_queue_consumer_event_request_pending_duration', payload.pendingDuration, 0.01)
         kafkaConsumerEventRequestMsSummary.observe(payload.duration)
         kafkaConsumerEventRequestPendingMsSummary.observe(payload.pendingDuration)
     })

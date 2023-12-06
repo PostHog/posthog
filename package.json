@@ -140,7 +140,7 @@
         "monaco-editor": "^0.39.0",
         "papaparse": "^5.4.1",
         "pmtiles": "^2.11.0",
-        "posthog-js": "1.93.1",
+        "posthog-js": "1.93.6",
         "posthog-js-lite": "2.0.0-alpha5",
         "prettier": "^2.8.8",
         "prop-types": "^15.7.2",

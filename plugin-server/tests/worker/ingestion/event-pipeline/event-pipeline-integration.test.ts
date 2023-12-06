@@ -53,7 +53,6 @@ describe('Event Pipeline integration test', () => {
             hub.teamManager,
             hub.organizationManager,
             hub.appMetrics,
-            undefined,
             hub.EXTERNAL_REQUEST_TIMEOUT_MS
         )
 

@@ -10,7 +10,6 @@ export async function prepareEventStep(runner: EventPipelineRunner, event: Plugi
     const { team_id, uuid } = event
     const tsParsingIngestionWarnings: Promise<void>[] = []
     const invalidTimestampCallback = function (type: string, details: Record<string, any>) {
-        runner.hub.statsd?.increment('process_event_invalid_timestamp', { teamId: String(team_id), type: type })
         invalidTimestampCounter.labels(type).inc()
 
         tsParsingIngestionWarnings.push(captureIngestionWarning(runner.hub.db, team_id, type, details))

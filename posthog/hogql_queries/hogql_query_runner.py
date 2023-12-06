@@ -49,7 +49,7 @@ class HogQLQueryRunner(QueryRunner):
             team=self.team,
             workload=Workload.ONLINE,
             timings=self.timings,
-            in_export_context=self.in_export_context,
+            limit_context=self.limit_context,
             explain=bool(self.query.explain),
         )
 
