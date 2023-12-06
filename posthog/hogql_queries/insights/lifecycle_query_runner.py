@@ -100,7 +100,13 @@ class LifecycleQueryRunner(QueryRunner):
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
                         left=ast.Field(chain=["start_of_period"]),
-                        right=ast.Constant(value=day),
+                        right=parse_expr(
+                            "dateTrunc({interval}, toDateTime({day}))",
+                            placeholders={
+                                "interval": self.query_date_range.interval_period_string_as_hogql_constant(),
+                                "day": ast.Constant(value=day),
+                            },
+                        ),
                     )
                 )
             if status is not None:

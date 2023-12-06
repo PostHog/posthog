@@ -62,6 +62,8 @@ class TestInsightPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_insight_persons_lifecycle_query(self):
         self._create_test_events()
+        self.team.timezone = "US/Pacific"
+        self.team.save()
 
         date_from = "2020-01-09"
         date_to = "2020-01-19"
