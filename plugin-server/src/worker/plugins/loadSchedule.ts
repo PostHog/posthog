@@ -32,6 +32,5 @@ export async function loadSchedule(server: Hub): Promise<void> {
     }
 
     server.pluginSchedule = pluginSchedule
-    server.statsd?.timing('load_schedule.success', timer)
     loadScheduleMsSummary.observe(new Date().getTime() - timer.getTime())
 }

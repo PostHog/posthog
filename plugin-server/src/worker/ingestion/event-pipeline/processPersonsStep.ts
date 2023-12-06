@@ -4,7 +4,7 @@ import { Person } from 'types'
 
 import { normalizeEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
-import { PersonState } from '../person-state'
+import { PersonOverrideWriter, PersonState } from '../person-state'
 import { parseEventTimestamp } from '../timestamps'
 import { EventPipelineRunner } from './runner'
 
@@ -28,8 +28,7 @@ export async function processPersonsStep(
         String(event.distinct_id),
         timestamp,
         runner.hub.db,
-        runner.hub.statsd,
-        runner.poEEmbraceJoin
+        runner.poEEmbraceJoin ? new PersonOverrideWriter(runner.hub.db.postgres) : undefined
     ).update()
 
     return [event, person]

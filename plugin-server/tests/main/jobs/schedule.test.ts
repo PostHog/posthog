@@ -3,11 +3,9 @@ import { runScheduledTasks } from '../../../src/main/graphile-worker/schedule'
 import { Hub } from '../../../src/types'
 import { KafkaProducerWrapper } from '../../../src/utils/db/kafka-producer-wrapper'
 import { UUID } from '../../../src/utils/utils'
-import { PromiseManager } from '../../../src/worker/vm/promise-manager'
 
 const mockHub: Hub = {
     instanceId: new UUID('F8B2F832-6639-4596-ABFC-F9664BC88E84'),
-    promiseManager: new PromiseManager({ MAX_PENDING_PROMISES_PER_WORKER: 1 } as any),
     JOB_QUEUES: 'fs',
 } as Hub
 

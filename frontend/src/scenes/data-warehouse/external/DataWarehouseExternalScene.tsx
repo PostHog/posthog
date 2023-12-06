@@ -65,7 +65,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                         <Link to="https://posthog.com/manual/hogql" target="_blank">
                             HogQL
                         </Link>
-                        . Connect your own tables from S3 to query data from outside posthog.{' '}
+                        . Connect your own tables from S3 to query data from outside PostHog.{' '}
                         <Link to="https://posthog.com/docs/data/data-warehouse">Learn more</Link>
                     </div>
                 }

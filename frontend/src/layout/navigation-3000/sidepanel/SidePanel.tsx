@@ -1,6 +1,7 @@
 import './SidePanel.scss'
 
 import {
+    IconConfetti,
     IconEllipsis,
     IconFeatures,
     IconGear,
@@ -25,6 +26,7 @@ import { SidePanelDocs } from './panels/SidePanelDocs'
 import { SidePanelFeaturePreviews } from './panels/SidePanelFeaturePreviews'
 import { SidePanelSettings } from './panels/SidePanelSettings'
 import { SidePanelSupport } from './panels/SidePanelSupport'
+import { SidePanelWelcome } from './panels/SidePanelWelcome'
 import { sidePanelLogic } from './sidePanelLogic'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
@@ -55,17 +57,26 @@ export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Con
         Icon: IconGear,
         Content: SidePanelSettings,
     },
+
     [SidePanelTab.FeaturePreviews]: {
         label: 'Previews',
         Icon: IconFeatures,
         Content: SidePanelFeaturePreviews,
     },
+
     [SidePanelTab.Activity]: {
         label: 'Activity',
         Icon: IconNotification,
         Content: SidePanelActivity,
     },
+    [SidePanelTab.Welcome]: {
+        label: "What's new?",
+        Icon: IconConfetti,
+        Content: SidePanelWelcome,
+    },
 }
+
+const DEFAULT_WIDTH = 512
 
 export function SidePanel(): JSX.Element | null {
     const { visibleTabs, extraTabs } = useValues(sidePanelLogic)
@@ -130,7 +141,7 @@ export function SidePanel(): JSX.Element | null {
             ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                width: sidePanelOpenAndAvailable ? desiredWidth ?? undefined : undefined,
+                width: sidePanelOpenAndAvailable ? desiredWidth ?? DEFAULT_WIDTH : undefined,
             }}
         >
             <Resizer {...resizerLogicProps} />

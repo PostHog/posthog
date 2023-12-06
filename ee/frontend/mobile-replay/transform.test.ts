@@ -346,5 +346,25 @@ describe('replay/transform', () => {
             ])
             expect(textEvent).toMatchSnapshot()
         })
+        test('omitting x and y is equivalent to setting them to 0', () => {
+            expect(
+                posthogEEModule.mobileReplay?.transformToWeb([
+                    {
+                        type: 2,
+                        data: {
+                            wireframes: [
+                                {
+                                    id: 12345,
+                                    width: 100,
+                                    height: 30,
+                                    type: 'image',
+                                },
+                            ],
+                        },
+                        timestamp: 1,
+                    },
+                ])
+            ).toMatchSnapshot()
+        })
     })
 })
