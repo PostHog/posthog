@@ -25,41 +25,6 @@ const timestamp = DateTime.fromISO('2020-01-01T12:00:05.200Z').toUTC()
 const timestamp2 = DateTime.fromISO('2020-02-02T12:00:05.200Z').toUTC()
 const timestampch = '2020-01-01 12:00:05.000'
 
-async function fetchPostgresPersonIdOverrides(hub: Hub, teamId: number): Promise<[string, string][]> {
-    const result = await hub.db.postgres.query(
-        PostgresUse.COMMON_WRITE,
-        `
-        WITH overrides AS (
-            SELECT id, old_person_id, override_person_id
-            FROM posthog_personoverride
-            WHERE team_id = ${teamId}
-            ORDER BY id
-        )
-        SELECT
-            mapping.uuid AS old_person_id,
-            overrides_mapping.uuid AS override_person_id
-        FROM
-            overrides AS first
-        JOIN
-            posthog_personoverridemapping AS mapping ON first.old_person_id = mapping.id
-        JOIN (
-            SELECT
-                second.id AS id,
-                uuid
-            FROM
-                overrides AS second
-            JOIN posthog_personoverridemapping AS mapping ON second.override_person_id = mapping.id
-        ) AS overrides_mapping ON overrides_mapping.id = first.id
-        `,
-        undefined,
-        'fetchPersonIdOverrides'
-    )
-    return result.rows.map(({ old_person_id, override_person_id }) => [old_person_id, override_person_id]).sort() as [
-        string,
-        string
-    ][]
-}
-
 interface PersonOverridesMode {
     getWriter(hub: Hub): PersonOverrideWriter | DeferredPersonOverrideWriter
     fetchPostgresPersonIdOverrides(hub: Hub, teamId: number): Promise<[string, string][]>
@@ -69,17 +34,27 @@ const PersonOverridesModes: Record<string, PersonOverridesMode | undefined> = {
     disabled: undefined,
     immediate: {
         getWriter: (hub) => new PersonOverrideWriter(hub.db.postgres),
-        fetchPostgresPersonIdOverrides: (hub, teamId) => fetchPostgresPersonIdOverrides(hub, teamId),
+        fetchPostgresPersonIdOverrides: async (hub, teamId) => {
+            const writer = new PersonOverrideWriter(hub.db.postgres) // XXX: ideally would reference ``this``, not new instance
+            const overrides = await writer.getPersonOverrides(teamId)
+            return overrides
+                .map(({ old_person_id, override_person_id }) => [old_person_id, override_person_id])
+                .sort() as [string, string][]
+        },
     },
     deferred: {
         getWriter: (hub) => new DeferredPersonOverrideWriter(hub.db.postgres),
         fetchPostgresPersonIdOverrides: async (hub, teamId) => {
+            const writer = new PersonOverrideWriter(hub.db.postgres)
             await new DeferredPersonOverrideWorker(
                 hub.db.postgres,
                 hub.db.kafkaProducer,
-                new PersonOverrideWriter(hub.db.postgres)
+                writer
             ).processPendingOverrides()
-            return await fetchPostgresPersonIdOverrides(hub, teamId)
+            const overrides = await writer.getPersonOverrides(teamId)
+            return overrides
+                .map(({ old_person_id, override_person_id }) => [old_person_id, override_person_id])
+                .sort() as [string, string][]
         },
     },
 }
@@ -2194,17 +2169,15 @@ describe('deferred person overrides', () => {
     let teamId: number
 
     let writer: DeferredPersonOverrideWriter
+    let syncWriter: PersonOverrideWriter
     let worker: DeferredPersonOverrideWorker
 
     beforeAll(async () => {
         ;[hub, closeHub] = await createHub({})
         organizationId = await createOrganization(hub.db.postgres)
         writer = new DeferredPersonOverrideWriter(hub.db.postgres)
-        worker = new DeferredPersonOverrideWorker(
-            hub.db.postgres,
-            hub.db.kafkaProducer,
-            new PersonOverrideWriter(hub.db.postgres)
-        )
+        syncWriter = new PersonOverrideWriter(hub.db.postgres)
+        worker = new DeferredPersonOverrideWorker(hub.db.postgres, hub.db.kafkaProducer, syncWriter)
     })
 
     beforeEach(async () => {
@@ -2255,9 +2228,12 @@ describe('deferred person overrides', () => {
 
         expect(await getPendingPersonOverrides()).toMatchObject([])
 
-        expect(await fetchPostgresPersonIdOverrides(hub, teamId)).toEqual([
-            [override.old_person_id, override.override_person_id],
-        ])
+        expect(
+            (await syncWriter.getPersonOverrides(teamId)).map(({ old_person_id, override_person_id }) => [
+                old_person_id,
+                override_person_id,
+            ])
+        ).toEqual([[override.old_person_id, override.override_person_id]])
 
         const clickhouseOverrides = await waitForExpect(async () => {
             const { data } = await hub.db.clickhouse.querying(
