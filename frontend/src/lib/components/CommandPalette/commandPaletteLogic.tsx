@@ -68,7 +68,7 @@ import { DashboardType, InsightType } from '~/types'
 import { personalAPIKeysLogic } from '../../../scenes/settings/user/personalAPIKeysLogic'
 import { commandBarLogic } from '../CommandBar/commandBarLogic'
 import { BarStatus } from '../CommandBar/types'
-import { hedgehogBuddyLogic } from '../HedgehogBuddy/hedgehogbuddyLogic'
+import { hedgehogBuddyLogic } from '../HedgehogBuddy/hedgehogBuddyLogic'
 import type { commandPaletteLogicType } from './commandPaletteLogicType'
 import { openCHQueriesDebugModal } from './DebugCHQueries'
 

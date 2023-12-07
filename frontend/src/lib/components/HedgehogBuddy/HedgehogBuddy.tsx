@@ -10,7 +10,7 @@ import { range, sampleOne, shouldIgnoreInput } from 'lib/utils'
 import { MutableRefObject, useEffect, useRef, useState } from 'react'
 
 import { HedgehogAccessories } from './HedgehogAccessories'
-import { hedgehogBuddyLogic } from './hedgehogbuddyLogic'
+import { hedgehogBuddyLogic } from './hedgehogBuddyLogic'
 import {
     AccessoryInfo,
     baseSpriteAccessoriesPath,

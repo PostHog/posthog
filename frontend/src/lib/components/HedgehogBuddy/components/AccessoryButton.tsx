@@ -3,7 +3,7 @@ import { IconLock } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { capitalizeFirstLetter } from 'lib/utils'
 
-import { hedgehogBuddyLogic } from '../hedgehogbuddyLogic'
+import { hedgehogBuddyLogic } from '../hedgehogBuddyLogic'
 import { AccessoryInfo, baseSpriteAccessoriesPath, baseSpritePath } from '../sprites/sprites'
 
 export type HedgehogBuddyAccessoryProps = {
