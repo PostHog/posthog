@@ -50,7 +50,7 @@ export function HedgehogBuddyAccessory({
         >
             {!isUnlocked && <IconLock className=" absolute right-0 top-0 rounded" />}
             <div
-                className="relative  overflow-hidden pointer-events-none"
+                className="relative overflow-hidden pointer-events-none"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     width: imgSize,
