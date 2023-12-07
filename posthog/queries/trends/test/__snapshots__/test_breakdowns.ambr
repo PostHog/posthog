@@ -187,7 +187,7 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') as breakdown_value
+                            transform(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), (['', 'https://example.com']), (['', 'https://example.com']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            INNER JOIN
              (SELECT "$session_id",
@@ -203,7 +203,6 @@
              AND (sessions.session_duration > 30.0)
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') in (['', 'https://example.com'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -287,7 +286,6 @@
              AND (NOT has(['https://test.com'], replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^"|"$', '')))
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND sessions.session_duration in ([120, 180, 60, 91, 0])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -506,7 +504,6 @@
              AND event = 'watched movie'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND sessions.session_duration in ([180, 120, 91, 60, 0])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,

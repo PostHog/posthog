@@ -139,6 +139,12 @@ export type wireframeCheckBox = wireframeInputBase & {
     label?: string
 }
 
+export type wireframeToggle = wireframeInputBase & {
+    inputType: 'toggle'
+    checked: boolean
+    label?: string
+}
+
 export type wireframeRadioGroup = wireframeBase & {
     type: 'radio_group'
 }
@@ -184,6 +190,7 @@ export type wireframeInputComponent =
     | wireframeSelect
     | wireframeTextArea
     | wireframeButton
+    | wireframeToggle
 
 export type wireframeText = wireframeBase & {
     type: 'text'
