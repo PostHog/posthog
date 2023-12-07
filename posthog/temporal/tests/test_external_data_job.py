@@ -85,7 +85,7 @@ async def test_create_external_job_activity_schemas_exist(activity_environment, 
         source_type="Stripe",
     )  # type: ignore
 
-    await sync_to_async(ExternalDataSchema.objects.create)(
+    await sync_to_async(ExternalDataSchema.objects.create)(  # type: ignore
         name=PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type][0],
         team_id=team.id,
         source_id=new_source.pk,
@@ -366,6 +366,6 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
     assert run is not None
     assert run.status == ExternalDataJob.Status.COMPLETED
 
-    assert await sync_to_async(DataWarehouseTable.objects.filter(external_data_source_id=new_source.pk).count)() == len(
+    assert await sync_to_async(DataWarehouseTable.objects.filter(external_data_source_id=new_source.pk).count)() == len(  # type: ignore
         PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type]
-    )  # type: ignore
+    )

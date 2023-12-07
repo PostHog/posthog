@@ -8,9 +8,9 @@ from unittest.mock import patch
 class TestValidateSchema(ClickhouseTestMixin, BaseTest):
     def _create_external_data_source(self) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
-            source_id=uuid.uuid4(),
-            connection_id=uuid.uuid4(),
-            destination_id=uuid.uuid4(),
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
             team=self.team,
             status="Running",
             source_type="Stripe",

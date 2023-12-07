@@ -11,11 +11,10 @@ from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
+from typing import Dict
 
 
-def validate_schema(
-    credential: DataWarehouseCredential, table_name: str, new_url_pattern: str, team_id: int
-) -> DataWarehouseTable:
+def validate_schema(credential: DataWarehouseCredential, table_name: str, new_url_pattern: str, team_id: int) -> Dict:
     params = {
         "credential": credential,
         "name": table_name,
@@ -94,7 +93,7 @@ def validate_schema_and_update_table(run_id: str, team_id: int, schemas: list[st
                 )
             except Exception:
                 table_created = None
-            finally:
+            else:
                 table_created.url_pattern = new_url_pattern
                 table_created.save()
 
