@@ -152,7 +152,7 @@ export function LemonModal({
 
     width = !fullScreen ? width : undefined
 
-    const defaultPopoverContext = usePopoverContainerContext()
+    const defaultPopoverContext = usePopoverContainerContext()?.current
 
     return inline ? (
         // eslint-disable-next-line react/forbid-dom-props

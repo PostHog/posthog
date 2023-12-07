@@ -20,7 +20,7 @@ export function Tooltip({ children, visible, delayMs = DEFAULT_DELAY_MS, ...prop
     const [localVisible, setVisible] = useState(false)
     const [debouncedLocalVisible] = useDebounce(visible ?? localVisible, delayMs)
 
-    const defaultPopoverContext = usePopoverContainerContext()
+    const defaultPopoverContext = usePopoverContainerContext()?.current
 
     if (!('mouseEnterDelay' in props)) {
         // If not preserving default behavior and mouseEnterDelay is not already provided, we use a custom default here

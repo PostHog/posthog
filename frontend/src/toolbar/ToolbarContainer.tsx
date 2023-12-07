@@ -25,7 +25,7 @@ export function ToolbarContainer(): JSX.Element {
         <Fade visible={buttonVisible} className="toolbar-global-fade-container ph-no-capture posthog-3000">
             <Elements />
             <div id="button-toolbar" ref={ref} className="ph-no-capture posthog-3000" {...themeProps}>
-                <PopoverContainerContext.Provider value={ref.current}>
+                <PopoverContainerContext.Provider value={ref}>
                     <Toolbar />
                 </PopoverContainerContext.Provider>
             </div>

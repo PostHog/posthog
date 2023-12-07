@@ -165,7 +165,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                 })}
                 onClick={incrementClickCount}
             >
-                <PopoverContainerContext.Provider value={playerRef.current}>
+                <PopoverContainerContext.Provider value={playerRef}>
                     {explorerMode ? (
                         <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />
                     ) : (
