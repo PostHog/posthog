@@ -119,7 +119,7 @@ impl Serialize for HttpMethod {
     }
 }
 
-/// Convinience to cast `HttpMethod` to `http::Method`.
+/// Convenience to cast `HttpMethod` to `http::Method`.
 /// Not all `http::Method` variants are valid `HttpMethod` variants, hence why we
 /// can't just use the former or implement `From<HttpMethod>`.
 impl From<HttpMethod> for http::Method {
