@@ -109,15 +109,16 @@ def render_2023(request, user_uuid: str) -> HttpResponse:
         badge = sort_list_based_on_preference(data.get("badges") or ["astronaut"])
 
         badge_images = {}
-        for b in data.get("badges") or ["astronaut"]:
-            badge_images[b] = {
-                "badge": b,
-                "human_badge": human_badge.get(b),
-                "image_png": f"year_in_hog/badges/2023_{b}.png",
-                "image_webp": f"year_in_hog/badges/2023_{b}.webp",
-                "highlight_color": highlight_color.get(b),
-                "explanation": explanation.get(b),
-            }
+        for b in data.get("badges", {}):
+            if b != badge:
+                badge_images[b] = {
+                    "badge": b,
+                    "human_badge": human_badge.get(b),
+                    "image_png": f"year_in_hog/badges/2023_{b}.png",
+                    "image_webp": f"year_in_hog/badges/2023_{b}.webp",
+                    "highlight_color": highlight_color.get(b),
+                    "explanation": explanation.get(b),
+                }
 
         stats = stats_for_badge(data, badge)
 
