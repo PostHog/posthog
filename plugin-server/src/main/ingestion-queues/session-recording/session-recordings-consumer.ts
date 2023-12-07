@@ -118,12 +118,16 @@ export class SessionRecordingIngester {
     totalNumPartitions = 0
 
     private promises: Set<Promise<any>> = new Set()
+    // if ingestion is lagging on a single partition it is often hard to identify _why_,
+    // this allows us to output more information for that partition
+    private debugPartition: number | undefined = undefined
 
     constructor(
         globalServerConfig: PluginsServerConfig,
         private postgres: PostgresRouter,
         private objectStorage: ObjectStorage
     ) {
+        this.debugPartition = globalServerConfig.SESSION_RECORDING_DEBUG_PARTITION
         // NOTE: globalServerConfig contains the default pluginServer values, typically not pointing at dedicated resources like kafka or redis
         // We still connect to some of the non-dedicated resources such as postgres or the Replay events kafka.
         this.config = sessionRecordingConsumerConfig(globalServerConfig)
@@ -244,7 +248,8 @@ export class SessionRecordingIngester {
                 team_id,
                 session_id,
                 partition,
-                topic
+                topic,
+                this.debugPartition === partition
             )
         }
 

@@ -117,7 +117,8 @@ export class SessionManager {
         public readonly teamId: number,
         public readonly sessionId: string,
         public readonly partition: number,
-        public readonly topic: string
+        public readonly topic: string,
+        public readonly debug: boolean = false
     ) {
         this.buffer = this.createBuffer()
 
@@ -136,20 +137,6 @@ export class SessionManager {
             topic,
             sessionId,
         })
-    }
-
-    private logContext = () => {
-        return {
-            sessionId: this.sessionId,
-            partition: this.partition,
-            teamId: this.teamId,
-            topic: this.topic,
-            oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
-            oldestKafkaTimestampHumanReadable: this.buffer.oldestKafkaTimestamp
-                ? DateTime.fromMillis(this.buffer.oldestKafkaTimestamp).toISO()
-                : undefined,
-            bufferCount: this.buffer.count,
-        }
     }
 
     private captureException(error: Error, extra: Record<string, any> = {}): void {
@@ -232,6 +219,10 @@ export class SessionManager {
             flushThresholdMs,
             flushThresholdJitteredMs,
             flushThresholdMemoryMs,
+        }
+
+        if (this.debug) {
+            status.info('🚽', `[session-manager] debug mode - flushIfSessionBufferIsOld?`, { logContext })
         }
 
         if (this.buffer.oldestKafkaTimestamp === null) {
@@ -592,6 +583,21 @@ export class SessionManager {
                 resolve()
             })
         })
+    }
+
+    private logContext = () => {
+        return {
+            sessionId: this.sessionId,
+            partition: this.partition,
+            teamId: this.teamId,
+            topic: this.topic,
+            oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
+            oldestKafkaTimestampHumanReadable: this.buffer.oldestKafkaTimestamp
+                ? DateTime.fromMillis(this.buffer.oldestKafkaTimestamp).toISO()
+                : undefined,
+            bufferCount: this.buffer.count,
+            ...(this.debug ? this.toJSON() : {}),
+        }
     }
 
     public toJSON(): Record<string, any> {
