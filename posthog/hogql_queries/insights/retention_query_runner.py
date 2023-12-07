@@ -70,8 +70,11 @@ class RetentionQueryRunner(QueryRunner):
         else:
             event_date_expr = start_of_interval_sql
 
+        group_index = None
         if self.query.aggregation_group_type_index is not None:
             group_index = int(self.query.aggregation_group_type_index)
+
+        if group_index is not None and 0 <= group_index <= 4:
             target_field = ast.Field(chain=["events", f"$group_{group_index}"])
         else:
             target_field = ast.Field(chain=["events", "person_id"])
