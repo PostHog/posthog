@@ -7,7 +7,7 @@ import { LemonTable } from '@posthog/lemon-ui'
 import { ChartData, ChartType, Color, GridLineOptions, TickOptions, TooltipModel } from 'chart.js'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import clsx from 'clsx'
-import { useMountedLogic, useValues } from 'kea'
+import { useValues } from 'kea'
 import { Chart, ChartItem, ChartOptions } from 'lib/Chart'
 import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
@@ -15,7 +15,7 @@ import { useEffect, useRef } from 'react'
 import { ensureTooltip } from 'scenes/insights/views/LineGraph/LineGraph'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { GraphType } from '~/types'
+import { ChartDisplayType, GraphType } from '~/types'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 
@@ -26,8 +26,8 @@ export const LineGraph = (): JSX.Element => {
 
     // TODO: Extract this logic out of this component and inject values in
     // via props. Make this a purely presentational component
-    const vizLogic = useMountedLogic(dataVisualizationLogic)
-    const { xData, yData, presetChartHeight } = useValues(vizLogic)
+    const { xData, yData, presetChartHeight, visualizationType } = useValues(dataVisualizationLogic)
+    const isBarChart = visualizationType === ChartDisplayType.ActionsBar
 
     useEffect(() => {
         if (!xData || !yData) {
@@ -36,14 +36,22 @@ export const LineGraph = (): JSX.Element => {
 
         const data: ChartData = {
             labels: xData,
-            datasets: yData.map(({ data }, index) => ({
-                data,
-                borderColor: getSeriesColor(index),
-                borderWidth: 2,
-                pointRadius: 0,
-                hitRadius: 0,
-                order: 1,
-            })),
+            datasets: yData.map(({ data }, index) => {
+                const color = getSeriesColor(index)
+
+                return {
+                    data,
+                    borderColor: color,
+                    backgroundColor: color,
+                    borderWidth: isBarChart ? 0 : 2,
+                    pointRadius: 0,
+                    hitRadius: 0,
+                    order: 1,
+                    hoverBorderWidth: isBarChart ? 0 : 2,
+                    hoverBorderRadius: isBarChart ? 0 : 2,
+                    type: isBarChart ? GraphType.Bar : GraphType.Line,
+                } as ChartData['datasets'][0]
+            }),
         }
 
         const tickOptions: Partial<TickOptions> = {
@@ -91,22 +99,25 @@ export const LineGraph = (): JSX.Element => {
                 legend: {
                     display: false,
                 },
-                // @ts-expect-error Types of library are out of date
-                crosshair: {
-                    snap: {
-                        enabled: true, // Snap crosshair to data points
-                    },
-                    sync: {
-                        enabled: false, // Sync crosshairs across multiple Chartjs instances
-                    },
-                    zoom: {
-                        enabled: false, // Allow drag to zoom
-                    },
-                    line: {
-                        color: colors.crosshair ?? undefined,
-                        width: 1,
-                    },
-                },
+                ...(isBarChart
+                    ? { crosshair: false }
+                    : {
+                          crosshair: {
+                              snap: {
+                                  enabled: true, // Snap crosshair to data points
+                              },
+                              sync: {
+                                  enabled: false, // Sync crosshairs across multiple Chartjs instances
+                              },
+                              zoom: {
+                                  enabled: false, // Allow drag to zoom
+                              },
+                              line: {
+                                  color: colors.crosshair ?? undefined,
+                                  width: 1,
+                              },
+                          },
+                      }),
                 // TODO: A lot of this is v similar to the trends LineGraph - considering merging these
                 tooltip: {
                     enabled: false,
@@ -193,7 +204,7 @@ export const LineGraph = (): JSX.Element => {
                 },
             },
             hover: {
-                mode: 'nearest',
+                mode: isBarChart ? 'point' : 'nearest',
                 axis: 'x',
                 intersect: false,
             },
@@ -223,13 +234,13 @@ export const LineGraph = (): JSX.Element => {
         }
 
         const newChart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
-            type: GraphType.Line,
+            type: isBarChart ? GraphType.Bar : GraphType.Line,
             data,
             options,
             plugins: [ChartDataLabels],
         })
         return () => newChart.destroy()
-    }, [xData, yData])
+    }, [xData, yData, visualizationType])
 
     return (
         <div
