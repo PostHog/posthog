@@ -454,7 +454,7 @@ class TrendsBreakdown:
             breakdown_value, values_arr = self._get_histogram_breakdown_values(breakdown_value, values_arr)
 
         # Add "Other"
-        breakdown_value = f"if({breakdown_value} in (%(values)s), {breakdown_value}, '$$_posthog_breakdown_other_$$')"
+        breakdown_value = f"transform({breakdown_value}, (%(values)s), (%(values)s), '$$_posthog_breakdown_other_$$')"
 
         return (
             {"values": values_arr},
