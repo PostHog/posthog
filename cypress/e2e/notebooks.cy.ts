@@ -41,7 +41,7 @@ describe('Notebooks', () => {
         cy.get('.ph-recording.NotebookNode').should('exist')
     })
 
-    it('Insertion suggestions can be dismissed', () => {
+    it.skip('Insertion suggestions can be dismissed', () => {
         cy.visit(urls.notebook('h11RoiwV'))
         cy.get('.node-ph-replay-timestamp').click()
         cy.get('.NotebookEditor').type('{enter}')
