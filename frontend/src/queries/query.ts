@@ -223,7 +223,7 @@ export async function query<N extends DataNode = DataNode>(
                     const results = flattenObject(res1)
                     const legacyResults = flattenObject(res2)
                     const sortedKeys = Array.from(new Set([...Object.keys(results), ...Object.keys(legacyResults)]))
-                        .filter((key) => !key.includes('.persons_urls.'))
+                        .filter((key) => !key.includes('.persons_urls.') && !key.includes('.people_url'))
                         .sort()
                     const tableData = [['', 'key', 'HOGQL', 'LEGACY']]
                     let matchCount = 0

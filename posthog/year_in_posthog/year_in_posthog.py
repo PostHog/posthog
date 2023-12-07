@@ -118,9 +118,12 @@ def render_2023(request, user_uuid: str) -> HttpResponse:
     for b in data.get("badges") or ["astronaut"]:
         if b != badge:
             badge_images[b] = {
+                "badge": b,
                 "human_badge": human_badge.get(b),
                 "image_png": f"year_in_hog/badges/2023_{b}.png",
                 "image_webp": f"year_in_hog/badges/2023_{b}.webp",
+                "highlight_color": highlight_color.get(b),
+                "explanation": explanation.get(b),
             }
 
     try:
