@@ -346,7 +346,7 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
         name: wrapperProps.nodeType,
         group: 'block',
         atom: true,
-        draggable: true,
+        draggable: false,
 
         serializedText: serializedText,
 

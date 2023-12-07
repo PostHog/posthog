@@ -37,6 +37,7 @@ import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestam
 import { NotebookNodeSurvey } from '../Nodes/NotebookNodeSurvey'
 import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
 import { insertionSuggestionsLogic } from '../Suggestions/insertionSuggestionsLogic'
+import Draggable from './Draggable'
 import { InlineMenu } from './InlineMenu'
 import { MentionsExtension } from './MentionsExtension'
 import { notebookLogic } from './notebookLogic'
@@ -254,7 +255,9 @@ export function Editor(): JSX.Element {
 
     return (
         <>
+            {/* <Draggable /> */}
             <EditorContent editor={_editor} className="NotebookEditor flex flex-col flex-1">
+                {/* <Draggable /> */}
                 {_editor && <FloatingSuggestions editor={_editor} />}
                 {_editor && <InlineMenu editor={_editor} />}
             </EditorContent>

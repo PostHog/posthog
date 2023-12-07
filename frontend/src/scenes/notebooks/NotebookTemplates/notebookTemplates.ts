@@ -24,83 +24,83 @@ export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
             content: [
                 {
                     type: 'container',
-                    content: [
-                        {
-                            type: 'ph-query',
-                            attrs: {
-                                height: null,
-                                title: 'One',
-                                nodeId: '098559a2-33d6-4da1-a836-f9f332dd7082',
-                                query: {
-                                    kind: 'InsightVizNode',
-                                    source: {
-                                        kind: 'TrendsQuery',
-                                        series: [
-                                            {
-                                                kind: 'EventsNode',
-                                                math: 'total',
-                                                name: '$pageview',
-                                                event: '$pageview',
-                                            },
-                                        ],
-                                        interval: 'day',
-                                        trendsFilter: { display: 'ActionsLineGraph' },
-                                        filterTestAccounts: false,
-                                    },
-                                },
-                            },
-                        },
-                        {
-                            type: 'ph-query',
-                            attrs: {
-                                height: null,
-                                title: 'Two',
-                                nodeId: '098559a2-33d6-4da1-a836-f9f332dd7082',
-                                query: {
-                                    kind: 'InsightVizNode',
-                                    source: {
-                                        kind: 'TrendsQuery',
-                                        series: [
-                                            {
-                                                kind: 'EventsNode',
-                                                math: 'total',
-                                                name: '$pageview',
-                                                event: '$pageview',
-                                            },
-                                        ],
-                                        interval: 'day',
-                                        trendsFilter: { display: 'ActionsLineGraph' },
-                                        filterTestAccounts: false,
-                                    },
-                                },
-                            },
-                        },
-                        {
-                            type: 'ph-query',
-                            attrs: {
-                                height: null,
-                                title: 'Three',
-                                nodeId: '098559a2-33d6-4da1-a836-f9f332dd7082',
-                                query: {
-                                    kind: 'InsightVizNode',
-                                    source: {
-                                        kind: 'TrendsQuery',
-                                        series: [
-                                            {
-                                                kind: 'EventsNode',
-                                                math: 'total',
-                                                name: '$pageview',
-                                                event: '$pageview',
-                                            },
-                                        ],
-                                        interval: 'day',
-                                        trendsFilter: { display: 'ActionsLineGraph' },
-                                        filterTestAccounts: false,
-                                    },
-                                },
-                            },
-                        },
-                    ],
+                    // content: [
+                    //     {
+                    //         type: 'ph-query',
+                    //         attrs: {
+                    //             height: null,
+                    //             title: 'One',
+                    //             nodeId: '098559a2-33d6-4da1-a836-f9f332dd7082',
+                    //             query: {
+                    //                 kind: 'InsightVizNode',
+                    //                 source: {
+                    //                     kind: 'TrendsQuery',
+                    //                     series: [
+                    //                         {
+                    //                             kind: 'EventsNode',
+                    //                             math: 'total',
+                    //                             name: '$pageview',
+                    //                             event: '$pageview',
+                    //                         },
+                    //                     ],
+                    //                     interval: 'day',
+                    //                     trendsFilter: { display: 'ActionsLineGraph' },
+                    //                     filterTestAccounts: false,
+                    //                 },
+                    //             },
+                    //         },
+                    //     },
+                    //     {
+                    //         type: 'ph-query',
+                    //         attrs: {
+                    //             height: null,
+                    //             title: 'Two',
+                    //             nodeId: '098559a2-33d6-4da1-a836-f9f332dd7082',
+                    //             query: {
+                    //                 kind: 'InsightVizNode',
+                    //                 source: {
+                    //                     kind: 'TrendsQuery',
+                    //                     series: [
+                    //                         {
+                    //                             kind: 'EventsNode',
+                    //                             math: 'total',
+                    //                             name: '$pageview',
+                    //                             event: '$pageview',
+                    //                         },
+                    //                     ],
+                    //                     interval: 'day',
+                    //                     trendsFilter: { display: 'ActionsLineGraph' },
+                    //                     filterTestAccounts: false,
+                    //                 },
+                    //             },
+                    //         },
+                    //     },
+                    //     {
+                    //         type: 'ph-query',
+                    //         attrs: {
+                    //             height: null,
+                    //             title: 'Three',
+                    //             nodeId: '098559a2-33d6-4da1-a836-f9f332dd7082',
+                    //             query: {
+                    //                 kind: 'InsightVizNode',
+                    //                 source: {
+                    //                     kind: 'TrendsQuery',
+                    //                     series: [
+                    //                         {
+                    //                             kind: 'EventsNode',
+                    //                             math: 'total',
+                    //                             name: '$pageview',
+                    //                             event: '$pageview',
+                    //                         },
+                    //                     ],
+                    //                     interval: 'day',
+                    //                     trendsFilter: { display: 'ActionsLineGraph' },
+                    //                     filterTestAccounts: false,
+                    //                 },
+                    //             },
+                    //         },
+                    //     },
+                    // ],
                 },
                 // {
                 //     type: 'heading',
