@@ -43,7 +43,6 @@ export interface LemonModalProps {
     forceAbovePopovers?: boolean
     contentRef?: React.RefCallback<HTMLDivElement>
     overlayRef?: React.RefCallback<HTMLDivElement>
-    getPopupContainer?: () => HTMLElement
 }
 
 export const LemonModalHeader = ({ children, className }: LemonModalInnerProps): JSX.Element => {
@@ -79,7 +78,6 @@ export function LemonModal({
     forceAbovePopovers = false,
     contentRef,
     overlayRef,
-    getPopupContainer,
 }: LemonModalProps): JSX.Element {
     const nodeRef = useRef(null)
     const [ignoredOverlayClickCount, setIgnoredOverlayClickCount] = useState(0)
@@ -189,9 +187,7 @@ export function LemonModal({
             appElement={document.getElementById('root') as HTMLElement}
             contentRef={contentRef}
             overlayRef={overlayRef}
-            parentSelector={
-                getPopupContainer ? getPopupContainer : defaultPopoverContext ? () => defaultPopoverContext : undefined
-            }
+            parentSelector={defaultPopoverContext ? () => defaultPopoverContext : undefined}
         >
             {modalContent}
         </Modal>

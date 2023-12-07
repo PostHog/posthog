@@ -56,7 +56,6 @@ export interface PopoverProps {
      *  @default false
      */
     closeParentPopoverOnClickInside?: boolean
-    getPopupContainer?: () => HTMLElement
     /** Whether to show an arrow pointing to a reference element */
     showArrow?: boolean
 }
@@ -94,7 +93,6 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         referenceRef: extraReferenceRef,
         floatingRef: extraFloatingRef,
         style,
-        getPopupContainer,
         showArrow = false,
     },
     contentRef
@@ -213,7 +211,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                     {clonedChildren}
                 </PopoverReferenceContext.Provider>
             )}
-            <FloatingPortal root={getPopupContainer ? getPopupContainer() : defaultPopoverContext}>
+            <FloatingPortal root={defaultPopoverContext}>
                 <CSSTransition in={visible} timeout={50} classNames="Popover-" appear mountOnEnter unmountOnExit>
                     <PopoverOverlayContext.Provider value={[visible, currentPopoverLevel]}>
                         <div
