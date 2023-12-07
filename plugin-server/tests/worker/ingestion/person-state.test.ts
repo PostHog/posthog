@@ -26,6 +26,7 @@ const timestamp2 = DateTime.fromISO('2020-02-02T12:00:05.200Z').toUTC()
 const timestampch = '2020-01-01 12:00:05.000'
 
 interface PersonOverridesMode {
+    supportsSyncTransaction: boolean
     getWriter(hub: Hub): PersonOverrideWriter | DeferredPersonOverrideWriter
     fetchPostgresPersonIdOverrides(
         hub: Hub,
@@ -35,7 +36,8 @@ interface PersonOverridesMode {
 
 const PersonOverridesModes: Record<string, PersonOverridesMode | undefined> = {
     disabled: undefined,
-    immediate: {
+    'immediate, with mappings': {
+        supportsSyncTransaction: true,
         getWriter: (hub) => new PersonOverrideWriter(hub.db.postgres),
         fetchPostgresPersonIdOverrides: async (hub, teamId) => {
             const writer = new PersonOverrideWriter(hub.db.postgres) // XXX: ideally would reference ``this``, not new instance
@@ -47,10 +49,29 @@ const PersonOverridesModes: Record<string, PersonOverridesMode | undefined> = {
             )
         },
     },
-    deferred: {
+    'deferred, with mappings': {
+        supportsSyncTransaction: false,
         getWriter: (hub) => new DeferredPersonOverrideWriter(hub.db.postgres),
         fetchPostgresPersonIdOverrides: async (hub, teamId) => {
             const syncWriter = new PersonOverrideWriter(hub.db.postgres)
+            await new DeferredPersonOverrideWorker(
+                hub.db.postgres,
+                hub.db.kafkaProducer,
+                syncWriter
+            ).processPendingOverrides()
+            return new Set(
+                (await syncWriter.getPersonOverrides(teamId)).map(({ old_person_id, override_person_id }) => ({
+                    old_person_id,
+                    override_person_id,
+                }))
+            )
+        },
+    },
+    'deferred, without mappings (flat)': {
+        supportsSyncTransaction: false,
+        getWriter: (hub) => new DeferredPersonOverrideWriter(hub.db.postgres),
+        fetchPostgresPersonIdOverrides: async (hub, teamId) => {
+            const syncWriter = new FlatPersonOverrideWriter(hub.db.postgres)
             await new DeferredPersonOverrideWorker(
                 hub.db.postgres,
                 hub.db.kafkaProducer,
@@ -1720,8 +1741,8 @@ describe('PersonState.update()', () => {
             })
 
             it(`does not commit partial transactions on override conflicts`, async () => {
-                if (overridesMode !== PersonOverridesModes.immediate) {
-                    return // this behavior is only supported with immediate overrides
+                if (!overridesMode?.supportsSyncTransaction) {
+                    return
                 }
                 const first: Person = await hub.db.createPerson(
                     timestamp,
