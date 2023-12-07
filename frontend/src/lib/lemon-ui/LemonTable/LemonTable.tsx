@@ -223,6 +223,7 @@ export function LemonTable<T extends Record<string, any>>({
                 stealth && 'LemonTable--stealth',
                 isScrollableLeft && 'scrollable--left',
                 isScrollableRight && 'scrollable--right',
+                !uppercaseHeader && 'LemonTable--lowercase-header',
                 className
             )}
             // eslint-disable-next-line react/forbid-dom-props
@@ -240,7 +241,7 @@ export function LemonTable<T extends Record<string, any>>({
                             ))}
                         </colgroup>
                         {showHeader && (
-                            <thead className={clsx(!uppercaseHeader && 'tracking-normal normal-case')}>
+                            <thead>
                                 {columnGroups.some((group) => group.title) && (
                                     <tr className="LemonTable__row--grouping">
                                         {!!expandable && <th className="LemonTable__toggle" /> /* Expand/collapse */}

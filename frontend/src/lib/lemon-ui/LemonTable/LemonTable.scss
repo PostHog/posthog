@@ -83,6 +83,15 @@
         }
     }
 
+    &--lowercase-header {
+        .LemonTable__content > table {
+            > thead {
+                text-transform: none;
+                letter-spacing: normal;
+            }
+        }
+    }
+
     &.LemonTable--inset {
         --row-horizontal-padding: 0.5rem;
     }
