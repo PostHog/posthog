@@ -224,7 +224,11 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 >
                     <span className="LemonButton__chrome">
                         {icon ? <span className="LemonButton__icon">{icon}</span> : null}
-                        {children ? <span className="LemonButton__content">{children}</span> : null}
+                        {children ? (
+                            <span className="LemonButton__content">
+                                {typeof children === 'string' ? <span className="truncate">{children}</span> : children}
+                            </span>
+                        ) : null}
                         {sideIcon ? <span className="LemonButton__icon">{sideIcon}</span> : null}
                     </span>
                 </ButtonComponent>

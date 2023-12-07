@@ -1,8 +1,9 @@
+import { IconGear } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import clsx from 'clsx'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
-import { IconCalculate, IconInfo, IconPlus } from 'lib/lemon-ui/icons'
+import { IconCalculate, IconInfo, IconLink, IconPlus } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { capitalizeFirstLetter, delay, range } from 'lib/utils'
@@ -470,12 +471,13 @@ export const WithOverflowingContent = (): JSX.Element => {
     const longText = 'long text that will overflow the button by at least a little!'
 
     return (
-        <div className="w-200 border p-2 rounded flex items-center gap-2">
-            <LemonButton type="secondary" className="shrink-0">
-                No shrink
+        <div className="w-200 border p-2 rounded flex items-center gap-2 overflow-hidden">
+            <LemonButton type="secondary">No shrink</LemonButton>
+            <LemonButton type="secondary" icon={<IconLink />}>
+                Small button
             </LemonButton>
-            <LemonButton type="secondary" className="truncate">
-                <span className="truncate">Truncating {longText}</span>
+            <LemonButton type="secondary" icon={<IconGear />} sideIcon={<IconLink />}>
+                Truncating {longText}
             </LemonButton>
             <LemonButton type="secondary">{longText}</LemonButton>
         </div>
