@@ -40,7 +40,7 @@
         display: flex;
         gap: 0.2rem;
         align-items: center;
-        height: 1.25rem;
+        height: 1.375rem;
         overflow: hidden;
         opacity: 0;
         transition: all 150ms linear 1000ms;
@@ -49,7 +49,7 @@
     &--editable:hover,
     &--selected {
         .NotebookNode__gap {
-            height: 2rem;
+            height: 1.875rem;
             opacity: 1;
             transition: all 150ms linear;
         }
