@@ -39,11 +39,6 @@ metadata:
   annotations:
     service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
     external-dns.alpha.kubernetes.io/hostname: $HOSTNAME.us-east-1.dev.posthog.dev
-#    tailscale.com/expose: "true"
-#    tailscale.com/hostname: hobby-$HOSTNAME
-#    tailscale.com/tags: tag:service
-#  finalizers:
-#    - tailscale.com/finalizer
 spec:
   selector:
     app: hobby-$HOSTNAME
