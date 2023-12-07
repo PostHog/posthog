@@ -6,11 +6,19 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-axum = { version="0.7.1", features=["http2"] }
-tokio = { workspace = true }
-eyre = {workspace = true }
-tracing = {workspace = true}
-tracing-subscriber = {workspace = true}
+axum = { version = "0.7.1", features = ["http2"] }
 envconfig = { workspace = true }
+eyre = { workspace = true }
+hook-common = { path = "../hook-common" }
+http-body-util = { workspace = true }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
+serde = { workspace = true }
+serde_derive = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+url = { workspace = true }

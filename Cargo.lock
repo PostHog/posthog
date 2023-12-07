@@ -986,6 +986,7 @@ name = "hook-common"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "http 0.2.11",
  "serde",
  "serde_derive",
  "sqlx",
@@ -1019,11 +1020,19 @@ dependencies = [
  "axum",
  "envconfig",
  "eyre",
+ "hook-common",
+ "http-body-util",
  "metrics",
  "metrics-exporter-prometheus",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "sqlx",
  "tokio",
+ "tower",
  "tracing",
  "tracing-subscriber",
+ "url",
 ]
 
 [[package]]

@@ -6,11 +6,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-chrono = { workspace = true}
+chrono = { workspace = true }
+http = { workspace = true }
 serde = { workspace = true }
-serde_derive = { workspace = true}
-thiserror = { workspace = true }
+serde_derive = { workspace = true }
 sqlx = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true } # We need a runtime for async tests
