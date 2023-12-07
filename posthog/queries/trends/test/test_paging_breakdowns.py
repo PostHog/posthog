@@ -60,7 +60,7 @@ class TestPagingBreakdowns(APIBaseTest):
     def test_with_breakdown_loads_two_unqiue_pages_of_values(self):
         response = self._run({"breakdown": "wildcard_route", "breakdown_type": "event"})
 
-        self.assertEqual(len(response), 25)
+        self.assertEqual(len(response), 26)
 
         page_labels = [r["label"] for r in response]
         self.assertEqual(sorted(page_labels), sorted(list(set(page_labels))))  # all values are unique
@@ -72,8 +72,8 @@ class TestPagingBreakdowns(APIBaseTest):
 
         self.assertEqual(sorted(second_page_labels), sorted(list(set(second_page_labels))))  # all values are unique
 
-        # no values from page one should be in page two
-        self.assertEqual([value for value in second_page_labels if value in page_labels], [])
+        # Other than 'Other', no values from page one should be in page two
+        self.assertEqual([value for value in second_page_labels if value in page_labels], ["Other"])
 
     def test_without_breakdown(self):
         response = self._run({})

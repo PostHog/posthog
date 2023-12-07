@@ -453,8 +453,14 @@ class TrendsBreakdown:
             numeric_property_filter = f"AND {breakdown_value} is not null"
             breakdown_value, values_arr = self._get_histogram_breakdown_values(breakdown_value, values_arr)
 
-        # Add "Other"
-        breakdown_value = f"transform({breakdown_value}, (%(values)s), (%(values)s), '$$_posthog_breakdown_other_$$')"
+        elif self.filter.breakdown_type == "session" and self.filter.breakdown == "$session_duration":
+            # Not adding "Other" for the custom session duration filter.
+            pass
+        else:
+            # Adding "Other" breakdown option
+            breakdown_value = (
+                f"transform({breakdown_value}, (%(values)s), (%(values)s), '$$_posthog_breakdown_other_$$')"
+            )
 
         return (
             {"values": values_arr},
