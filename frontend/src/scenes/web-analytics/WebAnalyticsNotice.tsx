@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconBugReport, IconFeedback } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { Link } from 'lib/lemon-ui/Link'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export const WebAnalyticsNotice = (): JSX.Element => {
