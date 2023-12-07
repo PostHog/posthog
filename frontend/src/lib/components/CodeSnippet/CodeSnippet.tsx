@@ -20,6 +20,7 @@ import java from 'react-syntax-highlighter/dist/esm/languages/prism/java'
 import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript'
 import json from 'react-syntax-highlighter/dist/esm/languages/prism/json'
 import jsx from 'react-syntax-highlighter/dist/esm/languages/prism/jsx'
+import kotlin from 'react-syntax-highlighter/dist/esm/languages/prism/kotlin'
 import markup from 'react-syntax-highlighter/dist/esm/languages/prism/markup'
 import objectiveC from 'react-syntax-highlighter/dist/esm/languages/prism/objectivec'
 import php from 'react-syntax-highlighter/dist/esm/languages/prism/php'
@@ -52,6 +53,7 @@ export enum Language {
     HTTP = 'http',
     Markup = 'markup',
     SQL = 'sql',
+    Kotlin = 'kotlin',
 }
 
 SyntaxHighlighter.registerLanguage(Language.Bash, bash)
@@ -73,6 +75,7 @@ SyntaxHighlighter.registerLanguage(Language.XML, markup)
 SyntaxHighlighter.registerLanguage(Language.Markup, markup)
 SyntaxHighlighter.registerLanguage(Language.HTTP, http)
 SyntaxHighlighter.registerLanguage(Language.SQL, sql)
+SyntaxHighlighter.registerLanguage(Language.Kotlin, kotlin)
 
 export interface Action {
     icon: React.ReactElement
@@ -142,7 +145,7 @@ export function CodeSnippet({
                 />
             </div>
             <SyntaxHighlighter
-                style={featureFlags[FEATURE_FLAGS.POSTHOG_3000] ? synthwave84 : okaidia}
+                style={featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test' ? synthwave84 : okaidia}
                 language={language}
                 wrapLines={wrap}
                 lineProps={{ style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } }}

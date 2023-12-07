@@ -74,7 +74,7 @@ export interface LemonSelectPropsBase<T>
     dropdownPlacement?: PopoverProps['placement']
     className?: string
     placeholder?: string
-    size?: 'small' | 'medium'
+    size?: LemonButtonProps['size']
     menu?: Pick<LemonMenuProps, 'className' | 'closeParentPopoverOnClickInside'>
 }
 
@@ -140,7 +140,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
             closeParentPopoverOnClickInside={menu?.closeParentPopoverOnClickInside}
         >
             <LemonButton
-                className={clsx(className, isClearButtonShown && 'LemonSelect--clearable')}
+                className={clsx(className, 'LemonSelect', isClearButtonShown && 'LemonSelect--clearable')}
                 icon={activeLeaf?.icon}
                 // so that the pop-up isn't shown along with the close button
                 sideIcon={isClearButtonShown ? <></> : undefined}

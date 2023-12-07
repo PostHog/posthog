@@ -139,7 +139,7 @@
             "type": "number"
         },
         "MobileNodeType": {
-            "enum": ["text", "image", "rectangle", "div"],
+            "enum": ["text", "image", "rectangle", "input", "div", "radio_group"],
             "type": "string"
         },
         "MobileStyles": {
@@ -199,8 +199,111 @@
                 },
                 {
                     "$ref": "#/definitions/wireframeDiv"
+                },
+                {
+                    "$ref": "#/definitions/wireframeInputComponent"
+                },
+                {
+                    "$ref": "#/definitions/wireframeRadioGroup"
                 }
             ]
+        },
+        "wireframeButton": {
+            "additionalProperties": false,
+            "properties": {
+                "childWireframes": {
+                    "items": {
+                        "$ref": "#/definitions/wireframe"
+                    },
+                    "type": "array"
+                },
+                "disabled": {
+                    "description": "for several attributes we technically only care about true or absent as values. They are represented as bare attributes in HTML <input disabled>. When true that attribute is added to the HTML element, when absent that attribute is not added to the HTML element. When false or absent they are not added to the element.",
+                    "type": "boolean"
+                },
+                "height": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "inputType": {
+                    "const": "button",
+                    "type": "string"
+                },
+                "style": {
+                    "$ref": "#/definitions/MobileStyles"
+                },
+                "type": {
+                    "$ref": "#/definitions/MobileNodeType"
+                },
+                "value": {
+                    "description": "this is the text that is displayed on the button, if not sent then you must send childNodes with the button content",
+                    "type": "string"
+                },
+                "width": {
+                    "type": "number"
+                },
+                "x": {
+                    "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
+                    "type": "number"
+                },
+                "y": {
+                    "type": "number"
+                }
+            },
+            "required": ["disabled", "height", "id", "inputType", "type", "width", "x", "y"],
+            "type": "object"
+        },
+        "wireframeCheckBox": {
+            "additionalProperties": false,
+            "properties": {
+                "checked": {
+                    "description": "for several attributes we technically only care about true or absent as values. They are represented as bare attributes in HTML <input checked>. When true that attribute is added to the HTML element, when absent that attribute is not added to the HTML element. When false or absent they are not added to the element.",
+                    "type": "boolean"
+                },
+                "childWireframes": {
+                    "items": {
+                        "$ref": "#/definitions/wireframe"
+                    },
+                    "type": "array"
+                },
+                "disabled": {
+                    "description": "for several attributes we technically only care about true or absent as values. They are represented as bare attributes in HTML <input disabled>. When true that attribute is added to the HTML element, when absent that attribute is not added to the HTML element. When false or absent they are not added to the element.",
+                    "type": "boolean"
+                },
+                "height": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "inputType": {
+                    "const": "checkbox",
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "style": {
+                    "$ref": "#/definitions/MobileStyles"
+                },
+                "type": {
+                    "$ref": "#/definitions/MobileNodeType"
+                },
+                "width": {
+                    "type": "number"
+                },
+                "x": {
+                    "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
+                    "type": "number"
+                },
+                "y": {
+                    "type": "number"
+                }
+            },
+            "required": ["checked", "disabled", "height", "id", "inputType", "type", "width", "x", "y"],
+            "type": "object"
         },
         "wireframeDiv": {
             "additionalProperties": false,
@@ -276,6 +379,159 @@
             "required": ["base64", "height", "id", "type", "width", "x", "y"],
             "type": "object"
         },
+        "wireframeInput": {
+            "additionalProperties": false,
+            "properties": {
+                "childWireframes": {
+                    "items": {
+                        "$ref": "#/definitions/wireframe"
+                    },
+                    "type": "array"
+                },
+                "disabled": {
+                    "description": "for several attributes we technically only care about true or absent as values. They are represented as bare attributes in HTML <input disabled>. When true that attribute is added to the HTML element, when absent that attribute is not added to the HTML element. When false or absent they are not added to the element.",
+                    "type": "boolean"
+                },
+                "height": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "inputType": {
+                    "enum": ["text", "password", "email", "number", "search", "tel", "url"],
+                    "type": "string"
+                },
+                "style": {
+                    "$ref": "#/definitions/MobileStyles"
+                },
+                "type": {
+                    "$ref": "#/definitions/MobileNodeType"
+                },
+                "value": {
+                    "type": "string"
+                },
+                "width": {
+                    "type": "number"
+                },
+                "x": {
+                    "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
+                    "type": "number"
+                },
+                "y": {
+                    "type": "number"
+                }
+            },
+            "required": ["disabled", "height", "id", "inputType", "type", "width", "x", "y"],
+            "type": "object"
+        },
+        "wireframeInputComponent": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/wireframeCheckBox"
+                },
+                {
+                    "$ref": "#/definitions/wireframeRadio"
+                },
+                {
+                    "$ref": "#/definitions/wireframeInput"
+                },
+                {
+                    "$ref": "#/definitions/wireframeSelect"
+                },
+                {
+                    "$ref": "#/definitions/wireframeTextArea"
+                },
+                {
+                    "$ref": "#/definitions/wireframeButton"
+                }
+            ]
+        },
+        "wireframeRadio": {
+            "additionalProperties": false,
+            "properties": {
+                "checked": {
+                    "description": "for several attributes we technically only care about true or absent as values. They are represented as bare attributes in HTML <input checked>. When true that attribute is added to the HTML element, when absent that attribute is not added to the HTML element. When false or absent they are not added to the element.",
+                    "type": "boolean"
+                },
+                "childWireframes": {
+                    "items": {
+                        "$ref": "#/definitions/wireframe"
+                    },
+                    "type": "array"
+                },
+                "disabled": {
+                    "description": "for several attributes we technically only care about true or absent as values. They are represented as bare attributes in HTML <input disabled>. When true that attribute is added to the HTML element, when absent that attribute is not added to the HTML element. When false or absent they are not added to the element.",
+                    "type": "boolean"
+                },
+                "height": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "inputType": {
+                    "const": "radio",
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "style": {
+                    "$ref": "#/definitions/MobileStyles"
+                },
+                "type": {
+                    "$ref": "#/definitions/MobileNodeType"
+                },
+                "width": {
+                    "type": "number"
+                },
+                "x": {
+                    "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
+                    "type": "number"
+                },
+                "y": {
+                    "type": "number"
+                }
+            },
+            "required": ["checked", "disabled", "height", "id", "inputType", "type", "width", "x", "y"],
+            "type": "object"
+        },
+        "wireframeRadioGroup": {
+            "additionalProperties": false,
+            "properties": {
+                "childWireframes": {
+                    "items": {
+                        "$ref": "#/definitions/wireframe"
+                    },
+                    "type": "array"
+                },
+                "height": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "style": {
+                    "$ref": "#/definitions/MobileStyles"
+                },
+                "type": {
+                    "$ref": "#/definitions/MobileNodeType"
+                },
+                "width": {
+                    "type": "number"
+                },
+                "x": {
+                    "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
+                    "type": "number"
+                },
+                "y": {
+                    "type": "number"
+                }
+            },
+            "required": ["height", "id", "type", "width", "x", "y"],
+            "type": "object"
+        },
         "wireframeRectangle": {
             "additionalProperties": false,
             "properties": {
@@ -309,6 +565,58 @@
                 }
             },
             "required": ["height", "id", "type", "width", "x", "y"],
+            "type": "object"
+        },
+        "wireframeSelect": {
+            "additionalProperties": false,
+            "properties": {
+                "childWireframes": {
+                    "items": {
+                        "$ref": "#/definitions/wireframe"
+                    },
+                    "type": "array"
+                },
+                "disabled": {
+                    "description": "for several attributes we technically only care about true or absent as values. They are represented as bare attributes in HTML <input disabled>. When true that attribute is added to the HTML element, when absent that attribute is not added to the HTML element. When false or absent they are not added to the element.",
+                    "type": "boolean"
+                },
+                "height": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "inputType": {
+                    "const": "select",
+                    "type": "string"
+                },
+                "options": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "style": {
+                    "$ref": "#/definitions/MobileStyles"
+                },
+                "type": {
+                    "$ref": "#/definitions/MobileNodeType"
+                },
+                "value": {
+                    "type": "string"
+                },
+                "width": {
+                    "type": "number"
+                },
+                "x": {
+                    "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
+                    "type": "number"
+                },
+                "y": {
+                    "type": "number"
+                }
+            },
+            "required": ["disabled", "height", "id", "inputType", "type", "width", "x", "y"],
             "type": "object"
         },
         "wireframeText": {
@@ -347,6 +655,52 @@
                 }
             },
             "required": ["height", "id", "text", "type", "width", "x", "y"],
+            "type": "object"
+        },
+        "wireframeTextArea": {
+            "additionalProperties": false,
+            "properties": {
+                "childWireframes": {
+                    "items": {
+                        "$ref": "#/definitions/wireframe"
+                    },
+                    "type": "array"
+                },
+                "disabled": {
+                    "description": "for several attributes we technically only care about true or absent as values. They are represented as bare attributes in HTML <input disabled>. When true that attribute is added to the HTML element, when absent that attribute is not added to the HTML element. When false or absent they are not added to the element.",
+                    "type": "boolean"
+                },
+                "height": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "inputType": {
+                    "const": "text_area",
+                    "type": "string"
+                },
+                "style": {
+                    "$ref": "#/definitions/MobileStyles"
+                },
+                "type": {
+                    "$ref": "#/definitions/MobileNodeType"
+                },
+                "value": {
+                    "type": "string"
+                },
+                "width": {
+                    "type": "number"
+                },
+                "x": {
+                    "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
+                    "type": "number"
+                },
+                "y": {
+                    "type": "number"
+                }
+            },
+            "required": ["disabled", "height", "id", "inputType", "type", "width", "x", "y"],
             "type": "object"
         }
     }

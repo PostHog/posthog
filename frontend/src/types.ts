@@ -37,6 +37,7 @@ import type {
     InsightVizNode,
     Node,
 } from './queries/schema'
+import { NodeKind } from './queries/schema'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -90,15 +91,6 @@ export enum AvailableFeature {
     SURVEYS_STYLING = 'surveys_styling',
     SURVEYS_TEXT_HTML = 'surveys_text_html',
     SURVEYS_MULTIPLE_QUESTIONS = 'surveys_multiple_questions',
-}
-
-export type AvailableProductFeature = {
-    key: AvailableFeature
-    name: string
-    description?: string | null
-    limit?: number | null
-    note?: string | null
-    unit?: string | null
 }
 
 export enum ProductKey {
@@ -234,7 +226,7 @@ export interface OrganizationType extends OrganizationBasicType {
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[] | null
     available_features: AvailableFeature[]
-    available_product_features: AvailableProductFeature[]
+    available_product_features: BillingV2FeatureType[]
     is_member_join_email_enabled: boolean
     customer_id: string | null
     enforce_2fa: boolean | null
@@ -845,6 +837,7 @@ export type SearchableEntity =
     | 'experiment'
     | 'feature_flag'
     | 'notebook'
+    | 'survey'
 
 export type SearchListParams = { q: string; entities?: SearchableEntity[] }
 
@@ -1203,14 +1196,13 @@ export interface CurrentBillCycleType {
     current_period_end: number
 }
 
-export interface BillingV2FeatureType {
-    key: string
+export type BillingV2FeatureType = {
+    key: AvailableFeature
     name: string
-    description?: string
-    unit?: string
-    limit?: number
-    note?: string
-    group?: AvailableFeature
+    description?: string | null
+    limit?: number | null
+    note?: string | null
+    unit?: string | null
 }
 
 export interface BillingV2TierType {
@@ -1225,36 +1217,30 @@ export interface BillingV2TierType {
 
 export interface BillingProductV2Type {
     type: string
-    usage_key: string
+    usage_key: string | null
     name: string
     description: string
     price_description?: string | null
     icon_key?: string | null
     image_url?: string | null
     docs_url: string | null
-    free_allocation?: number
-    subscribed: boolean
+    free_allocation?: number | null
+    subscribed: boolean | null
     tiers?: BillingV2TierType[] | null
     tiered: boolean
     current_usage?: number
-    projected_amount_usd?: string
+    projected_amount_usd?: string | null
     projected_usage?: number
     percentage_usage: number
     current_amount_usd_before_addons: string | null
     current_amount_usd: string | null
     usage_limit: number | null
     has_exceeded_limit: boolean
-    unit: string
+    unit: string | null
     unit_amount_usd: string | null
     plans: BillingV2PlanType[]
     contact_support: boolean
     inclusion_only: any
-    feature_groups: {
-        // deprecated, remove after removing the billing plans table
-        group: string
-        name: string
-        features: BillingV2FeatureType[]
-    }[]
     addons: BillingProductV2AddonType[]
 
     // addons-only: if this addon is included with the base product and not subscribed individually. for backwards compatibility.
@@ -1283,7 +1269,7 @@ export interface BillingProductV2AddonType {
     projected_amount_usd: string | null
     plans: BillingV2PlanType[]
     usage_key: string
-    free_allocation?: number
+    free_allocation?: number | null
     percentage_usage?: number
 }
 export interface BillingV2Type {
@@ -1314,16 +1300,14 @@ export interface BillingV2Type {
 }
 
 export interface BillingV2PlanType {
-    free_allocation?: number
+    free_allocation?: number | null
     features: BillingV2FeatureType[]
-    key: string
     name: string
     description: string
     is_free?: boolean
-    products: BillingProductV2Type[]
     plan_key?: string
     current_plan?: any
-    tiers?: BillingV2TierType[]
+    tiers?: BillingV2TierType[] | null
     included_if?: 'no_active_subscription' | 'has_subscription' | null
     initial_billing_limit?: number
 }
@@ -1874,12 +1858,25 @@ export interface PathsFilterType extends FilterType {
     path_end_key?: string // Paths People End Key
     path_dropoff_key?: string // Paths People Dropoff Key
 }
+
+export interface RetentionEntity {
+    id?: string | number // TODO: Fix weird typing issues
+    kind?: NodeKind.ActionsNode | NodeKind.EventsNode
+    name?: string
+    type?: EntityType
+    // @asType integer
+    order?: number
+    uuid?: string
+    custom_name?: string
+}
+
 export interface RetentionFilterType extends FilterType {
     retention_type?: RetentionType
     retention_reference?: 'total' | 'previous' // retention wrt cohort size or previous period
+    /** @asType integer */
     total_intervals?: number // retention total intervals
-    returning_entity?: Record<string, any>
-    target_entity?: Record<string, any>
+    returning_entity?: RetentionEntity
+    target_entity?: RetentionEntity
     period?: RetentionPeriod
 }
 export interface LifecycleFilterType extends FilterType {
@@ -2779,6 +2776,7 @@ export interface AppContext {
     frontend_apps?: Record<number, FrontendAppConfig>
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
+    year_in_hog_url?: string
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -3273,6 +3271,7 @@ export interface DataWarehouseTable {
     url_pattern: string
     credential: DataWarehouseCredential
     columns: DatabaseSchemaQueryResponseField[]
+    external_data_source?: ExternalDataStripeSource
 }
 
 export type DataWarehouseTableTypes = 'CSV' | 'Parquet'
@@ -3307,6 +3306,8 @@ export interface ExternalDataStripeSource {
     connection_id: string
     status: string
     source_type: string
+    prefix: string
+    last_run_at?: Dayjs
 }
 
 export type BatchExportDestinationS3 = {
@@ -3430,7 +3431,13 @@ export type SDK = {
     key: string
     recommended?: boolean
     tags: string[]
-    image: string | JSX.Element
+    image:
+        | string
+        | JSX.Element
+        // storybook handles require() differently, so we need to support both
+        | {
+              default: string
+          }
     docsLink: string
 }
 
@@ -3498,6 +3505,7 @@ export enum SidePanelTab {
     Docs = 'docs',
     Activation = 'activation',
     Settings = 'settings',
+    Welcome = 'welcome',
     FeaturePreviews = 'feature-previews',
     Activity = 'activity',
 }

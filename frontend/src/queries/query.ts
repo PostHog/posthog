@@ -30,6 +30,7 @@ import {
     isLifecycleQuery,
     isPersonsNode,
     isPersonsQuery,
+    isRetentionQuery,
     isTimeToSeeDataQuery,
     isTimeToSeeDataSessionsNode,
     isTimeToSeeDataSessionsQuery,
@@ -148,6 +149,9 @@ export async function query<N extends DataNode = DataNode>(
     const hogQLInsightsLifecycleFlagEnabled = Boolean(
         featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE]
     )
+    const hogQLInsightsRetentionFlagEnabled = Boolean(
+        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION]
+    )
     const hogQLInsightsTrendsFlagEnabled = Boolean(
         featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]
     )
@@ -193,6 +197,7 @@ export async function query<N extends DataNode = DataNode>(
         } else if (isInsightQueryNode(queryNode)) {
             if (
                 (hogQLInsightsLifecycleFlagEnabled && isLifecycleQuery(queryNode)) ||
+                (hogQLInsightsRetentionFlagEnabled && isRetentionQuery(queryNode)) ||
                 (hogQLInsightsTrendsFlagEnabled && isTrendsQuery(queryNode))
             ) {
                 if (hogQLInsightsLiveCompareEnabled) {

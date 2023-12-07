@@ -27,12 +27,13 @@ export function PageHeader({
     delimited,
     notebookProps,
 }: PageHeaderProps): JSX.Element | null {
-    const is3000 = useFeatureFlag('POSTHOG_3000')
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
     const { actionsContainer } = useValues(breadcrumbsLogic)
 
     return (
         <>
             {!is3000 && (
+                // eslint-disable-next-line react/forbid-dom-props
                 <div className="page-title-row flex justify-between" style={style}>
                     <div className="min-w-0">
                         {!is3000 &&

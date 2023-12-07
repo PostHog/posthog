@@ -23,9 +23,9 @@ from posthog.clickhouse.log_entries import (
     TRUNCATE_LOG_ENTRIES_TABLE_SQL,
 )
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
-from posthog.temporal.batch_exports.logger import (
+from posthog.temporal.common.logger import (
     BACKGROUND_LOGGER_TASKS,
-    bind_batch_exports_logger,
+    bind_temporal_worker_logger,
     configure_logger,
 )
 
@@ -155,7 +155,7 @@ async def configure(log_capture, queue, producer):
 
 async def test_batch_exports_logger_binds_context(log_capture):
     """Test whether we can bind context variables."""
-    logger = await bind_batch_exports_logger(team_id=1, destination="Somewhere")
+    logger = await bind_temporal_worker_logger(team_id=1, destination="Somewhere")
 
     logger.info("Hi! This is an info log")
     logger.error("Hi! This is an erro log")
@@ -173,7 +173,7 @@ async def test_batch_exports_logger_binds_context(log_capture):
 
 async def test_batch_exports_logger_formats_positional_args(log_capture):
     """Test whether positional arguments are formatted in the message."""
-    logger = await bind_batch_exports_logger(team_id=1, destination="Somewhere")
+    logger = await bind_temporal_worker_logger(team_id=1, destination="Somewhere")
 
     logger.info("Hi! This is an %s log", "info")
     logger.error("Hi! This is an %s log", "error")
@@ -234,7 +234,7 @@ async def test_batch_exports_logger_binds_activity_context(
     @temporalio.activity.defn
     async def log_activity():
         """A simple temporal activity that just logs."""
-        logger = await bind_batch_exports_logger(team_id=1, destination="Somewhere")
+        logger = await bind_temporal_worker_logger(team_id=1, destination="Somewhere")
 
         logger.info("Hi! This is an %s log from an activity", "info")
 
@@ -282,7 +282,7 @@ async def test_batch_exports_logger_puts_in_queue(activity_environment, queue):
     @temporalio.activity.defn
     async def log_activity():
         """A simple temporal activity that just logs."""
-        logger = await bind_batch_exports_logger(team_id=2, destination="Somewhere")
+        logger = await bind_temporal_worker_logger(team_id=2, destination="Somewhere")
 
         logger.info("Hi! This is an %s log from an activity", "info")
 
@@ -347,7 +347,7 @@ async def test_batch_exports_logger_produces_to_kafka(activity_environment, prod
     @temporalio.activity.defn
     async def log_activity():
         """A simple temporal activity that just logs."""
-        logger = await bind_batch_exports_logger(team_id=3, destination="Somewhere")
+        logger = await bind_temporal_worker_logger(team_id=3, destination="Somewhere")
 
         logger.info("Hi! This is an %s log from an activity", "info")
 

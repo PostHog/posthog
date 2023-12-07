@@ -2,6 +2,7 @@ import collections.abc
 import dataclasses
 import datetime as dt
 import typing
+import abc
 
 
 class EmptyHeartbeatError(Exception):
@@ -29,7 +30,7 @@ class HeartbeatParseError(Exception):
 
 
 @dataclasses.dataclass
-class HeartbeatDetails:
+class HeartbeatDetails(metaclass=abc.ABCMeta):
     """The batch export details included in every heartbeat.
 
     Each batch export destination should subclass this and implement whatever details are specific to that
@@ -40,13 +41,21 @@ class HeartbeatDetails:
         _remaining: Any remaining values in the heartbeat_details tuple that we do not parse.
     """
 
-    last_inserted_at: dt.datetime
     _remaining: collections.abc.Sequence[typing.Any]
 
     @property
     def total_details(self) -> int:
         """The total number of details that we have parsed + those remaining to parse."""
         return (len(dataclasses.fields(self.__class__)) - 1) + len(self._remaining)
+
+    @abc.abstractclassmethod
+    def from_activity(cls, activity):
+        pass
+
+
+@dataclasses.dataclass
+class BatchExportHeartbeatDetails(HeartbeatDetails):
+    last_inserted_at: dt.datetime
 
     @classmethod
     def from_activity(cls, activity):
@@ -61,7 +70,33 @@ class HeartbeatDetails:
         except (TypeError, ValueError) as e:
             raise HeartbeatParseError("last_inserted_at") from e
 
-        return cls(last_inserted_at, _remaining=details[1:])
+        return cls(last_inserted_at=last_inserted_at, _remaining=details[1:])
+
+
+@dataclasses.dataclass
+class DataImportHeartbeatDetails(HeartbeatDetails):
+    """Data import heartbeat details.
+
+    Attributes:
+        endpoint: The endpoint we are importing data from.
+        cursor: The cursor we are using to paginate through the endpoint.
+    """
+
+    endpoint: str
+    cursor: str
+
+    @classmethod
+    def from_activity(cls, activity):
+        """Attempt to initialize DataImportHeartbeatDetails from an activity's info."""
+        details = activity.info().heartbeat_details
+
+        if len(details) == 0:
+            raise EmptyHeartbeatError()
+
+        if len(details) != 2:
+            raise NotEnoughHeartbeatValuesError(len(details), 2)
+
+        return cls(endpoint=details[0], cursor=details[1], _remaining=details[2:])
 
 
 HeartbeatType = typing.TypeVar("HeartbeatType", bound=HeartbeatDetails)

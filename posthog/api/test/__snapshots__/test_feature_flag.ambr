@@ -365,6 +365,7 @@
          "posthog_cohort"."team_id",
          "posthog_cohort"."deleted",
          "posthog_cohort"."filters",
+         "posthog_cohort"."query",
          "posthog_cohort"."version",
          "posthog_cohort"."pending_version",
          "posthog_cohort"."count",
@@ -604,6 +605,7 @@
          "posthog_cohort"."team_id",
          "posthog_cohort"."deleted",
          "posthog_cohort"."filters",
+         "posthog_cohort"."query",
          "posthog_cohort"."version",
          "posthog_cohort"."pending_version",
          "posthog_cohort"."count",
@@ -700,6 +702,7 @@
          "posthog_cohort"."team_id",
          "posthog_cohort"."deleted",
          "posthog_cohort"."filters",
+         "posthog_cohort"."query",
          "posthog_cohort"."version",
          "posthog_cohort"."pending_version",
          "posthog_cohort"."count",
@@ -921,6 +924,7 @@
          "posthog_cohort"."team_id",
          "posthog_cohort"."deleted",
          "posthog_cohort"."filters",
+         "posthog_cohort"."query",
          "posthog_cohort"."version",
          "posthog_cohort"."pending_version",
          "posthog_cohort"."count",
@@ -1216,6 +1220,7 @@
          "posthog_cohort"."team_id",
          "posthog_cohort"."deleted",
          "posthog_cohort"."filters",
+         "posthog_cohort"."query",
          "posthog_cohort"."version",
          "posthog_cohort"."pending_version",
          "posthog_cohort"."count",
@@ -1281,6 +1286,7 @@
          "posthog_cohort"."team_id",
          "posthog_cohort"."deleted",
          "posthog_cohort"."filters",
+         "posthog_cohort"."query",
          "posthog_cohort"."version",
          "posthog_cohort"."pending_version",
          "posthog_cohort"."count",
@@ -1672,7 +1678,7 @@
 ---
 # name: TestFeatureFlag.test_creating_static_cohort.14
   '
-  /* user_id:189 celery:posthog.tasks.calculate_cohort.insert_cohort_from_feature_flag */
+  /* user_id:191 celery:posthog.tasks.calculate_cohort.insert_cohort_from_feature_flag */
   SELECT count(DISTINCT person_id)
   FROM person_static_cohort
   WHERE team_id = 2
@@ -2016,6 +2022,7 @@
          "posthog_cohort"."team_id",
          "posthog_cohort"."deleted",
          "posthog_cohort"."filters",
+         "posthog_cohort"."query",
          "posthog_cohort"."version",
          "posthog_cohort"."pending_version",
          "posthog_cohort"."count",

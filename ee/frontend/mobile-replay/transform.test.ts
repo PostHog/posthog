@@ -346,5 +346,328 @@ describe('replay/transform', () => {
             ])
             expect(textEvent).toMatchSnapshot()
         })
+        test('omitting x and y is equivalent to setting them to 0', () => {
+            expect(
+                posthogEEModule.mobileReplay?.transformToWeb([
+                    {
+                        type: 2,
+                        data: {
+                            wireframes: [
+                                {
+                                    id: 12345,
+                                    width: 100,
+                                    height: 30,
+                                    type: 'image',
+                                },
+                            ],
+                        },
+                        timestamp: 1,
+                    },
+                ])
+            ).toMatchSnapshot()
+        })
+        describe('inputs', () => {
+            test('buttons with nested elements', () => {
+                expect(
+                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                        type: 2,
+                        data: {
+                            wireframes: [
+                                {
+                                    id: 12359,
+                                    width: 100,
+                                    height: 30,
+                                    type: 'input',
+                                    inputType: 'button',
+                                    childNodes: [
+                                        {
+                                            id: 12360,
+                                            width: 100,
+                                            height: 30,
+                                            type: 'text',
+                                            text: 'click me',
+                                        },
+                                    ],
+                                },
+                                {
+                                    id: 12361,
+                                    width: 100,
+                                    height: 30,
+                                    type: 'input',
+                                    inputType: 'button',
+                                    value: 'click me',
+                                    childNodes: [
+                                        {
+                                            id: 12362,
+                                            width: 100,
+                                            height: 30,
+                                            type: 'text',
+                                            text: 'and have more text',
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                        timestamp: 1,
+                    })
+                ).toMatchSnapshot()
+            })
+            test('wrapping with labels', () => {
+                expect(
+                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                        type: 2,
+                        data: {
+                            wireframes: [
+                                {
+                                    id: 12359,
+                                    width: 100,
+                                    height: 30,
+                                    type: 'input',
+                                    inputType: 'checkbox',
+                                    label: 'i will wrap the checkbox',
+                                },
+                            ],
+                        },
+                        timestamp: 1,
+                    })
+                ).toMatchSnapshot()
+            })
+            test('radio_group', () => {
+                expect(
+                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                        type: 2,
+                        data: {
+                            wireframes: [
+                                {
+                                    id: 54321,
+                                    width: 100,
+                                    height: 30,
+                                    type: 'radio_group',
+                                    timestamp: 12345,
+                                    childNodes: [
+                                        {
+                                            id: 12345,
+                                            width: 100,
+                                            height: 30,
+                                            type: 'input',
+                                            inputType: 'radio',
+                                            checked: true,
+                                            label: 'first',
+                                        },
+                                        {
+                                            id: 12346,
+                                            width: 100,
+                                            height: 30,
+                                            type: 'input',
+                                            inputType: 'radio',
+                                            checked: false,
+                                            label: 'second',
+                                        },
+                                        {
+                                            id: 12347,
+                                            width: 100,
+                                            height: 30,
+                                            type: 'text',
+                                            text: 'to check that only radios are given a name',
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                        timestamp: 1,
+                    })
+                ).toMatchSnapshot()
+            })
+            test.each([
+                {
+                    id: 12346,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'text',
+                    value: 'hello',
+                },
+                {
+                    id: 12347,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'text',
+                    // without value
+                },
+                {
+                    id: 12348,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'password',
+                    // without value
+                },
+                {
+                    id: 12349,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'email',
+                    // without value
+                },
+                {
+                    id: 12350,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'number',
+                    // without value
+                },
+                {
+                    id: 12351,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'search',
+                    // without value
+                },
+                {
+                    id: 12352,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'tel',
+                    disabled: true,
+                },
+                {
+                    id: 12352,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'url',
+                    value: 'https://example.io',
+                    disabled: false,
+                },
+                {
+                    id: 123123,
+                    width: 100,
+                    height: 30,
+                    type: 'radio_group',
+                    // oh, oh, no child nodes
+                },
+                {
+                    id: 12354,
+                    width: 100,
+                    height: 30,
+                    type: 'radio group',
+                    childNodes: [
+                        {
+                            id: 12355,
+                            width: 100,
+                            height: 30,
+                            type: 'input',
+                            inputType: 'radio',
+                            checked: true,
+                            label: 'first',
+                        },
+                        {
+                            id: 12356,
+                            width: 100,
+                            height: 30,
+                            type: 'input',
+                            inputType: 'radio',
+                            checked: false,
+                            label: 'second',
+                        },
+                    ],
+                },
+                {
+                    id: 12357,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'checkbox',
+                    checked: true,
+                    label: 'first',
+                },
+                {
+                    id: 12357,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'checkbox',
+                    checked: false,
+                    label: 'second',
+                },
+                {
+                    id: 12357,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'checkbox',
+                    checked: true,
+                    disabled: true,
+                    label: 'third',
+                },
+                {
+                    id: 12357,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'checkbox',
+                    checked: true,
+                    disabled: false,
+                    // no label
+                },
+                {
+                    id: 12358,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'button',
+                    value: 'click me',
+                },
+                {
+                    id: 12363,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'textArea',
+                    value: 'hello',
+                },
+                {
+                    id: 12364,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'textArea',
+                },
+                {
+                    id: 12365,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'select',
+                    value: 'hello',
+                    options: ['hello', 'world'],
+                },
+                {
+                    id: 12365,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    // missing input type - should be ignored
+                    // inputType: 'select',
+                    value: 'hello',
+                    options: ['hello', 'world'],
+                },
+            ])('$type - $inputType - $value', (testCase) => {
+                expect(
+                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                        type: 2,
+                        data: {
+                            wireframes: [testCase],
+                        },
+                        timestamp: 1,
+                    })
+                ).toMatchSnapshot()
+            })
+        })
     })
 })
