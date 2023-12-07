@@ -24,7 +24,7 @@ from posthog.temporal.data_imports.external_data_job import (
     ExternalDataWorkflowInputs,
     ExternalDataJobWorkflow,
 )
-from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema
+from posthog.warehouse.models import ExternalDataSource
 import temporalio
 from temporalio.client import Client as TemporalClient
 from asgiref.sync import async_to_sync
@@ -106,8 +106,3 @@ def delete_data_import_folder(folder_path: str):
     )
     bucket_name = settings.BUCKET_URL
     s3.delete(f"{bucket_name}/{folder_path}", recursive=True)
-
-
-def get_schemas_for_source_id(source_id: str, team_id: int):
-    schemas = ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, should_sync=True).values().all()
-    return [val["name"] for val in schemas]

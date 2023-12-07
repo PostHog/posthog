@@ -13,16 +13,20 @@ from posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline import (
     PIPELINE_TYPE_INPUTS_MAPPING,
     PIPELINE_TYPE_RUN_MAPPING,
 )
-from posthog.warehouse.data_load.sync_table import SchemaValidationError, validate_schema_and_update_table
-from posthog.warehouse.data_load.service import get_schemas_for_source_id
+from posthog.warehouse.data_load.validate_schema import SchemaValidationError, validate_schema_and_update_table
 from posthog.warehouse.external_data_source.jobs import (
     create_external_data_job,
     get_external_data_job,
     update_external_job_status,
 )
-from posthog.warehouse.models.external_data_job import ExternalDataJob
+from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from typing import Tuple
+
+
+def get_schemas_for_source_id(source_id: str, team_id: int):
+    schemas = ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, should_sync=True).values().all()
+    return [val["name"] for val in schemas]
 
 
 @dataclasses.dataclass

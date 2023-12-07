@@ -48,7 +48,7 @@ async def test_create_external_job_activity(activity_environment, team, **kwargs
 
     inputs = CreateExternalDataJobInputs(team_id=team.id, external_data_source_id=new_source.pk)
 
-    run_id = await activity_environment.run(create_external_data_job_model, inputs)
+    run_id, schemas = await activity_environment.run(create_external_data_job_model, inputs)
 
     runs = ExternalDataJob.objects.filter(id=run_id)
     assert await sync_to_async(runs.exists)()  # type:ignore
