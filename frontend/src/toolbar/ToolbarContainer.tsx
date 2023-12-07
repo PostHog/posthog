@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import { Fade } from 'lib/components/Fade/Fade'
-import { PopoverContainerContext } from 'lib/hooks/usePopoverContainerContext'
+import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { useRef } from 'react'
 
 import { Toolbar } from './bar/Toolbar'
@@ -25,9 +25,9 @@ export function ToolbarContainer(): JSX.Element {
         <Fade visible={buttonVisible} className="toolbar-global-fade-container ph-no-capture posthog-3000">
             <Elements />
             <div id="button-toolbar" ref={ref} className="ph-no-capture posthog-3000" {...themeProps}>
-                <PopoverContainerContext.Provider value={ref}>
+                <FloatingContainerContext.Provider value={ref}>
                     <Toolbar />
-                </PopoverContainerContext.Provider>
+                </FloatingContainerContext.Provider>
             </div>
             <HedgehogButton />
         </Fade>

@@ -2,9 +2,9 @@ import './SessionRecordingPlayer.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
-import { PopoverContainerContext } from 'lib/hooks/usePopoverContainerContext'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { useMemo, useRef, useState } from 'react'
@@ -165,7 +165,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                 })}
                 onClick={incrementClickCount}
             >
-                <PopoverContainerContext.Provider value={playerRef}>
+                <FloatingContainerContext.Provider value={playerRef}>
                     {explorerMode ? (
                         <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />
                     ) : (
@@ -183,7 +183,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                             {!noInspector && <PlayerInspector onFocusChange={setInspectorFocus} />}
                         </>
                     )}
-                </PopoverContainerContext.Provider>
+                </FloatingContainerContext.Provider>
             </div>
         </BindLogic>
     )
