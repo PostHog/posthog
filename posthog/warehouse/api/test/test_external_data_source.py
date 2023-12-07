@@ -38,7 +38,7 @@ class TestSavedQuery(APIBaseTest):
         # number of schemas should match default schemas for Stripe
         self.assertEqual(
             ExternalDataSchema.objects.filter(source_id=payload["id"]).count(),
-            len(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING["Stripe"]),
+            len(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[ExternalDataSource.Type.STRIPE]),
         )
 
     def test_prefix_external_data_source(self):

@@ -24,7 +24,7 @@ from posthog.temporal.common.logger import bind_temporal_worker_logger
 from typing import Tuple
 
 
-def get_schemas_for_source_id(source_id: str, team_id: int):
+def get_schemas_for_source_id(source_id: uuid.UUID, team_id: int):
     schemas = ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, should_sync=True).values().all()
     return [val["name"] for val in schemas]
 
@@ -32,7 +32,7 @@ def get_schemas_for_source_id(source_id: str, team_id: int):
 @dataclasses.dataclass
 class CreateExternalDataJobInputs:
     team_id: int
-    external_data_source_id: str
+    external_data_source_id: uuid.UUID
 
 
 @activity.defn
@@ -43,7 +43,7 @@ async def create_external_data_job_model(inputs: CreateExternalDataJobInputs) ->
         workflow_id=activity.info().workflow_id,
     )
 
-    schemas = await sync_to_async(get_schemas_for_source_id)(
+    schemas = await sync_to_async(get_schemas_for_source_id)(  # type: ignore
         team_id=inputs.team_id, source_id=inputs.external_data_source_id
     )
 
@@ -104,13 +104,13 @@ async def validate_schema_activity(inputs: ValidateSchemaInputs) -> None:
 @dataclasses.dataclass
 class ExternalDataWorkflowInputs:
     team_id: int
-    external_data_source_id: str
+    external_data_source_id: uuid.UUID
 
 
 @dataclasses.dataclass
 class ExternalDataJobInputs:
     team_id: int
-    source_id: str
+    source_id: uuid.UUID
     run_id: str
     schemas: list[str]
 

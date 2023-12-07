@@ -22,6 +22,7 @@ from posthog.models.utils import (
 from posthog.warehouse.models.util import remove_named_tuples
 from django.db.models import Q
 from .credential import DataWarehouseCredential
+from uuid import UUID
 
 CLICKHOUSE_HOGQL_MAPPING = {
     "UUID": StringDatabaseField,
@@ -141,7 +142,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
         raise Exception("Could not get columns")
 
 
-def get_table_by_url_pattern_and_source(url_pattern: str, source_id: str, team_id: int) -> DataWarehouseTable:
+def get_table_by_url_pattern_and_source(url_pattern: str, source_id: UUID, team_id: int) -> DataWarehouseTable:
     return DataWarehouseTable.objects.filter(Q(deleted=False) | Q(deleted__isnull=True)).get(
         team_id=team_id, external_data_source_id=source_id, url_pattern=url_pattern
     )

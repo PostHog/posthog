@@ -294,7 +294,7 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
         job_inputs={"stripe_secret_key": "test-key"},
     )  # type: ignore
 
-    await sync_to_async(ExternalDataSchema.objects.create)(
+    await sync_to_async(ExternalDataSchema.objects.create)(  # type: ignore
         name="test-schema",
         team=team,
         source=new_source,

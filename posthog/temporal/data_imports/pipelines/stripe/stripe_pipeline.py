@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Dict
+from uuid import UUID
 
 import dlt
 from django.conf import settings
@@ -21,7 +22,7 @@ import asyncio
 
 @dataclass
 class PipelineInputs:
-    source_id: str
+    source_id: UUID
     run_id: str
     schemas: list[str]
     dataset_name: str
