@@ -9,14 +9,15 @@ interface LoadNextProps {
     query: DataNode
 }
 export function LoadNext({ query }: LoadNextProps): JSX.Element {
-    const { nextDataLoading, numberOfRows } = useValues(dataNodeLogic)
+    const { canLoadNextData, nextDataLoading, numberOfRows } = useValues(dataNodeLogic)
     const { loadNextData } = useActions(dataNodeLogic)
 
     return (
         <div className="m-2 flex items-center">
-            <LemonButton onClick={loadNextData} loading={nextDataLoading} fullWidth center>
-                Showing {numberOfRows} {isPersonsNode(query) || isPersonsQuery(query) ? 'people' : 'events'}. Click to
-                load more.
+            <LemonButton onClick={loadNextData} loading={nextDataLoading} fullWidth center disabled={!canLoadNextData}>
+                Showing {numberOfRows} {canLoadNextData ? '' : 'all '}
+                {isPersonsNode(query) || isPersonsQuery(query) ? 'people' : 'events'}
+                {canLoadNextData ? '. Click to load more.' : ''}
             </LemonButton>
         </div>
     )

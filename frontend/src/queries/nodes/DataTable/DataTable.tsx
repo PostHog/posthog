@@ -97,7 +97,6 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         responseLoading,
         responseError,
         queryCancelled,
-        canLoadNextData,
         canLoadNewData,
         nextDataLoading,
         newDataLoading,
@@ -553,9 +552,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                         result && result[0] && result[0]['event'] === '$exception',
                                 })
                             }
-                            footer={
-                                canLoadNextData && (dataTableRows ?? []).length > 0 && <LoadNext query={query.source} />
-                            }
+                            footer={(dataTableRows ?? []).length > 0 ? <LoadNext query={query.source} /> : null}
                             onRow={context?.rowProps}
                         />
                     )}

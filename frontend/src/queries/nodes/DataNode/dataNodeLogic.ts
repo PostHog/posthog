@@ -403,7 +403,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             if (sortColumnIndex !== -1) {
                                 const lastTimestamp = typedResults?.[typedResults.length - 1]?.[sortColumnIndex]
                                 if (lastTimestamp) {
-                                    const newQuery: EventsQuery = { ...query, before: lastTimestamp }
+                                    const newQuery: EventsQuery = {
+                                        ...query,
+                                        before: lastTimestamp,
+                                        limit: Math.max(100, Math.min(2 * (typedResults?.length || 100), 10000)),
+                                    }
                                     return newQuery
                                 }
                             }
@@ -411,6 +415,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             return {
                                 ...query,
                                 offset: typedResults?.length || 0,
+                                limit: Math.max(100, Math.min(2 * (typedResults?.length || 100), 10000)),
                             } as EventsQuery | PersonsQuery
                         }
                     }
