@@ -253,7 +253,11 @@ export function formatBreakdownLabel(
             ? formatPropertyValueForDisplay(breakdown, breakdown_value)?.toString() ?? 'None'
             : breakdown_value.toString()
     } else if (typeof breakdown_value == 'string') {
-        return breakdown_value === 'nan' ? 'Other' : breakdown_value === '' ? 'None' : breakdown_value
+        return breakdown_value === 'nan' || breakdown_value === '$$_posthog_breakdown_other_$$'
+            ? 'Other'
+            : breakdown_value === ''
+            ? 'None'
+            : breakdown_value
     } else if (Array.isArray(breakdown_value)) {
         return breakdown_value.join('::')
     } else {
