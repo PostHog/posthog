@@ -3,7 +3,7 @@ import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
-import { Summary } from 'prom-client'
+import { Counter, Summary } from 'prom-client'
 
 import { activeMilliseconds } from '../../main/ingestion-queues/session-recording/snapshot-segmenter'
 import {
@@ -41,6 +41,12 @@ const processEventMsSummary = new Summary({
     name: 'process_event_ms',
     help: 'Duration spent in processEvent',
     percentiles: [0.5, 0.9, 0.95, 0.99],
+})
+
+const elementsOrElementsChainCounter = new Counter({
+    name: 'events_pipeline_elements_or_elements_chain_total',
+    help: 'Number of times elements or elements_chain appears on event',
+    labelNames: ['type'],
 })
 
 export class EventsProcessor {
@@ -115,6 +121,7 @@ export class EventsProcessor {
         let elementsChain = ''
         if (properties['$elements_chain']) {
             elementsChain = properties['$elements_chain']
+            elementsOrElementsChainCounter.labels('elements_chain').inc()
         } else if (properties['$elements']) {
             const elements: Record<string, any>[] | undefined = properties['$elements']
             let elementsList: Element[] = []
@@ -122,6 +129,7 @@ export class EventsProcessor {
                 elementsList = extractElements(elements)
                 elementsChain = elementsToString(elementsList)
             }
+            elementsOrElementsChainCounter.labels('elements').inc()
         }
         delete properties['$elements_chain']
         delete properties['$elements']
