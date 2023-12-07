@@ -1,4 +1,4 @@
-import { LemonButton } from 'lib/lemon-ui/LemonButton/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { urls } from 'scenes/urls'
 
 import { PipelineTabs } from '~/types'

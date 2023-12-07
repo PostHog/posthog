@@ -8,6 +8,6 @@
 
 .SidePanelWelcome__hero {
     background: url('../../../../../public/3000/3000-launch.png') no-repeat;
-    background-position: right min(-5rem + 45%, 0rem) bottom;
+    background-position: right min(calc(-5rem + 45%), 0rem) bottom;
     background-size: 22.875rem auto;
 }

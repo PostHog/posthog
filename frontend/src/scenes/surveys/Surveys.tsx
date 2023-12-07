@@ -1,6 +1,5 @@
 import {
     LemonButton,
-    LemonButtonWithSideAction,
     LemonDivider,
     LemonInput,
     LemonSelect,
@@ -71,7 +70,7 @@ export function Surveys(): JSX.Element {
                 title="Surveys"
                 buttons={
                     <>
-                        <LemonButtonWithSideAction
+                        <LemonButton
                             to={urls.surveyTemplates()}
                             type="primary"
                             data-attr="new-survey"
@@ -89,7 +88,7 @@ export function Surveys(): JSX.Element {
                             }}
                         >
                             New survey
-                        </LemonButtonWithSideAction>
+                        </LemonButton>
                     </>
                 }
                 caption={

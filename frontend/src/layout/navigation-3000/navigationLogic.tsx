@@ -21,6 +21,7 @@ import { actions, connect, events, kea, listeners, path, props, reducers, select
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconPlusMini } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import React from 'react'
@@ -335,6 +336,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconNotebook />,
                             to: urls.notebooks(),
                             featureFlag: FEATURE_FLAGS.NOTEBOOKS,
+                            tag: 'new' as const,
                         },
                         {
                             identifier: Scene.Events,
@@ -364,6 +366,12 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             icon: <IconGraph />,
                             logic: isUsingSidebar ? insightsSidebarLogic : undefined,
                             to: isUsingSidebar ? undefined : urls.savedInsights(),
+                            sideAction: {
+                                icon: <IconPlusMini />, // The regular plus is too big
+                                to: urls.insightNew(),
+                                tooltip: 'New insight',
+                                identifier: Scene.Insight,
+                            },
                         },
                         featureFlags[FEATURE_FLAGS.WEB_ANALYTICS]
                             ? {

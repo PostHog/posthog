@@ -64,7 +64,7 @@ export type serializedNodeWithId = serializedNode & { id: number }
 
 // end copied section
 
-export type MobileNodeType = 'text' | 'image' | 'rectangle' | 'div'
+export type MobileNodeType = 'text' | 'image' | 'rectangle' | 'input' | 'div' | 'radio_group'
 
 export type MobileStyles = {
     /**
@@ -124,21 +124,30 @@ type wireframeBase = {
 
 export type wireframeInputBase = wireframeBase & {
     type: 'input'
+    /**
+     * @description for several attributes we technically only care about true or absent as values. They are represented as bare attributes in HTML <input disabled>. When true that attribute is added to the HTML element, when absent that attribute is not added to the HTML element. When false or absent they are not added to the element.
+     */
     disabled: boolean
 }
 
 export type wireframeCheckBox = wireframeInputBase & {
     inputType: 'checkbox'
+    /**
+     * @description for several attributes we technically only care about true or absent as values. They are represented as bare attributes in HTML <input checked>. When true that attribute is added to the HTML element, when absent that attribute is not added to the HTML element. When false or absent they are not added to the element.
+     */
     checked: boolean
     label?: string
 }
 
 export type wireframeRadioGroup = wireframeBase & {
-    groupName: string
+    type: 'radio_group'
 }
 
 export type wireframeRadio = wireframeInputBase & {
     inputType: 'radio'
+    /**
+     * @description for several attributes we technically only care about true or absent as values. They are represented as bare attributes in HTML <input checked>. When true that attribute is added to the HTML element, when absent that attribute is not added to the HTML element. When false or absent they are not added to the element.
+     */
     checked: boolean
     label?: string
 }
@@ -155,7 +164,7 @@ export type wireframeSelect = wireframeInputBase & {
 }
 
 export type wireframeTextArea = wireframeInputBase & {
-    inputType: 'textarea'
+    inputType: 'text_area'
     value?: string
 }
 
@@ -166,6 +175,15 @@ export type wireframeButton = wireframeInputBase & {
      */
     value?: string
 }
+
+// these are grouped as a type so that we can easily use them as function parameters
+export type wireframeInputComponent =
+    | wireframeCheckBox
+    | wireframeRadio
+    | wireframeInput
+    | wireframeSelect
+    | wireframeTextArea
+    | wireframeButton
 
 export type wireframeText = wireframeBase & {
     type: 'text'
@@ -196,13 +214,8 @@ export type wireframe =
     | wireframeImage
     | wireframeRectangle
     | wireframeDiv
-    | wireframeCheckBox
+    | wireframeInputComponent
     | wireframeRadioGroup
-    | wireframeRadio
-    | wireframeInput
-    | wireframeSelect
-    | wireframeTextArea
-    | wireframeButton
 
 // the rrweb full snapshot event type, but it contains wireframes not html
 export type fullSnapshotEvent = {

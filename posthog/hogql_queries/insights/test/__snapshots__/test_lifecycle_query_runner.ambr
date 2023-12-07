@@ -12,8 +12,8 @@
                0 AS counts,
                sec.status
         FROM
-          (SELECT minus(dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS start_of_period
-           FROM numbers(dateDiff('day', dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC'))), dateTrunc('day', plus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC')), toIntervalDay(1))))) AS numbers) AS periods
+          (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS start_of_period
+           FROM numbers(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC'))), toStartOfDay(plus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC')), toIntervalDay(1))))) AS numbers) AS periods
         CROSS JOIN
           (SELECT status
            FROM
@@ -26,9 +26,9 @@
         FROM
           (SELECT events__pdi__person.id AS person_id,
                   min(toTimeZone(events__pdi__person.created_at, 'UTC')) AS created_at,
-                  arraySort(groupUniqArray(dateTrunc('day', toTimeZone(events.timestamp, 'UTC')))) AS all_activity,
-                  arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', created_at))) AS previous_activity,
-                  arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', parseDateTime64BestEffortOrNull('1970-01-01 00:00:00', 6, 'UTC')))) AS following_activity,
+                  arraySort(groupUniqArray(toStartOfDay(toTimeZone(events.timestamp, 'UTC')))) AS all_activity,
+                  arrayPopBack(arrayPushFront(all_activity, toStartOfDay(created_at))) AS previous_activity,
+                  arrayPopFront(arrayPushBack(all_activity, toStartOfDay(parseDateTime64BestEffortOrNull('1970-01-01 00:00:00', 6, 'UTC')))) AS following_activity,
                   arrayMap((previous, current, index) -> if(ifNull(equals(previous, current), isNull(previous)
                                                                    and isNull(current)), 'new', if(and(ifNull(equals(minus(current, toIntervalDay(1)), previous), isNull(minus(current, toIntervalDay(1)))
                                                                                                               and isNull(previous)), ifNull(notEquals(index, 1), 1)), 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) AS initial_status,
@@ -55,11 +55,11 @@
               WHERE equals(person.team_id, 2)
               GROUP BY person.id
               HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id)
-           WHERE and(equals(events.team_id, 2), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC'))), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), plus(dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC'))), toIntervalDay(1))), equals(events.event, '$pageview'))
+           WHERE and(equals(events.team_id, 2), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC'))), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC'))), toIntervalDay(1))), equals(events.event, '$pageview'))
            GROUP BY person_id)
         GROUP BY start_of_period,
                  status)
-     WHERE and(ifNull(lessOrEquals(start_of_period, dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC')))), 0), ifNull(greaterOrEquals(start_of_period, dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC')))), 0))
+     WHERE and(ifNull(lessOrEquals(start_of_period, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC')))), 0), ifNull(greaterOrEquals(start_of_period, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC')))), 0))
      GROUP BY start_of_period,
               status
      ORDER BY start_of_period ASC)
@@ -83,8 +83,8 @@
                0 AS counts,
                sec.status
         FROM
-          (SELECT minus(dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS start_of_period
-           FROM numbers(dateDiff('day', dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC'))), dateTrunc('day', plus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC')), toIntervalDay(1))))) AS numbers) AS periods
+          (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS start_of_period
+           FROM numbers(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC'))), toStartOfDay(plus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC')), toIntervalDay(1))))) AS numbers) AS periods
         CROSS JOIN
           (SELECT status
            FROM
@@ -97,9 +97,9 @@
         FROM
           (SELECT events__pdi__person.id AS person_id,
                   min(toTimeZone(events__pdi__person.created_at, 'UTC')) AS created_at,
-                  arraySort(groupUniqArray(dateTrunc('day', toTimeZone(events.timestamp, 'UTC')))) AS all_activity,
-                  arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', created_at))) AS previous_activity,
-                  arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', parseDateTime64BestEffortOrNull('1970-01-01 00:00:00', 6, 'UTC')))) AS following_activity,
+                  arraySort(groupUniqArray(toStartOfDay(toTimeZone(events.timestamp, 'UTC')))) AS all_activity,
+                  arrayPopBack(arrayPushFront(all_activity, toStartOfDay(created_at))) AS previous_activity,
+                  arrayPopFront(arrayPushBack(all_activity, toStartOfDay(parseDateTime64BestEffortOrNull('1970-01-01 00:00:00', 6, 'UTC')))) AS following_activity,
                   arrayMap((previous, current, index) -> if(ifNull(equals(previous, current), isNull(previous)
                                                                    and isNull(current)), 'new', if(and(ifNull(equals(minus(current, toIntervalDay(1)), previous), isNull(minus(current, toIntervalDay(1)))
                                                                                                               and isNull(previous)), ifNull(notEquals(index, 1), 1)), 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) AS initial_status,
@@ -126,11 +126,11 @@
               WHERE equals(person.team_id, 2)
               GROUP BY person.id
               HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id)
-           WHERE and(equals(events.team_id, 2), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC'))), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), plus(dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC'))), toIntervalDay(1))), equals(events.event, '$pageview'))
+           WHERE and(equals(events.team_id, 2), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC'))), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'UTC'), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC'))), toIntervalDay(1))), equals(events.event, '$pageview'))
            GROUP BY person_id)
         GROUP BY start_of_period,
                  status)
-     WHERE and(ifNull(lessOrEquals(start_of_period, dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC')))), 0), ifNull(greaterOrEquals(start_of_period, dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC')))), 0))
+     WHERE and(ifNull(lessOrEquals(start_of_period, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC')))), 0), ifNull(greaterOrEquals(start_of_period, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC')))), 0))
      GROUP BY start_of_period,
               status
      ORDER BY start_of_period ASC)
@@ -154,8 +154,8 @@
                0 AS counts,
                sec.status
         FROM
-          (SELECT minus(dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'US/Pacific'))), toIntervalDay(numbers.number)) AS start_of_period
-           FROM numbers(dateDiff('day', dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'US/Pacific'))), dateTrunc('day', plus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'US/Pacific')), toIntervalDay(1))))) AS numbers) AS periods
+          (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'US/Pacific'))), toIntervalDay(numbers.number)) AS start_of_period
+           FROM numbers(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'US/Pacific'))), toStartOfDay(plus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'US/Pacific')), toIntervalDay(1))))) AS numbers) AS periods
         CROSS JOIN
           (SELECT status
            FROM
@@ -168,9 +168,9 @@
         FROM
           (SELECT events__pdi__person.id AS person_id,
                   min(toTimeZone(events__pdi__person.created_at, 'US/Pacific')) AS created_at,
-                  arraySort(groupUniqArray(dateTrunc('day', toTimeZone(events.timestamp, 'US/Pacific')))) AS all_activity,
-                  arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', created_at))) AS previous_activity,
-                  arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', parseDateTime64BestEffortOrNull('1970-01-01 00:00:00', 6, 'US/Pacific')))) AS following_activity,
+                  arraySort(groupUniqArray(toStartOfDay(toTimeZone(events.timestamp, 'US/Pacific')))) AS all_activity,
+                  arrayPopBack(arrayPushFront(all_activity, toStartOfDay(created_at))) AS previous_activity,
+                  arrayPopFront(arrayPushBack(all_activity, toStartOfDay(parseDateTime64BestEffortOrNull('1970-01-01 00:00:00', 6, 'US/Pacific')))) AS following_activity,
                   arrayMap((previous, current, index) -> if(ifNull(equals(previous, current), isNull(previous)
                                                                    and isNull(current)), 'new', if(and(ifNull(equals(minus(current, toIntervalDay(1)), previous), isNull(minus(current, toIntervalDay(1)))
                                                                                                               and isNull(previous)), ifNull(notEquals(index, 1), 1)), 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) AS initial_status,
@@ -197,11 +197,11 @@
               WHERE equals(person.team_id, 2)
               GROUP BY person.id
               HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id)
-           WHERE and(equals(events.team_id, 2), greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), minus(dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'US/Pacific'))), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'US/Pacific'), plus(dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'US/Pacific'))), toIntervalDay(1))), equals(events.event, '$pageview'))
+           WHERE and(equals(events.team_id, 2), greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'US/Pacific'))), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'US/Pacific'), plus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'US/Pacific'))), toIntervalDay(1))), equals(events.event, '$pageview'))
            GROUP BY person_id)
         GROUP BY start_of_period,
                  status)
-     WHERE and(ifNull(lessOrEquals(start_of_period, dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'US/Pacific')))), 0), ifNull(greaterOrEquals(start_of_period, dateTrunc('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'US/Pacific')))), 0))
+     WHERE and(ifNull(lessOrEquals(start_of_period, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'US/Pacific')))), 0), ifNull(greaterOrEquals(start_of_period, toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'US/Pacific')))), 0))
      GROUP BY start_of_period,
               status
      ORDER BY start_of_period ASC)
