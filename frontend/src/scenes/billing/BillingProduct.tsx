@@ -503,10 +503,10 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             {product.tiered && tableTierData ? (
                                 <>
                                     <LemonTable
-                                        borderedRows={false}
+                                        stealth
+                                        embedded
                                         size="xs"
                                         uppercaseHeader={false}
-                                        display="stealth"
                                         columns={tableColumns}
                                         dataSource={tableTierData}
                                     />
@@ -526,9 +526,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 </>
                             ) : (
                                 <LemonTable
-                                    borderedRows={false}
+                                    stealth
+                                    embedded
                                     size="xs"
-                                    display="stealth"
                                     uppercaseHeader={false}
                                     columns={[
                                         { title: '', dataIndex: 'name' },

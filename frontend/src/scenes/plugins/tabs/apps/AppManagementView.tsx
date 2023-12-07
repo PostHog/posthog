@@ -1,6 +1,7 @@
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { Popconfirm } from 'antd'
 import { useActions, useValues } from 'kea'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconCheckmark, IconCloudDownload, IconDelete, IconReplay, IconWeb } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { canGloballyManagePlugins } from 'scenes/plugins/access'
@@ -19,6 +20,7 @@ export function AppManagementView({
     plugin: PluginTypeWithConfig | PluginType | PluginRepositoryEntry
 }): JSX.Element {
     const { user } = useValues(userLogic)
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     if (!canGloballyManagePlugins(user?.organization)) {
         return <></>
@@ -69,7 +71,7 @@ export function AppManagementView({
                             className="Plugins__Popconfirm"
                         >
                             <LemonButton
-                                type="primary"
+                                type={is3000 ? 'secondary' : 'primary'}
                                 status="danger"
                                 size="small"
                                 icon={<IconDelete />}

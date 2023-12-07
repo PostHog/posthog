@@ -29,13 +29,17 @@ interface FeatureFlagReadOnlyProps {
     readOnly?: boolean
     isSuper?: boolean
     excludeTitle?: boolean
+    usageContext?: string
 }
 
 export function FeatureFlagReleaseConditions({
     readOnly,
     isSuper,
     excludeTitle,
+    usageContext,
 }: FeatureFlagReadOnlyProps): JSX.Element {
+    const logic = usageContext === 'schedule' ? featureFlagLogic({ id: 'schedule' }) : featureFlagLogic
+
     const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
     const {
         aggregationTargetName,
@@ -47,14 +51,14 @@ export function FeatureFlagReleaseConditions({
         computeBlastRadiusPercentage,
         affectedUsers,
         totalUsers,
-    } = useValues(featureFlagLogic)
+    } = useValues(logic)
     const {
         setAggregationGroupTypeIndex,
         updateConditionSet,
         duplicateConditionSet,
         removeConditionSet,
         addConditionSet,
-    } = useActions(featureFlagLogic)
+    } = useActions(logic)
     const { cohortsById } = useValues(cohortsModel)
 
     const filterGroups: FeatureFlagGroupType[] = isSuper

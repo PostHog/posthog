@@ -19,10 +19,6 @@ const vmExtensionStorageSetMsSummary = new Summary({
 
 export function createStorage(server: Hub, pluginConfig: PluginConfig): StorageExtension {
     const get = async function (key: string, defaultValue: unknown): Promise<unknown> {
-        server.statsd?.increment('vm_extension_storage_get', {
-            plugin: pluginConfig.plugin?.name ?? '?',
-            team_id: pluginConfig.team_id.toString(),
-        })
         vmExtensionStorageGetCounter.labels(String(pluginConfig.plugin?.id)).inc()
 
         const result = await postgresGet(server.db, pluginConfig.id, key)
@@ -46,14 +42,6 @@ export function createStorage(server: Hub, pluginConfig: PluginConfig): StorageE
             )
         }
 
-        server.statsd?.increment('vm_extension_storage_set', {
-            plugin: pluginConfig.plugin?.name ?? '?',
-            team_id: pluginConfig.team_id.toString(),
-        })
-        server.statsd?.timing('vm_extension_storage_set_timing', timer, {
-            plugin: pluginConfig.plugin?.name ?? '?',
-            team_id: pluginConfig.team_id.toString(),
-        })
         vmExtensionStorageSetMsSummary
             .labels(String(pluginConfig.plugin?.id))
             .observe(new Date().getTime() - timer.getTime())

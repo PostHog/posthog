@@ -85,9 +85,6 @@ export function getPluginJobHandlers(hub: Hub, graphileWorker: GraphileWorker, p
         pluginJob: async (job) => {
             const jobType = (job as EnqueuedPluginJob)?.type
             jobsTriggeredCounter.labels(jobType).inc()
-            hub.statsd?.increment('triggered_job', {
-                instanceId: hub.instanceId.toString(),
-            })
             try {
                 await piscina.run({ task: 'runPluginJob', args: { job: job as EnqueuedPluginJob } })
                 jobsExecutionSuccessCounter.labels(jobType).inc()

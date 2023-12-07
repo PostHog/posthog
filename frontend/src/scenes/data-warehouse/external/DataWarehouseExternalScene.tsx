@@ -1,4 +1,4 @@
-import { LemonButton, LemonButtonWithSideAction, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -40,7 +40,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                 }
                 buttons={
                     featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_EXTERNAL_LINK] ? (
-                        <LemonButtonWithSideAction
+                        <LemonButton
                             type="primary"
                             sideAction={{
                                 icon: <IconSettings />,
@@ -52,7 +52,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                             onClick={() => toggleSourceModal()}
                         >
                             Link Source
-                        </LemonButtonWithSideAction>
+                        </LemonButton>
                     ) : !(shouldShowProductIntroduction || shouldShowEmptyState) ? (
                         <LemonButton type="primary" to={urls.dataWarehouseTable()} data-attr="new-data-warehouse-table">
                             New table
@@ -65,7 +65,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                         <Link to="https://posthog.com/manual/hogql" target="_blank">
                             HogQL
                         </Link>
-                        . Connect your own tables from S3 to query data from outside posthog.{' '}
+                        . Connect your own tables from S3 to query data from outside PostHog.{' '}
                         <Link to="https://posthog.com/docs/data/data-warehouse">Learn more</Link>
                     </div>
                 }
