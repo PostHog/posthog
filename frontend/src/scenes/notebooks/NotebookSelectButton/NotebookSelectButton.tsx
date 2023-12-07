@@ -215,7 +215,9 @@ export function NotebookSelectPopover({
             }
             {...props}
         >
-            <span onClick={() => setShowPopover(!showPopover)}>{children}</span>
+            <span className="flex flex-1 overflow-hidden" onClick={() => setShowPopover(!showPopover)}>
+                {children}
+            </span>
         </Popover>
     )
 }
