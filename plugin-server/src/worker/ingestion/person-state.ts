@@ -733,11 +733,115 @@ export class PersonOverrideWriter {
     }
 }
 
+export class FlatPersonOverrideWriter {
+    constructor(private postgres: PostgresRouter) {}
+
+    public async addPersonOverride(
+        tx: TransactionClient,
+        overrideDetails: PersonOverrideDetails
+    ): Promise<ProducerRecord[]> {
+        const mergedAt = DateTime.now()
+
+        await this.postgres.query(
+            tx,
+            SQL`
+                INSERT INTO posthog_flatpersonoverride (
+                    team_id,
+                    old_person_id,
+                    override_person_id,
+                    oldest_event,
+                    version
+                ) VALUES (
+                    ${overrideDetails.team_id},
+                    ${overrideDetails.old_person_id},
+                    ${overrideDetails.override_person_id},
+                    ${overrideDetails.oldest_event},
+                    0
+                )
+            `,
+            undefined,
+            'personOverride'
+        )
+
+        const { rows: transitiveUpdates } = await this.postgres.query(
+            tx,
+            SQL`
+                UPDATE
+                    posthog_flatpersonoverride
+                SET
+                    override_person_id = ${overrideDetails.override_person_id},
+                    version = COALESCE(version, 0)::numeric + 1
+                WHERE
+                    team_id = ${overrideDetails.team_id} AND override_person_id = ${overrideDetails.old_person_id}
+                RETURNING
+                    old_person_id,
+                    version,
+                    oldest_event
+            `,
+            undefined,
+            'transitivePersonOverrides'
+        )
+
+        status.debug('🔁', 'person_overrides_updated', { transitiveUpdates })
+
+        const personOverrideMessages: ProducerRecord[] = [
+            {
+                topic: KAFKA_PERSON_OVERRIDE,
+                messages: [
+                    {
+                        value: JSON.stringify({
+                            team_id: overrideDetails.team_id,
+                            old_person_id: overrideDetails.old_person_id,
+                            override_person_id: overrideDetails.override_person_id,
+                            oldest_event: castTimestampOrNow(overrideDetails.oldest_event, TimestampFormat.ClickHouse),
+                            merged_at: castTimestampOrNow(mergedAt, TimestampFormat.ClickHouse),
+                            version: 0,
+                        }),
+                    },
+                    ...transitiveUpdates.map(({ old_person_id, version, oldest_event }) => ({
+                        value: JSON.stringify({
+                            team_id: overrideDetails.team_id,
+                            old_person_id: old_person_id,
+                            override_person_id: overrideDetails.override_person_id,
+                            oldest_event: castTimestampOrNow(oldest_event, TimestampFormat.ClickHouse),
+                            merged_at: castTimestampOrNow(mergedAt, TimestampFormat.ClickHouse),
+                            version: version,
+                        }),
+                    })),
+                ],
+            },
+        ]
+
+        return personOverrideMessages
+    }
+
+    public async getPersonOverrides(teamId: number): Promise<PersonOverrideDetails[]> {
+        const { rows } = await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            SQL`
+                SELECT
+                    team_id,
+                    old_person_id,
+                    override_person_id,
+                    oldest_event
+                FROM posthog_flatpersonoverride
+                WHERE team_id = ${teamId}
+            `,
+            undefined,
+            'getPersonOverrides'
+        )
+        return rows.map((row) => ({
+            ...row,
+            team_id: parseInt(row.team_id), // XXX: pg returns bigint as str (reasonably so)
+            oldest_event: DateTime.fromISO(row.oldest_event),
+        }))
+    }
+}
+
 const deferredPersonOverridesWrittenCounter = new Counter({
     name: 'deferred_person_overrides_written',
     help: 'Number of person overrides that have been written as pending',
 })
-
 export class DeferredPersonOverrideWriter {
     constructor(private postgres: PostgresRouter) {}
 

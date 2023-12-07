@@ -11,6 +11,7 @@ import { UUIDT } from '../../../src/utils/utils'
 import {
     DeferredPersonOverrideWorker,
     DeferredPersonOverrideWriter,
+    FlatPersonOverrideWriter,
     PersonOverrideWriter,
     PersonState,
 } from '../../../src/worker/ingestion/person-state'
@@ -2095,18 +2096,27 @@ describe('PersonState.update()', () => {
     })
 })
 
-describe('person overrides', () => {
+describe.each(['flat', 'mapping'])('person overrides: %s', (mode) => {
     let hub: Hub
     let closeHub: () => Promise<void>
 
     let organizationId: string
     let teamId: number
-    let writer: PersonOverrideWriter
+    let writer: PersonOverrideWriter | FlatPersonOverrideWriter
 
     beforeAll(async () => {
         ;[hub, closeHub] = await createHub({})
         organizationId = await createOrganization(hub.db.postgres)
-        writer = new PersonOverrideWriter(hub.db.postgres)
+        switch (mode) {
+            case 'mapping':
+                writer = new PersonOverrideWriter(hub.db.postgres)
+                break
+            case 'flat':
+                writer = new FlatPersonOverrideWriter(hub.db.postgres)
+                break
+            default:
+                throw new Error('unexpected mode')
+        }
     })
 
     beforeEach(async () => {
