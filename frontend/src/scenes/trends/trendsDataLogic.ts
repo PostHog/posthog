@@ -41,7 +41,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'vizSpecificOptions',
             ],
         ],
-        actions: [insightVizDataLogic(props), ['setInsightData', 'updateInsightFilter']],
+        actions: [insightVizDataLogic(props), ['setInsightData', 'updateInsightFilter', 'updateBreakdown']],
     })),
 
     actions({
@@ -74,6 +74,19 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             (s) => [s.insightData, s.isTrends],
             (insightData, isTrends) => {
                 return isTrends ? insightData?.next : null
+            },
+        ],
+
+        hasBreakdownOther: [
+            (s) => [s.insightData, s.isTrends],
+            (insightData, isTrends) => {
+                if (!isTrends) {
+                    return false
+                }
+                const results = insightData.result ?? insightData.results
+                return !!(
+                    Array.isArray(results) && results.find((r) => r.breakdown_value === '$$_posthog_breakdown_other_$$')
+                )
             },
         ],
 
