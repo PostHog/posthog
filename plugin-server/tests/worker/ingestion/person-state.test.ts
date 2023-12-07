@@ -74,7 +74,11 @@ const PersonOverridesModes: Record<string, PersonOverridesMode | undefined> = {
     deferred: {
         getWriter: (hub) => new DeferredPersonOverrideWriter(hub.db.postgres),
         fetchPostgresPersonIdOverrides: async (hub, teamId) => {
-            await new DeferredPersonOverrideWorker(hub.db.postgres, hub.db.kafkaProducer).processPendingOverrides()
+            await new DeferredPersonOverrideWorker(
+                hub.db.postgres,
+                hub.db.kafkaProducer,
+                new PersonOverrideWriter(hub.db.postgres)
+            ).processPendingOverrides()
             return await fetchPostgresPersonIdOverrides(hub, teamId)
         },
     },
@@ -2196,7 +2200,11 @@ describe('deferred person overrides', () => {
         ;[hub, closeHub] = await createHub({})
         organizationId = await createOrganization(hub.db.postgres)
         writer = new DeferredPersonOverrideWriter(hub.db.postgres)
-        worker = new DeferredPersonOverrideWorker(hub.db.postgres, hub.db.kafkaProducer)
+        worker = new DeferredPersonOverrideWorker(
+            hub.db.postgres,
+            hub.db.kafkaProducer,
+            new PersonOverrideWriter(hub.db.postgres)
+        )
     })
 
     beforeEach(async () => {

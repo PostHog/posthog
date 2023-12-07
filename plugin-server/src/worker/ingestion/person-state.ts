@@ -888,11 +888,11 @@ export class DeferredPersonOverrideWorker {
     // it just needs to be consistent across all processes.
     public readonly lockId = 567
 
-    private writer: PersonOverrideWriter
-
-    constructor(private postgres: PostgresRouter, private kafkaProducer: KafkaProducerWrapper) {
-        this.writer = new PersonOverrideWriter(this.postgres)
-    }
+    constructor(
+        private postgres: PostgresRouter,
+        private kafkaProducer: KafkaProducerWrapper,
+        private writer: PersonOverrideWriter | FlatPersonOverrideWriter
+    ) {}
 
     /**
      * Process all (or up to the given limit) pending overrides.
