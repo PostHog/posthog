@@ -22,7 +22,7 @@ class Command(BaseCommand):
                     else:
                         try:
                             flag = line.split("'")[1]
-                            if flag.endswith("_EXPERIMENT"):
+                            if flag.endswith("_EXPERIMENT") or "multivariate" in line:
                                 flags[flag] = "multivariate"
                             else:
                                 flags[flag] = "boolean"
