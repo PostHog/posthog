@@ -41,7 +41,7 @@ describe('Notebooks', () => {
         cy.get('.ph-recording.NotebookNode').should('exist')
     })
 
-    it.skip('Insertion suggestions can be dismissed', () => {
+    it('Insertion suggestions can be dismissed', () => {
         cy.visit(urls.notebook('h11RoiwV'))
         cy.get('.SessionRecordingPlayer').click()
         cy.get('.ProseMirror').type('{enter}')
