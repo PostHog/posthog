@@ -140,11 +140,13 @@ function inputAttributes<T extends wireframeInputComponent>(wireframe: T): attri
         case 'checkbox':
             return {
                 ...attributes,
+                style: null, // checkboxes are styled by being combined with a label
                 ...(wireframe.checked ? { checked: wireframe.checked } : {}),
             }
         case 'radio':
             return {
                 ...attributes,
+                style: null, // radio buttons are styled by being combined with a label
                 ...(wireframe.checked ? { checked: wireframe.checked } : {}),
                 // radio value defaults to the string "on" if not specified
                 // we're not really submitting the form, so it doesn't matter 🤞
@@ -191,11 +193,16 @@ function makeSelectOptionElement(option: string, selected: boolean): serializedN
         type: NodeType.Element,
         tagName: 'option',
         attributes: {
-            value: option,
             ...(selected ? { selected: selected } : {}),
         },
         id: idSequence.next().value,
-        childNodes: [],
+        childNodes: [
+            {
+                type: NodeType.Text,
+                textContent: option,
+                id: idSequence.next().value,
+            },
+        ],
     }
 }
 
@@ -284,7 +291,14 @@ function makeInputElement(
             ],
         }
     } else {
-        return theInputElement
+        return {
+            ...theInputElement,
+            attributes: {
+                ...theInputElement.attributes,
+                // when labelled no styles are needed, when un-labelled as here - we add the styling in.
+                style: makeStylesString(wireframe),
+            },
+        }
     }
 }
 
