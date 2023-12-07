@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { PopoverContainerContext } from 'lib/hooks/usePopoverContainerContext'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { useMemo, useRef, useState } from 'react'
@@ -164,23 +165,25 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                 })}
                 onClick={incrementClickCount}
             >
-                {explorerMode ? (
-                    <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />
-                ) : (
-                    <>
-                        <div className="SessionRecordingPlayer__main">
-                            {(!noMeta || isFullScreen) && size !== 'tiny' ? <PlayerMeta /> : null}
+                <PopoverContainerContext.Provider value={playerRef.current}>
+                    {explorerMode ? (
+                        <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />
+                    ) : (
+                        <>
+                            <div className="SessionRecordingPlayer__main">
+                                {(!noMeta || isFullScreen) && size !== 'tiny' ? <PlayerMeta /> : null}
 
-                            <div className="SessionRecordingPlayer__body" draggable={draggable} {...elementProps}>
-                                <PlayerFrame />
-                                <PlayerFrameOverlay />
+                                <div className="SessionRecordingPlayer__body" draggable={draggable} {...elementProps}>
+                                    <PlayerFrame />
+                                    <PlayerFrameOverlay />
+                                </div>
+                                <LemonDivider className="my-0" />
+                                <PlayerController />
                             </div>
-                            <LemonDivider className="my-0" />
-                            <PlayerController />
-                        </div>
-                        {!noInspector && <PlayerInspector onFocusChange={setInspectorFocus} />}
-                    </>
-                )}
+                            {!noInspector && <PlayerInspector onFocusChange={setInspectorFocus} />}
+                        </>
+                    )}
+                </PopoverContainerContext.Provider>
             </div>
         </BindLogic>
     )
