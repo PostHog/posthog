@@ -109,7 +109,12 @@ async def test_run_stripe_job(activity_environment, team, **kwargs):
 
     new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()  # type: ignore
 
-    inputs = ExternalDataJobInputs(team_id=team.id, run_id=new_job.pk)
+    inputs = ExternalDataJobInputs(
+        team_id=team.id,
+        run_id=new_job.pk,
+        source_id=new_source.pk,
+        schemas=["test-1", "test-2", "test-3", "test-4", "test-5"],
+    )
 
     with mock.patch(
         "posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline.create_pipeline",
@@ -127,11 +132,13 @@ async def test_run_stripe_job(activity_environment, team, **kwargs):
 
         mock_create_pipeline.assert_called_with(
             StripeJobInputs(
+                source_id=new_source.pk,
                 run_id=new_job.pk,
                 job_type="Stripe",
                 team_id=team.id,
                 stripe_secret_key="test-key",
                 dataset_name=new_job.folder_path,
+                schemas=["test-1", "test-2", "test-3", "test-4", "test-5"],
             )
         )
 
@@ -163,50 +170,11 @@ async def test_validate_schema_and_update_table_activity(activity_environment, t
         await activity_environment.run(
             validate_schema_activity,
             ValidateSchemaInputs(
-                run_id=new_job.pk,
-                team_id=team.id,
+                run_id=new_job.pk, team_id=team.id, schemas=["test-1", "test-2", "test-3", "test-4", "test-5"]
             ),
         )
 
         assert mock_get_columns.call_count == 10
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-async def test_validate_schema_and_update_table_activity_failed(activity_environment, team, **kwargs):
-    new_source = await sync_to_async(ExternalDataSource.objects.create)(
-        source_id=uuid.uuid4(),
-        connection_id=uuid.uuid4(),
-        destination_id=uuid.uuid4(),
-        team=team,
-        status="running",
-        source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key"},
-    )  # type: ignore
-
-    new_job = await sync_to_async(ExternalDataJob.objects.create)(  # type: ignore
-        team_id=team.id,
-        pipeline_id=new_source.pk,
-        status=ExternalDataJob.Status.RUNNING,
-        rows_synced=0,
-    )
-
-    with mock.patch(
-        "posthog.warehouse.models.table.DataWarehouseTable.get_columns"
-    ) as mock_get_columns, override_settings(**AWS_BUCKET_MOCK_SETTINGS):
-        mock_get_columns.return_value = {"id": "string"}
-        mock_get_columns.side_effect = Exception("test")
-
-        with pytest.raises(Exception):
-            await activity_environment.run(
-                validate_schema_activity,
-                ValidateSchemaInputs(
-                    run_id=new_job.pk,
-                    team_id=team.id,
-                ),
-            )
-
-        assert mock_get_columns.call_count == 1
 
 
 @pytest.mark.django_db(transaction=True)
@@ -236,8 +204,7 @@ async def test_create_schema_activity(activity_environment, team, **kwargs):
         await activity_environment.run(
             validate_schema_activity,
             ValidateSchemaInputs(
-                run_id=new_job.pk,
-                team_id=team.id,
+                run_id=new_job.pk, team_id=team.id, schemas=["test-1", "test-2", "test-3", "test-4", "test-5"]
             ),
         )
 

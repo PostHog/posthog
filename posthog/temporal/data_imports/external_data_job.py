@@ -123,6 +123,7 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
     )
 
     job_inputs = PIPELINE_TYPE_INPUTS_MAPPING[model.pipeline.source_type](
+        source_id=inputs.source_id,
         schemas=inputs.schemas,
         run_id=inputs.run_id,
         team_id=inputs.team_id,
