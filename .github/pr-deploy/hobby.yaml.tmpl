@@ -20,8 +20,8 @@ spec:
           privileged: true
         resources:
           requests:
-            cpu: 500m
-            memory: 700M          
+            cpu: 250m
+            memory: 500M          
         ports:
         - containerPort: 2375
         - containerPort: 80
@@ -40,9 +40,6 @@ apiVersion: v1
 kind: Service
 metadata:
   name: hobby-service-$HOSTNAME
-#  annotations:
-#    service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
-#    external-dns.alpha.kubernetes.io/hostname: $HOSTNAME.dev.posthog.dev
 spec:
   selector:
     app: hobby-$HOSTNAME
