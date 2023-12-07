@@ -111,6 +111,3 @@ class TestValidateSchema(ClickhouseTestMixin, BaseTest):
             )
 
         self.assertEqual(DataWarehouseTable.objects.filter(external_data_source_id=source.pk).count(), 1)
-
-    def test_validate_schema_and_update_table_some_no_data(self):
-        pass
