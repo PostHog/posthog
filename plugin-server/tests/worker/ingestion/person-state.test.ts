@@ -2112,7 +2112,7 @@ const PersonOverridesWriterMode = {
     flat: (hub: Hub) => new FlatPersonOverrideWriter(hub.db.postgres),
 }
 
-describe.each(Object.keys(PersonOverridesWriterMode))('person overrides: %s', (mode) => {
+describe.each(Object.keys(PersonOverridesWriterMode))('person overrides writer: %s', (mode) => {
     let hub: Hub
     let closeHub: () => Promise<void>
 
