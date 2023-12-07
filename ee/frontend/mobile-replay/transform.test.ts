@@ -657,6 +657,41 @@ describe('replay/transform', () => {
                     value: 'hello',
                     options: ['hello', 'world'],
                 },
+                {
+                    id: 12365,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'progress',
+                    progressType: 'circular',
+                },
+                {
+                    id: 12365,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'progress',
+                    progressType: 'horizontal',
+                },
+                {
+                    id: 12365,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'progress',
+                    progressType: 'horizontal',
+                    value: 0.75,
+                },
+                {
+                    id: 12365,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'progress',
+                    progressType: 'horizontal',
+                    value: 0.75,
+                    max: 2.5,
+                },
             ])('$type - $inputType - $value', (testCase) => {
                 expect(
                     posthogEEModule.mobileReplay?.transformEventToWeb({

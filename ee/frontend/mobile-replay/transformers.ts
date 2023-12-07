@@ -13,6 +13,7 @@ import {
     wireframeDiv,
     wireframeImage,
     wireframeInputComponent,
+    wireframeProgress,
     wireframeRadioGroup,
     wireframeRectangle,
     wireframeSelect,
@@ -163,6 +164,19 @@ function inputAttributes<T extends wireframeInputComponent>(wireframe: T): attri
                 ...attributes,
                 value: wireframe.value || '',
             }
+        case 'progress':
+            return wireframe.progressType === 'circular'
+                ? {
+                      ...attributes,
+                  }
+                : {
+                      ...attributes,
+                      // indeterminate when omitted
+                      value: wireframe.value || null,
+                      // defaults to 1 when omitted
+                      max: wireframe.max || null,
+                      type: null, // progress has no type attribute
+                  }
         default:
             return {
                 ...attributes,
@@ -250,6 +264,23 @@ function makeRadioGroupElement(
     }
 }
 
+function makeProgressElement(
+    wireframe: wireframeProgress,
+    children: serializedNodeWithId[]
+): serializedNodeWithId | null {
+    if (wireframe.progressType === 'circular') {
+        return null
+    } else {
+        return {
+            type: NodeType.Element,
+            tagName: 'progress',
+            attributes: inputAttributes(wireframe),
+            id: wireframe.id,
+            childNodes: children,
+        }
+    }
+}
+
 function makeInputElement(
     wireframe: wireframeInputComponent,
     children: serializedNodeWithId[]
@@ -264,6 +295,10 @@ function makeInputElement(
 
     if (wireframe.inputType === 'select') {
         return makeSelectElement(wireframe, children)
+    }
+
+    if (wireframe.inputType === 'progress') {
+        return makeProgressElement(wireframe, children)
     }
 
     const theInputElement: serializedNodeWithId = {
