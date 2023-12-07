@@ -95,7 +95,7 @@
             display: flex;
             flex-direction: column;
             font-weight: 400;
-            font-size: 5vw;
+            font-size: 4vw;
             line-height: 1.25;
             align-items: center;
         }
@@ -142,7 +142,7 @@
 
         @media only screen and (min-width: 650px) {
             body {
-                font-size: 2.5vw;
+                font-size: 2vw;
             }
         }
 
@@ -204,8 +204,8 @@
             color: {{ highlight_color }};
         }
 
-        {% for b in badges %}
-            .highlight.{{ b }} {
+        {% for _, b in badges.items %}
+            .highlight.{{ b.badge }} {
                 color: {{ b.highlight_color }};
             }
         {% endfor %}
@@ -216,20 +216,25 @@
 
         .text-xl {
             font-weight: 600;
-            font-size: 1.5rem;
+            font-size: 2vw;
             line-height: 2rem;
         }
 
         .text-2xl {
             font-weight: 600;
-            font-size: 2rem;
+            font-size: 2.5vw;
             line-height: 1;
         }
 
         .text-3xl {
             font-weight: 600;
-            font-size: 3rem;
+            font-size: 2.5vw;
             line-height: 1;
+        }
+
+        .my-4 {
+            margin-top: 0.5rem;
+            margin-bottom: 0.5rem;
         }
 
         .my-8 {
@@ -258,22 +263,12 @@
             padding-bottom: 1rem;
         }
 
-        .pt-4 {
-            padding-top: 1rem;
+        .pt-2 {
+            padding-top: 0.5rem;
         }
 
         .pl-8 {
             padding-left: 2rem;
-        }
-
-        .badge {
-            width: 326px;
-            height: 326px;
-        }
-
-        .badge.mini {
-            width: 163px;
-            height: 163px;
         }
 
         .stats {
@@ -287,7 +282,7 @@
             display: flex;
             flex-direction: column;
             flex-basis: 100%;
-            font-size: 1.5rem;
+            font-size: 1.5vw;
         }
 
 
@@ -300,30 +295,30 @@
 
         .achievements {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(30%, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(18%, 1fr));
             gap: 10px; /* Adjust the gap between grid items as needed */
             width: 100%;
         }
 
-        @media screen and (max-width: 930px) {
-            .achievements {
-                grid-template-columns: repeat(auto-fill, minmax(30%, 1fr)); /* Change to 3 column with smaller images */
-            }
+        .badge {
+            width: 326px;
+            height: 326px;
+        }
 
-            .badge.mini {
-                width: 100px;
-                height: 100px;
+        .badge.mini {
+            width: 100px;
+            height: 100px;
+        }
+
+        @media screen and (max-width: 980px) {
+            .achievements {
+                grid-template-columns: repeat(auto-fill, minmax(23%, 1fr));
             }
         }
 
-        @media screen and (max-width: 600px) {
+        @media screen and (max-width: 790px) {
             .achievements {
-                grid-template-columns: repeat(auto-fill, minmax(48%, 1fr)); /* Change to 2 columns */
-            }
-
-            .badge.mini {
-                width: 160px;
-                height: 160px;
+                grid-template-columns: repeat(auto-fill, minmax(30%, 1fr));
             }
         }
 
@@ -346,7 +341,7 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            font-size: 1.5rem;
+            font-size: 1.5vw;
         }
 
         .sharing {
@@ -384,7 +379,7 @@
 
             .footer .sharing > div:first-child {
                 font-weight: 400;
-                font-size: 1rem;
+                font-size: 1vw;
                 line-height: 1;
                 padding-right: 0.75rem;
             }
@@ -442,8 +437,8 @@
     </div>
     <div class="right column">
         <div class="muted">You earned this badge because...</div>
-        <div class="highlight text-2xl my-8">{{ explanation }}</div>
-        <div class="stats pt-4">
+        <div class="highlight text-2xl my-4">{{ explanation }}</div>
+        <div class="stats pt-2">
             {% for stat in stats %}
                 <div class="stat px-1">
                     <div class="highlight text-3xl">{{ stat.count }}</div>
@@ -451,15 +446,15 @@
                 </div>
             {% endfor %}
         </div>
-        <div class="achievements-wrapper pt-4">
-            <h2 class="highlight text-2xl">Achievements unlocked</h2>
+        <div class="achievements-wrapper pt-2">
+            <h2 class="highlight text-xl">Achievements unlocked</h2>
             <div class="achievements">
                 {% for _, b in badges.items %}
                     <div class="achievement" title="{{ b.explanation }}">
                         <picture class="badge mini">
-                            <source type="image/webp" srcset="{% static b.image_webp %}" width="163" height="163">
-                            <source type="image/png" srcset="{% static b.image_png %}" width="163" height="163">
-                            <img class="badge mini" src="{% static b.image_png %}" width="163" height="163"
+                            <source type="image/webp" srcset="{% static b.image_webp %}" width="100" height="100">
+                            <source type="image/png" srcset="{% static b.image_png %}" width="100" height="100">
+                            <img class="badge mini" src="{% static b.image_png %}" width="100" height="100"
                                  alt="An illustration of a hedgehog who is a {{ b.human_badge }}">
                         </picture>
                         <div class="my-4 text-center highlight {{ b.badge }}">{{ b.human_badge }}</div>
@@ -472,6 +467,7 @@
 </main>
 <footer class="footer" role="contentinfo">
     <div class="pl-8 text-xl grow items-center flex">
+        <span>Year in </span>
         {#        copied from <FriendlyLogo/>#}
         <svg
                 fill="none"
@@ -523,7 +519,6 @@
                 <path d="m120.815 23.0299c1.113 0 2.105-.3846 2.631-1.0525v.9715c0 1.1334-.911 1.9228-2.307 1.9228-.992 0-1.862-.4858-2.004-1.3156l-2.712.425c.364 1.9228 2.328 3.2181 4.716 3.2181 3.137 0 5.222-1.8418 5.222-4.5741v-9.4721h-2.935v.8703c-.546-.6274-1.477-1.0322-2.672-1.0322-2.833 0-4.614 1.943-4.614 5.0194s1.781 5.0194 4.675 5.0194zm-1.781-5.0194c0-1.518.891-2.4895 2.267-2.4895 1.396 0 2.287.9715 2.287 2.4895 0 1.5179-.891 2.4894-2.287 2.4894-1.376 0-2.267-.9715-2.267-2.4894z"/>
             </g>
         </svg>
-        <span>&nbsp;unwrapped</span>
     </div>
     <div>
         <div class="sharing">{% include "sharing-buttons.html" %}</div>

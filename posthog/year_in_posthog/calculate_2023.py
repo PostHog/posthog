@@ -40,6 +40,9 @@ flag_stats AS (
     WHERE
         date_part('year', created_at) = 2023
         AND created_by_id = (select id from posthog_user where uuid = %(user_uuid)s)
+        and key not ilike 'survey-targeting%'
+        and key not ilike 'prompt-%'
+        and key not ilike 'interview-%'
     GROUP BY
         created_by_id
 ),
