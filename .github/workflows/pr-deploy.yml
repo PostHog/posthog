@@ -95,7 +95,7 @@ jobs:
                   kubectl -n $NAMESPACE delete -f .github/pr-deploy/hobby.yaml || true
                   kubectl -n $NAMESPACE apply -f .github/pr-deploy/hobby.yaml
 
-                  echo "url=$HOSTNAME.us-east-1.dev.posthog.dev" >> $GITHUB_OUTPUT
+                  echo "url=$HOSTNAME.dev.posthog.dev" >> $GITHUB_OUTPUT
 
             - name: update deployment status
               uses: bobheadxi/deployments@v1
