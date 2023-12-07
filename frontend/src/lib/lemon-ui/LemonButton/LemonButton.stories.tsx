@@ -476,7 +476,7 @@ export const WithOverflowingContent = (): JSX.Element => {
             <LemonButton type="secondary" icon={<IconLink />}>
                 Small button
             </LemonButton>
-            <LemonButton type="secondary" icon={<IconGear />} sideIcon={<IconLink />}>
+            <LemonButton type="secondary" icon={<IconGear />} sideIcon={<IconLink />} truncate>
                 Truncating {longText}
             </LemonButton>
             <LemonButton type="secondary">{longText}</LemonButton>

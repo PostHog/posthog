@@ -72,6 +72,8 @@ export interface LemonButtonPropsBase
     size?: 'xsmall' | 'small' | 'medium' | 'large'
     'data-attr'?: string
     'aria-label'?: string
+    /** Whether to truncate the button's text if necessary */
+    truncate?: boolean
 }
 
 export type SideAction = Pick<
@@ -127,6 +129,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 disableClientSideRouting,
                 getTooltipPopupContainer,
                 onClick,
+                truncate = false,
                 ...buttonProps
             },
             ref
@@ -213,6 +216,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         !!icon && `LemonButton--has-icon`,
                         !!sideIcon && `LemonButton--has-side-icon`,
                         stealth && 'LemonButton--is-stealth',
+                        truncate && 'LemonButton--truncate',
                         className
                     )}
                     onClick={!disabled ? onClick : undefined}
@@ -224,11 +228,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 >
                     <span className="LemonButton__chrome">
                         {icon ? <span className="LemonButton__icon">{icon}</span> : null}
-                        {children ? (
-                            <span className="LemonButton__content">
-                                {typeof children === 'string' ? <span className="truncate">{children}</span> : children}
-                            </span>
-                        ) : null}
+                        {children ? <span className="LemonButton__content">{children}</span> : null}
                         {sideIcon ? <span className="LemonButton__icon">{sideIcon}</span> : null}
                     </span>
                 </ButtonComponent>
