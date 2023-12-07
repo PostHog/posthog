@@ -30,7 +30,7 @@ import { SidePanelWelcome } from './panels/SidePanelWelcome'
 import { sidePanelLogic } from './sidePanelLogic'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
-export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Content: any }> = {
+export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; Content: any }> = {
     [SidePanelTab.Notebooks]: {
         label: 'Notebooks',
         Icon: IconNotebook,
@@ -59,7 +59,7 @@ export const SidePanelTabs: Record<SidePanelTab, { label: string; Icon: any; Con
     },
 
     [SidePanelTab.FeaturePreviews]: {
-        label: 'Previews',
+        label: 'Feature previews',
         Icon: IconFeatures,
         Content: SidePanelFeaturePreviews,
     },
@@ -85,7 +85,7 @@ export function SidePanel(): JSX.Element | null {
 
     const activeTab = sidePanelOpen && selectedTab
 
-    const PanelConent = activeTab ? SidePanelTabs[activeTab]?.Content : null
+    const PanelConent = activeTab ? SIDE_PANEL_TABS[activeTab]?.Content : null
 
     const ref = useRef<HTMLDivElement>(null)
 
@@ -119,7 +119,7 @@ export function SidePanel(): JSX.Element | null {
               {
                   title: 'Open in side panel',
                   items: extraTabs.map((tab) => {
-                      const { Icon, label } = SidePanelTabs[tab]
+                      const { Icon, label } = SIDE_PANEL_TABS[tab]
 
                       return {
                           label: label,
@@ -149,7 +149,7 @@ export function SidePanel(): JSX.Element | null {
                 <div className="SidePanel3000__tabs">
                     <div className="SidePanel3000__tabs-content">
                         {visibleTabs.map((tab: SidePanelTab) => {
-                            const { Icon, label } = SidePanelTabs[tab]
+                            const { Icon, label } = SIDE_PANEL_TABS[tab]
                             return (
                                 <LemonButton
                                     key={tab}
