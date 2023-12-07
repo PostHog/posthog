@@ -1313,6 +1313,305 @@ exports[`replay/transform transform inputs input - password - $value 1`] = `
 }
 `;
 
+exports[`replay/transform transform inputs input - progress - $value 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                      },
+                      "childNodes": [
+                        {
+                          "attributes": {
+                            "style": "border: 4px solid transparent;border-radius: 50%;border-top: 4px solid black;width: 20px;height: 20px;animation: spin 2s linear infinite;",
+                          },
+                          "childNodes": [],
+                          "id": 159,
+                          "tagName": "div",
+                          "type": 2,
+                        },
+                      ],
+                      "id": 12365,
+                      "tagName": "div",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 158,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - progress - $value 2`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "max": null,
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                        "type": null,
+                        "value": null,
+                      },
+                      "childNodes": [],
+                      "id": 12365,
+                      "tagName": "progress",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 160,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - progress - 0.75 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "max": null,
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                        "type": null,
+                        "value": 0.75,
+                      },
+                      "childNodes": [],
+                      "id": 12365,
+                      "tagName": "progress",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 161,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - progress - 0.75 2`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "max": 2.5,
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                        "type": null,
+                        "value": 0.75,
+                      },
+                      "childNodes": [],
+                      "id": 12365,
+                      "tagName": "progress",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 162,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
 exports[`replay/transform transform inputs input - search - $value 1`] = `
 {
   "data": {
