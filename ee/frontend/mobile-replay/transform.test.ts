@@ -663,7 +663,7 @@ describe('replay/transform', () => {
                     height: 30,
                     type: 'input',
                     inputType: 'progress',
-                    progressType: 'circular',
+                    style: { bar: 'circular' },
                 },
                 {
                     id: 12365,
@@ -671,7 +671,7 @@ describe('replay/transform', () => {
                     height: 30,
                     type: 'input',
                     inputType: 'progress',
-                    progressType: 'horizontal',
+                    style: { bar: 'horizontal' },
                 },
                 {
                     id: 12365,
@@ -679,7 +679,7 @@ describe('replay/transform', () => {
                     height: 30,
                     type: 'input',
                     inputType: 'progress',
-                    progressType: 'horizontal',
+                    style: { bar: 'horizontal' },
                     value: 0.75,
                 },
                 {
@@ -688,7 +688,7 @@ describe('replay/transform', () => {
                     height: 30,
                     type: 'input',
                     inputType: 'progress',
-                    progressType: 'horizontal',
+                    style: { bar: 'horizontal' },
                     value: 0.75,
                     max: 2.5,
                 },

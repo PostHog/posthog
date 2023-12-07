@@ -271,7 +271,7 @@ function makeProgressElement(
     wireframe: wireframeProgress,
     children: serializedNodeWithId[]
 ): serializedNodeWithId | null {
-    if (wireframe.progressType === 'circular') {
+    if (wireframe.style?.bar === 'circular') {
         if (!wireframe.value || !wireframe.max) {
             // spinner
             return {

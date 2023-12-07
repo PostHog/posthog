@@ -477,10 +477,6 @@
                     "description": "The max attribute, if present, must have a value greater than 0 and be a valid floating point number. The default value is 1.",
                     "type": "number"
                 },
-                "progressType": {
-                    "enum": ["horizontal", "circular"],
-                    "type": "string"
-                },
                 "style": {
                     "$ref": "#/definitions/MobileStyles"
                 },
@@ -502,7 +498,7 @@
                     "type": "number"
                 }
             },
-            "required": ["disabled", "height", "id", "inputType", "progressType", "type", "width", "x", "y"],
+            "required": ["disabled", "height", "id", "inputType", "type", "width", "x", "y"],
             "type": "object"
         },
         "wireframeRadio": {
