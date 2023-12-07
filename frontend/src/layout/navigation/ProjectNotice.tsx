@@ -112,7 +112,7 @@ export function ProjectNotice(): JSX.Element | null {
     return (
         <LemonBanner
             type={relevantNotice.type || 'info'}
-            className="my-6"
+            className="my-4"
             action={relevantNotice.action}
             onClose={isClosable ? () => closeProjectNotice(projectNoticeVariant) : undefined}
         >
