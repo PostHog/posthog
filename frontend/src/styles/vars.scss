@@ -281,7 +281,6 @@ $_lifecycle_dormant: $_danger;
 
     // Funnels
     // TODO: unify with lib/colors.ts, getGraphColors()
-    --funnel-background: var(--border-light);
     --funnel-axis: var(--border);
     --funnel-grid: #ddd;
     --antd-table-background-dark: #fafafa;
