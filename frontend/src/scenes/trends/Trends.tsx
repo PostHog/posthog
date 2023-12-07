@@ -21,10 +21,10 @@ export function TrendInsight({ view, context }: Props): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
     const { insightProps, showPersonsModal } = useValues(insightLogic)
 
-    const { display, series, breakdown, loadMoreBreakdownUrl, breakdownValuesLoading } = useValues(
+    const { display, series, breakdown, loadMoreBreakdownUrl, hasBreakdownOther, breakdownValuesLoading } = useValues(
         trendsDataLogic(insightProps)
     )
-    const { loadMoreBreakdownValues } = useActions(trendsDataLogic(insightProps))
+    const { loadMoreBreakdownValues, updateBreakdown } = useActions(trendsDataLogic(insightProps))
 
     const renderViz = (): JSX.Element | undefined => {
         if (
@@ -66,13 +66,21 @@ export function TrendInsight({ view, context }: Props): JSX.Element {
             {series && <div className={`TrendsInsight TrendsInsight--${display}`}>{renderViz()}</div>}
             {display !== ChartDisplayType.WorldMap && // the world map doesn't need this cta
                 breakdown &&
-                loadMoreBreakdownUrl && (
+                (hasBreakdownOther || loadMoreBreakdownUrl) && (
                     <div className="my-4 flex flex-col items-center">
                         <div className="text-muted mb-2">
                             For readability, <b>not all breakdown values are displayed</b>. Click below to load them.
                         </div>
                         <LemonButton
-                            onClick={loadMoreBreakdownValues}
+                            onClick={
+                                hasBreakdownOther
+                                    ? () =>
+                                          updateBreakdown({
+                                              ...breakdown,
+                                              breakdown_limit: (breakdown.breakdown_limit || 25) * 2,
+                                          })
+                                    : loadMoreBreakdownValues
+                            }
                             loading={breakdownValuesLoading}
                             size="small"
                             type="secondary"
