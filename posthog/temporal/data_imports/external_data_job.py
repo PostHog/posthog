@@ -13,7 +13,7 @@ from posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline import (
     PIPELINE_TYPE_INPUTS_MAPPING,
     PIPELINE_TYPE_RUN_MAPPING,
 )
-from posthog.warehouse.data_load.validate_schema import SchemaValidationError, validate_schema_and_update_table
+from posthog.warehouse.data_load.validate_schema import validate_schema_and_update_table
 from posthog.warehouse.external_data_source.jobs import (
     create_external_data_job,
     get_external_data_job,
@@ -206,11 +206,6 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 f"External data job failed for external data source {inputs.external_data_source_id} with error: {e.cause}"
             )
             update_inputs.latest_error = str(e.cause)
-            raise
-        except SchemaValidationError as e:
-            logger.error(f"Schema validation failed for external data source {inputs.external_data_source_id}")
-            update_inputs.latest_error = str(e)
-            update_inputs.status = ExternalDataJob.Status.FAILED
             raise
         except Exception as e:
             logger.error(

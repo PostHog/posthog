@@ -13,11 +13,6 @@ from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
 
 
-class SchemaValidationError(Exception):
-    def __init__(self):
-        super().__init__(f"Schema validation failed")
-
-
 def validate_schema(
     credential: DataWarehouseCredential, table_name: str, new_url_pattern: str, team_id: int
 ) -> DataWarehouseTable:
