@@ -266,7 +266,7 @@
                      min(timestamp) as timestamp,
                      breakdown_value
               FROM
-                (SELECT pdi.person_id as person_id, timestamp, if(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['val', 'notval']), replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), '$$_posthog_breakdown_other_$$') as breakdown_value
+                (SELECT pdi.person_id as person_id, timestamp, transform(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), (['val', 'notval']), (['val', 'notval']), '$$_posthog_breakdown_other_$$') as breakdown_value
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
@@ -435,7 +435,7 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            if(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['val', 'notval']), replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), '$$_posthog_breakdown_other_$$') as breakdown_value
+                            transform(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), (['val', 'notval']), (['val', 'notval']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
@@ -565,7 +565,7 @@
               CROSS JOIN
                 (SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS timestamp,
                         pdi.person_id AS person_id,
-                        if(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['val', 'notval']), replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), '$$_posthog_breakdown_other_$$') AS breakdown_value
+                        transform(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), (['val', 'notval']), (['val', 'notval']), '$$_posthog_breakdown_other_$$') AS breakdown_value
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
