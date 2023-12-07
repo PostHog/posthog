@@ -467,15 +467,17 @@ export const More_ = (): JSX.Element => {
 }
 
 export const WithOverflowingContent = (): JSX.Element => {
-    const longText = 'long text that will overflow the button! This is a very long text that will overflow the button!'
+    const longText = 'long text that will overflow the button by at least a little!'
 
     return (
-        <div className="w-200 border p-2 rounded flex items-center">
-            <LemonButton className="shrink-0">No shrink</LemonButton>
-            <LemonButton className="truncate">
+        <div className="w-200 border p-2 rounded flex items-center gap-2">
+            <LemonButton type="secondary" className="shrink-0">
+                No shrink
+            </LemonButton>
+            <LemonButton type="secondary" className="truncate">
                 <span className="truncate">Truncating {longText}</span>
             </LemonButton>
-            <LemonButton>{longText}</LemonButton>
+            <LemonButton type="secondary">{longText}</LemonButton>
         </div>
     )
 }
