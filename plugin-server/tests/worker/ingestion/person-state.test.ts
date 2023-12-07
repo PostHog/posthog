@@ -2096,7 +2096,12 @@ describe('PersonState.update()', () => {
     })
 })
 
-describe.each(['flat', 'mapping'])('person overrides: %s', (mode) => {
+const PersonOverridesWriterMode = {
+    mapping: (hub: Hub) => new PersonOverrideWriter(hub.db.postgres),
+    flat: (hub: Hub) => new FlatPersonOverrideWriter(hub.db.postgres),
+}
+
+describe.each(Object.keys(PersonOverridesWriterMode))('person overrides: %s', (mode) => {
     let hub: Hub
     let closeHub: () => Promise<void>
 
@@ -2107,16 +2112,7 @@ describe.each(['flat', 'mapping'])('person overrides: %s', (mode) => {
     beforeAll(async () => {
         ;[hub, closeHub] = await createHub({})
         organizationId = await createOrganization(hub.db.postgres)
-        switch (mode) {
-            case 'mapping':
-                writer = new PersonOverrideWriter(hub.db.postgres)
-                break
-            case 'flat':
-                writer = new FlatPersonOverrideWriter(hub.db.postgres)
-                break
-            default:
-                throw new Error('unexpected mode')
-        }
+        writer = PersonOverridesWriterMode[mode](hub)
     })
 
     beforeEach(async () => {
