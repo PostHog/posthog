@@ -404,6 +404,44 @@
             }
         }
 
+        [data-tooltip] {
+            cursor: help;
+        }
+
+        [role="tooltip"] {
+            opacity: 0;
+            position: absolute;
+            width: auto;
+            max-width: 20%;
+            height: auto;
+            min-height: 25px;
+            line-height: 25px;
+            font-size: 1rem;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: #ffffff;
+            border-radius: 5px;
+            margin-top: 10px;
+            padding: 10px 15px;
+            transform: translateX(-50%);
+        }
+
+        [role="tooltip"].active {
+            opacity: 1;
+            transition: opacity 0.1s;
+        }
+
+        [role="tooltip"]::before {
+            content: "";
+            width: 0;
+            height: 0;
+            border-left: 10px solid transparent;
+            border-right: 10px solid transparent;
+            border-bottom: 10px solid rgba(0, 0, 0, 0.7);
+            position: absolute;
+            margin-top: -20px;
+            transform: translateX(-50%);
+            left: 50%;
+        }
     </style>
     <meta name="description" content="{{ explanation }}">
     <meta name="image" content="{{ request.scheme }}://{{ request.META.HTTP_HOST }}{% static opengraph_image %}">
@@ -456,7 +494,7 @@
                 <h2 class="highlight text-xl">Achievements unlocked</h2>
                 <div class="achievements">
                     {% for _, b in badges.items %}
-                        <div class="achievement text-sm" title="{{ b.explanation }}">
+                        <div class="achievement text-sm" data-tooltip="{{ b.explanation }}">
                             <picture class="badge mini">
                                 <source type="image/webp" srcset="{% static b.image_webp %}" width="100" height="100">
                                 <source type="image/png" srcset="{% static b.image_png %}" width="100" height="100">
@@ -532,5 +570,50 @@
         <div class="sharing">{% include "sharing-buttons.html" %}</div>
     </div>
 </footer>
+<script>
+    const tooltips = document.querySelectorAll("[data-tooltip]");
+
+    const displayTooltip = (e) => {
+        const trigger = e.target;
+        const tooltip = trigger.querySelector("[role=tooltip]");
+
+        const {x, y, width, height} = trigger.getBoundingClientRect();
+        tooltip.style.left = `${Math.floor(x + width / 2)}px`;
+        tooltip.style.top = `${Math.floor(y + height)}px`;
+
+        tooltip.classList.add("active");
+    };
+
+    const hideTooltip = (e) => {
+        const tooltip = e.target.querySelector("[role=tooltip]");
+        tooltip.classList.remove("active");
+    };
+
+    const DELAY = 100;
+    let tooltipTimer = null;
+
+    tooltips.forEach((trigger) => {
+        let tooltip = document.createElement("div");
+
+        tooltip.setAttribute("role", "tooltip");
+        tooltip.setAttribute("inert", true);
+        tooltip.textContent = trigger.dataset.tooltip;
+
+        trigger.appendChild(tooltip);
+
+        trigger.addEventListener("mouseenter", (e) => {
+            clearTimeout(tooltipTimer);
+
+            tooltipTimer = setTimeout(() => {
+                displayTooltip(e);
+            }, DELAY);
+        });
+
+        trigger.addEventListener("mouseleave", (e) => {
+            clearTimeout(tooltipTimer);
+            hideTooltip(e);
+        });
+    });
+</script>
 </body>
 </html>
