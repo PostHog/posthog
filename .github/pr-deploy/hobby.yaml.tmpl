@@ -40,14 +40,39 @@ apiVersion: v1
 kind: Service
 metadata:
   name: hobby-service-$HOSTNAME
-  annotations:
-    service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
-    external-dns.alpha.kubernetes.io/hostname: $HOSTNAME.dev.posthog.dev
+#  annotations:
+#    service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+#    external-dns.alpha.kubernetes.io/hostname: $HOSTNAME.dev.posthog.dev
 spec:
   selector:
     app: hobby-$HOSTNAME
   ports:
     - protocol: TCP
-      port: 443
-      targetPort: 443
-  type: LoadBalancer
+      port: 80
+      targetPort: 80
+  type: ClusterIP
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hobby-ingress-$HOSTNAME
+  annotations:
+    kubernetes.io/ingress.class: "alb"
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: '443'
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:169684386827:certificate/698851fd-36de-4d28-8d75-cb75cc7a92f2
+    external-dns.alpha.kubernetes.io/hostname: $HOSTNAME.dev.posthog.dev
+spec:
+  rules:
+  - host: $HOSTNAME.dev.posthog.dev
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: hobby-service-$HOSTNAME
+            port:
+              number: 80
