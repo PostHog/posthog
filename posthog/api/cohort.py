@@ -18,7 +18,7 @@ import posthoganalytics
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.renderers import SafeJSONRenderer
 from datetime import datetime
-from typing import Any, Dict, cast
+from typing import Any, Dict, cast, Optional
 
 from django.conf import settings
 from django.db.models import QuerySet, Prefetch, prefetch_related_objects, OuterRef, Subquery
@@ -55,7 +55,7 @@ from posthog.event_usage import report_user_action
 from posthog.hogql.context import HogQLContext
 from posthog.models import Cohort, FeatureFlag, User, Person
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.cohort.util import get_dependent_cohorts
+from posthog.models.cohort.util import get_dependent_cohorts, print_cohort_hogql_query
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -79,11 +79,13 @@ from posthog.queries.stickiness import StickinessActors
 from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.trends.lifecycle_actors import LifecycleActors
 from posthog.queries.util import get_earliest_timestamp
+from posthog.schema import PersonsQuery
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_from_list,
     insert_cohort_from_feature_flag,
     insert_cohort_from_insight_filter,
     update_cohort,
+    insert_cohort_from_query,
 )
 from posthog.utils import format_query_params_absolute_url
 from prometheus_client import Counter
@@ -111,6 +113,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "groups",
             "deleted",
             "filters",
+            "query",
             "is_calculating",
             "created_by",
             "created_at",
@@ -129,12 +132,14 @@ class CohortSerializer(serializers.ModelSerializer):
             "count",
         ]
 
-    def _handle_static(self, cohort: Cohort, context: Dict) -> None:
+    def _handle_static(self, cohort: Cohort, context: Dict, validated_data: Dict) -> None:
         request = self.context["request"]
         if request.FILES.get("csv"):
             self._calculate_static_by_csv(request.FILES["csv"], cohort)
         elif context.get("from_feature_flag_key"):
             insert_cohort_from_feature_flag.delay(cohort.pk, context["from_feature_flag_key"], self.context["team_id"])
+        elif validated_data.get("query"):
+            insert_cohort_from_query.delay(cohort.pk)
         else:
             filter_data = request.GET.dict()
             existing_cohort_id = context.get("from_cohort_id")
@@ -149,10 +154,15 @@ class CohortSerializer(serializers.ModelSerializer):
 
         if not validated_data.get("is_static"):
             validated_data["is_calculating"] = True
+        if validated_data.get("query") and validated_data.get("filters"):
+            raise ValidationError("Cannot set both query and filters at the same time.")
+
         cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
 
         if cohort.is_static:
-            self._handle_static(cohort, self.context)
+            self._handle_static(cohort, self.context, validated_data)
+        elif cohort.query is not None:
+            raise ValidationError("Cannot create a dynamic cohort with a query. Set is_static to true.")
         else:
             update_cohort(cohort)
 
@@ -164,6 +174,16 @@ class CohortSerializer(serializers.ModelSerializer):
         reader = csv.reader(decoded_file)
         distinct_ids_and_emails = [row[0] for row in reader if len(row) > 0 and row]
         calculate_cohort_from_list.delay(cohort.pk, distinct_ids_and_emails)
+
+    def validate_query(self, query: Optional[Dict]) -> Optional[Dict]:
+        if not query:
+            return None
+        if not isinstance(query, dict):
+            raise ValidationError("Query must be a dictionary.")
+        if query.get("kind") != "PersonsQuery":
+            raise ValidationError(f"Query must be a PersonsQuery. Got: {query.get('kind')}")
+        PersonsQuery.model_validate(query)
+        return query
 
     def validate_filters(self, request_filters: Dict):
         if isinstance(request_filters, dict) and "properties" in request_filters:
@@ -469,6 +489,12 @@ def insert_cohort_people_into_pg(cohort: Cohort):
         {"cohort_id": cohort.pk, "team_id": cohort.team.pk},
     )
     cohort.insert_users_list_by_uuid(items=[str(id[0]) for id in ids])
+
+
+def insert_cohort_query_actors_into_ch(cohort: Cohort):
+    context = HogQLContext(enable_select_queries=True, team_id=cohort.team.pk)
+    query = print_cohort_hogql_query(cohort, context)
+    insert_actors_into_cohort_by_query(cohort, query, {}, context)
 
 
 def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):

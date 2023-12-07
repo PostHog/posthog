@@ -74,7 +74,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
             {(shouldShowProductIntroduction || shouldShowEmptyState) && (
                 <ProductIntroduction
                     productName={'Data Warehouse'}
-                    thingName={'data warehouse table'}
+                    thingName={'table'}
                     description={
                         'Bring your production database, revenue data, CRM contacts or any other data into PostHog.'
                     }

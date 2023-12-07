@@ -453,6 +453,15 @@ class TrendsBreakdown:
             numeric_property_filter = f"AND {breakdown_value} is not null"
             breakdown_value, values_arr = self._get_histogram_breakdown_values(breakdown_value, values_arr)
 
+        elif self.filter.breakdown_type == "session" and self.filter.breakdown == "$session_duration":
+            # Not adding "Other" for the custom session duration filter.
+            pass
+        else:
+            # Adding "Other" breakdown option
+            breakdown_value = (
+                f"transform({breakdown_value}, (%(values)s), (%(values)s), '$$_posthog_breakdown_other_$$')"
+            )
+
         return (
             {"values": values_arr},
             BREAKDOWN_PROP_JOIN_SQL if not self.filter.using_histogram else BREAKDOWN_HISTOGRAM_PROP_JOIN_SQL,
@@ -673,9 +682,7 @@ class TrendsBreakdown:
         return persons_url
 
     def _breakdown_result_descriptors(self, breakdown_value, filter: Filter, entity: Entity):
-        extra_label = self._determine_breakdown_label(
-            breakdown_value, filter.breakdown_type, filter.breakdown, breakdown_value
-        )
+        extra_label = self._determine_breakdown_label(breakdown_value, filter.breakdown_type, breakdown_value)
         if len(filter.entities) > 1:
             # if there are multiple entities in the query, include the entity name in the labels
             label = "{} - {}".format(entity.name, extra_label)
@@ -693,12 +700,12 @@ class TrendsBreakdown:
         self,
         breakdown_value: int,
         breakdown_type: Optional[str],
-        breakdown: Union[str, List[Union[str, int]], None],
         value: Union[str, int],
     ) -> str:
-        breakdown = breakdown if breakdown and isinstance(breakdown, list) else []
         if breakdown_type == "cohort":
             return get_breakdown_cohort_name(breakdown_value)
+        elif str(value) == "$$_posthog_breakdown_other_$$":
+            return "Other"
         else:
             return str(value) or "none"
 
