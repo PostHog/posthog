@@ -4,7 +4,6 @@
     position: relative;
     display: flex;
     flex-direction: row;
-    flex-shrink: 0;
     gap: 0.5rem;
     align-items: center;
     justify-content: flex-start;
@@ -21,6 +20,7 @@
     border-radius: var(--radius);
     transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease,
         transform 100ms ease;
+    max-width: 100%; // Ensure we don't overflow in flex containers
 
     .font-normal {
         font-family: var(--font-sans);
