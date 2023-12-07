@@ -4,6 +4,7 @@
     position: relative;
     display: flex;
     flex-direction: row;
+    flex-shrink: 0;
     gap: 0.5rem;
     align-items: center;
     justify-content: flex-start;
@@ -20,7 +21,6 @@
     border-radius: var(--radius);
     transition: background-color 200ms ease, color 200ms ease, border 200ms ease, opacity 200ms ease,
         transform 100ms ease;
-    white-space: nowrap;
 
     .font-normal {
         font-family: var(--font-sans);
@@ -52,11 +52,11 @@
         min-width: 0; // allows the truncate to happen in a flex parent
 
         .LemonButton__content {
+            display: initial; // Truncating doesn't work if display is flex
             min-width: 0;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
-            display: initial; // Truncating doesn't work if display is flex
         }
     }
 
