@@ -12,7 +12,7 @@ export const WebAnalyticsNotice = (): JSX.Element => {
     const showSupportOptions = preflight?.cloud
 
     return (
-        <LemonBanner type={'info'}>
+        <LemonBanner type="info" className="my-4">
             <p>PostHog Web Analytics is in opt-in Beta. Thanks for taking part! We'd love to hear what you think.</p>
             {showSupportOptions ? (
                 <p>
