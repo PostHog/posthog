@@ -10,7 +10,7 @@ import { range, sampleOne, shouldIgnoreInput } from 'lib/utils'
 import { MutableRefObject, useEffect, useRef, useState } from 'react'
 
 import { HedgehogAccessories } from './HedgehogAccessories'
-import { hedgehogbuddyLogic } from './hedgehogbuddyLogic'
+import { hedgehogBuddyLogic } from './hedgehogBuddyLogic'
 import {
     AccessoryInfo,
     baseSpriteAccessoriesPath,
@@ -263,7 +263,7 @@ export class HedgehogActor {
                     // Only calculate block bounding rects once we need to
                     blocksWithBoundingRects = Array.from(
                         document.querySelectorAll(
-                            '.border, .border-t, .LemonButton--primary, .LemonButton--secondary, .LemonInput, .LemonSelect, .LemonTable'
+                            '.border, .border-t, .LemonButton--primary, .LemonButton--secondary:not(.LemonButton--is-stealth:not(.LemonButton--active)), .LemonInput, .LemonSelect, .LemonTable'
                         )
                     ).map((block) => [block, block.getBoundingClientRect()])
                 }
@@ -403,8 +403,8 @@ export function HedgehogBuddy({
     }
 
     const actor = actorRef.current
-    const { accessories } = useValues(hedgehogbuddyLogic)
-    const { addAccessory } = useActions(hedgehogbuddyLogic)
+    const { accessories } = useValues(hedgehogBuddyLogic)
+    const { addAccessory } = useActions(hedgehogBuddyLogic)
 
     useEffect(() => {
         return actor.setupKeyboardListeners()
