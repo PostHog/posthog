@@ -91,13 +91,21 @@ async def test_create_external_job_activity_schemas_exist(activity_environment, 
         source_id=new_source.pk,
     )
 
+    await sync_to_async(ExternalDataSchema.objects.create)(  # type: ignore
+        name=PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type][1],
+        team_id=team.id,
+        source_id=new_source.pk,
+        should_sync=False,
+    )
+
     inputs = CreateExternalDataJobInputs(team_id=team.id, external_data_source_id=new_source.pk)
 
     run_id, schemas = await activity_environment.run(create_external_data_job_model, inputs)
 
     runs = ExternalDataJob.objects.filter(id=run_id)
     assert await sync_to_async(runs.exists)()  # type:ignore
-    assert len(schemas) == len(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type])
+    # one less schema because one of the schemas is turned off
+    assert len(schemas) == len(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type]) - 1
 
 
 @pytest.mark.django_db(transaction=True)
