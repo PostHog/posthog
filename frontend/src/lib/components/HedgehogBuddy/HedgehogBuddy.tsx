@@ -1,5 +1,4 @@
 import './HedgehogBuddy.scss'
-import './HedgehogBuddy.scss'
 
 import { useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
