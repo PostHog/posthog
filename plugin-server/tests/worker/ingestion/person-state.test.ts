@@ -27,7 +27,10 @@ const timestampch = '2020-01-01 12:00:05.000'
 
 interface PersonOverridesMode {
     getWriter(hub: Hub): PersonOverrideWriter | DeferredPersonOverrideWriter
-    fetchPostgresPersonIdOverrides(hub: Hub, teamId: number): Promise<[string, string][]>
+    fetchPostgresPersonIdOverrides(
+        hub: Hub,
+        teamId: number
+    ): Promise<Set<{ override_person_id: string; old_person_id: string }>>
 }
 
 const PersonOverridesModes: Record<string, PersonOverridesMode | undefined> = {
@@ -36,25 +39,29 @@ const PersonOverridesModes: Record<string, PersonOverridesMode | undefined> = {
         getWriter: (hub) => new PersonOverrideWriter(hub.db.postgres),
         fetchPostgresPersonIdOverrides: async (hub, teamId) => {
             const writer = new PersonOverrideWriter(hub.db.postgres) // XXX: ideally would reference ``this``, not new instance
-            const overrides = await writer.getPersonOverrides(teamId)
-            return overrides
-                .map(({ old_person_id, override_person_id }) => [old_person_id, override_person_id])
-                .sort() as [string, string][]
+            return new Set(
+                (await writer.getPersonOverrides(teamId)).map(({ old_person_id, override_person_id }) => ({
+                    old_person_id,
+                    override_person_id,
+                }))
+            )
         },
     },
     deferred: {
         getWriter: (hub) => new DeferredPersonOverrideWriter(hub.db.postgres),
         fetchPostgresPersonIdOverrides: async (hub, teamId) => {
-            const writer = new PersonOverrideWriter(hub.db.postgres)
+            const syncWriter = new PersonOverrideWriter(hub.db.postgres)
             await new DeferredPersonOverrideWorker(
                 hub.db.postgres,
                 hub.db.kafkaProducer,
-                writer
+                syncWriter
             ).processPendingOverrides()
-            const overrides = await writer.getPersonOverrides(teamId)
-            return overrides
-                .map(({ old_person_id, override_person_id }) => [old_person_id, override_person_id])
-                .sort() as [string, string][]
+            return new Set(
+                (await syncWriter.getPersonOverrides(teamId)).map(({ old_person_id, override_person_id }) => ({
+                    old_person_id,
+                    override_person_id,
+                }))
+            )
         },
     },
 }
@@ -1551,7 +1558,7 @@ describe('PersonState.update()', () => {
                 // verify Postgres person_id overrides, if applicable
                 if (overridesMode) {
                     const overrides = await overridesMode.fetchPostgresPersonIdOverrides(hub, teamId)
-                    expect(overrides).toEqual([[second.uuid, first.uuid]])
+                    expect(overrides).toEqual(new Set([{ old_person_id: second.uuid, override_person_id: first.uuid }]))
                     // & CH person overrides
                     // TODO
                 }
@@ -1802,7 +1809,7 @@ describe('PersonState.update()', () => {
 
                 // verify Postgres person_id overrides
                 const overridesAfterFailure = await overridesMode!.fetchPostgresPersonIdOverrides(hub, teamId)
-                expect(overridesAfterFailure).toEqual([])
+                expect(overridesAfterFailure).toEqual(new Set())
 
                 // Now verify we successfully get to our target state if we do not have
                 // any db errors.
@@ -1837,7 +1844,7 @@ describe('PersonState.update()', () => {
 
                 // verify Postgres person_id overrides
                 const overrides = await overridesMode!.fetchPostgresPersonIdOverrides(hub, teamId)
-                expect(overrides).toEqual([[second.uuid, first.uuid]])
+                expect(overrides).toEqual(new Set([{ old_person_id: second.uuid, override_person_id: first.uuid }]))
             })
 
             it(`handles a chain of overrides being applied concurrently`, async () => {
@@ -1978,10 +1985,12 @@ describe('PersonState.update()', () => {
                 // verify Postgres person_id overrides, if applicable
                 if (overridesMode) {
                     const overrides = await overridesMode.fetchPostgresPersonIdOverrides(hub, teamId)
-                    expect(overrides).toEqual([
-                        [second.uuid, first.uuid],
-                        [third.uuid, first.uuid],
-                    ])
+                    expect(overrides).toEqual(
+                        new Set([
+                            { old_person_id: second.uuid, override_person_id: first.uuid },
+                            { old_person_id: third.uuid, override_person_id: first.uuid },
+                        ])
+                    )
                 }
             })
 
@@ -2065,10 +2074,12 @@ describe('PersonState.update()', () => {
                 // verify Postgres person_id overrides, if applicable
                 if (overridesMode) {
                     const overrides = await overridesMode.fetchPostgresPersonIdOverrides(hub, teamId)
-                    expect(overrides).toEqual([
-                        [second.uuid, first.uuid],
-                        [third.uuid, first.uuid],
-                    ])
+                    expect(overrides).toEqual(
+                        new Set([
+                            { old_person_id: second.uuid, override_person_id: first.uuid },
+                            { old_person_id: third.uuid, override_person_id: first.uuid },
+                        ])
+                    )
                 }
             })
         })
