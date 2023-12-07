@@ -42,7 +42,7 @@ export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
         ],
         hedgehogModeEnabled: [
             () => [featureFlagLogic.selectors.featureFlags],
-            (featureFlags): boolean => featureFlags[FEATURE_FLAGS.HEDGEHOG_MODE],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.HEDGEHOG_MODE],
         ],
     }),
 
