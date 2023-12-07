@@ -37,8 +37,21 @@ multiIf(
     match(properties.$initial_utm_campaign, 'cross-network'),
     'Cross Network',
 
-    match(properties.$initial_utm_medium, '^(.*cp.*|ppc|retargeting|paid.*)$'),
+    (
+        match(properties.$initial_utm_medium, '^(.*cp.*|ppc|retargeting|paid.*)$') OR
+        properties.$initial_fbclid IS NOT NULL OR
+        properties.$initial_gclid IS NOT NULL OR
+        properties.$initial_msclkid IS NOT NULL
+    ),
     coalesce(
+        dictGetOrNull(
+            'channel_definition_dict',
+            'type_if_paid',
+            (
+                coalesce(properties.$initial_utm_source, ''),
+                'source'
+            )
+        ),
         dictGetOrNull(
             'channel_definition_dict',
             'type_if_paid',
@@ -55,46 +68,60 @@ multiIf(
         dictGetOrNull(
             'channel_definition_dict',
             'type_if_paid',
-            (coalesce(properties.$initial_utm_medium, ''), 'source')
+            (coalesce(properties.$initial_utm_medium, ''), 'medium')
         ),
-        'Paid Other'
+        if (
+            match(properties.$initial_utm_campaign, '^(.*video.*)$'),
+            'Paid Video',
+            'Paid Other'
+        )
     ),
 
-    properties.$initial_referring_domain = '$direct' AND (properties.$initial_utm_medium IS NULL OR properties.$initial_utm_medium = ''),
+    (
+        properties.$initial_referring_domain = '$direct'
+        AND (properties.$initial_utm_medium IS NULL OR properties.$initial_utm_medium = '')
+        AND (properties.$initial_utm_source IS NULL OR properties.$initial_utm_source IN ('', '(direct)', 'direct'))
+    ),
     'Direct',
 
-    CASE dictGetOrNull('channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce(properties.$initial_referring_domain, '')), 'source'))
-        WHEN 'Organic Shopping' THEN 'Organic Shopping'
-        WHEN 'Organic Search' THEN 'Organic Search'
-        WHEN 'Organic Video' THEN 'Organic Video'
-        WHEN 'Organic Social' THEN 'Organic Social'
-        ELSE multiIf(
+    coalesce(
+        dictGetOrNull(
+            'channel_definition_dict',
+            'type_if_organic',
+            (
+                coalesce(properties.$initial_utm_source, ''),
+                'source'
+            )
+        ),
+        dictGetOrNull(
+            'channel_definition_dict',
+            'type_if_organic',
+            (
+                cutToFirstSignificantSubdomain(coalesce(properties.$initial_referring_domain, '')),
+                'source'
+            )
+        ),
+        if(
             match(properties.$initial_utm_campaign, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
             'Organic Shopping',
-            properties.$initial_utm_medium IN
-                ('social', 'social-network', 'social-media', 'sm', 'social network', 'social media'),
-            'Organic Social',
+            NULL
+        ),
+        dictGetOrNull(
+            'channel_definition_dict',
+            'type_if_paid',
+            (coalesce(properties.$initial_utm_medium, ''), 'medium')
+        ),
+        multiIf(
             match(properties.$initial_utm_campaign, '^(.*video.*)$'),
             'Organic Video',
-            properties.$initial_utm_medium = 'organic',
-            'Organic Search',
-            properties.$initial_utm_medium IN ('referral', 'app', 'link'),
-            'Referral',
-            properties.$initial_utm_source IN ('email', 'e-mail', 'e_mail', 'e mail')
-                OR properties.$initial_utm_medium IN ('email', 'e-mail', 'e_mail', 'e mail'),
-            'Email',
-            properties.$initial_utm_medium = 'affiliate',
-            'Affiliate',
-            properties.$initial_utm_medium = 'audio',
-            'Audio',
-            properties.$initial_utm_source = 'sms' OR properties.$initial_utm_medium = 'sms',
-            'SMS',
-            match(properties.$initial_utm_medium, '(push$|mobile|notification)')
+
+              match(properties.$initial_utm_medium, '(push$|mobile|notification)')
                 OR properties.$initial_utm_source = 'firebase',
             'Push',
+
             NULL
         )
-    END
+    )
 )""",
             start=None,
         ),

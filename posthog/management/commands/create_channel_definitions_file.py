@@ -87,7 +87,7 @@ class Command(BaseCommand):
             ".google.com.tw .google.co.tz .google.com.ua .google.co.ug .google.co.uk .google.com.uy .google.co.uz "
             ".google.com.vc .google.co.ve .google.co.vi .google.com.vn .google.vu .google.ws .google.rs "
             ".google.co.za .google.co.zm .google.co.zw .google.cat"
-        ).split(" "):
+        ).split(" ") + ["google"]:
             google_domain = google_domain.strip()
             if google_domain[0] == ".":
                 google_domain = google_domain[1:]
@@ -98,6 +98,7 @@ class Command(BaseCommand):
         # add other sources
         for email_spelling in ("email", "e-mail", "e_mail", "e mail"):
             entries.append(SourceEntry(email_spelling, EntryKind.source, None, None, "Email"))
+            entries.append(SourceEntry(email_spelling, EntryKind.medium, None, None, "Email"))
         entries.append(SourceEntry("firebase", EntryKind.source, None, None, "Push"))
         entries.append(SourceEntry("sms", EntryKind.source, None, None, "SMS"))
 

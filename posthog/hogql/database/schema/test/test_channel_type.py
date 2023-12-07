@@ -117,7 +117,7 @@ class ChannelTypeQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-    def test_paid_shopping(self):
+    def test_paid_shopping_domain(self):
         self.assertEqual(
             "Paid Shopping",
             self._get_initial_channel_type(
@@ -128,12 +128,45 @@ class ChannelTypeQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-    def test_paid_search(self):
+    def test_paid_shopping_source(self):
         self.assertEqual(
             "Paid Shopping",
             self._get_initial_channel_type(
                 {
-                    "$initial_referring_domain": "www.ebay.co.uk",
+                    "$initial_utm_source": "ebay",
+                    "$initial_utm_medium": "ppc",
+                }
+            ),
+        )
+
+    def test_paid_shopping_campaign(self):
+        self.assertEqual(
+            "Paid Shopping",
+            self._get_initial_channel_type(
+                {
+                    "$initial_utm_campaign": "shopping",
+                    "$initial_utm_medium": "ppc",
+                }
+            ),
+        )
+
+    def test_paid_search(self):
+        self.assertEqual(
+            "Paid Search",
+            self._get_initial_channel_type(
+                {
+                    "$initial_referring_domain": "www.google.co.uk",
+                    "$initial_gclid": "some-gclid",
+                }
+            ),
+        )
+
+    def test_paid_search_source(self):
+        self.assertEqual(
+            "Paid Search",
+            self._get_initial_channel_type(
+                {
+                    "$initial_utm_source": "yahoo",
                     "$initial_utm_medium": "ppc",
                 }
             ),
@@ -145,7 +178,18 @@ class ChannelTypeQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self._get_initial_channel_type(
                 {
                     "$initial_referring_domain": "youtube.com",
-                    "$initial_utm_medium": "cpm",
+                    "$initial_utm_medium": "cpc",
+                }
+            ),
+        )
+
+    def test_paid_video_source(self):
+        self.assertEqual(
+            "Paid Video",
+            self._get_initial_channel_type(
+                {
+                    "$initial_utm_source": "youtube.com",
+                    "$initial_utm_medium": "cpc",
                 }
             ),
         )
