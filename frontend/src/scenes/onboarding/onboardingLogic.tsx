@@ -54,7 +54,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         setProductKey: (productKey: string | null) => ({ productKey }),
         completeOnboarding: (nextProductKey?: string) => ({ nextProductKey }),
         setAllOnboardingSteps: (allOnboardingSteps: AllOnboardingSteps) => ({ allOnboardingSteps }),
-        setStepKey: (stepKey: string) => ({ stepKey }),
+        setStepKey: (stepKey: OnboardingStepKey) => ({ stepKey }),
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
         goToNextStep: true,
         goToPreviousStep: true,
@@ -80,7 +80,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         stepKey: [
-            '' as string,
+            '' as OnboardingStepKey,
             {
                 setStepKey: (_, { stepKey }) => stepKey,
             },
