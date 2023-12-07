@@ -261,7 +261,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                         <LemonButton
                                             size="xsmall"
                                             type="secondary"
-                                            active
                                             status="primary"
                                             icon={<IconPlus />}
                                             onClick={(e) => {
@@ -275,7 +274,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                             key={i}
                                             size="xsmall"
                                             type="secondary"
-                                            active
                                             status="primary"
                                             icon={x.icon ?? <IconPlus />}
                                             onClick={(e) => {
