@@ -1,12 +1,17 @@
 import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/types'
 
 import { OnboardingBillingStep } from './OnboardingBillingStep'
 import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
 import { OnboardingOtherProductsStep } from './OnboardingOtherProductsStep'
+import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
+import { ProductConfigOption } from './onboardingProductConfigurationLogic'
 import { OnboardingVerificationStep } from './OnboardingVerificationStep'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
 import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
@@ -65,6 +70,8 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
 }
 
 const ProductAnalyticsOnboarding = (): JSX.Element => {
+    const { currentTeam } = useValues(teamLogic)
+
     return (
         <OnboardingWrapper>
             <SDKs
@@ -77,10 +84,57 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
                 teamPropertyToVerify="ingested_event"
                 stepKey={OnboardingStepKey.VERIFY}
             />
+            <OnboardingProductConfiguration
+                stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION}
+                options={[
+                    {
+                        title: 'Autocapture frontend interactions',
+                        description: `If you use our JavaScript or React Native libraries, we'll automagically 
+                            capture frontend interactions like pageviews, clicks, and more. Fine-tune what you 
+                            capture directly in your code snippet.`,
+                        teamProperty: 'autocapture_opt_out',
+                        value: !currentTeam?.autocapture_opt_out,
+                        type: 'toggle',
+                        inverseToggle: true,
+                    },
+                ]}
+            />
         </OnboardingWrapper>
     )
 }
 const SessionReplayOnboarding = (): JSX.Element => {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const configOptions: ProductConfigOption[] = [
+        {
+            type: 'toggle',
+            title: 'Capture console logs',
+            description: `Capture console logs as a part of user session recordings. 
+                            Use the console logs alongside recordings to debug any issues with your app.`,
+            teamProperty: 'capture_console_log_opt_in',
+            value: true,
+        },
+        {
+            type: 'toggle',
+            title: 'Capture network performance',
+            description: `Capture performance and network information alongside recordings. Use the
+                            network requests and timings in the recording player to help you debug issues with your app.`,
+            teamProperty: 'capture_performance_opt_in',
+            value: true,
+        },
+    ]
+
+    if (featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SAMPLING] === true) {
+        configOptions.push({
+            type: 'select',
+            title: 'Minimum session duration (seconds)',
+            description: `Only record sessions that are longer than the specified duration. 
+                            Start with it low and increase it later if you're getting too many short sessions.`,
+            teamProperty: 'session_recording_minimum_duration_milliseconds',
+            value: null,
+            selectOptions: SESSION_REPLAY_MINIMUM_DURATION_OPTIONS,
+        })
+    }
+
     return (
         <OnboardingWrapper>
             <SDKs
@@ -89,6 +143,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
                 subtitle="Choose the framework your frontend is built on, or use our all-purpose JavaScript library. If you already have the snippet installed, you can skip this step!"
                 stepKey={OnboardingStepKey.SDKS}
             />
+            <OnboardingProductConfiguration stepKey={OnboardingStepKey.PRODUCT_CONFIGURATION} options={configOptions} />
         </OnboardingWrapper>
     )
 }

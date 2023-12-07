@@ -920,7 +920,7 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(query.kind, "FunnelsQuery")
 
     def test_base_retention_query(self):
-        filter = {"insight": "RETENTION"}
+        filter = {"insight": "RETENTION", "retention_type": "retention_first_time"}
 
         query = filter_to_query(filter)
 

@@ -1,5 +1,5 @@
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import cached_property
 from typing import Literal, Optional, Dict, List
 from zoneinfo import ZoneInfo
@@ -9,8 +9,8 @@ from dateutil.relativedelta import relativedelta
 from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.parser import ast
-from posthog.models.team import Team
-from posthog.queries.util import get_earliest_timestamp
+from posthog.models.team import Team, WeekStartDay
+from posthog.queries.util import get_earliest_timestamp, get_trunc_func_ch
 from posthog.schema import DateRange, IntervalType
 from posthog.utils import (
     DEFAULT_DATE_FROM_DAYS,
@@ -185,31 +185,24 @@ class QueryDateRange:
 
         return True
 
-    def date_from_to_start_of_interval_hogql(self) -> ast.Call:
+    def date_to_start_of_interval_hogql(self, date: ast.Expr) -> ast.Call:
         match self.interval_name:
             case "hour":
-                return ast.Call(name="toStartOfHour", args=[self.date_from_as_hogql()])
+                return ast.Call(name="toStartOfHour", args=[date])
             case "day":
-                return ast.Call(name="toStartOfDay", args=[self.date_from_as_hogql()])
+                return ast.Call(name="toStartOfDay", args=[date])
             case "week":
-                return ast.Call(name="toStartOfWeek", args=[self.date_from_as_hogql()])
+                return ast.Call(name="toStartOfWeek", args=[date])
             case "month":
-                return ast.Call(name="toStartOfMonth", args=[self.date_from_as_hogql()])
+                return ast.Call(name="toStartOfMonth", args=[date])
             case _:
                 raise HogQLException(message="Unknown interval name")
 
+    def date_from_to_start_of_interval_hogql(self) -> ast.Call:
+        return self.date_to_start_of_interval_hogql(self.date_from_as_hogql())
+
     def date_to_to_start_of_interval_hogql(self) -> ast.Call:
-        match self.interval_name:
-            case "hour":
-                return ast.Call(name="toStartOfHour", args=[self.date_to_as_hogql()])
-            case "day":
-                return ast.Call(name="toStartOfDay", args=[self.date_to_as_hogql()])
-            case "week":
-                return ast.Call(name="toStartOfWeek", args=[self.date_to_as_hogql()])
-            case "month":
-                return ast.Call(name="toStartOfMonth", args=[self.date_to_as_hogql()])
-            case _:
-                raise HogQLException(message="Unknown interval name")
+        return self.date_to_start_of_interval_hogql(self.date_to_as_hogql())
 
     def to_placeholders(self) -> Dict[str, ast.Expr]:
         return {
@@ -240,3 +233,62 @@ class QueryDateRange:
                 right=self.date_to_as_hogql(),
             ),
         ]
+
+
+class QueryDateRangeWithIntervals(QueryDateRange):
+    def __init__(
+        self,
+        date_range: Optional[DateRange],
+        total_intervals: int,
+        team: Team,
+        interval: Optional[IntervalType],
+        now: datetime,
+    ) -> None:
+        self.total_intervals = total_intervals
+        super().__init__(date_range, team, interval, now)
+
+    @staticmethod
+    def determine_time_delta(total_intervals: int, period: str) -> timedelta:
+        period_map = {
+            "hour": timedelta(hours=1),
+            "day": timedelta(days=1),
+            "week": timedelta(weeks=1),
+            "month": relativedelta(months=1),
+        }
+
+        if period.lower() not in period_map:
+            raise ValueError(f"Period {period} is unsupported.")
+
+        return period_map[period.lower()] * total_intervals
+
+    def date_from(self) -> datetime:
+        delta = self.determine_time_delta(self.total_intervals, self._interval.name)
+
+        if self._interval == IntervalType.hour:
+            return self.date_to() - delta
+        elif self._interval == IntervalType.week:
+            date_from = self.date_to() - delta
+            week_start_alignment_days = date_from.isoweekday() % 7
+            if self._team.week_start_day == WeekStartDay.MONDAY:
+                week_start_alignment_days = date_from.weekday()
+            return date_from - timedelta(days=week_start_alignment_days)
+        else:
+            date_to = self.date_to().replace(hour=0, minute=0, second=0, microsecond=0)
+            return date_to - delta
+
+    def date_to(self) -> datetime:
+        delta = self.determine_time_delta(1, self._interval.name)
+        date_to = super().date_to() + delta
+
+        if self.is_hourly:
+            return date_to.replace(minute=0, second=0, microsecond=0)
+        return date_to.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    def get_start_of_interval_hogql(self, *, source: ast.Expr = None) -> ast.Expr:
+        trunc_func = get_trunc_func_ch(self._interval.name.lower())
+        trunc_func_args = [source] if source else [ast.Constant(value=self.date_from())]
+        if trunc_func == "toStartOfWeek":
+            trunc_func_args.append(
+                ast.Constant(value=int((WeekStartDay(self._team.week_start_day or 0)).clickhouse_mode))
+            )
+        return ast.Call(name=trunc_func, args=trunc_func_args)

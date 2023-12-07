@@ -70,7 +70,6 @@ export class GraphileWorker {
         const enqueueFn = () => this._enqueue(jobName, job)
 
         await instrument(
-            this.hub.statsd,
             {
                 metricName: `job_queues_enqueue_${jobName}`,
                 key: instrumentationContext?.key ?? '?',
@@ -84,10 +83,8 @@ export class GraphileWorker {
     async _enqueue(jobName: string, job: EnqueuedJob): Promise<void> {
         try {
             await this.addJob(jobName, job)
-            this.hub.statsd?.increment('enqueue_job.success', { jobName })
             graphileEnqueueJobCounter.labels({ status: 'success', job: jobName }).inc()
         } catch (error) {
-            this.hub.statsd?.increment('enqueue_job.fail', { jobName })
             graphileEnqueueJobCounter.labels({ status: 'fail', job: jobName }).inc()
             throw error
         }

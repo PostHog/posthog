@@ -42,6 +42,7 @@ export function Navbar(): JSX.Element {
                                             title={item.label}
                                             identifier={item.identifier}
                                             icon={item.icon}
+                                            sideAction={item.sideAction}
                                             tag={item.tag}
                                             to={'to' in item ? item.to : undefined}
                                             onClick={

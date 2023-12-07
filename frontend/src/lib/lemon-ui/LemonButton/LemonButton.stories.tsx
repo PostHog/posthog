@@ -1,20 +1,15 @@
+import { IconGear } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import clsx from 'clsx'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
-import { IconCalculate, IconInfo, IconPlus } from 'lib/lemon-ui/icons'
+import { IconCalculate, IconInfo, IconLink, IconPlus } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { capitalizeFirstLetter, delay, range } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import {
-    LemonButton,
-    LemonButtonProps,
-    LemonButtonWithDropdown,
-    LemonButtonWithDropdownProps,
-    LemonButtonWithSideAction,
-} from './LemonButton'
+import { LemonButton, LemonButtonProps, LemonButtonWithDropdown, LemonButtonWithDropdownProps } from './LemonButton'
 import { More } from './More'
 
 const statuses: LemonButtonProps['status'][] = ['primary', 'danger', 'primary-alt', 'muted', 'stealth']
@@ -304,7 +299,7 @@ export const FullWidth = (): JSX.Element => {
                 Full Width centered with icon
             </LemonButton>
 
-            <LemonButtonWithSideAction
+            <LemonButton
                 type="secondary"
                 fullWidth
                 icon={<IconCalculate />}
@@ -315,7 +310,7 @@ export const FullWidth = (): JSX.Element => {
                 }}
             >
                 Full Width with side action
-            </LemonButtonWithSideAction>
+            </LemonButton>
         </div>
     )
 }
@@ -328,7 +323,7 @@ export const WithSideAction = (): JSX.Element => {
                     <h5>type={capitalizeFirstLetter(type || '')}</h5>
                     <div className="flex items-center gap-2">
                         {statuses.map((status, i) => (
-                            <LemonButtonWithSideAction
+                            <LemonButton
                                 key={i}
                                 type={type}
                                 sideAction={{
@@ -339,7 +334,7 @@ export const WithSideAction = (): JSX.Element => {
                                 status={status}
                             >
                                 {capitalizeFirstLetter(status || 'Default')}
-                            </LemonButtonWithSideAction>
+                            </LemonButton>
                         ))}
                     </div>
                 </>
@@ -469,5 +464,22 @@ export const More_ = (): JSX.Element => {
                 </>
             }
         />
+    )
+}
+
+export const WithOverflowingContent = (): JSX.Element => {
+    const longText = 'long text that will overflow the button by at least a little!'
+
+    return (
+        <div className="w-200 border p-2 rounded flex items-center gap-2 overflow-hidden">
+            <LemonButton type="secondary">No shrink</LemonButton>
+            <LemonButton type="secondary" icon={<IconLink />}>
+                Small button
+            </LemonButton>
+            <LemonButton type="secondary" icon={<IconGear />} sideIcon={<IconLink />} truncate>
+                Truncating {longText}
+            </LemonButton>
+            <LemonButton type="secondary">{longText}</LemonButton>
+        </div>
     )
 }

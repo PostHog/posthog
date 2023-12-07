@@ -132,12 +132,6 @@ describe('eachBatchX', () => {
                 TASKS_PER_WORKER: 10,
                 INGESTION_CONCURRENCY: 4,
                 BUFFER_CONVERSION_SECONDS: 60,
-                statsd: {
-                    timing: jest.fn(),
-                    increment: jest.fn(),
-                    histogram: jest.fn(),
-                    gauge: jest.fn(),
-                },
                 kafkaProducer: {
                     queueMessage: jest.fn(),
                 },
@@ -217,19 +211,12 @@ describe('eachBatchX', () => {
                 queue.pluginsServer.organizationManager,
                 new Set(),
                 queue.pluginsServer.appMetrics,
-                undefined,
                 queue.pluginsServer.EXTERNAL_REQUEST_TIMEOUT_MS
             )
             const matchSpy = jest.spyOn(actionMatcher, 'match')
             // mock hasWebhooks to return true
             actionMatcher.hasWebhooks = jest.fn(() => true)
-            await eachBatchWebhooksHandlers(
-                createKafkaJSBatch(clickhouseEvent),
-                actionMatcher,
-                hookCannon,
-                queue.pluginsServer.statsd,
-                10
-            )
+            await eachBatchWebhooksHandlers(createKafkaJSBatch(clickhouseEvent), actionMatcher, hookCannon, 10)
 
             // NOTE: really it would be nice to verify that fire has been called
             // on hookCannon, but that would require a little more setup, and it
@@ -524,17 +511,7 @@ describe('eachBatchX', () => {
             const tokenBlockList = buildStringMatcher('another_token,more_token', false)
             await eachBatchParallelIngestion(tokenBlockList, batch, queue, IngestionOverflowMode.Disabled)
             expect(runEventPipeline).toHaveBeenCalledTimes(14)
-            expect(queue.pluginsServer.statsd.histogram).toHaveBeenCalledWith(
-                'ingest_event_batching.input_length',
-                14,
-                {
-                    key: 'ingestion',
-                }
-            )
             expect(ingestEventBatchingInputLengthSummarySpy).toHaveBeenCalledWith(14)
-            expect(queue.pluginsServer.statsd.histogram).toHaveBeenCalledWith('ingest_event_batching.batch_count', 5, {
-                key: 'ingestion',
-            })
             expect(ingestEventBatchingBatchCountSummarySpy).toHaveBeenCalledWith(5)
         })
 
