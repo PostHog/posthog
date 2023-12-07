@@ -21,10 +21,9 @@ class AST:
         name = camel_case_pattern.sub("_", self.__class__.__name__).lower()
 
         # NOTE: Sync with ./test/test_visitor.py#test_hogql_visitor_naming_exceptions
-        if "hog_qlx" in name:
-            name = name.replace("hog_qlx", "hogqlx_")
-        if name == "uuidtype":
-            name = "uuid_type"
+        replacements = {"hog_qlxtag": "hogqlx_tag", "hog_qlxattribute": "hogqlx_attribute", "uuidtype": "uuid_type"}
+        for old, new in replacements.items():
+            name = name.replace(old, new)
         method_name = f"visit_{name}"
         if hasattr(visitor, method_name):
             visit = getattr(visitor, method_name)
