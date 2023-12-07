@@ -38,7 +38,7 @@ metadata:
   name: hobby-service-$HOSTNAME
   annotations:
     service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
-    external-dns.alpha.kubernetes.io/hostname: $HOSTNAME.us-east-1.dev.posthog.dev
+    external-dns.alpha.kubernetes.io/hostname: $HOSTNAME.dev.posthog.dev
 spec:
   selector:
     app: hobby-$HOSTNAME
