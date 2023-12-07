@@ -478,6 +478,21 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 return response && 'timings' in response ? response.timings : null
             },
         ],
+        numberOfRows: [
+            (s) => [s.response],
+            (response): number | null => {
+                if (!response) {
+                    return null
+                }
+                const fields = ['result', 'results']
+                for (const field of fields) {
+                    if (field in response && Array.isArray(response[field])) {
+                        return response[field].length
+                    }
+                }
+                return null
+            },
+        ],
     }),
     listeners(({ actions, values, cache }) => ({
         abortAnyRunningQuery: () => {

@@ -554,10 +554,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                 })
                             }
                             footer={
-                                canLoadNextData &&
-                                ((response as any).results.length > 0 ||
-                                    (response as any).result.length > 0 ||
-                                    !responseLoading) && <LoadNext query={query.source} />
+                                canLoadNextData && (dataTableRows ?? []).length > 0 && <LoadNext query={query.source} />
                             }
                             onRow={context?.rowProps}
                         />
