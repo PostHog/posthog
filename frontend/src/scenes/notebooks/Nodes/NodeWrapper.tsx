@@ -41,6 +41,8 @@ import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
 import { NotebookNodeContext } from './NotebookNodeContext'
 import { IconGear } from '@posthog/icons'
+import { useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 
 function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperProps<T>): JSX.Element {
     const {
@@ -79,10 +81,15 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
 
     const { ref: inViewRef, inView } = useInView({ triggerOnce: true })
 
+    const { setNodeRef, attributes: sortableAttributes, transform, transition, listeners } = useSortable({ id: nodeId })
+
+    console.log(nodeId)
+
     const setRefs = useCallback(
         (node) => {
             setRef(node)
             inViewRef(node)
+            setNodeRef(node)
         },
         [inViewRef]
     )
@@ -152,6 +159,10 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                             'NotebookNode--selected': isEditable && selected,
                             'NotebookNode--active': slashCommandsPopoverVisible,
                         })}
+                        style={{
+                            transform: CSS.Transform.toString(transform),
+                            transition,
+                        }}
                     >
                         <div className="NotebookNode__box">
                             <ErrorBoundary>
@@ -165,14 +176,13 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                     </>
                                 ) : (
                                     <>
-                                        <div className="NotebookNode__meta" data-drag-handle>
+                                        <div className="NotebookNode__meta" {...sortableAttributes} {...listeners}>
                                             <div className="flex items-center flex-1 overflow-hidden">
                                                 {isDraggable && (
                                                     <IconDragHandle className="cursor-move text-base shrink-0" />
                                                 )}
                                                 <NotebookNodeTitle />
                                             </div>
-
                                             <div className="flex space-x-1">
                                                 {parsedHref && (
                                                     <LemonButton size="small" icon={<IconLink />} to={parsedHref} />

@@ -17,7 +17,6 @@ import { NotebookNodeType } from '~/types'
 import { NotebookMarkLink } from '../Marks/NotebookMarkLink'
 import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
 import { NotebookNodeCohort } from '../Nodes/NotebookNodeCohort'
-import NotebookNodeContainer from '../Nodes/NotebookNodeContainer'
 import NotebookNodeContainerColumn from '../Nodes/NotebookNodeContainerColumn'
 import { NotebookNodeEarlyAccessFeature } from '../Nodes/NotebookNodeEarlyAccessFeature'
 import { NotebookNodeEmbed } from '../Nodes/NotebookNodeEmbed'
@@ -118,7 +117,6 @@ export function Editor(): JSX.Element {
             NotebookNodeProperties,
             NotebookNodeMention,
             NotebookNodeEmbed,
-            NotebookNodeContainer,
             NotebookNodeContainerColumn,
             SlashCommandsExtension,
             MentionsExtension,

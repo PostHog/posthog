@@ -113,6 +113,12 @@
                 background-color: rgb(0 0 0 / 5%);
                 border-radius: var(--radius);
             }
+
+            .Notebook__container > div {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 1rem;
+            }
         }
 
         .Backlink {
