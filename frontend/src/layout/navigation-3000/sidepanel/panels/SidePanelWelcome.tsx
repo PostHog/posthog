@@ -1,10 +1,9 @@
 import './SidePanelWelcome.scss'
 
 import { IconArrowLeft, IconEllipsis, IconExternal, IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import featureCommandPalette from 'public/3000/3000-command-palette.png'
 import featureCommandPaletteDark from 'public/3000/3000-command-palette-dark.png'
 import featureDarkMode from 'public/3000/3000-dark-mode.png'
@@ -17,9 +16,9 @@ import featureSearchDark from 'public/3000/3000-search-dark.png'
 import featureSidePanel from 'public/3000/3000-side-panel.png'
 import featureSidePanelDark from 'public/3000/3000-side-panel-dark.png'
 import featureToolbar from 'public/3000/3000-toolbar.png'
-import { useEffect } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { SidePanelTab } from '~/types'
 
 import { KeyboardShortcut } from '../../components/KeyboardShortcut'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
@@ -33,7 +32,7 @@ type RowProps = {
 }
 
 const Row = ({ className, columns, children }: RowProps): JSX.Element => (
-    <div className={clsx('mb-6 gap-5 grid', className)} style={{ gridTemplateColumns: columns ? columns : '100%' }}>
+    <div className={clsx('gap-4 grid', className)} style={{ gridTemplateColumns: columns ? columns : '100%' }}>
         {children}
     </div>
 )
@@ -44,7 +43,9 @@ type CardProps = {
 }
 
 const Card = ({ children, className }: CardProps): JSX.Element => (
-    <div className={clsx('welcome-card border rounded-md px-4 py-3 w-full overflow-hidden', className)}>{children}</div>
+    <div className={clsx('SidePanelWelcome__card border rounded-md px-4 py-3 w-full overflow-hidden', className)}>
+        {children}
+    </div>
 )
 
 const Title = ({ children }: { children: React.ReactNode }): JSX.Element => (
@@ -68,19 +69,8 @@ const Image = ({
 }): JSX.Element => <img src={src} alt={alt} width={width} height={height} style={style} className="mt-2" />
 
 export const SidePanelWelcome = (): JSX.Element => {
-    const { closeSidePanel } = useActions(sidePanelStateLogic)
+    const { closeSidePanel, openSidePanel } = useActions(sidePanelStateLogic)
     const { isDarkModeOn } = useValues(themeLogic)
-
-    useEffect(() => {
-        return () => {
-            // Linked to the FF to ensure it isn't shown again
-            posthog.capture('3000 welcome acknowledged', {
-                $set: {
-                    [`3000-welcome-acknowledged`]: true,
-                },
-            })
-        }
-    }, [])
 
     return (
         <>
@@ -97,28 +87,34 @@ export const SidePanelWelcome = (): JSX.Element => {
                     </button>
                 </div>
             </div>
-            <div className="flex flex-col m-4 my-6 flex-1">
-                <h1 className="font-bold text-xl mb-2 w-full">
-                    👋 Say hello to
-                    <div className="text-primary-3000 text-4xl">PostHog&nbsp;3000</div>
-                </h1>
-                <p className="max-w-120 text-sm font-medium mb-3 opacity-75">
-                    We're past zero to one.
-                    <br />
-                    In this new version of PostHog, we're going from one… to&nbsp;3000.
-                    <br />
-                    And this is just the beginning.
-                </p>
-                <LemonButton
-                    to={BLOG_POST_URL}
-                    targetBlank
-                    type="primary"
-                    sideIcon={<IconExternal className="text-xl" />}
-                    className="mb-5 self-start"
-                >
-                    Read the blog post
-                </LemonButton>
-
+            <div className="SidePanelWelcome__hero pt-4">
+                <div className="mx-auto px-4 max-w-140">
+                    <h1 className="font-semibold text-base mb-2 w-full">
+                        👋 <span className="opacity-75">Say hello to</span>
+                        <div className="text-primary-3000 text-2xl font-bold">PostHog 3000</div>
+                    </h1>
+                    <p className="text-sm font-medium mb-3 opacity-75">We're past 0 to 1.</p>
+                    <p
+                        className="text-sm font-medium mb-4 opacity-75"
+                        style={{ maxWidth: 'min(calc(50% - 1rem), 16rem)' }}
+                    >
+                        It's time to go from 1 to&nbsp;3000. And&nbsp;this is just the&nbsp;beginning…
+                    </p>
+                    <div className="flex">
+                        <LemonButton
+                            to={BLOG_POST_URL}
+                            targetBlank
+                            type="primary"
+                            sideIcon={<IconExternal className="text-xl" />}
+                            className="mb-5 self-start"
+                        >
+                            Read the blog post
+                        </LemonButton>
+                    </div>
+                </div>
+            </div>
+            <LemonDivider className="mb-4" />
+            <div className="flex flex-col px-4 pb-6 space-y-4 mx-auto max-w-140 flex-1">
                 <Row>
                     <Card>
                         <Title>Dark mode</Title>
@@ -168,7 +164,7 @@ export const SidePanelWelcome = (): JSX.Element => {
 
                 <Row>
                     <Card>
-                        <div className="grid grid-cols-2 gap-5 items-center">
+                        <div className="grid grid-cols-2 gap-4 items-center">
                             <div>
                                 <Title>Side panel</Title>
                                 <Description>
@@ -234,6 +230,22 @@ export const SidePanelWelcome = (): JSX.Element => {
                     </Card>
                 </Row>
 
+                <div className="gap-4 flex">
+                    <LemonButton
+                        to={BLOG_POST_URL}
+                        targetBlank
+                        type="primary"
+                        sideIcon={<IconExternal className="text-xl" />}
+                    >
+                        Read the blog post
+                    </LemonButton>
+                    <LemonButton
+                        onClick={() => openSidePanel(SidePanelTab.Support, 'feedback:posthog-3000')}
+                        type="secondary"
+                    >
+                        Let us know what you think!
+                    </LemonButton>
+                </div>
                 <div className="-mb-3">
                     <IconArrowLeft className="text-base mr-2 inline" />
                     <span className="m-0">
@@ -241,7 +253,7 @@ export const SidePanelWelcome = (): JSX.Element => {
                         <span className="text-base font border p-1 rounded mx-1 w-6 h-6 inline-flex align-middle">
                             <IconEllipsis />
                         </span>{' '}
-                        menu
+                        menu.
                     </span>
                 </div>
             </div>

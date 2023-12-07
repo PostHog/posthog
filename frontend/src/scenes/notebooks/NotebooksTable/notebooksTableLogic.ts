@@ -1,6 +1,7 @@
+import { PaginationManual } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import api from 'lib/api'
+import api, { CountedPaginatedResponse } from 'lib/api'
 import { objectClean, objectsEqual } from 'lib/utils'
 
 import { notebooksModel } from '~/models/notebooksModel'
@@ -21,11 +22,15 @@ export const DEFAULT_FILTERS: NotebooksListFilters = {
     contains: [],
 }
 
+const RESULTS_PER_PAGE = 50
+
 export const notebooksTableLogic = kea<notebooksTableLogicType>([
     path(['scenes', 'notebooks', 'NotebooksTable', 'notebooksTableLogic']),
     actions({
         loadNotebooks: true,
         setFilters: (filters: Partial<NotebooksListFilters>) => ({ filters }),
+        setSortValue: (sortValue: string | null) => ({ sortValue }),
+        setPage: (page: number) => ({ page }),
     }),
     connect({
         values: [notebooksModel, ['notebookTemplates']],
@@ -42,10 +47,24 @@ export const notebooksTableLogic = kea<notebooksTableLogicType>([
                     }),
             },
         ],
+        sortValue: [
+            null as string | null,
+            {
+                setSortValue: (_, { sortValue }) => sortValue,
+            },
+        ],
+        page: [
+            1,
+            {
+                setPage: (_, { page }) => page,
+                setFilters: () => 1,
+                setSortValue: () => 1,
+            },
+        ],
     }),
     loaders(({ values }) => ({
-        notebooks: [
-            [] as NotebookListItemType[],
+        notebooksResponse: [
+            null as CountedPaginatedResponse<NotebookListItemType> | null,
             {
                 loadNotebooks: async (_, breakpoint) => {
                     // TODO: Support pagination
@@ -56,24 +75,28 @@ export const notebooksTableLogic = kea<notebooksTableLogicType>([
                     const createdByForQuery =
                         values.filters?.createdBy === DEFAULT_FILTERS.createdBy ? undefined : values.filters?.createdBy
 
-                    const res = await api.notebooks.list(contains, createdByForQuery, values.filters?.search)
+                    const res = await api.notebooks.list({
+                        contains,
+                        created_by: createdByForQuery,
+                        search: values.filters?.search || undefined,
+                        order: values.sortValue ?? '-last_modified_at',
+                        limit: RESULTS_PER_PAGE,
+                        offset: (values.page - 1) * RESULTS_PER_PAGE,
+                    })
 
                     breakpoint()
-                    return res.results
+                    return res
                 },
             },
         ],
     })),
     listeners(({ actions }) => ({
-        setFilters: () => {
-            actions.loadNotebooks()
-        },
-        deleteNotebookSuccess: () => {
-            // TODO at some point this will be slow enough it makes sense to patch the in-memory list but for simplicity...
-            actions.loadNotebooks()
-        },
+        setFilters: () => actions.loadNotebooks(),
+        setSortValue: () => actions.loadNotebooks(),
+        setPage: () => actions.loadNotebooks(),
+        deleteNotebookSuccess: () => actions.loadNotebooks(),
     })),
-    selectors({
+    selectors(({ actions }) => ({
         notebooksAndTemplates: [
             (s) => [s.notebooks, s.notebookTemplates, s.filters],
             (notebooks, notebookTemplates, filters): NotebookListItemType[] => {
@@ -81,5 +104,26 @@ export const notebooksTableLogic = kea<notebooksTableLogicType>([
                 return [...(includeTemplates ? (notebookTemplates as NotebookListItemType[]) : []), ...notebooks]
             },
         ],
-    }),
+
+        notebooks: [
+            (s) => [s.notebooksResponse],
+            (notebooksResponse): NotebookListItemType[] => {
+                return notebooksResponse?.results || []
+            },
+        ],
+
+        pagination: [
+            (s) => [s.page, s.notebooksResponse],
+            (page, notebooksResponse): PaginationManual => {
+                return {
+                    controlled: true,
+                    pageSize: RESULTS_PER_PAGE,
+                    currentPage: page,
+                    entryCount: notebooksResponse?.count ?? 0,
+                    onBackward: () => actions.setPage(page - 1),
+                    onForward: () => actions.setPage(page + 1),
+                }
+            },
+        ],
+    })),
 ])

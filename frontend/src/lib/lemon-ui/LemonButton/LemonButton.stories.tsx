@@ -8,13 +8,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { capitalizeFirstLetter, delay, range } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import {
-    LemonButton,
-    LemonButtonProps,
-    LemonButtonWithDropdown,
-    LemonButtonWithDropdownProps,
-    LemonButtonWithSideAction,
-} from './LemonButton'
+import { LemonButton, LemonButtonProps, LemonButtonWithDropdown, LemonButtonWithDropdownProps } from './LemonButton'
 import { More } from './More'
 
 const statuses: LemonButtonProps['status'][] = ['primary', 'danger', 'primary-alt', 'muted', 'stealth']
@@ -304,7 +298,7 @@ export const FullWidth = (): JSX.Element => {
                 Full Width centered with icon
             </LemonButton>
 
-            <LemonButtonWithSideAction
+            <LemonButton
                 type="secondary"
                 fullWidth
                 icon={<IconCalculate />}
@@ -315,7 +309,7 @@ export const FullWidth = (): JSX.Element => {
                 }}
             >
                 Full Width with side action
-            </LemonButtonWithSideAction>
+            </LemonButton>
         </div>
     )
 }
@@ -328,7 +322,7 @@ export const WithSideAction = (): JSX.Element => {
                     <h5>type={capitalizeFirstLetter(type || '')}</h5>
                     <div className="flex items-center gap-2">
                         {statuses.map((status, i) => (
-                            <LemonButtonWithSideAction
+                            <LemonButton
                                 key={i}
                                 type={type}
                                 sideAction={{
@@ -339,7 +333,7 @@ export const WithSideAction = (): JSX.Element => {
                                 status={status}
                             >
                                 {capitalizeFirstLetter(status || 'Default')}
-                            </LemonButtonWithSideAction>
+                            </LemonButton>
                         ))}
                     </div>
                 </>
