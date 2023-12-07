@@ -867,6 +867,7 @@ export interface MatchedRecording {
 interface CommonActorType {
     id: string | number
     properties: Record<string, any>
+    /** @format date-time */
     created_at: string
     matched_recordings: MatchedRecording[]
     value_at_data_point: number | null

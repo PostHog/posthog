@@ -27,7 +27,13 @@ QUERY_WITH_RUNNER = [
     "WebTopPagesQuery",
     "WebStatsTableQuery",
 ]
-QUERY_WITH_RUNNER_NO_CACHE = ["EventsQuery", "PersonsQuery", "HogQLQuery", "SessionsTimelineQuery"]
+QUERY_WITH_RUNNER_NO_CACHE = [
+    "HogQLQuery",
+    "EventsQuery",
+    "PersonsQuery",
+    "RetentionAppearanceQuery",
+    "SessionsTimelineQuery",
+]
 
 
 def _unwrap_pydantic(response: Any) -> Dict | List:

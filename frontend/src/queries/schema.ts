@@ -1,3 +1,5 @@
+import { RetentionTablePeoplePayload } from 'scenes/retention/types'
+
 import {
     AnyPropertyFilter,
     BaseMathType,
@@ -59,6 +61,7 @@ export enum NodeKind {
     TrendsQuery = 'TrendsQuery',
     FunnelsQuery = 'FunnelsQuery',
     RetentionQuery = 'RetentionQuery',
+    RetentionAppearanceQuery = 'RetentionAppearanceQuery',
     PathsQuery = 'PathsQuery',
     StickinessQuery = 'StickinessQuery',
     LifecycleQuery = 'LifecycleQuery',
@@ -108,6 +111,7 @@ export type QuerySchema =
     | TrendsQuery
     | FunnelsQuery
     | RetentionQuery
+    | RetentionAppearanceQuery
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
@@ -757,6 +761,16 @@ export interface InsightPersonsQuery {
     // TODO: add breakdowns
     // TODO: add fields for other insights (funnels dropdown, compare_previous choice, etc)
     response?: PersonsQueryResponse
+}
+
+export interface RetentionAppearanceQuery {
+    kind: NodeKind.RetentionAppearanceQuery
+    source: RetentionQuery
+    /** @asType integer */
+    selectedInterval: number
+    /** @asType integer */
+    offset?: number
+    response?: RetentionTablePeoplePayload
 }
 
 export const dateRangeForFilter = (source: FilterType | undefined): DateRange | undefined => {

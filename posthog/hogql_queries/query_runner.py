@@ -31,6 +31,7 @@ from posthog.schema import (
     DashboardFilter,
     HogQLQueryModifiers,
     RetentionQuery,
+    RetentionAppearanceQuery,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -127,6 +128,16 @@ def get_query_runner(
 
         return RetentionQueryRunner(
             query=cast(RetentionQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "RetentionAppearanceQuery":
+        from .insights.retention_appearance_query_runner import RetentionAppearanceQueryRunner
+
+        return RetentionAppearanceQueryRunner(
+            query=cast(RetentionAppearanceQuery | Dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,

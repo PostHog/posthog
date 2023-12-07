@@ -172,12 +172,12 @@ class RetentionQueryRunner(QueryRunner):
     def build_returning_event_query(self) -> ast.SelectQuery:
         return self.retention_events_query(event_query_type=RetentionQueryType.RETURNING)
 
-    def actor_query(self) -> ast.SelectQuery:
+    def actor_query(self, breakdown_values_filter: Optional[Any] = None) -> ast.SelectQuery:
         placeholders = {
             **self.query_date_range.to_placeholders(),
             "returning_event_query": self.build_returning_event_query(),
             "target_event_query": self.build_target_event_query(),
-            "breakdown_values_filter": ast.Constant(value=None),
+            "breakdown_values_filter": ast.Constant(value=breakdown_values_filter),
             "selected_interval": ast.Constant(value=None),
         }
         return parse_select(
