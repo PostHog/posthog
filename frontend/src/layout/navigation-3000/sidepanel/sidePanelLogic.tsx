@@ -1,7 +1,9 @@
 import { afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 import { activationLogic } from 'lib/components/ActivationSidebar/activationLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { SidePanelTab } from '~/types'
@@ -33,7 +35,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             notificationsLogic,
             ['unreadCount'],
         ],
-        actions: [sidePanelStateLogic, ['closeSidePanel']],
+        actions: [sidePanelStateLogic, ['closeSidePanel', 'openSidePanel']],
     }),
 
     reducers(() => ({
@@ -42,10 +44,22 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             { persist: true },
             {
                 closeSidePanel: () => true,
+                openSidePanel: (_, { tab }) => tab !== SidePanelTab.Welcome,
             },
         ],
     })),
-
+    subscriptions({
+        welcomeAnnouncementAcknowledged: (welcomeAnnouncementAcknowledged) => {
+            if (welcomeAnnouncementAcknowledged) {
+                // Linked to the FF to ensure it isn't shown again
+                posthog.capture('3000 welcome acknowledged', {
+                    $set: {
+                        '3000-welcome-acknowledged': true,
+                    },
+                })
+            }
+        },
+    }),
     selectors({
         shouldShowWelcomeAnnouncement: [
             (s) => [s.welcomeAnnouncementAcknowledged, s.featureFlags],
@@ -63,29 +77,22 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         ],
 
         enabledTabs: [
-            (s) => [s.featureFlags, s.isCloudOrDev, s.isReady, s.hasCompletedAllTasks],
-            (featureFlags, isCloudOrDev, isReady, hasCompletedAllTasks) => {
+            (s) => [s.isCloudOrDev, s.isReady, s.hasCompletedAllTasks],
+            (isCloudOrDev, isReady, hasCompletedAllTasks) => {
                 const tabs: SidePanelTab[] = []
 
-                if (featureFlags[FEATURE_FLAGS.NOTEBOOKS]) {
-                    tabs.push(SidePanelTab.Notebooks)
-                }
-
+                tabs.push(SidePanelTab.Notebooks)
                 if (isCloudOrDev) {
                     tabs.push(SidePanelTab.Support)
                 }
-
                 tabs.push(SidePanelTab.Docs)
                 tabs.push(SidePanelTab.Settings)
                 if (isReady && !hasCompletedAllTasks) {
                     tabs.push(SidePanelTab.Activation)
                 }
                 tabs.push(SidePanelTab.Activity)
+                tabs.push(SidePanelTab.FeaturePreviews)
                 tabs.push(SidePanelTab.Welcome)
-
-                if (featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE_SITE_BUTTON]) {
-                    tabs.push(SidePanelTab.FeaturePreviews)
-                }
 
                 return tabs
             },
