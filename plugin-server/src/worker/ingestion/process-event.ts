@@ -46,7 +46,7 @@ const processEventMsSummary = new Summary({
 const elementsOrElementsChainCounter = new Counter({
     name: 'events_pipeline_elements_or_elements_chain_total',
     help: 'Number of times elements or elements_chain appears on event',
-    labelNames: ['step_name'],
+    labelNames: ['type'],
 })
 
 export class EventsProcessor {
