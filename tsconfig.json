@@ -38,7 +38,8 @@
         "ignoreDeprecations": "5.0",
         "lib": ["dom", "es2019"]
     },
-    "include": ["frontend/src/**/*", ".storybook/**/*", "ee/frontend/**/*"],
+    "include": ["frontend/**/*", ".storybook/**/*", "ee/frontend/**/*"],
+    "exclude": ["frontend/dist/**/*"],
     "ts-node": {
         "compilerOptions": {
             "module": "commonjs"
