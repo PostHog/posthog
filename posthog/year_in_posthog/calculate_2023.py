@@ -87,6 +87,22 @@ dashboards_created_stats AS (
         AND created_by_id = (select id from posthog_user where uuid = %(user_uuid)s)
     GROUP BY
         created_by_id
+),
+survey_stats AS (
+    SELECT
+        created_by_id as user_id,
+        count(*) as survey_created_count,
+        CASE
+            WHEN count(*) >= 1 THEN 'reporter'
+        END AS badge
+    FROM
+        posthog_survey
+    WHERE
+        NOT created_by_id IS NULL
+        AND date_part('year', created_at) = 2023
+        AND created_by_id = (select id from posthog_user where uuid = %(user_uuid)s)
+    group by
+        created_by_id
 )
 SELECT
     id,
@@ -98,6 +114,7 @@ SELECT
         recording_viewed_stats.badge,
         experiments_stats.badge,
         dashboards_created_stats.badge,
+        survey_stats.badge,
         case when
             recording_viewed_stats.badge is not null
                 and flag_stats.badge is not null
@@ -110,7 +127,8 @@ SELECT
     flag_stats.flag_created_count,
     recording_viewed_stats.viewed_recording_count,
     experiments_stats.experiments_created_count,
-    dashboards_created_stats.dashboards_created_count
+    dashboards_created_stats.dashboards_created_count,
+    survey_stats.survey_created_count
 FROM
     posthog_user
     LEFT JOIN insight_stats ON posthog_user.id = insight_stats.user_id
@@ -118,6 +136,7 @@ FROM
     LEFT JOIN recording_viewed_stats ON posthog_user.id = recording_viewed_stats.user_id
     LEFT JOIN experiments_stats ON posthog_user.id = experiments_stats.user_id
     LEFT JOIN dashboards_created_stats ON posthog_user.id = dashboards_created_stats.user_id
+    LEFT JOIN survey_stats ON posthog_user.id = survey_stats.user_id
 WHERE
     posthog_user.uuid = %(user_uuid)s
 """
@@ -146,6 +165,7 @@ def calculate_year_in_posthog_2023(user_uuid: str) -> Optional[Dict]:
                 "viewed_recording_count": row["viewed_recording_count"],
                 "experiments_created_count": row["experiments_created_count"],
                 "dashboards_created_count": row["dashboards_created_count"],
+                "surveys_created_count": row["survey_created_count"],
             },
             "badges": row["badges"],
         }

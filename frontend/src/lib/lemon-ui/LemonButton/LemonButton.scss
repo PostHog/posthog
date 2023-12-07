@@ -48,6 +48,20 @@
         }
     }
 
+    &.LemonButton--truncate {
+        flex-shrink: 1;
+        min-width: 0; // allows the truncate to happen in a flex parent
+        white-space: nowrap;
+
+        .LemonButton__content {
+            display: initial; // Truncating doesn't work if display is flex
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+    }
+
     &.LemonButton--loading {
         cursor: default;
     }
