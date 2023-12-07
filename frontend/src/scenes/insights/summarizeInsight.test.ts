@@ -308,12 +308,12 @@ describe('summarizing insights', () => {
                         target_entity: {
                             id: '$autocapture',
                             name: '$autocapture',
-                            type: 'event',
+                            type: 'events',
                         },
                         returning_entity: {
                             id: '$autocapture',
                             name: '$autocapture',
-                            type: 'event',
+                            type: 'events',
                         },
                         retention_type: RETENTION_FIRST_TIME,
                     } as RetentionFilterType,
@@ -333,12 +333,12 @@ describe('summarizing insights', () => {
                         target_entity: {
                             id: 'purchase',
                             name: 'purchase',
-                            type: 'event',
+                            type: 'events',
                         },
                         returning_entity: {
                             id: '$pageview',
                             name: '$pageview',
-                            type: 'event',
+                            type: 'events',
                         },
                         retention_type: RETENTION_RECURRING,
                         aggregation_group_type_index: 0,
@@ -731,12 +731,12 @@ describe('summarizing insights', () => {
                     target_entity: {
                         id: '$autocapture',
                         name: '$autocapture',
-                        type: 'event',
+                        type: 'events',
                     },
                     returning_entity: {
                         id: '$autocapture',
                         name: '$autocapture',
-                        type: 'event',
+                        type: 'events',
                     },
                     retention_type: RETENTION_FIRST_TIME,
                 },
@@ -760,12 +760,12 @@ describe('summarizing insights', () => {
                     target_entity: {
                         id: 'purchase',
                         name: 'purchase',
-                        type: 'event',
+                        type: 'events',
                     },
                     returning_entity: {
                         id: '$pageview',
                         name: '$pageview',
-                        type: 'event',
+                        type: 'events',
                     },
                     retention_type: RETENTION_RECURRING,
                 },
