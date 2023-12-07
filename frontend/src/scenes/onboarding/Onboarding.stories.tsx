@@ -60,14 +60,12 @@ export const _OnboardingBilling = (): JSX.Element => {
             },
         },
     })
-    useMountedLogic(onboardingLogic)
-    const { setProduct, setStepKey } = useActions(onboardingLogic)
+
+    const { setProduct } = useActions(onboardingLogic)
 
     useEffect(() => {
-        const product: BillingProductV2Type = billingUnsubscribedJson.products[1] as BillingProductV2Type
-        setProduct(product)
-        router.actions.push(urls.onboarding(ProductKey.SESSION_REPLAY))
-        setStepKey(OnboardingStepKey.BILLING)
+        setProduct(billingJson.products[1] as BillingProductV2Type)
+        router.actions.push(urls.onboarding(ProductKey.SESSION_REPLAY, OnboardingStepKey.BILLING))
     }, [])
     return <App />
 }
@@ -80,14 +78,12 @@ export const _OnboardingOtherProducts = (): JSX.Element => {
             },
         },
     })
-    useMountedLogic(onboardingLogic)
-    const { setProduct, setStepKey } = useActions(onboardingLogic)
+
+    const { setProduct } = useActions(onboardingLogic)
 
     useEffect(() => {
-        const product: BillingProductV2Type = billingJson.products[1] as BillingProductV2Type
-        setProduct(product)
-        router.actions.push(urls.onboarding(ProductKey.SESSION_REPLAY))
-        setStepKey(OnboardingStepKey.OTHER_PRODUCTS)
+        setProduct(billingJson.products[1] as BillingProductV2Type)
+        router.actions.push(urls.onboarding(ProductKey.SESSION_REPLAY, OnboardingStepKey.OTHER_PRODUCTS))
     }, [])
     return <App />
 }

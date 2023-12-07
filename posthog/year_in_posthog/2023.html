@@ -121,7 +121,11 @@
         }
 
         h2 {
-            margin: 1rem 0 0;
+            margin: 1rem 0 0.5rem;
+        }
+
+        .text-center {
+            text-align: center;
         }
 
         .flex {
@@ -200,6 +204,12 @@
             color: {{ highlight_color }};
         }
 
+        {% for b in badges %}
+            .highlight.{{ b }} {
+                color: {{ b.highlight_color }};
+            }
+        {% endfor %}
+
         .muted {
             color: #969696;
         }
@@ -271,7 +281,6 @@
             flex-direction: row;
             justify-content: space-between;
             width: 100%;
-            row-gap: 1rem;
         }
 
         .stat {
@@ -287,15 +296,50 @@
             flex-direction: column;
             justify-content: space-between;
             width: 100%;
-            row-gap: 1rem;
         }
 
         .achievements {
-            display: flex;
-            flex-direction: row;
-            justify-content: space-between;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(30%, 1fr));
+            gap: 10px; /* Adjust the gap between grid items as needed */
             width: 100%;
-            row-gap: 1rem;
+        }
+
+        @media screen and (max-width: 930px) {
+            .achievements {
+                grid-template-columns: repeat(auto-fill, minmax(30%, 1fr)); /* Change to 3 column with smaller images */
+            }
+
+            .badge.mini {
+                width: 100px;
+                height: 100px;
+            }
+        }
+
+        @media screen and (max-width: 600px) {
+            .achievements {
+                grid-template-columns: repeat(auto-fill, minmax(48%, 1fr)); /* Change to 2 columns */
+            }
+
+            .badge.mini {
+                width: 160px;
+                height: 160px;
+            }
+        }
+
+        @media screen and (max-width: 400px) {
+            .achievements {
+                grid-template-columns: repeat(auto-fill, minmax(100%, 1fr)); /* Change to 1 column */
+            }
+
+            .badge.mini {
+                width: 250px;
+                height: 250px;
+            }
+        }
+
+        .achievements > * + * {
+            margin-left: 0.5rem;
         }
 
         .achievement {
@@ -411,14 +455,14 @@
             <h2 class="highlight text-2xl">Achievements unlocked</h2>
             <div class="achievements">
                 {% for _, b in badges.items %}
-                    <div class="achievement">
+                    <div class="achievement" title="{{ b.explanation }}">
                         <picture class="badge mini">
                             <source type="image/webp" srcset="{% static b.image_webp %}" width="163" height="163">
                             <source type="image/png" srcset="{% static b.image_png %}" width="163" height="163">
                             <img class="badge mini" src="{% static b.image_png %}" width="163" height="163"
                                  alt="An illustration of a hedgehog who is a {{ b.human_badge }}">
                         </picture>
-                        <div class="my-4">{{ b.human_badge }}</div>
+                        <div class="my-4 text-center highlight {{ b.badge }}">{{ b.human_badge }}</div>
                     </div>
                 {% endfor %}
             </div>
