@@ -121,6 +121,21 @@ export const standardAnimations: { [key: string]: SpriteInfo } = {
 }
 
 export const standardAccessories: { [key: string]: AccessoryInfo } = {
+    xmas_hat: {
+        img: 'xmas-hat',
+        group: 'headwear',
+        topOffset: 10,
+    },
+    xmas_antlers: {
+        img: 'xmas-antlers',
+        group: 'headwear',
+        topOffset: 10,
+    },
+    xmas_scarf: {
+        img: 'xmas-scarf',
+        group: 'other',
+        topOffset: 20,
+    },
     beret: {
         img: 'beret',
         group: 'headwear',

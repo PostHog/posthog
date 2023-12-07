@@ -4,7 +4,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { capitalizeFirstLetter } from 'lib/utils'
 
 import { hedgehogbuddyLogic } from '../hedgehogbuddyLogic'
-import { AccessoryInfo, baseSpriteAccessoriesPath } from '../sprites/sprites'
+import { AccessoryInfo, baseSpriteAccessoriesPath, baseSpritePath } from '../sprites/sprites'
 
 export type HedgehogBuddyAccessoryProps = {
     accessory: AccessoryInfo
@@ -32,6 +32,8 @@ export function HedgehogBuddyAccessory({
 
     const imgExt = isDarkModeOn ? 'dark.png' : 'png'
 
+    const imgSize = 40
+
     return (
         <LemonButton
             type="secondary"
@@ -46,16 +48,24 @@ export function HedgehogBuddyAccessory({
             }
         >
             {!isUnlocked && <IconLock className=" absolute right-0 top-0 rounded" />}
-            <div className="relative w-8 h-8 overflow-hidden">
+            <div
+                className="relative  overflow-hidden pointer-events-none"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    width: imgSize,
+                    height: imgSize,
+                }}
+            >
                 <img
-                    src={`${baseSpriteAccessoriesPath()}/${accessory.img}.${imgExt}`}
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
-                        position: 'absolute',
-                        top: -(accessory.topOffset || 0),
-                        left: -30,
+                        width: imgSize,
+                        height: imgSize,
                     }}
+                    src={`${baseSpriteAccessoriesPath()}/${accessory.img}.${imgExt}`}
+                    className=" object-contain absolute inset-0"
                 />
+                <img src={`${baseSpritePath()}/wave.${imgExt}`} className=" object-contain absolute inset-0" />
             </div>
         </LemonButton>
     )
