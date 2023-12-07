@@ -120,6 +120,10 @@
             text-align: center;
         }
 
+        h2 {
+            margin: 1rem 0 0;
+        }
+
         .flex {
             display: flex;
         }
@@ -188,7 +192,7 @@
             width: 100vw;
             display: flex;
             flex-direction: row;
-            z-index:9999;
+            z-index: 9999;
             align-items: center;
         }
 
@@ -257,6 +261,11 @@
             height: 326px;
         }
 
+        .badge.mini {
+            width: 163px;
+            height: 163px;
+        }
+
         .stats {
             display: flex;
             flex-direction: row;
@@ -269,6 +278,30 @@
             display: flex;
             flex-direction: column;
             flex-basis: 100%;
+            font-size: 1.5rem;
+        }
+
+
+        .achievements-wrapper {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            width: 100%;
+            row-gap: 1rem;
+        }
+
+        .achievements {
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
+            width: 100%;
+            row-gap: 1rem;
+        }
+
+        .achievement {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
             font-size: 1.5rem;
         }
 
@@ -373,6 +406,22 @@
                     <div>{{ stat.description }}</div>
                 </div>
             {% endfor %}
+        </div>
+        <div class="achievements-wrapper pt-4">
+            <h2 class="highlight text-2xl">Achievements unlocked</h2>
+            <div class="achievements">
+                {% for _, b in badges.items %}
+                    <div class="achievement">
+                        <picture class="badge mini">
+                            <source type="image/webp" srcset="{% static b.image_webp %}" width="163" height="163">
+                            <source type="image/png" srcset="{% static b.image_png %}" width="163" height="163">
+                            <img class="badge mini" src="{% static b.image_png %}" width="163" height="163"
+                                 alt="An illustration of a hedgehog who is a {{ b.human_badge }}">
+                        </picture>
+                        <div class="my-4">{{ b.human_badge }}</div>
+                    </div>
+                {% endfor %}
+            </div>
         </div>
         <div class="sharing">{% include "sharing-buttons.html" %}</div>
     </div>

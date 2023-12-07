@@ -11,7 +11,6 @@ from sentry_sdk import capture_exception
 from posthog import settings
 from posthog.year_in_posthog.calculate_2023 import calculate_year_in_posthog_2023
 
-
 logger = structlog.get_logger(__name__)
 
 badge_preference = [
@@ -115,6 +114,15 @@ def render_2023(request, user_uuid: str) -> HttpResponse:
         badge = "astronaut"
         data = data or {"stats": {}, "badges": []}
 
+    badge_images = {}
+    for b in data.get("badges") or ["astronaut"]:
+        if b != badge:
+            badge_images[b] = {
+                "human_badge": human_badge.get(b),
+                "image_png": f"year_in_hog/badges/2023_{b}.png",
+                "image_webp": f"year_in_hog/badges/2023_{b}.webp",
+            }
+
     try:
         stats = stats_for_badge(data, badge)
 
@@ -122,7 +130,7 @@ def render_2023(request, user_uuid: str) -> HttpResponse:
             "debug": settings.DEBUG,
             "api_token": os.environ.get("DEBUG_API_TOKEN", "unknown") if settings.DEBUG else "sTMFPsFhdP1Ssg",
             "badge": badge,
-            "badges": data.get("badges") or ["astronaut"],
+            "badges": badge_images,
             "human_badge": human_badge.get(badge),
             "highlight_color": highlight_color.get(badge),
             "image_png": f"year_in_hog/badges/2023_{badge}.png",
