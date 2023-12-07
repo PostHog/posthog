@@ -31,8 +31,8 @@ export function HedgehogBuddyAccessory({
     }
 
     const imgExt = isDarkModeOn ? 'dark.png' : 'png'
-
-    const imgSize = 40
+    const imgSize = 60
+    const hedgehogImgSize = imgSize * 4
 
     return (
         <LemonButton
@@ -40,6 +40,7 @@ export function HedgehogBuddyAccessory({
             size="small"
             onClick={onClick}
             active={accessories.includes(accessory)}
+            noPadding
             tooltip={
                 <>
                     {capitalizeFirstLetter(accessoryKey)}
@@ -57,15 +58,24 @@ export function HedgehogBuddyAccessory({
                 }}
             >
                 <img
+                    src={`${baseSpritePath()}/wave.${imgExt}`}
+                    className="object-cover absolute inset-0"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{
+                        width: hedgehogImgSize,
+                        height: hedgehogImgSize,
+                    }}
+                />
+
+                <img
+                    src={`${baseSpriteAccessoriesPath()}/${accessory.img}.${imgExt}`}
+                    className="object-cover absolute inset-0"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         width: imgSize,
                         height: imgSize,
                     }}
-                    src={`${baseSpriteAccessoriesPath()}/${accessory.img}.${imgExt}`}
-                    className=" object-contain absolute inset-0"
                 />
-                <img src={`${baseSpritePath()}/wave.${imgExt}`} className=" object-contain absolute inset-0" />
             </div>
         </LemonButton>
     )
