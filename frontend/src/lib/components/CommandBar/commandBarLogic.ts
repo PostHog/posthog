@@ -7,11 +7,12 @@ import { BarStatus } from './types'
 export const commandBarLogic = kea<commandBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'commandBarLogic']),
     actions({
-        setCommandBar: (status: BarStatus) => ({ status }),
+        setCommandBar: (status: BarStatus, initialQuery?: string) => ({ status, initialQuery }),
         hideCommandBar: true,
         toggleSearchBar: true,
         toggleActionsBar: true,
         toggleShortcutOverview: true,
+        clearInitialQuery: true,
     }),
     reducers({
         barStatus: [
@@ -20,15 +21,18 @@ export const commandBarLogic = kea<commandBarLogicType>([
                 setCommandBar: (_, { status }) => status,
                 hideCommandBar: () => BarStatus.HIDDEN,
                 toggleSearchBar: (previousState) =>
-                    [BarStatus.HIDDEN, BarStatus.SHOW_SHORTCUTS].includes(previousState)
-                        ? BarStatus.SHOW_SEARCH
-                        : BarStatus.HIDDEN,
+                    previousState === BarStatus.SHOW_SEARCH ? BarStatus.HIDDEN : BarStatus.SHOW_SEARCH,
                 toggleActionsBar: (previousState) =>
-                    [BarStatus.HIDDEN, BarStatus.SHOW_SHORTCUTS].includes(previousState)
-                        ? BarStatus.SHOW_ACTIONS
-                        : BarStatus.HIDDEN,
+                    previousState === BarStatus.SHOW_ACTIONS ? BarStatus.HIDDEN : BarStatus.SHOW_ACTIONS,
                 toggleShortcutOverview: (previousState) =>
                     previousState === BarStatus.HIDDEN ? BarStatus.SHOW_SHORTCUTS : previousState,
+            },
+        ],
+        initialQuery: [
+            null as string | null,
+            {
+                setCommandBar: (_, { initialQuery }) => initialQuery || null,
+                clearInitialQuery: () => null,
             },
         ],
     }),

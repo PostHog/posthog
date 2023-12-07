@@ -1,5 +1,6 @@
 import { RetryError } from '@posthog/plugin-scaffold'
 import { randomBytes } from 'crypto'
+import { Summary } from 'prom-client'
 import { VM } from 'vm2'
 
 import { Hub, PluginConfig, PluginConfigVMResponse } from '../../types'
@@ -12,9 +13,6 @@ import { createStorage } from './extensions/storage'
 import { createUtils } from './extensions/utilities'
 import { AVAILABLE_IMPORTS } from './imports'
 import { transformCode } from './transforms'
-import { upgradeExportEvents } from './upgrades/export-events'
-import { addHistoricalEventsExportCapability } from './upgrades/historical-export/export-historical-events'
-import { addHistoricalEventsExportCapabilityV2 } from './upgrades/historical-export/export-historical-events-v2'
 
 export class TimeoutError extends RetryError {
     name = 'TimeoutError'
@@ -28,20 +26,18 @@ export class TimeoutError extends RetryError {
     }
 }
 
+const vmSetupMsSummary = new Summary({
+    name: 'vm_setup_ms',
+    help: 'Time to setup vm',
+    labelNames: ['plugin_id'],
+})
+
 export function createPluginConfigVM(
     hub: Hub,
     pluginConfig: PluginConfig, // NB! might have team_id = 0
     indexJs: string
 ): PluginConfigVMResponse {
     const timer = new Date()
-
-    const statsdTiming = (metric: string) => {
-        hub.statsd?.timing(metric, timer, {
-            pluginConfigId: String(pluginConfig.id),
-            pluginName: String(pluginConfig.plugin?.name),
-            teamId: String(pluginConfig.team_id),
-        })
-    }
 
     const usedImports: Set<string> = new Set()
     const transformedCode = transformCode(indexJs, hub, AVAILABLE_IMPORTS, usedImports)
@@ -184,7 +180,6 @@ export function createPluginConfigVM(
             const __methods = {
                 setupPlugin: __asyncFunctionGuard(__bindMeta('setupPlugin'), 'setupPlugin'),
                 teardownPlugin: __asyncFunctionGuard(__bindMeta('teardownPlugin'), 'teardownPlugin'),
-                exportEvents: __asyncFunctionGuard(__bindMeta('exportEvents'), 'exportEvents'),
                 onEvent: __asyncFunctionGuard(__bindMeta('onEvent'), 'onEvent'),
                 processEvent: __asyncFunctionGuard(__bindMeta('processEvent'), 'processEvent'),
                 composeWebhook: __bindMeta('composeWebhook'),
@@ -228,21 +223,8 @@ export function createPluginConfigVM(
 
     const vmResponse = vm.run(responseVar)
     const { methods, tasks } = vmResponse
-    const exportEventsExists = !!methods.exportEvents
 
-    if (exportEventsExists) {
-        upgradeExportEvents(hub, pluginConfig, vmResponse)
-        statsdTiming('vm_setup_sync_section')
-
-        if (hub.HISTORICAL_EXPORTS_ENABLED) {
-            addHistoricalEventsExportCapability(hub, pluginConfig, vmResponse)
-            addHistoricalEventsExportCapabilityV2(hub, pluginConfig, vmResponse)
-        }
-    } else {
-        statsdTiming('vm_setup_sync_section')
-    }
-
-    statsdTiming('vm_setup_full')
+    vmSetupMsSummary.labels(String(pluginConfig.plugin?.id)).observe(new Date().getTime() - timer.getTime())
 
     return {
         vm,

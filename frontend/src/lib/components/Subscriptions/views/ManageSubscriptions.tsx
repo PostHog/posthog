@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { IconEllipsis, IconSlack } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
@@ -19,7 +19,7 @@ interface SubscriptionListItemProps {
 
 export function SubscriptionListItem({ subscription, onClick, onDelete }: SubscriptionListItemProps): JSX.Element {
     return (
-        <LemonButtonWithSideAction
+        <LemonButton
             type="secondary"
             status="stealth"
             onClick={() => onClick()}
@@ -59,7 +59,7 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
                 ) : null}
                 {subscription.target_type === 'slack' ? <IconSlack /> : null}
             </div>
-        </LemonButtonWithSideAction>
+        </LemonButton>
     )
 }
 

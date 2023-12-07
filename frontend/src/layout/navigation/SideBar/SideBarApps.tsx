@@ -6,12 +6,12 @@ import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { canInstallPlugins } from 'scenes/plugins/access'
 import { PluginSource } from 'scenes/plugins/source/PluginSource'
-import { PluginInstallationType } from 'scenes/plugins/types'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { PageButton } from '~/layout/navigation/SideBar/PageButton'
+import { PluginInstallationType } from '~/types'
 
 export function SideBarApps(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)

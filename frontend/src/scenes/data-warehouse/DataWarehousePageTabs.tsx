@@ -65,7 +65,7 @@ export function DataWarehousePageTabs({ tab }: { tab: DataWarehouseTab }): JSX.E
                     },
                     {
                         key: DataWarehouseTab.Posthog,
-                        label: <span data-attr="data-warehouse-Posthog-tab">Posthog</span>,
+                        label: <span data-attr="data-warehouse-Posthog-tab">PostHog</span>,
                     },
                     ...(featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS]
                         ? [

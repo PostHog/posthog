@@ -1,6 +1,7 @@
-from pydantic import BaseModel
-from posthog.warehouse.external_data_source.client import send_request
 import structlog
+from pydantic import BaseModel
+
+from posthog.warehouse.external_data_source.client import send_request
 
 AIRBYTE_CONNECTION_URL = "https://api.airbyte.com/v1/connections"
 AIRBYTE_JOBS_URL = "https://api.airbyte.com/v1/jobs"

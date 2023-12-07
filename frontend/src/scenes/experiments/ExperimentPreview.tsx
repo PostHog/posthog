@@ -123,8 +123,8 @@ export function ExperimentPreview({
                                     value={minimumDetectableChange}
                                     min={1}
                                     max={sliderMaxValue}
-                                    trackStyle={{ background: 'var(--primary)' }}
-                                    handleStyle={{ background: 'var(--primary)' }}
+                                    trackStyle={{ background: 'var(--primary-3000)' }}
+                                    handleStyle={{ background: 'var(--primary-3000)' }}
                                     onChange={(value) => {
                                         setExperiment({
                                             parameters: {

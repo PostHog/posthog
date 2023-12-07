@@ -69,6 +69,7 @@ export const TARGET_AREA_TO_NAME = {
     toolbar: 'Toolbar & heatmaps',
     surveys: 'Surveys',
     web_analytics: 'Web Analytics',
+    'posthog-3000': 'PostHog 3000',
 }
 
 export const SUPPORT_KIND_TO_SUBJECT = {
@@ -336,7 +337,7 @@ export const supportLogic = kea<supportLogicType>([
     actionToUrl(({ values }) => {
         return {
             closeSupportForm: () => {
-                if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
+                if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test') {
                     return
                 }
 

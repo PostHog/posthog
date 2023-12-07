@@ -188,10 +188,6 @@ module.exports = {
                         element: 'LemonButtonWithDropdown',
                         message: 'use <LemonMenu> with a <LemonButton> child instead',
                     },
-                    {
-                        element: 'Tag',
-                        message: 'use <LemonTag> instead',
-                    },
                 ],
             },
         ],
@@ -248,6 +244,8 @@ module.exports = {
                         message: 'use <Link> instead',
                     },
                     {
+                        element: 'Tag',
+                        message: 'use <LemonTag> instead',
                         element: 'Alert',
                         message: 'use <LemonBanner> instead',
                     },

@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconClose, IconInfo, IconWarning } from 'lib/lemon-ui/icons'
 import { LemonButton, SideAction } from 'lib/lemon-ui/LemonButton'
-import { LemonButtonPropsBase } from 'lib/lemon-ui/LemonButton/LemonButton'
+import { LemonButtonPropsBase } from 'lib/lemon-ui/LemonButton'
 
 import { lemonBannerLogic } from './lemonBannerLogic'
 
@@ -36,6 +36,11 @@ export function LemonBanner({
     const { dismiss } = useActions(logic)
     const showCloseButton = dismissKey || onClose
 
+    const { ref: wrapperRef, size } = useResizeBreakpoints({
+        0: 'compact',
+        400: 'normal',
+    })
+
     const _onClose = (): void => {
         if (dismissKey) {
             dismiss()
@@ -46,11 +51,6 @@ export function LemonBanner({
     if (isDismissed) {
         return <></>
     }
-
-    const { ref: wrapperRef, size } = useResizeBreakpoints({
-        0: 'compact',
-        400: 'normal',
-    })
 
     const isCompact = size === 'compact'
 

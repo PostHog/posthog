@@ -1,5 +1,4 @@
 import * as Sentry from '@sentry/node'
-import { StatsD } from 'hot-shots'
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 import { Counter } from 'prom-client'
 import { ActionMatcher } from 'worker/ingestion/action-matcher'
@@ -8,10 +7,12 @@ import { PostIngestionEvent, RawClickHouseEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { convertToIngestionEvent, convertToProcessedPluginEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
+import { pipelineStepErrorCounter, pipelineStepMsSummary } from '../../../worker/ingestion/event-pipeline/metrics'
 import { processWebhooksStep } from '../../../worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { HookCommander } from '../../../worker/ingestion/hooks'
 import { runInstrumentedFunction } from '../../utils'
 import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
+import { ingestEventBatchingBatchCountSummary, ingestEventBatchingInputLengthSummary } from './metrics'
 
 // Must require as `tsc` strips unused `import` statements and just requiring this seems to init some globals
 require('@sentry/tracing')
@@ -60,14 +61,12 @@ export async function eachBatchWebhooksHandlers(
     payload: EachBatchPayload,
     actionMatcher: ActionMatcher,
     hookCannon: HookCommander,
-    statsd: StatsD | undefined,
     concurrency: number
 ): Promise<void> {
     await eachBatchHandlerHelper(
         payload,
         (teamId) => actionMatcher.hasWebhooks(teamId),
-        (event) => eachMessageWebhooksHandlers(event, actionMatcher, hookCannon, statsd),
-        statsd,
+        (event) => eachMessageWebhooksHandlers(event, actionMatcher, hookCannon),
         concurrency,
         'webhooks'
     )
@@ -77,7 +76,6 @@ export async function eachBatchHandlerHelper(
     payload: EachBatchPayload,
     shouldProcess: (teamId: number) => boolean,
     eachMessageHandler: (event: RawClickHouseEvent) => Promise<void>,
-    statsd: StatsD | undefined,
     concurrency: number,
     stats_key: string
 ): Promise<void> {
@@ -93,8 +91,8 @@ export async function eachBatchHandlerHelper(
     try {
         const batchesWithOffsets = groupIntoBatchesByUsage(batch.messages, concurrency, shouldProcess)
 
-        statsd?.histogram('ingest_event_batching.input_length', batch.messages.length, { key: key })
-        statsd?.histogram('ingest_event_batching.batch_count', batchesWithOffsets.length, { key: key })
+        ingestEventBatchingInputLengthSummary.observe(batch.messages.length)
+        ingestEventBatchingBatchCountSummary.observe(batchesWithOffsets.length)
 
         for (const { eventBatch, lastOffset, lastTimestamp } of batchesWithOffsets) {
             const batchSpan = transaction.startChild({ op: 'messageBatch', data: { batchLength: eventBatch.length } })
@@ -134,7 +132,6 @@ export async function eachBatchHandlerHelper(
             }ms (${loggingKey})`
         )
     } finally {
-        statsd?.timing(`kafka_queue.${loggingKey}`, batchStartTimer)
         transaction.finish()
     }
 }
@@ -142,8 +139,7 @@ export async function eachBatchHandlerHelper(
 export async function eachMessageWebhooksHandlers(
     clickHouseEvent: RawClickHouseEvent,
     actionMatcher: ActionMatcher,
-    hookCannon: HookCommander,
-    statsd: StatsD | undefined
+    hookCannon: HookCommander
 ): Promise<void> {
     if (!actionMatcher.hasWebhooks(clickHouseEvent.team_id)) {
         // exit early if no webhooks nor resthooks
@@ -159,7 +155,7 @@ export async function eachMessageWebhooksHandlers(
     convertToProcessedPluginEvent(event)
 
     await runInstrumentedFunction({
-        func: () => runWebhooks(statsd, actionMatcher, hookCannon, event),
+        func: () => runWebhooks(actionMatcher, hookCannon, event),
         statsKey: `kafka_queue.process_async_handlers_webhooks`,
         timeoutMessage: 'After 30 seconds still running runWebhooksHandlersEventPipeline',
         timeoutContext: () => ({
@@ -169,22 +165,14 @@ export async function eachMessageWebhooksHandlers(
     })
 }
 
-async function runWebhooks(
-    statsd: StatsD | undefined,
-    actionMatcher: ActionMatcher,
-    hookCannon: HookCommander,
-    event: PostIngestionEvent
-) {
+async function runWebhooks(actionMatcher: ActionMatcher, hookCannon: HookCommander, event: PostIngestionEvent) {
     const timer = new Date()
 
     try {
-        statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'webhooks' })
         await processWebhooksStep(event, actionMatcher, hookCannon)
-        statsd?.increment('kafka_queue.webhooks.processed')
-        statsd?.increment('kafka_queue.event_pipeline.step', { step: processWebhooksStep.name })
-        statsd?.timing('kafka_queue.event_pipeline.step.timing', timer, { step: processWebhooksStep.name })
+        pipelineStepMsSummary.labels('processWebhooksStep').observe(Date.now() - timer.getTime())
     } catch (error) {
-        statsd?.increment('kafka_queue.event_pipeline.step.error', { step: processWebhooksStep.name })
+        pipelineStepErrorCounter.labels('processWebhooksStep').inc()
 
         if (error instanceof DependencyUnavailableError) {
             // If this is an error with a dependency that we control, we want to

@@ -1,7 +1,9 @@
+import datetime
+
+from django.conf import settings
+
 from posthog.models import Team
 from posthog.warehouse.external_data_source.client import send_request
-from django.conf import settings
-import datetime
 
 AIRBYTE_WORKSPACE_URL = "https://api.airbyte.com/v1/workspaces"
 

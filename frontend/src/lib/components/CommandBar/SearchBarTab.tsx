@@ -1,52 +1,54 @@
 import { useActions, useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { RefObject } from 'react'
 
-import { resultTypeToName } from './constants'
+import { Tab, tabToName } from './constants'
 import { searchBarLogic } from './searchBarLogic'
-import { ResultTypeWithAll } from './types'
 
 type SearchBarTabProps = {
-    type: ResultTypeWithAll
-    active: boolean
-    count?: number | null
+    tab: Tab
     inputRef: RefObject<HTMLInputElement>
 }
 
-export const SearchBarTab = ({ type, active, count, inputRef }: SearchBarTabProps): JSX.Element => {
+export const SearchBarTab = ({ tab, inputRef }: SearchBarTabProps): JSX.Element => {
+    const { activeTab, aggregationLabel } = useValues(searchBarLogic)
     const { setActiveTab } = useActions(searchBarLogic)
+
+    const isActive = tab === activeTab
+
     return (
         <div
-            className={`SearchBarTab flex items-center px-4 py-2 cursor-pointer text-xs whitespace-nowrap border-t-2 ${
-                active ? 'SearchBarTab__active font-bold border-primary-3000' : 'border-transparent'
-            }`}
+            className={`SearchBarTab flex items-center px-4 py-2 cursor-pointer text-xs whitespace-nowrap border-l-2 ${
+                isActive ? 'SearchBarTab__active font-bold border-primary-3000' : 'border-transparent'
+            } ${tab === Tab.All ? 'h-9' : ''}`}
             onClick={() => {
-                setActiveTab(type)
+                setActiveTab(tab)
                 inputRef.current?.focus()
             }}
         >
-            {resultTypeToName[type]}
-            <Count type={type} active={active} count={count} />
+            {tabToName[tab] || `${capitalizeFirstLetter(aggregationLabel(Number(tab.split('_')[1])).plural)}`}
+            <Count tab={tab} />
         </div>
     )
 }
 
 type CountProps = {
-    type: ResultTypeWithAll
-    active: boolean
-    count?: number | null
+    tab: Tab
 }
 
-const Count = ({ type, active, count }: CountProps): JSX.Element | null => {
-    const { searchResponseLoading } = useValues(searchBarLogic)
+const Count = ({ tab }: CountProps): JSX.Element | null => {
+    const { activeTab, tabsCount, tabsLoading } = useValues(searchBarLogic)
 
-    if (type === 'all') {
-        return null
-    } else if (active && searchResponseLoading) {
+    const isLoading = tabsLoading.length > 0
+
+    if (isLoading && tab === Tab.All && activeTab === Tab.All) {
         return <Spinner className="ml-0.5" />
-    } else if (count != null) {
-        return <span className="ml-1 text-xxs text-muted-3000">{count}</span>
+    } else if (tabsLoading.includes(tab) && activeTab !== Tab.All) {
+        return <Spinner className="ml-0.5" />
+    } else if (!isLoading && tabsCount[tab] != null) {
+        return <span className="ml-1 text-xxs text-muted-3000">{tabsCount[tab]}</span>
     } else {
-        return <span className="ml-1 text-xxs text-muted-3000">&mdash;</span>
+        return null
     }
 }

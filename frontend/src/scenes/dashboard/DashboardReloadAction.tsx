@@ -1,4 +1,4 @@
-import { LemonButtonWithSideAction, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
 import { Radio, RadioChangeEvent } from 'antd'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -33,7 +33,7 @@ export function DashboardReloadAction(): JSX.Element {
 
     return (
         <>
-            <LemonButtonWithSideAction
+            <LemonButton
                 onClick={() => refreshAllDashboardItemsManual()}
                 type="secondary"
                 status="muted"
@@ -117,7 +117,7 @@ export function DashboardReloadAction(): JSX.Element {
                         <LastRefreshText />
                     )}
                 </span>
-            </LemonButtonWithSideAction>
+            </LemonButton>
         </>
     )
 }

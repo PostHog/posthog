@@ -8,6 +8,7 @@ import {
     Description,
     detectBoolean,
     HumanizedChange,
+    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { BreakdownSummary, FiltersSummary, QuerySummary } from 'lib/components/Cards/InsightCard/InsightDetails'
@@ -233,7 +234,7 @@ function summarizeChanges(filtersAfter: Partial<FilterType>): ChangeMapping | nu
     return {
         description: ['changed query definition'],
         extendedDescription: (
-            <div className="summary-card">
+            <div className="ActivityDescription">
                 <QuerySummary filters={filtersAfter} />
                 <FiltersSummary filters={filtersAfter} />
                 {filtersAfter.breakdown_type && <BreakdownSummary filters={filtersAfter} />}
@@ -252,7 +253,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         return {
             description: (
                 <>
-                    <strong>{logItem.user.first_name}</strong> created the insight:{' '}
+                    <strong>{userNameForLogItem(logItem)}</strong> created the insight:{' '}
                     {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)}
                 </>
             ),
@@ -263,7 +264,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         return {
             description: (
                 <>
-                    <strong>{logItem.user.first_name}</strong> deleted {asNotification ? 'your' : 'the'} insight:{' '}
+                    <strong>{userNameForLogItem(logItem)}</strong> deleted {asNotification ? 'your' : 'the'} insight:{' '}
                     {logItem.detail.name}
                 </>
             ),
@@ -285,7 +286,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         return {
             description: (
                 <>
-                    <strong>{logItem.user.first_name}</strong> shared {asNotification ? 'your' : 'the'} insight:{' '}
+                    <strong>{userNameForLogItem(logItem)}</strong> shared {asNotification ? 'your' : 'the'} insight:{' '}
                     {logItem.detail.name}.
                 </>
             ),
@@ -296,8 +297,8 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         return {
             description: (
                 <>
-                    <strong>{logItem.user.first_name}</strong> deleted shared link for {asNotification ? 'your' : 'the'}{' '}
-                    insight: {logItem.detail.name}.
+                    <strong>{userNameForLogItem(logItem)}</strong> deleted shared link for{' '}
+                    {asNotification ? 'your' : 'the'} insight: {logItem.detail.name}.
                 </>
             ),
         }
@@ -346,7 +347,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
                 description: (
                     <SentenceList
                         listParts={changes}
-                        prefix={<strong>{logItem.user.first_name}</strong>}
+                        prefix={<strong>{userNameForLogItem(logItem)}</strong>}
                         suffix={changeSuffix}
                     />
                 ),
@@ -364,7 +365,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         return {
             description: (
                 <>
-                    <strong>{logItem.user.first_name}</strong> exported{' '}
+                    <strong>{userNameForLogItem(logItem)}</strong> exported{' '}
                     {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} as a {exportType}
                 </>
             ),

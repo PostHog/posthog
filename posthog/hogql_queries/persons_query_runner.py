@@ -3,7 +3,7 @@ from datetime import timedelta
 from typing import List, cast, Literal
 
 from posthog.hogql import ast
-from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.constants import get_max_limit_for_context, get_default_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import property_to_expr, has_aggregation
 from posthog.hogql.query import execute_hogql_query
@@ -103,10 +103,9 @@ class PersonsQueryRunner(QueryRunner):
         return self.query.select or ["person", "id", "created_at", "person.$delete"]
 
     def query_limit(self) -> int:
-        return min(
-            MAX_SELECT_RETURNED_ROWS,
-            DEFAULT_RETURNED_ROWS if self.query.limit is None else self.query.limit,
-        )
+        max_rows = get_max_limit_for_context(self.limit_context)
+        default_rows = get_default_limit_for_context(self.limit_context)
+        return min(max_rows, default_rows if self.query.limit is None else self.query.limit)
 
     def to_query(self) -> ast.SelectQuery:
         with self.timings.measure("columns"):
@@ -119,10 +118,7 @@ class PersonsQueryRunner(QueryRunner):
                 elif expr == "person":
                     tuple_exprs = []
                     for field in PERSON_FULL_TUPLE:
-                        if field == "distinct_ids":
-                            column = parse_expr("'id'")
-                        else:
-                            column = ast.Field(chain=[field])
+                        column = ast.Field(chain=[field])
                         tuple_exprs.append(column)
                         if has_aggregation(column):
                             aggregations.append(column)

@@ -43,7 +43,14 @@ body:not(.posthog-3000) {
         }
 
         &.LemonButton--full-width {
+            padding-right: 0.5rem;
+            padding-left: 0.5rem;
             overflow: hidden;
+
+            > span,
+            .LemonButton__content {
+                overflow: hidden;
+            }
         }
 
         &.LemonButton--large {
@@ -140,9 +147,9 @@ body:not(.posthog-3000) {
                 }
 
                 // Primary - blocked color style
-                &.LemonButton--onboarding,
                 &.LemonButton--primary {
                     color: #fff;
+                    background: var(--#{$status}-3000, var(--#{$status}));
 
                     .LemonButton__icon {
                         color: #fff;

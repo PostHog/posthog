@@ -12,20 +12,120 @@ const SEARCH_RESULT = {
     results: [
         {
             type: 'insight',
-            result_id: '3b7NrJXF',
+            result_id: 'NmLsyopa',
             extra_fields: {
                 name: '',
+                query: null,
+                filters: {
+                    events: [
+                        {
+                            id: '$pageview',
+                            math: 'total',
+                            name: '$pageview',
+                            type: 'events',
+                            order: 0,
+                        },
+                    ],
+                    display: 'ActionsLineGraph',
+                    insight: 'TRENDS',
+                    interval: 'day',
+                    entity_type: 'events',
+                    filter_test_accounts: true,
+                },
                 description: '',
-                derived_name: 'SQL query',
             },
         },
         {
             type: 'insight',
-            result_id: 'U2W7bAq1',
+            result_id: 'QcCPEk7d',
+            extra_fields: {
+                name: 'Daily unique visitors over time',
+                query: null,
+                filters: {
+                    events: [
+                        {
+                            id: '$pageview',
+                            math: 'dau',
+                            type: 'events',
+                            order: 0,
+                        },
+                        {
+                            id: null,
+                            math: 'total',
+                            type: 'events',
+                            order: 1,
+                        },
+                    ],
+                    date_to: null,
+                    display: 'ActionsLineGraph',
+                    insight: 'TRENDS',
+                    interval: 'day',
+                    date_from: '-6m',
+                    entity_type: 'events',
+                },
+                description: null,
+            },
+        },
+        {
+            type: 'insight',
+            result_id: '38EAleI9',
             extra_fields: {
                 name: '',
+                query: {
+                    full: true,
+                    kind: 'DataTableNode',
+                    source: {
+                        kind: 'HogQLQuery',
+                        query: '   select event,\n          person.properties.email,\n          properties.$browser,\n          count()\n     from events\n    where {filters} -- replaced with global date and property filters\n      and person.properties.email is not null\n group by event,\n          properties.$browser,\n          person.properties.email\n order by count() desc\n    limit 100',
+                        filters: {
+                            dateRange: {
+                                date_from: '-24h',
+                            },
+                        },
+                    },
+                },
+                filters: {},
                 description: '',
-                derived_name: 'All events → All events user conversion rate',
+            },
+        },
+        {
+            type: 'insight',
+            result_id: 'zi5MCnjs',
+            extra_fields: {
+                name: 'Feature Flag Called Total Volume',
+                query: null,
+                filters: {
+                    events: [
+                        {
+                            id: '$feature_flag_called',
+                            name: '$feature_flag_called',
+                            type: 'events',
+                        },
+                    ],
+                    display: 'ActionsLineGraph',
+                    insight: 'TRENDS',
+                    interval: 'day',
+                    breakdown: '$feature_flag_response',
+                    date_from: '-30d',
+                    properties: {
+                        type: 'AND',
+                        values: [
+                            {
+                                type: 'AND',
+                                values: [
+                                    {
+                                        key: '$feature_flag',
+                                        type: 'event',
+                                        value: 'notebooks',
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                    breakdown_type: 'event',
+                    filter_test_accounts: false,
+                },
+                description: 'Shows the number of total calls made on feature flag with key: notebooks',
             },
         },
         {
@@ -34,15 +134,6 @@ const SEARCH_RESULT = {
             extra_fields: {
                 key: 'person-on-events-enabled',
                 name: 'person-on-events-enabled',
-            },
-        },
-        {
-            type: 'insight',
-            result_id: '44fpCyF7',
-            extra_fields: {
-                name: '',
-                description: '',
-                derived_name: 'User lifecycle based on Pageview',
             },
         },
         {
@@ -62,44 +153,6 @@ const SEARCH_RESULT = {
             },
         },
         {
-            type: 'insight',
-            result_id: 'Ap5YYl2H',
-            extra_fields: {
-                name: '',
-                description: '',
-                derived_name:
-                    'Pageview count & All events count & All events count & All events count & All events count & All events count & All events count & All events count & All events count & All events count & All events count & All events count & All events count & All events count & All events count & All events count',
-            },
-        },
-        {
-            type: 'insight',
-            result_id: '4Xaltnro',
-            extra_fields: {
-                name: '',
-                description: '',
-                derived_name: 'User paths based on page views and custom events',
-            },
-        },
-        {
-            type: 'insight',
-            result_id: 'HUkkq7Au',
-            extra_fields: {
-                name: '',
-                description: '',
-                derived_name:
-                    'Pageview count & All events count & All events count & All events count & All events count & All events count & All events count & All events count & All events count & All events count & All events count & All events count & All events count & All events count & All events count & All events count',
-            },
-        },
-        {
-            type: 'insight',
-            result_id: 'hF5z02Iw',
-            extra_fields: {
-                name: '',
-                description: '',
-                derived_name: 'Pageview count & All events count',
-            },
-        },
-        {
             type: 'feature_flag',
             result_id: '143',
             extra_fields: {
@@ -116,28 +169,33 @@ const SEARCH_RESULT = {
             },
         },
         {
+            type: 'insight',
+            result_id: 'miwdcAAu',
+            extra_fields: {
+                name: '',
+                query: {
+                    full: true,
+                    kind: 'DataTableNode',
+                    source: {
+                        kind: 'HogQLQuery',
+                        query: '   select event,\n          person.properties.email,\n          properties.$browser,\n          count()\n     from events\n    where {filters} -- replaced with global date and property filters\n      and person.properties.email is not null\n group by event,\n          properties.$browser,\n          person.properties.email\n order by count() desc\n    limit 100',
+                        filters: {
+                            dateRange: {
+                                date_from: '-24h',
+                            },
+                        },
+                    },
+                },
+                filters: {},
+                description: '',
+            },
+        },
+        {
             type: 'feature_flag',
             result_id: '142',
             extra_fields: {
                 key: 'web-analytics',
                 name: 'web-analytics',
-            },
-        },
-        {
-            type: 'insight',
-            result_id: '94r9bOyB',
-            extra_fields: {
-                name: '',
-                description: '',
-                derived_name: 'Pageview count & All events count',
-            },
-        },
-        {
-            type: 'dashboard',
-            result_id: '1',
-            extra_fields: {
-                name: '🔑 Key metrics',
-                description: 'Company overview.',
             },
         },
         {
@@ -149,12 +207,68 @@ const SEARCH_RESULT = {
             },
         },
         {
-            type: 'insight',
-            result_id: 'QcCPEk7d',
+            type: 'dashboard',
+            result_id: '1',
             extra_fields: {
-                name: 'Daily unique visitors over time',
+                name: '🔑 Key metrics',
+                description: 'Company overview.',
+            },
+        },
+        {
+            type: 'insight',
+            result_id: 'YZjAFWBU',
+            extra_fields: {
+                name: 'Homepage view to signup conversion',
+                query: null,
+                filters: {
+                    events: [
+                        {
+                            id: '$pageview',
+                            name: '$pageview',
+                            type: 'events',
+                            order: 0,
+                            properties: [
+                                {
+                                    key: '$current_url',
+                                    type: 'event',
+                                    value: 'https://hedgebox.net/',
+                                    operator: 'exact',
+                                },
+                            ],
+                            custom_name: 'Viewed homepage',
+                        },
+                        {
+                            id: '$pageview',
+                            name: '$pageview',
+                            type: 'events',
+                            order: 1,
+                            properties: [
+                                {
+                                    key: '$current_url',
+                                    type: 'event',
+                                    value: 'https://hedgebox.net/signup/',
+                                    operator: 'regex',
+                                },
+                            ],
+                            custom_name: 'Viewed signup page',
+                        },
+                        {
+                            id: 'signed_up',
+                            name: 'signed_up',
+                            type: 'events',
+                            order: 2,
+                            custom_name: 'Signed up',
+                        },
+                    ],
+                    actions: [],
+                    display: 'FunnelViz',
+                    insight: 'FUNNELS',
+                    interval: 'day',
+                    date_from: '-1m',
+                    funnel_viz_type: 'steps',
+                    filter_test_accounts: true,
+                },
                 description: null,
-                derived_name: '$pageview unique users & All events count',
             },
         },
         {
@@ -167,21 +281,50 @@ const SEARCH_RESULT = {
         },
         {
             type: 'insight',
-            result_id: 'PWwez0ma',
+            result_id: 'xK9vs4D2',
             extra_fields: {
-                name: 'Most popular pages',
-                description: null,
-                derived_name: null,
-            },
-        },
-        {
-            type: 'insight',
-            result_id: 'HKTERZ40',
-            extra_fields: {
-                name: 'Feature Flag calls made by unique users per variant',
-                description:
-                    'Shows the number of unique user calls made on feature flag per variant with key: notebooks',
-                derived_name: null,
+                name: '',
+                query: null,
+                filters: {
+                    events: [
+                        {
+                            id: '$pageview',
+                            math: 'total',
+                            name: '$pageview',
+                            type: 'events',
+                            order: 0,
+                        },
+                        {
+                            id: null,
+                            math: 'total',
+                            type: 'events',
+                            order: 1,
+                        },
+                        {
+                            id: null,
+                            math: 'total',
+                            type: 'events',
+                            order: 2,
+                        },
+                    ],
+                    insight: 'FUNNELS',
+                    interval: 'day',
+                    date_from: '-7d',
+                    exclusions: [
+                        {
+                            id: '$pageview',
+                            name: '$pageview',
+                            type: 'events',
+                            uuid: '40e0f8a9-1297-41e4-b7ca-54d00a9c1d82',
+                            order: 0,
+                            funnel_to_step: 1,
+                            funnel_from_step: 0,
+                        },
+                    ],
+                    entity_type: 'events',
+                    funnel_viz_type: 'steps',
+                },
+                description: '',
             },
         },
         {
@@ -202,11 +345,26 @@ const SEARCH_RESULT = {
         },
         {
             type: 'insight',
-            result_id: 'uE7xieYc',
+            result_id: 'vLbs5bhA',
             extra_fields: {
                 name: '',
+                query: null,
+                filters: {
+                    events: [
+                        {
+                            id: '$pageview',
+                            math: 'total',
+                            name: '$pageview',
+                            type: 'events',
+                            order: 0,
+                        },
+                    ],
+                    insight: 'LIFECYCLE',
+                    shown_as: 'Lifecycle',
+                    entity_type: 'events',
+                    filter_test_accounts: false,
+                },
                 description: '',
-                derived_name: 'Pageview count',
             },
         },
         {
@@ -218,21 +376,116 @@ const SEARCH_RESULT = {
             },
         },
         {
-            type: 'insight',
-            result_id: 'AVPsaax4',
+            type: 'action',
+            result_id: '3',
             extra_fields: {
-                name: 'Monthly app revenue',
-                description: null,
-                derived_name: null,
+                name: 'typed into search',
+                description: '',
+            },
+        },
+        {
+            type: 'insight',
+            result_id: 'QYrl34sX',
+            extra_fields: {
+                name: 'Feature Flag calls made by unique users per variant',
+                query: null,
+                filters: {
+                    events: [
+                        {
+                            id: '$feature_flag_called',
+                            math: 'dau',
+                            name: '$feature_flag_called',
+                            type: 'events',
+                        },
+                    ],
+                    display: 'ActionsTable',
+                    insight: 'TRENDS',
+                    interval: 'day',
+                    breakdown: '$feature_flag_response',
+                    date_from: '-30d',
+                    properties: {
+                        type: 'AND',
+                        values: [
+                            {
+                                type: 'AND',
+                                values: [
+                                    {
+                                        key: '$feature_flag',
+                                        type: 'event',
+                                        value: 'cmd-k-search',
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                    breakdown_type: 'event',
+                    filter_test_accounts: false,
+                },
+                description:
+                    'Shows the number of unique user calls made on feature flag per variant with key: cmd-k-search',
+            },
+        },
+        {
+            type: 'insight',
+            result_id: '4Xaltnro',
+            extra_fields: {
+                name: '',
+                query: null,
+                filters: {
+                    insight: 'PATHS',
+                    step_limit: 5,
+                    entity_type: 'events',
+                    funnel_paths: 'funnel_path_before_step',
+                    funnel_filter: {
+                        events: [
+                            {
+                                id: '$pageview',
+                                math: 'total',
+                                name: '$pageview',
+                                type: 'events',
+                                order: 0,
+                            },
+                            {
+                                id: null,
+                                math: 'total',
+                                type: 'events',
+                                order: 1,
+                            },
+                        ],
+                        insight: 'FUNNELS',
+                        exclusions: [],
+                        funnel_step: 2,
+                        funnel_viz_type: 'steps',
+                        filter_test_accounts: true,
+                    },
+                    include_event_types: ['$pageview', 'custom_event'],
+                },
+                description: '',
+            },
+        },
+        {
+            type: 'feature_flag',
+            result_id: '148',
+            extra_fields: {
+                key: 'show-product-intro-existing-products',
+                name: 'show-product-intro-existing-products',
+            },
+        },
+        {
+            type: 'feature_flag',
+            result_id: '4',
+            extra_fields: {
+                key: 'notebooks',
+                name: '',
             },
         },
     ],
     counts: {
-        insight: 80,
+        insight: 89,
         dashboard: 14,
         experiment: 1,
         feature_flag: 66,
-        notebook: 2,
+        notebook: 5,
         action: 4,
         cohort: 3,
     },
@@ -252,6 +505,7 @@ const meta: Meta<typeof CommandBar> = {
         layout: 'fullscreen',
         testOptions: {
             snapshotTargetSelector: '[data-attr="command-bar"]',
+            include3000: true,
         },
         viewMode: 'story',
     },

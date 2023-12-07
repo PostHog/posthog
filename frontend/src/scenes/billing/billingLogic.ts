@@ -200,7 +200,7 @@ export const billingLogic = kea<billingLogicType>([
                 }
 
                 const productOverLimit = billing.products?.find((x: BillingProductV2Type) => {
-                    return x.percentage_usage > 1
+                    return x.percentage_usage > 1 && x.usage_key
                 })
 
                 if (productOverLimit) {
@@ -223,7 +223,9 @@ export const billingLogic = kea<billingLogicType>([
                         title: 'You will soon hit your usage limit',
                         message: `You have currently used ${parseFloat(
                             (productApproachingLimit.percentage_usage * 100).toFixed(2)
-                        )}% of your ${productApproachingLimit.usage_key.toLowerCase()} allocation.`,
+                        )}% of your ${
+                            productApproachingLimit.usage_key && productApproachingLimit.usage_key.toLowerCase()
+                        } allocation.`,
                     }
                 }
 

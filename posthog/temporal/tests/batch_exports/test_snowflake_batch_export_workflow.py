@@ -23,17 +23,21 @@ from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
-from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
-from posthog.temporal.workflows.batch_exports import (
+from posthog.temporal.batch_exports.batch_exports import (
     create_export_run,
     update_export_run_status,
 )
-from posthog.temporal.workflows.snowflake_batch_export import (
+from posthog.temporal.batch_exports.snowflake_batch_export import (
     SnowflakeBatchExportInputs,
     SnowflakeBatchExportWorkflow,
     SnowflakeInsertInputs,
     insert_into_snowflake_activity,
+)
+from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
+from posthog.temporal.tests.utils.models import (
+    acreate_batch_export,
+    adelete_batch_export,
+    afetch_batch_export_runs,
 )
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
@@ -404,7 +408,7 @@ async def test_snowflake_export_workflow_exports_events(
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             with unittest.mock.patch(
-                "posthog.temporal.workflows.snowflake_batch_export.snowflake.connector.connect",
+                "posthog.temporal.batch_exports.snowflake_batch_export.snowflake.connector.connect",
             ) as mock, override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=1):
                 fake_conn = FakeSnowflakeConnection()
                 mock.return_value = fake_conn
@@ -559,7 +563,7 @@ async def test_snowflake_export_workflow_raises_error_on_put_fail(
                     super().__init__(*args, failure_mode="put", **kwargs)
 
             with unittest.mock.patch(
-                "posthog.temporal.workflows.snowflake_batch_export.snowflake.connector.connect",
+                "posthog.temporal.batch_exports.snowflake_batch_export.snowflake.connector.connect",
                 side_effect=FakeSnowflakeConnectionFailOnPut,
             ):
                 with pytest.raises(WorkflowFailureError) as exc_info:
@@ -625,7 +629,7 @@ async def test_snowflake_export_workflow_raises_error_on_copy_fail(
                     super().__init__(*args, failure_mode="copy", **kwargs)
 
             with unittest.mock.patch(
-                "posthog.temporal.workflows.snowflake_batch_export.snowflake.connector.connect",
+                "posthog.temporal.batch_exports.snowflake_batch_export.snowflake.connector.connect",
                 side_effect=FakeSnowflakeConnectionFailOnCopy,
             ):
                 with pytest.raises(WorkflowFailureError) as exc_info:

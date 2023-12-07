@@ -46,9 +46,6 @@ dependencies:
   '@posthog/clickhouse':
     specifier: ^1.7.0
     version: 1.7.0
-  '@posthog/plugin-contrib':
-    specifier: ^0.0.5
-    version: 0.0.5
   '@posthog/plugin-scaffold':
     specifier: 1.4.4
     version: 1.4.4
@@ -91,9 +88,6 @@ dependencies:
   graphile-worker:
     specifier: 0.13.0
     version: 0.13.0
-  hot-shots:
-    specifier: ^9.2.0
-    version: 9.3.0
   ioredis:
     specifier: ^4.27.6
     version: 4.28.5
@@ -3113,10 +3107,6 @@ packages:
   /@posthog/clickhouse@1.7.0:
     resolution: {integrity: sha512-B8hZ8Dh2EoJoDb7Gx38ylBQM92oON/X2IxXCb7BfYStk3m17nStcAyaCsc2zbvxC0fFfTMU8lFRiFSEJmijkyg==}
     engines: {node: '>=12'}
-    dev: false
-
-  /@posthog/plugin-contrib@0.0.5:
-    resolution: {integrity: sha512-ic2JsfFUdLGF+fGYJPatWEB6gEFNoD89qz92FN1RE2QfLpr6YdyPNuMowzahya3hfC/jaLZ8QdPG/j5pSOgT7A==}
     dev: false
 
   /@posthog/plugin-scaffold@1.4.4:
@@ -6490,13 +6480,6 @@ packages:
       minimalistic-assert: 1.0.1
       minimalistic-crypto-utils: 1.0.1
     dev: true
-
-  /hot-shots@9.3.0:
-    resolution: {integrity: sha512-e4tgWptiBvlIMnAX0ORe+dNEt0HznD+T2ckzXDUwCBsU7uWr2mwq5UtoT+Df5r9hD5S/DuP8rTxJUQvqAFSFKA==}
-    engines: {node: '>=6.0.0'}
-    optionalDependencies:
-      unix-dgram: 2.0.6
-    dev: false
 
   /hsl-to-rgb-for-reals@1.1.1:
     resolution: {integrity: sha512-LgOWAkrN0rFaQpfdWBQlv/VhkOxb5AsBjk6NQVx4yEzWS923T07X0M1Y0VNko2H52HeSpZrZNNMJ0aFqsdVzQg==}
@@ -10021,16 +10004,6 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
     dev: true
-
-  /unix-dgram@2.0.6:
-    resolution: {integrity: sha512-AURroAsb73BZ6CdAyMrTk/hYKNj3DuYYEuOaB8bYMOHGKupRNScw90Q5C71tWJc3uE7dIeXRyuwN0xLLq3vDTg==}
-    engines: {node: '>=0.10.48'}
-    requiresBuild: true
-    dependencies:
-      bindings: 1.5.0
-      nan: 2.17.0
-    dev: false
-    optional: true
 
   /update-browserslist-db@1.0.11(browserslist@4.21.5):
     resolution: {integrity: sha512-dCwEFf0/oT85M1fHBg4F0jtLwJrutGoHSQXCh7u4o2t1drG+c0a9Flnqww6XUKSfQMPpJBRjU8d4RXB09qtvaA==}

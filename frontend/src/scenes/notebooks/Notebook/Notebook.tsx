@@ -86,64 +86,62 @@ export function Notebook({
         setContainerSize(size as 'small' | 'medium')
     }, [size])
 
-    // TODO - Render a special state if the notebook is empty
-
-    if (conflictWarningVisible) {
-        return <NotebookConflictWarning />
-    } else if (!notebook && notebookLoading) {
-        return <NotebookLoadingState />
-    } else if (notebookMissing) {
-        return <NotFound object="notebook" />
-    }
-
     return (
         <BindLogic logic={notebookLogic} props={logicProps}>
-            <div
-                className={clsx(
-                    'Notebook',
-                    !isExpanded && 'Notebook--compact',
-                    mode && `Notebook--${mode}`,
-                    size === 'small' && `Notebook--single-column`,
-                    isEditable && 'Notebook--editable'
-                )}
-                ref={ref}
-            >
-                {isTemplate && (
-                    <LemonBanner
-                        type="info"
-                        className="my-4"
-                        action={{
-                            onClick: duplicateNotebook,
-                            children: 'Create copy',
-                        }}
-                    >
-                        <b>This is a template.</b> You can create a copy of it to edit and use as your own.
-                    </LemonBanner>
-                )}
+            {conflictWarningVisible ? (
+                <NotebookConflictWarning />
+            ) : !notebook && notebookLoading ? (
+                <NotebookLoadingState />
+            ) : notebookMissing ? (
+                <NotFound object="notebook" />
+            ) : (
+                <div
+                    className={clsx(
+                        'Notebook',
+                        !isExpanded && 'Notebook--compact',
+                        mode && `Notebook--${mode}`,
+                        size === 'small' && `Notebook--single-column`,
+                        isEditable && 'Notebook--editable'
+                    )}
+                    ref={ref}
+                >
+                    {isTemplate && (
+                        <LemonBanner
+                            type="info"
+                            className="my-4"
+                            action={{
+                                onClick: duplicateNotebook,
+                                children: 'Create copy',
+                            }}
+                        >
+                            <b>This is a template.</b> You can create a copy of it to edit and use as your own.
+                        </LemonBanner>
+                    )}
 
-                <NotebookHistoryWarning />
-                {shortId === SCRATCHPAD_NOTEBOOK.short_id ? (
-                    <LemonBanner
-                        type="info"
-                        className="my-4"
-                        action={{
-                            children: 'Convert to Notebook',
-                            onClick: duplicateNotebook,
-                        }}
-                    >
-                        This is your scratchpad. It is only visible to you and is persisted only in this browser. It's a
-                        great place to gather ideas before turning into a saved Notebook!
-                    </LemonBanner>
-                ) : null}
+                    <NotebookHistoryWarning />
+                    {shortId === SCRATCHPAD_NOTEBOOK.short_id ? (
+                        <LemonBanner
+                            type="info"
+                            className="my-4"
+                            action={{
+                                children: 'Convert to Notebook',
+                                onClick: duplicateNotebook,
+                            }}
+                        >
+                            This is your scratchpad. It is only visible to you and is persisted only in this browser.
+                            It's a great place to gather ideas before turning into a saved Notebook!
+                        </LemonBanner>
+                    ) : null}
 
-                <div className="flex flex-1 justify-center">
-                    <NotebookColumnLeft />
-                    <ErrorBoundary>
-                        <Editor />
-                    </ErrorBoundary>
-                    <NotebookColumnRight />
+                    <div className="flex flex-1 justify-center">
+                        <NotebookColumnLeft />
+                        <ErrorBoundary>
+                            <Editor />
+                        </ErrorBoundary>
+                        <NotebookColumnRight />
+                    </div>
                 </div>
-            </div>
+            )}
         </BindLogic>
     )
 }

@@ -1,10 +1,4 @@
-import {
-    LemonButton,
-    LemonInput,
-    LemonSegmentedButton,
-    LemonSegmentedButtonOption,
-    lemonToast,
-} from '@posthog/lemon-ui'
+import { LemonInput, LemonSegmentedButton, LemonSegmentedButtonOption, lemonToast } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
@@ -116,18 +110,5 @@ export function SupportForm(): JSX.Element | null {
                 )}
             </Field>
         </Form>
-    )
-}
-
-export function SupportFormButtons({ onClose }: { onClose: () => void }): JSX.Element {
-    return (
-        <>
-            <LemonButton form="support-modal-form" type="secondary" onClick={onClose}>
-                Cancel
-            </LemonButton>
-            <LemonButton form="support-modal-form" htmlType="submit" type="primary" data-attr="submit">
-                Submit
-            </LemonButton>
-        </>
     )
 }

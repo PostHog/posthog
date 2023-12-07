@@ -2,18 +2,25 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { PipelineTabs } from '~/types'
 
+import { AppsManagement } from './AppsManagement'
 import { NewButton } from './NewButton'
 import { humanFriendlyTabName, pipelineLogic } from './pipelineLogic'
 import { Transformations } from './Transformations'
 
 export function Pipeline(): JSX.Element {
     const { currentTab } = useValues(pipelineLogic)
+
+    const tab_to_content: Record<PipelineTabs, JSX.Element> = {
+        [PipelineTabs.Filters]: <div>Coming soon</div>,
+        [PipelineTabs.Transformations]: <Transformations />,
+        [PipelineTabs.Destinations]: <div>Coming soon</div>,
+        [PipelineTabs.AppsManagement]: <AppsManagement />,
+    }
 
     return (
         <div className="pipeline-scene">
@@ -28,10 +35,9 @@ export function Pipeline(): JSX.Element {
                 tabs={Object.values(PipelineTabs).map((tab) => ({
                     label: humanFriendlyTabName(tab),
                     key: tab,
+                    content: tab_to_content[tab],
                 }))}
             />
-
-            {!currentTab ? <Spinner /> : currentTab === PipelineTabs.Transformations ? <Transformations /> : null}
         </div>
     )
 }

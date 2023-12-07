@@ -1,25 +1,27 @@
-from posthog.models.utils import (
-    UUIDModel,
-    CreatedMetaFields,
-    sane_repr,
-    DeletedMetaFields,
-)
-from posthog.errors import wrap_query_error
 from django.db import models
-from posthog.models.team import Team
+
 from posthog.client import sync_execute
-from .credential import DataWarehouseCredential
+from posthog.errors import wrap_query_error
 from posthog.hogql.database.models import (
-    StringDatabaseField,
-    IntegerDatabaseField,
-    DateTimeDatabaseField,
-    DateDatabaseField,
-    StringJSONDatabaseField,
     BooleanDatabaseField,
+    DateDatabaseField,
+    DateTimeDatabaseField,
+    IntegerDatabaseField,
     StringArrayDatabaseField,
+    StringDatabaseField,
+    StringJSONDatabaseField,
 )
 from posthog.hogql.database.s3_table import S3Table
+from posthog.models.team import Team
+from posthog.models.utils import (
+    CreatedMetaFields,
+    DeletedMetaFields,
+    UUIDModel,
+    sane_repr,
+)
 from posthog.warehouse.models.util import remove_named_tuples
+
+from .credential import DataWarehouseCredential
 
 CLICKHOUSE_HOGQL_MAPPING = {
     "UUID": StringDatabaseField,
@@ -64,6 +66,10 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
     url_pattern: models.CharField = models.CharField(max_length=500)
     credential: models.ForeignKey = models.ForeignKey(
         DataWarehouseCredential, on_delete=models.CASCADE, null=True, blank=True
+    )
+
+    external_data_source: models.ForeignKey = models.ForeignKey(
+        "ExternalDataSource", on_delete=models.CASCADE, null=True, blank=True
     )
 
     columns: models.JSONField = models.JSONField(

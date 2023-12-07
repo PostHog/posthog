@@ -33,7 +33,7 @@ class DummyCluster(Cluster):
     MIN_RADIUS = 0
     MAX_RADIUS = 0
 
-    def initation_distribution(self) -> float:
+    def initiation_distribution(self) -> float:
         return 0  # Start every cluster at the same time
 
 

@@ -12,7 +12,9 @@ from drf_spectacular.utils import (
     extend_schema_view,
     OpenApiExample,
 )
-from rest_framework import request, serializers, viewsets
+from rest_framework import serializers, viewsets
+from rest_framework.request import Request
+from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 
@@ -253,30 +255,29 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
 
         return queryset
 
-    def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
+    def _filter_request(self, request: Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
 
         for key in filters:
+            value = request.GET[key]
             if key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == "created_by":
-                queryset = queryset.filter(created_by__uuid=request.GET["created_by"])
+                queryset = queryset.filter(created_by__uuid=value)
+            elif key == "last_modified_by":
+                queryset = queryset.filter(last_modified_by__uuid=value)
             elif key == "date_from":
-                queryset = queryset.filter(
-                    last_modified_at__gt=relative_date_parse(request.GET["date_from"], self.team.timezone_info)
-                )
+                queryset = queryset.filter(last_modified_at__gt=relative_date_parse(value, self.team.timezone_info))
             elif key == "date_to":
-                queryset = queryset.filter(
-                    last_modified_at__lt=relative_date_parse(request.GET["date_to"], self.team.timezone_info)
-                )
+                queryset = queryset.filter(last_modified_at__lt=relative_date_parse(value, self.team.timezone_info))
             elif key == "search":
                 queryset = queryset.filter(
                     # some notebooks have no text_content until next saved, so we need to check the title too
                     # TODO this can be removed once all/most notebooks have text_content
-                    Q(title__search=request.GET["search"]) | Q(text_content__search=request.GET["search"])
+                    Q(title__search=value) | Q(text_content__search=value)
                 )
             elif key == "contains":
-                contains = request.GET["contains"]
+                contains = value
                 match_pairs = contains.replace(",", " ").split(" ")
                 # content is a JSONB field that has an array of objects under the key "content"
                 # each of those (should) have a "type" field
@@ -329,8 +330,17 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
 
         return queryset
 
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+
+        if str(request.headers.get("If-None-Match")) == str(instance.version):
+            return Response(None, 304)
+
+        return Response(serializer.data)
+
     @action(methods=["GET"], url_path="activity", detail=False)
-    def all_activity(self, request: request.Request, **kwargs):
+    def all_activity(self, request: Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
 
@@ -338,7 +348,7 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
         return activity_page_response(activity_page, limit, page, request)
 
     @action(methods=["GET"], url_path="activity", detail=True)
-    def activity(self, request: request.Request, **kwargs):
+    def activity(self, request: Request, **kwargs):
         notebook = self.get_object()
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))

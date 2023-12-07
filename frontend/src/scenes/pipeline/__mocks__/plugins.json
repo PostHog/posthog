@@ -1,5 +1,5 @@
 {
-    "count": 3,
+    "count": 5,
     "next": null,
     "previous": null,
     "results": [
@@ -81,6 +81,48 @@
             "capabilities": {
                 "jobs": [],
                 "methods": ["setupPlugin", "processEvent"],
+                "scheduled_tasks": []
+            },
+            "metrics": {},
+            "public_jobs": {}
+        },
+        {
+            "id": 4,
+            "plugin_type": "custom",
+            "name": "Should not be global",
+            "description": "shouldn't be global desc",
+            "url": "https://github.com/PostHog/bigquery-plugin",
+            "icon": null,
+            "config_schema": [],
+            "tag": "2dd67e1dec9c8b5febd7a6d9235c51072950cd37",
+            "latest_tag": "2dd67e1dec9c8b5febd7a6d9235c51072950cd37",
+            "is_global": true,
+            "organization_id": "12345678-abcd-1234-abcd-1234567890ab",
+            "organization_name": "PostHog",
+            "capabilities": {
+                "jobs": ["test_job"],
+                "methods": ["setupPlugin", "composeWebhook"],
+                "scheduled_tasks": ["test_task"]
+            },
+            "metrics": {},
+            "public_jobs": {}
+        },
+        {
+            "id": 5,
+            "plugin_type": "custom",
+            "name": "Should be global",
+            "description": "should be global desc",
+            "url": "https://github.com/PostHog/posthog-filter-out-plugin",
+            "icon": null,
+            "config_schema": [],
+            "tag": "2dd67e1dec9c8b5febd7a6d9235c51072950cd37",
+            "latest_tag": "2dd67e1dec9c8b5febd7a6d9235c51072950cd37",
+            "is_global": false,
+            "organization_id": "12345678-abcd-1234-abcd-1234567890ab",
+            "organization_name": "PostHog",
+            "capabilities": {
+                "jobs": [],
+                "methods": ["processEvent"],
                 "scheduled_tasks": []
             },
             "metrics": {},

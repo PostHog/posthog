@@ -1,5 +1,6 @@
 import { RetryError } from '@posthog/plugin-scaffold'
 import equal from 'fast-deep-equal'
+import { Counter, Summary } from 'prom-client'
 import { VM } from 'vm2'
 
 import {
@@ -32,6 +33,17 @@ export class SetupPluginError extends Error {
     }
 }
 
+const pluginSetupMsSummary = new Summary({
+    name: 'plugin_setup_ms',
+    help: 'Time to setup plugins',
+    labelNames: ['plugin_id', 'status'],
+})
+const pluginDisabledBySystemCounter = new Counter({
+    name: 'plugin_disabled_by_system',
+    help: 'Count of plugins disabled by the system',
+    labelNames: ['plugin_id'],
+})
+
 export class LazyPluginVM {
     initialize?: (indexJs: string, logInfo: string) => Promise<void>
     failInitialization?: () => void
@@ -54,10 +66,6 @@ export class LazyPluginVM {
         this.hub = hub
         this.inErroredState = false
         this.initVm()
-    }
-
-    public async getExportEvents(): Promise<PluginConfigVMResponse['methods']['exportEvents'] | null> {
-        return await this.getVmMethod('exportEvents')
     }
 
     public async getOnEvent(): Promise<PluginConfigVMResponse['methods']['onEvent'] | null> {
@@ -184,7 +192,6 @@ export class LazyPluginVM {
             const vm = (await this.resolveInternalVm)?.vm
             try {
                 await instrument(
-                    this.hub.statsd,
                     {
                         metricName: 'vm.setup',
                         key: 'plugin',
@@ -205,6 +212,7 @@ export class LazyPluginVM {
             ? pluginDigest(this.pluginConfig.plugin)
             : `plugin config ID '${this.pluginConfig.id}'`
         this.totalInitAttemptsCounter++
+        const pluginId = this.pluginConfig.plugin?.id.toString() || 'unknown'
         const timer = new Date()
         try {
             // Make sure one can't self-replicate resulting in an infinite loop
@@ -226,17 +234,10 @@ export class LazyPluginVM {
                     throw Error('Only 1x replication is allowed')
                 }
             }
-            await instrument(
-                this.hub.statsd,
-                {
-                    metricName: 'plugin.setupPlugin',
-                    key: 'plugin',
-                    tag: this.pluginConfig.plugin?.name || '?',
-                },
-                () => vm?.run(`${this.vmResponseVariable}.methods.setupPlugin?.()`)
-            )
-            this.hub.statsd?.increment('plugin.setup.success', { plugin: this.pluginConfig.plugin?.name ?? '?' })
-            this.hub.statsd?.timing('plugin.setup.timing', timer, { plugin: this.pluginConfig.plugin?.name ?? '?' })
+            await vm?.run(`${this.vmResponseVariable}.methods.setupPlugin?.()`)
+            pluginSetupMsSummary
+                .labels({ plugin_id: pluginId, status: 'success' })
+                .observe(new Date().getTime() - timer.getTime())
             this.ready = true
 
             status.info('🔌', `setupPlugin succeeded for ${logInfo}.`)
@@ -245,10 +246,10 @@ export class LazyPluginVM {
                 PluginLogEntryType.Debug
             )
         } catch (error) {
-            this.hub.statsd?.increment('plugin.setup.fail', { plugin: this.pluginConfig.plugin?.name ?? '?' })
-            this.hub.statsd?.timing('plugin.setup.fail_timing', timer, {
-                plugin: this.pluginConfig.plugin?.name ?? '?',
-            })
+            pluginSetupMsSummary
+                .labels({ plugin_id: pluginId, status: 'fail' })
+                .observe(new Date().getTime() - timer.getTime())
+
             this.clearRetryTimeoutIfExists()
             if (error instanceof RetryError) {
                 error._attempt = this.totalInitAttemptsCounter
@@ -292,10 +293,7 @@ export class LazyPluginVM {
     }
 
     private async processFatalVmSetupError(error: Error, isSystemError: boolean): Promise<void> {
-        this.hub.statsd?.increment('plugin.disabled.by_system', {
-            teamId: this.pluginConfig.team_id.toString(),
-            plugin: this.pluginConfig.plugin?.name ?? '?',
-        })
+        pluginDisabledBySystemCounter.labels(this.pluginConfig.plugin?.id.toString() || 'unknown').inc()
         await processError(this.hub, this.pluginConfig, error)
         await disablePlugin(this.hub, this.pluginConfig.id)
         await this.hub.db.celeryApplyAsync('posthog.tasks.email.send_fatal_plugin_error', [

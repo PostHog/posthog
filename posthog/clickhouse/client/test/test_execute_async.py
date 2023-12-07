@@ -27,7 +27,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
     def test_async_query_client(self):
         query = build_query("SELECT 1+1")
         team_id = self.team_id
-        query_id = client.enqueue_process_query_task(team_id, query, bypass_celery=True)
+        query_id = client.enqueue_process_query_task(team_id, query, bypass_celery=True).id
         result = client.get_query_status(team_id, query_id)
         self.assertFalse(result.error, result.error_message)
         self.assertTrue(result.complete)
@@ -53,7 +53,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
     def test_async_query_client_uuid(self):
         query = build_query("SELECT toUUID('00000000-0000-0000-0000-000000000000')")
         team_id = self.team_id
-        query_id = client.enqueue_process_query_task(team_id, query, bypass_celery=True)
+        query_id = client.enqueue_process_query_task(team_id, query, bypass_celery=True).id
         result = client.get_query_status(team_id, query_id)
         self.assertFalse(result.error, result.error_message)
         self.assertTrue(result.complete)
@@ -63,7 +63,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         query = build_query("SELECT 1+1")
         team_id = self.team_id
         wrong_team = 5
-        query_id = client.enqueue_process_query_task(team_id, query, bypass_celery=True)
+        query_id = client.enqueue_process_query_task(team_id, query, bypass_celery=True).id
 
         try:
             client.get_query_status(wrong_team, query_id)

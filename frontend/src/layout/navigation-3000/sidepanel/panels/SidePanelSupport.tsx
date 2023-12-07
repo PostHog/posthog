@@ -1,5 +1,6 @@
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { SupportForm, SupportFormButtons } from 'lib/components/Support/SupportForm'
+import { SupportForm } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 
 import { SidePanelTab } from '~/types'
@@ -20,9 +21,27 @@ export const SidePanelSupport = (): JSX.Element => {
 
             <div className="p-3 max-w-160 w-full mx-auto">
                 <SupportForm />
-                <div className="flex items-center justify-end gap-2 mt-4">
-                    <SupportFormButtons onClose={() => closeSupportForm()} />
-                </div>
+                <LemonButton
+                    form="support-modal-form"
+                    htmlType="submit"
+                    type="primary"
+                    data-attr="submit"
+                    fullWidth
+                    center
+                    className="mt-4"
+                >
+                    Submit
+                </LemonButton>
+                <LemonButton
+                    form="support-modal-form"
+                    type="secondary"
+                    onClick={closeSupportForm}
+                    fullWidth
+                    center
+                    className="mt-2"
+                >
+                    Cancel
+                </LemonButton>
             </div>
         </>
     )
