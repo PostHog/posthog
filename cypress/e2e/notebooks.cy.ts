@@ -43,12 +43,12 @@ describe('Notebooks', () => {
 
     it('Insertion suggestions can be dismissed', () => {
         cy.visit(urls.notebook('h11RoiwV'))
-        cy.get('.node-ph-replay-timestamp').click()
-        cy.get('.NotebookEditor').type('{enter}')
+        cy.get('.SessionRecordingPlayer').click()
+        cy.get('.ProseMirror').type('{enter}')
 
         cy.get('.NotebookRecordingTimestamp.opacity-50').should('exist')
 
-        cy.get('.NotebookEditor').type('{esc}')
+        cy.get('.ProseMirror').type('{esc}')
         cy.get('.NotebookRecordingTimestamp.opacity-50').should('not.exist')
     })
 
