@@ -444,6 +444,9 @@
                 },
                 {
                     "$ref": "#/definitions/wireframeButton"
+                },
+                {
+                    "$ref": "#/definitions/wireframeToggle"
                 }
             ]
         },
@@ -701,6 +704,55 @@
                 }
             },
             "required": ["disabled", "height", "id", "inputType", "type", "width", "x", "y"],
+            "type": "object"
+        },
+        "wireframeToggle": {
+            "additionalProperties": false,
+            "properties": {
+                "checked": {
+                    "type": "boolean"
+                },
+                "childWireframes": {
+                    "items": {
+                        "$ref": "#/definitions/wireframe"
+                    },
+                    "type": "array"
+                },
+                "disabled": {
+                    "description": "for several attributes we technically only care about true or absent as values. They are represented as bare attributes in HTML <input disabled>. When true that attribute is added to the HTML element, when absent that attribute is not added to the HTML element. When false or absent they are not added to the element.",
+                    "type": "boolean"
+                },
+                "height": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "inputType": {
+                    "const": "toggle",
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "style": {
+                    "$ref": "#/definitions/MobileStyles"
+                },
+                "type": {
+                    "$ref": "#/definitions/MobileNodeType"
+                },
+                "width": {
+                    "type": "number"
+                },
+                "x": {
+                    "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
+                    "type": "number"
+                },
+                "y": {
+                    "type": "number"
+                }
+            },
+            "required": ["checked", "disabled", "height", "id", "inputType", "type", "width", "x", "y"],
             "type": "object"
         }
     }

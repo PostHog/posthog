@@ -30,6 +30,7 @@ from posthog.schema import (
     InsightPersonsQuery,
     DashboardFilter,
     HogQLQueryModifiers,
+    RetentionQuery,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -78,6 +79,7 @@ RunnableQueryNode = Union[
     InsightPersonsQuery,
     EventsQuery,
     PersonsQuery,
+    RetentionQuery,
     SessionsTimelineQuery,
     WebOverviewQuery,
     WebTopClicksQuery,
@@ -115,6 +117,16 @@ def get_query_runner(
 
         return TrendsQueryRunner(
             query=cast(TrendsQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "RetentionQuery":
+        from .insights.retention_query_runner import RetentionQueryRunner
+
+        return RetentionQueryRunner(
+            query=cast(RetentionQuery | Dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
