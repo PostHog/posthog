@@ -204,7 +204,7 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') as breakdown_value
+                            transform(replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''), (['finance', 'technology']), (['finance', 'technology']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            LEFT JOIN
              (SELECT group_key,
@@ -218,7 +218,6 @@
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND notEmpty(e.person_id)
-             AND replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') in (['finance', 'technology'])
              AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
@@ -317,7 +316,7 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') as breakdown_value
+                            transform(replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''), (['finance']), (['finance']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            LEFT JOIN
              (SELECT group_key,
@@ -332,7 +331,6 @@
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND notEmpty(e.person_id)
-             AND replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') in (['finance'])
              AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
@@ -394,7 +392,7 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') as breakdown_value
+                            transform(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), (['second url']), (['second url']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = 'sign up'
@@ -403,7 +401,6 @@
                   AND (has(['Mac'], replaceRegexpAll(JSONExtractRaw(e.properties, '$os'), '^"|"$', ''))))
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-22 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
-             AND replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') in (['second url'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -472,7 +469,7 @@
   '
   
   SELECT count(DISTINCT pdi.person_id) AS total,
-         replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
+         transform(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), (['val', 'bor']), (['val', 'bor']), '$$_posthog_breakdown_other_$$') as breakdown_value
   FROM events AS e
   INNER JOIN
     (SELECT distinct_id,
@@ -520,7 +517,7 @@
   '
   
   SELECT count(DISTINCT pdi.person_id) AS total,
-         "mat_key" as breakdown_value
+         transform("mat_key", (['val', 'bor']), (['val', 'bor']), '$$_posthog_breakdown_other_$$') as breakdown_value
   FROM events AS e
   INNER JOIN
     (SELECT distinct_id,
@@ -628,7 +625,7 @@
               CROSS JOIN
                 (SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS timestamp,
                         pdi.person_id AS person_id,
-                        replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS breakdown_value
+                        transform(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), (['val']), (['val']), '$$_posthog_breakdown_other_$$') AS breakdown_value
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
@@ -734,7 +731,7 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
+                            transform(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), (['uh', 'oh']), (['uh', 'oh']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            LEFT JOIN
              (SELECT group_key,
@@ -748,7 +745,6 @@
              AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['uh', 'oh'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -835,7 +831,7 @@
                     day_start
            UNION ALL SELECT count(DISTINCT if(notEmpty(overrides.person_id), overrides.person_id, e.person_id)) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
+                            transform(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), (['uh', 'oh']), (['uh', 'oh']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            LEFT OUTER JOIN
              (SELECT argMax(override_person_id, version) as person_id,
@@ -856,7 +852,6 @@
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND notEmpty(e.person_id)
-             AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['uh', 'oh'])
              AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
@@ -915,7 +910,7 @@
                     day_start
            UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
+                            transform(replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', ''), (['other_value', '', 'value']), (['other_value', '', 'value']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e SAMPLE 1.0
            INNER JOIN
              (SELECT distinct_id,
@@ -927,7 +922,6 @@
            WHERE e.team_id = 2
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-             AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['other_value', '', 'value'])
              AND ((event = 'sign up'))
            GROUP BY day_start,
                     breakdown_value))
@@ -986,7 +980,7 @@
                     day_start
            UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
+                            transform(replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', ''), (['other_value', '', 'value']), (['other_value', '', 'value']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e SAMPLE 1.0
            INNER JOIN
              (SELECT distinct_id,
@@ -999,7 +993,6 @@
              AND event = 'sign up'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-             AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['other_value', '', 'value'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -1323,7 +1316,7 @@
               CROSS JOIN
                 (SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS timestamp,
                         pdi.person_id AS person_id,
-                        replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') AS breakdown_value
+                        transform(replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', ''), (['some_val2', 'some_val']), (['some_val2', 'some_val']), '$$_posthog_breakdown_other_$$') AS breakdown_value
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
@@ -1437,7 +1430,7 @@
               CROSS JOIN
                 (SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS timestamp,
                         if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) AS person_id,
-                        replaceRegexpAll(JSONExtractRaw(person_properties, '$some_prop'), '^"|"$', '') AS breakdown_value
+                        transform(replaceRegexpAll(JSONExtractRaw(person_properties, '$some_prop'), '^"|"$', ''), (['some_val2', 'some_val']), (['some_val2', 'some_val']), '$$_posthog_breakdown_other_$$') AS breakdown_value
                  FROM events e
                  LEFT OUTER JOIN
                    (SELECT argMax(override_person_id, version) as person_id,
@@ -1562,7 +1555,7 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
+                            transform(replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', ''), (['', 'value', 'other_value']), (['', 'value', 'other_value']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            INNER JOIN
              (SELECT distinct_id,
@@ -1574,7 +1567,6 @@
            WHERE e.team_id = 2
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-             AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['', 'value', 'other_value'])
              AND ((event = 'sign up'
                    AND (pdi.person_id IN
                           (SELECT id
@@ -1664,7 +1656,7 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
+                            transform(replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', ''), (['', 'value', 'other_value']), (['', 'value', 'other_value']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            LEFT OUTER JOIN
              (SELECT argMax(override_person_id, version) as person_id,
@@ -1676,7 +1668,6 @@
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
              AND notEmpty(e.person_id)
-             AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['', 'value', 'other_value'])
              AND ((event = 'sign up'
                    AND (if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) IN
                           (SELECT id
@@ -2331,7 +2322,7 @@
                     day_start
            UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') as breakdown_value
+                            transform(replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', ''), (['Mac']), (['Mac']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            INNER JOIN
              (SELECT distinct_id,
@@ -2344,7 +2335,6 @@
              AND event = 'sign up'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
-             AND replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') in (['Mac'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -2536,7 +2526,7 @@
                     day_start
            UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') as breakdown_value
+                            transform(replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', ''), (['Mac']), (['Mac']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            INNER JOIN
              (SELECT distinct_id,
@@ -2549,7 +2539,6 @@
              AND event = 'sign up'
              AND toTimeZone(timestamp, 'America/Phoenix') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'America/Phoenix')), 'America/Phoenix')
              AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix')
-             AND replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') in (['Mac'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -2741,7 +2730,7 @@
                     day_start
            UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') as breakdown_value
+                            transform(replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', ''), (['Mac']), (['Mac']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            INNER JOIN
              (SELECT distinct_id,
@@ -2754,7 +2743,6 @@
              AND event = 'sign up'
              AND toTimeZone(timestamp, 'Asia/Tokyo') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')), 'Asia/Tokyo')
              AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')
-             AND replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') in (['Mac'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -3380,7 +3368,7 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') as breakdown_value
+                            transform(replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', ''), (['test2@posthog.com', 'test@gmail.com', 'test5@posthog.com', 'test4@posthog.com', 'test3@posthog.com']), (['test2@posthog.com', 'test@gmail.com', 'test5@posthog.com', 'test4@posthog.com', 'test3@posthog.com']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            INNER JOIN
              (SELECT distinct_id,
@@ -3410,7 +3398,6 @@
                    OR (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', '')))))
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC')
-             AND replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') in (['test2@posthog.com', 'test@gmail.com', 'test5@posthog.com', 'test4@posthog.com', 'test3@posthog.com'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -3493,7 +3480,7 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') as breakdown_value
+                            transform(replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', ''), (['test2@posthog.com']), (['test2@posthog.com']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            INNER JOIN
              (SELECT distinct_id,
@@ -3524,7 +3511,6 @@
              AND ((has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC')
-             AND replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') in (['test2@posthog.com'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -3667,7 +3653,7 @@
                     day_start
            UNION ALL SELECT count(DISTINCT e.distinct_id) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') as breakdown_value
+                            transform(replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', ''), (['some_val', '']), (['some_val', '']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            INNER JOIN
              (SELECT distinct_id,
@@ -3687,7 +3673,6 @@
              AND event = 'sign up'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
-             AND replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') in (['some_val', ''])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -3829,13 +3814,12 @@
                     day_start
            UNION ALL SELECT count(DISTINCT e.distinct_id) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '') as breakdown_value
+                            transform(replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', ''), (['']), (['']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = 'sign up'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
-             AND replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '') in ([''])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -3951,7 +3935,7 @@
                      min(timestamp) as timestamp,
                      breakdown_value
               FROM
-                (SELECT pdi.person_id as person_id, timestamp, replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
+                (SELECT pdi.person_id as person_id, timestamp, transform(replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', ''), (['', 'value', 'other_value']), (['', 'value', 'other_value']), '$$_posthog_breakdown_other_$$') as breakdown_value
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
@@ -3963,8 +3947,7 @@
                  WHERE e.team_id = 2
                    AND event = 'sign up'
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-                   AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['', 'value', 'other_value']) )
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
               GROUP BY person_id,
                        breakdown_value) AS pdi
            GROUP BY day_start,
@@ -4037,7 +4020,7 @@
                      min(timestamp) as timestamp,
                      breakdown_value
               FROM
-                (SELECT if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as person_id, timestamp, replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
+                (SELECT if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as person_id, timestamp, transform(replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', ''), (['', 'value', 'other_value']), (['', 'value', 'other_value']), '$$_posthog_breakdown_other_$$') as breakdown_value
                  FROM events e
                  LEFT OUTER JOIN
                    (SELECT argMax(override_person_id, version) as person_id,
@@ -4050,7 +4033,6 @@
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
                    AND notEmpty(e.person_id)
-                   AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['', 'value', 'other_value'])
                    AND notEmpty(e.person_id) )
               GROUP BY person_id,
                        breakdown_value) AS pdi
@@ -4102,7 +4084,7 @@
      FROM
        (SELECT sessions.$session_id,
                         session_duration,
-                        replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS breakdown_value
+                        transform(replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', ''), (['value2', 'value1', '']), (['value2', 'value1', '']), '$$_posthog_breakdown_other_$$') AS breakdown_value
         FROM events e
         INNER JOIN
           (SELECT "$session_id",
@@ -4116,8 +4098,7 @@
         WHERE e.team_id = 2
           AND event = 'sign up'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-          AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1', '']) )
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
      GROUP BY sessions.$session_id,
                        breakdown_value)
   GROUP BY breakdown_value
@@ -4162,7 +4143,7 @@
      FROM
        (SELECT sessions.$session_id,
                         session_duration,
-                        replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS breakdown_value
+                        transform(replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', ''), (['value2', 'value1', '']), (['value2', 'value1', '']), '$$_posthog_breakdown_other_$$') AS breakdown_value
         FROM events e
         INNER JOIN
           (SELECT "$session_id",
@@ -4176,8 +4157,7 @@
         WHERE e.team_id = 2
           AND event = 'sign up'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-          AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1', '']) )
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
      GROUP BY sessions.$session_id,
                        breakdown_value)
   GROUP BY breakdown_value
@@ -4394,7 +4374,7 @@
   FROM
     (SELECT COUNT(*) AS intermediate_count,
             pdi.person_id,
-            replaceRegexpAll(JSONExtractRaw(properties, 'color'), '^"|"$', '') AS breakdown_value
+            transform(replaceRegexpAll(JSONExtractRaw(properties, 'color'), '^"|"$', ''), (['red', 'blue', '']), (['red', 'blue', '']), '$$_posthog_breakdown_other_$$') AS breakdown_value
      FROM events AS e SAMPLE 1.0
      INNER JOIN
        (SELECT distinct_id,
@@ -4413,7 +4393,6 @@
        AND event = 'viewed video'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
-       AND replaceRegexpAll(JSONExtractRaw(properties, 'color'), '^"|"$', '') in (['red', 'blue', ''])
      GROUP BY pdi.person_id,
               breakdown_value)
   GROUP BY breakdown_value
@@ -4608,7 +4587,7 @@
      FROM
        (SELECT sessions.$session_id,
                         session_duration,
-                        replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') AS breakdown_value
+                        transform(replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', ''), (['some_val', 'another_val']), (['some_val', 'another_val']), '$$_posthog_breakdown_other_$$') AS breakdown_value
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -4636,8 +4615,7 @@
         WHERE e.team_id = 2
           AND event = 'sign up'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-          AND replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') in (['some_val', 'another_val']) )
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
      GROUP BY sessions.$session_id,
                        breakdown_value)
   GROUP BY breakdown_value
@@ -4857,7 +4835,7 @@
                 (SELECT sessions.$session_id,
                                  session_duration,
                                  toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0) as day_start,
-                                 replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
+                                 transform(replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', ''), (['value2', 'value1']), (['value2', 'value1']), '$$_posthog_breakdown_other_$$') as breakdown_value
                  FROM events AS e
                  INNER JOIN
                    (SELECT "$session_id",
@@ -4871,8 +4849,7 @@
                  WHERE e.team_id = 2
                    AND event = 'sign up'
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), 'UTC')
-                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-                   AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1']) )
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
               GROUP BY sessions.$session_id,
                                 day_start,
                                 breakdown_value)
@@ -4951,7 +4928,7 @@
                 (SELECT sessions.$session_id,
                                  session_duration,
                                  toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                                 replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
+                                 transform(replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', ''), (['value2', 'value1']), (['value2', 'value1']), '$$_posthog_breakdown_other_$$') as breakdown_value
                  FROM events AS e
                  INNER JOIN
                    (SELECT "$session_id",
@@ -4965,8 +4942,7 @@
                  WHERE e.team_id = 2
                    AND event = 'sign up'
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-                   AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1']) )
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
               GROUP BY sessions.$session_id,
                                 day_start,
                                 breakdown_value)

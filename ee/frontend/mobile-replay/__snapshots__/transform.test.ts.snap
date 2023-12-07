@@ -663,7 +663,7 @@ exports[`replay/transform transform inputs input - $inputType - hello 1`] = `
                 {
                   "attributes": {},
                   "childNodes": [],
-                  "id": 147,
+                  "id": 157,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -730,7 +730,7 @@ exports[`replay/transform transform inputs input - button - click me 1`] = `
                       },
                       "childNodes": [
                         {
-                          "id": 139,
+                          "id": 149,
                           "textContent": "click me",
                           "type": 3,
                         },
@@ -740,7 +740,7 @@ exports[`replay/transform transform inputs input - button - click me 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 138,
+                  "id": 148,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -1733,12 +1733,12 @@ exports[`replay/transform transform inputs input - select - hello 1`] = `
                           },
                           "childNodes": [
                             {
-                              "id": 144,
+                              "id": 154,
                               "textContent": "hello",
                               "type": 3,
                             },
                           ],
-                          "id": 143,
+                          "id": 153,
                           "tagName": "option",
                           "type": 2,
                         },
@@ -1746,12 +1746,12 @@ exports[`replay/transform transform inputs input - select - hello 1`] = `
                           "attributes": {},
                           "childNodes": [
                             {
-                              "id": 146,
+                              "id": 156,
                               "textContent": "world",
                               "type": 3,
                             },
                           ],
-                          "id": 145,
+                          "id": 155,
                           "tagName": "option",
                           "type": 2,
                         },
@@ -1761,7 +1761,7 @@ exports[`replay/transform transform inputs input - select - hello 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 142,
+                  "id": 152,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -2050,7 +2050,7 @@ exports[`replay/transform transform inputs input - textArea - $value 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 141,
+                  "id": 151,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -2122,7 +2122,340 @@ exports[`replay/transform transform inputs input - textArea - hello 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 140,
+                  "id": 150,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - toggle - $value 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                      },
+                      "childNodes": [
+                        {
+                          "attributes": {
+                            "checked": true,
+                            "style": null,
+                            "type": "checkbox",
+                          },
+                          "childNodes": [],
+                          "id": 12357,
+                          "tagName": "input",
+                          "type": 2,
+                        },
+                        {
+                          "id": 140,
+                          "textContent": "first",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 139,
+                      "tagName": "label",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 138,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - toggle - $value 2`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                      },
+                      "childNodes": [
+                        {
+                          "attributes": {
+                            "style": null,
+                            "type": "checkbox",
+                          },
+                          "childNodes": [],
+                          "id": 12357,
+                          "tagName": "input",
+                          "type": 2,
+                        },
+                        {
+                          "id": 143,
+                          "textContent": "second",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 142,
+                      "tagName": "label",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 141,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - toggle - $value 3`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                      },
+                      "childNodes": [
+                        {
+                          "attributes": {
+                            "checked": true,
+                            "disabled": true,
+                            "style": null,
+                            "type": "checkbox",
+                          },
+                          "childNodes": [],
+                          "id": 12357,
+                          "tagName": "input",
+                          "type": 2,
+                        },
+                        {
+                          "id": 146,
+                          "textContent": "third",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 145,
+                      "tagName": "label",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 144,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs input - toggle - $value 4`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [
+                    {
+                      "attributes": {
+                        "checked": true,
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                        "type": "checkbox",
+                      },
+                      "childNodes": [],
+                      "id": 12357,
+                      "tagName": "input",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 147,
                   "tagName": "div",
                   "type": 2,
                 },

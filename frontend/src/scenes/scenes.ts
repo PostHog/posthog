@@ -292,6 +292,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
     [Scene.Notebook]: {
         projectBased: true,
+        hideProjectNotice: true, // Currently doesn't render well...
         name: 'Notebook',
         layout: 'app-raw',
     },

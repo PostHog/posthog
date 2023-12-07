@@ -2,6 +2,7 @@ import { EventType, fullSnapshotEvent, incrementalSnapshotEvent, metaEvent } fro
 
 import {
     attributes,
+    elementNode,
     fullSnapshotEvent as MobileFullSnapshotEvent,
     incrementalSnapshotEvent as MobileIncrementalSnapshotEvent,
     metaEvent as MobileMetaEvent,
@@ -18,6 +19,7 @@ import {
     wireframeRectangle,
     wireframeSelect,
     wireframeText,
+    wireframeToggle,
 } from './mobile.types'
 import {
     makeBodyStyles,
@@ -149,6 +151,12 @@ function inputAttributes<T extends wireframeInputComponent>(wireframe: T): attri
             return {
                 ...attributes,
                 style: null, // checkboxes are styled by being combined with a label
+                ...(wireframe.checked ? { checked: wireframe.checked } : {}),
+            }
+        case 'toggle':
+            return {
+                ...attributes,
+                style: null, // toggle are styled by being combined with a label
                 ...(wireframe.checked ? { checked: wireframe.checked } : {}),
             }
         case 'radio':
@@ -329,6 +337,23 @@ function makeProgressElement(
     }
 }
 
+function makeToggleElement(
+    wireframe: wireframeToggle,
+    children: serializedNodeWithId[]
+): (elementNode & { id: number }) | null {
+    // first return simply a checkbox
+    return {
+        type: NodeType.Element,
+        tagName: 'input',
+        attributes: {
+            ...inputAttributes(wireframe),
+            type: 'checkbox',
+        },
+        id: wireframe.id,
+        childNodes: children,
+    }
+}
+
 function makeInputElement(
     wireframe: wireframeInputComponent,
     children: serializedNodeWithId[]
@@ -349,13 +374,20 @@ function makeInputElement(
         return makeProgressElement(wireframe, children)
     }
 
-    const theInputElement: serializedNodeWithId = {
-        type: NodeType.Element,
-        tagName: 'input',
-        attributes: inputAttributes(wireframe),
-        id: wireframe.id,
-        childNodes: children,
+    const theInputElement: (elementNode & { id: number }) | null =
+        wireframe.inputType === 'toggle'
+            ? makeToggleElement(wireframe, children)
+            : {
+                  type: NodeType.Element,
+                  tagName: 'input',
+                  attributes: inputAttributes(wireframe),
+                  id: wireframe.id,
+                  childNodes: children,
+              }
+    if (!theInputElement) {
+        return null
     }
+
     if ('label' in wireframe) {
         return {
             type: NodeType.Element,
