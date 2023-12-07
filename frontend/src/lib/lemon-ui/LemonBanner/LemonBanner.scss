@@ -1,18 +1,23 @@
 .LemonBanner {
-    display: flex;
-    gap: 0.5rem;
-    align-items: center;
     min-height: 3rem;
-    padding: 0.5rem 0.75rem;
     font-weight: 500;
     color: var(--primary-alt);
     text-align: left;
     border: solid 1px var(--border-3000);
     border-radius: var(--radius);
 
+    .LemonBanner__content {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.5rem 0.75rem;
+    }
+
     &.LemonBanner--compact {
-        flex-direction: column;
-        padding: 0.5rem;
+        .LemonBanner__content {
+            flex-direction: column;
+            padding: 0.5rem;
+        }
     }
 
     &.LemonBanner--info {

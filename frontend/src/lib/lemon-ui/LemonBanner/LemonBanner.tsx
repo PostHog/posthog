@@ -59,27 +59,29 @@ export function LemonBanner({
             className={clsx('LemonBanner', `LemonBanner--${type}`, isCompact && 'LemonBanner--compact', className)}
             ref={wrapperRef}
         >
-            <div className="flex items-center gap-2 grow">
-                {!isCompact ? (
-                    type === 'warning' || type === 'error' ? (
-                        <IconWarning className="LemonBanner__icon" />
-                    ) : (
-                        <IconInfo className="LemonBanner__icon" />
-                    )
-                ) : null}
-                <div className="grow">{children}</div>
-                {!isCompact && action && <LemonButton type="secondary" {...action} />}
-                {showCloseButton && (
-                    <LemonButton
-                        status="primary-alt"
-                        size="small"
-                        icon={<IconClose />}
-                        onClick={_onClose}
-                        aria-label="close"
-                    />
-                )}
+            <div className="LemonBanner__content">
+                <div className="flex items-center gap-2 grow">
+                    {!isCompact ? (
+                        type === 'warning' || type === 'error' ? (
+                            <IconWarning className="LemonBanner__icon" />
+                        ) : (
+                            <IconInfo className="LemonBanner__icon" />
+                        )
+                    ) : null}
+                    <div className="grow">{children}</div>
+                    {!isCompact && action && <LemonButton type="secondary" {...action} />}
+                    {showCloseButton && (
+                        <LemonButton
+                            status="primary-alt"
+                            size="small"
+                            icon={<IconClose />}
+                            onClick={_onClose}
+                            aria-label="close"
+                        />
+                    )}
+                </div>
+                {isCompact && action && <LemonButton type="secondary" fullWidth {...action} />}
             </div>
-            {isCompact && action && <LemonButton type="secondary" fullWidth {...action} />}
         </div>
     )
 }
