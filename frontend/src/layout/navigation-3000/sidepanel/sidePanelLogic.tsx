@@ -44,7 +44,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             { persist: true },
             {
                 closeSidePanel: () => true,
-                openSidePanel: () => true,
+                openSidePanel: (_, { tab }) => tab !== SidePanelTab.Welcome,
             },
         ],
     })),
