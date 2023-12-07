@@ -75,10 +75,13 @@ class TestValidateSchema(ClickhouseTestMixin, BaseTest):
             validate_schema_and_update_table(
                 run_id=job.pk,
                 team_id=self.team.pk,
-                schemas=["test_schema", "broken_schema"],
+                schemas=["test_schema"],
             )
 
-        self.assertEqual(DataWarehouseTable.objects.filter(external_data_source_id=source.pk).count(), 1)
+        tables = DataWarehouseTable.objects.filter(external_data_source_id=source.pk).all()
+        self.assertEqual(len(tables), 1)
+        # url got updated
+        self.assertEqual(tables[0].url_pattern, job.url_pattern_by_schema("test_schema"))
 
     @patch(
         "posthog.warehouse.data_load.validate_schema.validate_schema",
