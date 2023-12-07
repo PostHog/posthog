@@ -12,6 +12,7 @@ from posthog.temporal.batch_exports.base import PostHogWorkflow
 from posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline import (
     PIPELINE_TYPE_INPUTS_MAPPING,
     PIPELINE_TYPE_RUN_MAPPING,
+    PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
 from posthog.warehouse.data_load.validate_schema import validate_schema_and_update_table
 from posthog.warehouse.external_data_source.jobs import (
@@ -19,14 +20,14 @@ from posthog.warehouse.external_data_source.jobs import (
     get_external_data_job,
     update_external_job_status,
 )
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
+from posthog.warehouse.models import (
+    ExternalDataJob,
+    get_schemas_for_source_id,
+    sync_old_schemas_with_new_schemas,
+    ExternalDataSource,
+)
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from typing import Tuple
-
-
-def get_schemas_for_source_id(source_id: uuid.UUID, team_id: int):
-    schemas = ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, should_sync=True).values().all()
-    return [val["name"] for val in schemas]
 
 
 @dataclasses.dataclass
@@ -41,6 +42,17 @@ async def create_external_data_job_model(inputs: CreateExternalDataJobInputs) ->
         team_id=inputs.team_id,
         external_data_source_id=inputs.external_data_source_id,
         workflow_id=activity.info().workflow_id,
+    )
+
+    source = await sync_to_async(ExternalDataSource.objects.get)(  # type: ignore
+        team_id=inputs.team_id, id=inputs.external_data_source_id
+    )
+
+    # Sync schemas if they have changed
+    await sync_to_async(sync_old_schemas_with_new_schemas)(
+        list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source.source_type]),
+        source_id=inputs.external_data_source_id,
+        team_id=inputs.team_id,
     )
 
     schemas = await sync_to_async(get_schemas_for_source_id)(  # type: ignore

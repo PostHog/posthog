@@ -33,6 +33,7 @@ from posthog.warehouse.models import (
 
 from posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline import (
     PIPELINE_TYPE_RUN_MAPPING,
+    PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
 from temporalio.testing import WorkflowEnvironment
 from temporalio.common import RetryPolicy
@@ -62,10 +63,41 @@ async def test_create_external_job_activity(activity_environment, team, **kwargs
 
     inputs = CreateExternalDataJobInputs(team_id=team.id, external_data_source_id=new_source.pk)
 
-    run_id, _ = await activity_environment.run(create_external_data_job_model, inputs)
+    run_id, schemas = await activity_environment.run(create_external_data_job_model, inputs)
 
     runs = ExternalDataJob.objects.filter(id=run_id)
     assert await sync_to_async(runs.exists)()  # type:ignore
+    assert len(schemas) == len(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type])
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_create_external_job_activity_schemas_exist(activity_environment, team, **kwargs):
+    """
+    Test that the create external job activity creates a new job
+    """
+    new_source = await sync_to_async(ExternalDataSource.objects.create)(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="Stripe",
+    )  # type: ignore
+
+    await sync_to_async(ExternalDataSchema.objects.create)(
+        name=PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type][0],
+        team_id=team.id,
+        source_id=new_source.pk,
+    )
+
+    inputs = CreateExternalDataJobInputs(team_id=team.id, external_data_source_id=new_source.pk)
+
+    run_id, schemas = await activity_environment.run(create_external_data_job_model, inputs)
+
+    runs = ExternalDataJob.objects.filter(id=run_id)
+    assert await sync_to_async(runs.exists)()  # type:ignore
+    assert len(schemas) == len(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type])
 
 
 @pytest.mark.django_db(transaction=True)
@@ -252,26 +284,27 @@ async def test_external_data_job_workflow_blank(team, **kwargs):
     )
 
     with override_settings(AIRBYTE_BUCKET_KEY="test-key", AIRBYTE_BUCKET_SECRET="test-secret"):
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=DATA_WAREHOUSE_TASK_QUEUE,
-                workflows=[ExternalDataJobWorkflow],
-                activities=[
-                    create_external_data_job_model,
-                    update_external_data_job_model,
-                    run_external_data_job,
-                    validate_schema_activity,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                await activity_environment.client.execute_workflow(
-                    ExternalDataJobWorkflow.run,
-                    inputs,
-                    id=workflow_id,
+        with mock.patch.dict(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING, {ExternalDataSource.Type.STRIPE: ()}):
+            async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+                async with Worker(
+                    activity_environment.client,
                     task_queue=DATA_WAREHOUSE_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                )
+                    workflows=[ExternalDataJobWorkflow],
+                    activities=[
+                        create_external_data_job_model,
+                        update_external_data_job_model,
+                        run_external_data_job,
+                        validate_schema_activity,
+                    ],
+                    workflow_runner=UnsandboxedWorkflowRunner(),
+                ):
+                    await activity_environment.client.execute_workflow(
+                        ExternalDataJobWorkflow.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=DATA_WAREHOUSE_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    )
 
     run = await sync_to_async(get_latest_run_if_exists)(team_id=team.pk, pipeline_id=new_source.pk)  # type: ignore
     assert run is not None
@@ -293,12 +326,6 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
         source_type="Stripe",
         job_inputs={"stripe_secret_key": "test-key"},
     )  # type: ignore
-
-    await sync_to_async(ExternalDataSchema.objects.create)(  # type: ignore
-        name="test-schema",
-        team=team,
-        source=new_source,
-    )
 
     workflow_id = str(uuid.uuid4())
     inputs = ExternalDataWorkflowInputs(
@@ -339,4 +366,6 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
     assert run is not None
     assert run.status == ExternalDataJob.Status.COMPLETED
 
-    assert await sync_to_async(DataWarehouseTable.objects.filter(external_data_source_id=new_source.pk).count)() == 1  # type: ignore
+    assert await sync_to_async(DataWarehouseTable.objects.filter(external_data_source_id=new_source.pk).count)() == len(
+        PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type]
+    )  # type: ignore
