@@ -1,6 +1,7 @@
 import './HedgehogBuddy.scss'
 
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
@@ -402,6 +403,7 @@ export function HedgehogBuddy({
 
     const actor = actorRef.current
     const { accessories } = useValues(hedgehogbuddyLogic)
+    const { addAccessory } = useActions(hedgehogbuddyLogic)
 
     useEffect(() => {
         return actor.setupKeyboardListeners()
@@ -418,6 +420,14 @@ export function HedgehogBuddy({
     useEffect(() => {
         actor.darkMode = isDarkModeOn
     }, [isDarkModeOn])
+
+    // NOTE: Temporary - turns on christmas clothes for the holidays
+    useEffect(() => {
+        if (accessories.length === 0 && dayjs().month() === 11) {
+            addAccessory(standardAccessories['xmas_hat'])
+            addAccessory(standardAccessories['xmas_scarf'])
+        }
+    }, [])
 
     useEffect(() => {
         let timer: any = null

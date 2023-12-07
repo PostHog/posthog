@@ -36,14 +36,12 @@ export function NotebookPanel(): JSX.Element | null {
             {!droppedResource ? (
                 <>
                     <SidePanelPaneHeader>
-                        <span className="flex-1">
-                            <NotebookListMini
-                                selectedNotebookId={selectedNotebook}
-                                onSelectNotebook={(notebook) => {
-                                    selectNotebook(notebook.short_id)
-                                }}
-                            />
-                        </span>
+                        <NotebookListMini
+                            selectedNotebookId={selectedNotebook}
+                            onSelectNotebook={(notebook) => {
+                                selectNotebook(notebook.short_id)
+                            }}
+                        />
                         {selectedNotebook && <NotebookSyncInfo shortId={selectedNotebook} />}
 
                         <LemonButton

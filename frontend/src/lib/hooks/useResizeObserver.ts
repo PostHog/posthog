@@ -42,6 +42,7 @@ export function useResizeBreakpoints<T>(
                 setSize(newSize)
             }
         },
+        box: 'border-box',
     })
 
     return { ref: options?.ref || refCb, size }
