@@ -172,6 +172,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
         try:
             job_inputs = ExternalDataJobInputs(
+                source_id=inputs.external_data_source_id,
                 team_id=inputs.team_id,
                 run_id=run_id,
                 schemas=schemas,

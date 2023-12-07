@@ -10,6 +10,7 @@ from posthog.warehouse.models import (
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from asgiref.sync import async_to_sync
+from clickhouse_driver.errors import ServerException
 
 
 class SchemaValidationError(Exception):
@@ -73,6 +74,13 @@ def validate_schema_and_update_table(run_id: str, team_id: int, schemas: list[st
             data = validate_schema(
                 credential=credential, table_name=table_name, new_url_pattern=new_url_pattern, team_id=team_id
             )
+        except ServerException as err:
+            if err.code == 636:
+                logger.exception(
+                    f"Data Warehouse: No data for schema for external data job {job.pk}",
+                    exc_info=err,
+                )
+            continue
         except Exception as e:
             # TODO: handle other exceptions here
             logger.exception(
