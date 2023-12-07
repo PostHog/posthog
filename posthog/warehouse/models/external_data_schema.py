@@ -22,13 +22,13 @@ class ExternalDataSchema(CreatedMetaFields, UUIDModel):
     __repr__ = sane_repr("name")
 
 
-def get_schemas_for_source_id(source_id: uuid.UUID, team_id: int):
+def get_active_schemas_for_source_id(source_id: uuid.UUID, team_id: int):
     schemas = ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, should_sync=True).values().all()
     return [val["name"] for val in schemas]
 
 
 def sync_old_schemas_with_new_schemas(new_schemas: list, source_id: uuid.UUID, team_id: int):
-    old_schemas = get_schemas_for_source_id(source_id, team_id)
+    old_schemas = ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id).values().all()
     schemas_to_create = [schema for schema in new_schemas if schema not in old_schemas]
 
     for schema in schemas_to_create:

@@ -22,7 +22,7 @@ from posthog.warehouse.external_data_source.jobs import (
 )
 from posthog.warehouse.models import (
     ExternalDataJob,
-    get_schemas_for_source_id,
+    get_active_schemas_for_source_id,
     sync_old_schemas_with_new_schemas,
     ExternalDataSource,
 )
@@ -55,7 +55,7 @@ async def create_external_data_job_model(inputs: CreateExternalDataJobInputs) ->
         team_id=inputs.team_id,
     )
 
-    schemas = await sync_to_async(get_schemas_for_source_id)(  # type: ignore
+    schemas = await sync_to_async(get_active_schemas_for_source_id)(  # type: ignore
         team_id=inputs.team_id, source_id=inputs.external_data_source_id
     )
 
