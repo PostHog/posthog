@@ -511,6 +511,12 @@
                 "chartSettings": {
                     "additionalProperties": false,
                     "properties": {
+                        "goalLines": {
+                            "items": {
+                                "$ref": "#/definitions/GoalLine"
+                            },
+                            "type": "array"
+                        },
                         "xAxisIndex": {
                             "items": {
                                 "type": "number"
@@ -1348,6 +1354,19 @@
                 }
             },
             "required": ["kind", "series"],
+            "type": "object"
+        },
+        "GoalLine": {
+            "additionalProperties": false,
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["label", "value"],
             "type": "object"
         },
         "GroupMathType": {

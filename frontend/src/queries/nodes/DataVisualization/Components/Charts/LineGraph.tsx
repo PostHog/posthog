@@ -5,6 +5,7 @@ import '../../../../../scenes/insights/InsightTooltip/InsightTooltip.scss'
 
 import { LemonTable } from '@posthog/lemon-ui'
 import { ChartData, ChartType, Color, GridLineOptions, TickOptions, TooltipModel } from 'chart.js'
+import annotationPlugin, { AnnotationPluginOptions, LineAnnotationOptions } from 'chartjs-plugin-annotation'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import clsx from 'clsx'
 import { useValues } from 'kea'
@@ -18,6 +19,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ChartDisplayType, GraphType } from '~/types'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
+import { displayLogic } from '../../displayLogic'
 
 export const LineGraph = (): JSX.Element => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -28,6 +30,8 @@ export const LineGraph = (): JSX.Element => {
     // via props. Make this a purely presentational component
     const { xData, yData, presetChartHeight, visualizationType } = useValues(dataVisualizationLogic)
     const isBarChart = visualizationType === ChartDisplayType.ActionsBar
+
+    const { goalLines } = useValues(displayLogic)
 
     useEffect(() => {
         if (!xData || !yData) {
@@ -53,6 +57,28 @@ export const LineGraph = (): JSX.Element => {
                 } as ChartData['datasets'][0]
             }),
         }
+
+        const annotations = goalLines.reduce(
+            (acc, cur, curIndex) => {
+                const line: LineAnnotationOptions = {
+                    label: {
+                        display: true,
+                        content: cur.label,
+                        position: 'end',
+                    },
+                    scaleID: 'y',
+                    value: cur.value,
+                }
+
+                acc.annotations[`line${curIndex}`] = {
+                    type: 'line',
+                    ...line,
+                }
+
+                return acc
+            },
+            { annotations: {} } as AnnotationPluginOptions
+        )
 
         const tickOptions: Partial<TickOptions> = {
             color: colors.axisLabel as Color,
@@ -99,6 +125,7 @@ export const LineGraph = (): JSX.Element => {
                 legend: {
                     display: false,
                 },
+                annotation: annotations,
                 ...(isBarChart
                     ? { crosshair: false }
                     : {
@@ -233,6 +260,7 @@ export const LineGraph = (): JSX.Element => {
             },
         }
 
+        Chart.register(annotationPlugin)
         const newChart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
             type: isBarChart ? GraphType.Bar : GraphType.Line,
             data,
@@ -240,7 +268,7 @@ export const LineGraph = (): JSX.Element => {
             plugins: [ChartDataLabels],
         })
         return () => newChart.destroy()
-    }, [xData, yData, visualizationType])
+    }, [xData, yData, visualizationType, goalLines])
 
     return (
         <div

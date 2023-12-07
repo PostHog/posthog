@@ -113,6 +113,9 @@ dependencies:
   chartjs-adapter-dayjs-3:
     specifier: ^1.2.3
     version: 1.2.3(chart.js@3.9.1)(dayjs@1.11.6)
+  chartjs-plugin-annotation:
+    specifier: 2.2.1
+    version: 2.2.1(chart.js@3.9.1)
   chartjs-plugin-crosshair:
     specifier: ^1.2.0
     version: 1.2.0(chart.js@3.9.1)
@@ -8366,6 +8369,14 @@ packages:
     dependencies:
       chart.js: 3.9.1
       dayjs: 1.11.6
+    dev: false
+
+  /chartjs-plugin-annotation@2.2.1(chart.js@3.9.1):
+    resolution: {integrity: sha512-RL9UtrFr2SXd7C47zD0MZqn6ZLgrcRt3ySC6cYal2amBdANcYB1QcwFXcpKWAYnO4SGJYRok7P5rKDDNgJMA/w==}
+    peerDependencies:
+      chart.js: '>=3.7.0'
+    dependencies:
+      chart.js: 3.9.1
     dev: false
 
   /chartjs-plugin-crosshair@1.2.0(chart.js@3.9.1):

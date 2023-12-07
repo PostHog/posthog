@@ -11,6 +11,11 @@ import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { getQueryFeatures, QueryFeature } from '../DataTable/queryFeatures'
 import type { dataVisualizationLogicType } from './dataVisualizationLogicType'
 
+export enum SideBarTab {
+    Series = 'series',
+    Display = 'display',
+}
+
 export interface AxisSeries<T> {
     name: string
     data: T[]
@@ -46,6 +51,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         deletedYSeries: (seriesIndex: number) => ({ seriesIndex }),
         clearAxis: true,
         setQuery: (node: DataVisualizationNode) => ({ node }),
+        setSideBarTab: (tab: SideBarTab) => ({ tab }),
     }),
     reducers({
         columns: [
@@ -119,6 +125,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
                     return [...prev]
                 },
+            },
+        ],
+        activeSideBarTab: [
+            SideBarTab.Series as SideBarTab,
+            {
+                setSideBarTab: (_prev, { tab }) => tab,
             },
         ],
     }),
