@@ -142,6 +142,16 @@ class PendingPersonOverride(models.Model):
     oldest_event = models.DateTimeField()
 
 
+class FlatPersonOverride(models.Model):
+    # TODO: What additional constraints here make sense (and are practical to implement?)
+    id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
+    team_id = models.BigIntegerField()  # TODO: Foreign key or not?
+    old_person_id = models.UUIDField()
+    override_person_id = models.UUIDField()
+    oldest_event = models.DateTimeField()
+    version = models.BigIntegerField(null=True, blank=True)
+
+
 class PersonOverride(models.Model):
     """A model of persons to be overriden in merge or merge-like events.
 
