@@ -512,10 +512,27 @@ export interface FunnelsQuery extends InsightsQueryBase {
 
 /** `RetentionFilterType` minus everything inherited from `FilterType` */
 export type RetentionFilter = Omit<RetentionFilterType, keyof FilterType>
+
+export interface RetentionValue {
+    /** @asType integer */
+    count: number
+}
+
+export interface RetentionResult {
+    values: RetentionValue[]
+    label: string
+    /** @format date-time */
+    date: string
+}
+
+export interface RetentionQueryResponse extends QueryResponse {
+    results: RetentionResult[]
+}
 export interface RetentionQuery extends InsightsQueryBase {
     kind: NodeKind.RetentionQuery
+    response?: RetentionQueryResponse
     /** Properties specific to the retention insight */
-    retentionFilter?: RetentionFilter
+    retentionFilter: RetentionFilter
 }
 
 /** `PathsFilterType` minus everything inherited from `FilterType` and persons modal related params */

@@ -1,4 +1,4 @@
-import { LemonTagType } from '@posthog/lemon-ui'
+import { LemonTagType, SideAction } from '@posthog/lemon-ui'
 import { Logic, LogicWrapper } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs } from 'lib/dayjs'
@@ -29,7 +29,8 @@ interface NavbarItemBase {
     label: string
     icon: JSX.Element
     featureFlag?: (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
-    tag?: 'alpha' | 'beta'
+    tag?: 'alpha' | 'beta' | 'new'
+    sideAction?: Pick<SideAction, 'icon' | 'to' | 'onClick' | 'tooltip'> & { identifier: string }
 }
 export interface SceneNavbarItem extends NavbarItemBase {
     to: string

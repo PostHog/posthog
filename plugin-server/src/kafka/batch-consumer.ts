@@ -221,6 +221,7 @@ export const startBatchConsumer = async ({
                 batchesProcessed += 1
 
                 const processingTimeMs = new Date().valueOf() - startProcessingTimeMs
+                consumedBatchDuration.labels({ topic, groupId }).observe(processingTimeMs)
                 if (processingTimeMs > SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS) {
                     status.warn(
                         '🕒',
@@ -292,6 +293,12 @@ export const startBatchConsumer = async ({
 
     return { isHealthy, stop, join, consumer }
 }
+
+export const consumedBatchDuration = new Histogram({
+    name: 'consumed_batch_duration_ms',
+    help: 'Main loop consumer batch processing duration in ms',
+    labelNames: ['topic', 'groupId'],
+})
 
 export const consumerBatchSize = new Histogram({
     name: 'consumed_batch_size',

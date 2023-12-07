@@ -1,12 +1,18 @@
 import 'chartjs-adapter-dayjs-3'
 import './LineGraph.scss'
+// TODO: Move the below scss to somewhere more common
+import '../../../../../scenes/insights/InsightTooltip/InsightTooltip.scss'
 
-import { ChartData, Color, GridLineOptions, TickOptions } from 'chart.js'
+import { LemonTable } from '@posthog/lemon-ui'
+import { ChartData, ChartType, Color, GridLineOptions, TickOptions, TooltipModel } from 'chart.js'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
+import clsx from 'clsx'
 import { useMountedLogic, useValues } from 'kea'
 import { Chart, ChartItem, ChartOptions } from 'lib/Chart'
-import { getGraphColors } from 'lib/colors'
+import { getGraphColors, getSeriesColor } from 'lib/colors'
+import { InsightLabel } from 'lib/components/InsightLabel'
 import { useEffect, useRef } from 'react'
+import { ensureTooltip } from 'scenes/insights/views/LineGraph/LineGraph'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { GraphType } from '~/types'
@@ -18,8 +24,10 @@ export const LineGraph = (): JSX.Element => {
     const { isDarkModeOn } = useValues(themeLogic)
     const colors = getGraphColors(isDarkModeOn)
 
+    // TODO: Extract this logic out of this component and inject values in
+    // via props. Make this a purely presentational component
     const vizLogic = useMountedLogic(dataVisualizationLogic)
-    const { xData, yData } = useValues(vizLogic)
+    const { xData, yData, presetChartHeight } = useValues(vizLogic)
 
     useEffect(() => {
         if (!xData || !yData) {
@@ -28,10 +36,13 @@ export const LineGraph = (): JSX.Element => {
 
         const data: ChartData = {
             labels: xData,
-            datasets: yData.map((n) => ({
-                label: 'Dataset 1',
-                data: n,
-                borderColor: 'red',
+            datasets: yData.map(({ data }, index) => ({
+                data,
+                borderColor: getSeriesColor(index),
+                borderWidth: 2,
+                pointRadius: 0,
+                hitRadius: 0,
+                order: 1,
             })),
         }
 
@@ -70,7 +81,8 @@ export const LineGraph = (): JSX.Element => {
                         return (context.dataset.borderColor as string) || 'black'
                     },
                     display: () => {
-                        return true
+                        // TODO: Update when "show values on chart" becomes an option
+                        return false
                     },
                     borderWidth: 2,
                     borderRadius: 4,
@@ -93,6 +105,90 @@ export const LineGraph = (): JSX.Element => {
                     line: {
                         color: colors.crosshair ?? undefined,
                         width: 1,
+                    },
+                },
+                // TODO: A lot of this is v similar to the trends LineGraph - considering merging these
+                tooltip: {
+                    enabled: false,
+                    mode: 'nearest',
+                    intersect: false,
+                    external({ tooltip }: { chart: Chart; tooltip: TooltipModel<ChartType> }) {
+                        if (!canvasRef.current) {
+                            return
+                        }
+
+                        const [tooltipRoot, tooltipEl] = ensureTooltip()
+                        if (tooltip.opacity === 0) {
+                            tooltipEl.style.opacity = '0'
+                            return
+                        }
+
+                        // Set caret position
+                        // Reference: https://www.chartjs.org/docs/master/configuration/tooltip.html
+                        tooltipEl.classList.remove('above', 'below', 'no-transform')
+                        tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
+                        tooltipEl.style.opacity = '1'
+                        tooltipEl.style.display = 'initial'
+
+                        if (tooltip.body) {
+                            const referenceDataPoint = tooltip.dataPoints[0] // Use this point as reference to get the date
+                            tooltipRoot.render(
+                                <div className="InsightTooltip">
+                                    <LemonTable
+                                        dataSource={yData.map(({ data, name: seriesLabel }) => ({
+                                            series: seriesLabel,
+                                            data: data[referenceDataPoint.dataIndex],
+                                        }))}
+                                        columns={[
+                                            {
+                                                title: xData[referenceDataPoint.dataIndex],
+                                                dataIndex: 'series',
+                                                render: (value) => {
+                                                    return (
+                                                        <div className="datum-label-column">
+                                                            <InsightLabel
+                                                                fallbackName={value?.toString()}
+                                                                hideBreakdown
+                                                                showSingleName
+                                                                hideCompare
+                                                                hideIcon
+                                                                allowWrap
+                                                            />
+                                                        </div>
+                                                    )
+                                                },
+                                            },
+                                            {
+                                                title: '',
+                                                dataIndex: 'data',
+                                                render: (value) => {
+                                                    return <div className="series-data-cell">{value}</div>
+                                                },
+                                            },
+                                        ]}
+                                        size="small"
+                                        uppercaseHeader={false}
+                                        rowRibbonColor={(_datum, index) => getSeriesColor(index)}
+                                        showHeader
+                                    />
+                                </div>
+                            )
+                        }
+
+                        const bounds = canvasRef.current.getBoundingClientRect()
+                        const horizontalBarTopOffset = 0 // TODO: Change this when horizontal bar charts are a thing
+                        const tooltipClientTop = bounds.top + window.pageYOffset + horizontalBarTopOffset
+
+                        const chartClientLeft = bounds.left + window.pageXOffset
+                        const defaultOffsetLeft = Math.max(chartClientLeft, chartClientLeft + tooltip.caretX + 8)
+                        const maxXPosition = bounds.right - tooltipEl.clientWidth
+                        const tooltipClientLeft =
+                            defaultOffsetLeft > maxXPosition
+                                ? chartClientLeft + tooltip.caretX - tooltipEl.clientWidth - 8 // If tooltip is too large (or close to the edge), show it to the left of the data point instead
+                                : defaultOffsetLeft
+
+                        tooltipEl.style.top = Math.min(tooltipClientTop, window.innerHeight) + 'px'
+                        tooltipEl.style.left = Math.min(tooltipClientLeft, window.innerWidth) + 'px'
                     },
                 },
             },
@@ -136,7 +232,11 @@ export const LineGraph = (): JSX.Element => {
     }, [xData, yData])
 
     return (
-        <div className="DataVisualization__LineGraph rounded bg-bg-light relative flex flex-col p-2">
+        <div
+            className={clsx('rounded bg-bg-light relative flex flex-1 flex-col p-2', {
+                DataVisualization__LineGraph: presetChartHeight,
+            })}
+        >
             <div className="flex flex-1 w-full h-full overflow-hidden">
                 <canvas ref={canvasRef} />
             </div>

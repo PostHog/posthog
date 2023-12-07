@@ -54,7 +54,7 @@ export const ProductIntroduction = ({
                     </div>
                 </div>
             )}
-            <div className="flex items-center gap-x-8 w-full justify-center">
+            <div className="flex items-center gap-x-8 w-full justify-center flex-wrap">
                 <div>
                     <div className="w-50 mx-auto mb-4">
                         {CustomHog ? (
@@ -83,7 +83,7 @@ export const ProductIntroduction = ({
                             started yourself.
                         </p>
                     )}
-                    <div className="flex items-center gap-x-4 mt-6">
+                    <div className="flex items-center gap-x-4 gap-y-2 mt-6 flex-wrap">
                         {action ? (
                             <LemonButton
                                 type="primary"
