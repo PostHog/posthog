@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { PopoverContainerContext } from 'lib/hooks/usePopoverContainerContext'
 import { useSecondRender } from 'lib/hooks/useSecondRender'
 import { useRef, useState } from 'react'
 import root from 'react-shadow'
@@ -41,15 +42,17 @@ export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
     return (
         <>
             <root.div id="__POSTHOG_TOOLBAR__" className="ph-no-capture" ref={shadowRef}>
-                <div id="posthog-toolbar-styles" />
-                {didRender && (didLoadStyles || props.disableExternalStyles) ? <ToolbarContainer /> : null}
-                <ToastContainer
-                    autoClose={60000}
-                    transition={Slide}
-                    closeOnClick={false}
-                    draggable={false}
-                    position="bottom-center"
-                />
+                <PopoverContainerContext.Provider value={shadowRef.current?.shadowRoot as unknown as HTMLElement}>
+                    <div id="posthog-toolbar-styles" />
+                    {didRender && (didLoadStyles || props.disableExternalStyles) ? <ToolbarContainer /> : null}
+                    <ToastContainer
+                        autoClose={60000}
+                        transition={Slide}
+                        closeOnClick={false}
+                        draggable={false}
+                        position="bottom-center"
+                    />
+                </PopoverContainerContext.Provider>
             </root.div>
         </>
     )

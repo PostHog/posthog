@@ -1,6 +1,7 @@
 import './LemonModal.scss'
 
 import clsx from 'clsx'
+import { usePopoverContainerContext } from 'lib/hooks/usePopoverContainerContext'
 import { IconClose } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useEffect, useRef, useState } from 'react'
@@ -153,6 +154,8 @@ export function LemonModal({
 
     width = !fullScreen ? width : undefined
 
+    const defaultPopoverContext = usePopoverContainerContext()
+
     return inline ? (
         // eslint-disable-next-line react/forbid-dom-props
         <div className="LemonModal ReactModal__Content--after-open" style={{ width }}>
@@ -186,7 +189,9 @@ export function LemonModal({
             appElement={document.getElementById('root') as HTMLElement}
             contentRef={contentRef}
             overlayRef={overlayRef}
-            parentSelector={getPopupContainer}
+            parentSelector={
+                getPopupContainer ? getPopupContainer : defaultPopoverContext ? () => defaultPopoverContext : undefined
+            }
         >
             {modalContent}
         </Modal>

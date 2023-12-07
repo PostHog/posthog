@@ -1,5 +1,6 @@
 import { Tooltip as AntdTooltip } from 'antd'
 import { TooltipProps as AntdTooltipProps } from 'antd/lib/tooltip'
+import { usePopoverContainerContext } from 'lib/hooks/usePopoverContainerContext'
 import React, { useState } from 'react'
 import { useDebounce } from 'use-debounce'
 
@@ -19,6 +20,15 @@ export function Tooltip({ children, visible, delayMs = DEFAULT_DELAY_MS, ...prop
     const [localVisible, setVisible] = useState(false)
     const [debouncedLocalVisible] = useDebounce(visible ?? localVisible, delayMs)
 
+    const defaultPopoverContext = usePopoverContainerContext()
+
+    // Allow it to be overridden but by default use whatever the given context is
+    const getPopupContainer = props.getPopupContainer
+        ? props.getPopupContainer
+        : defaultPopoverContext
+        ? () => defaultPopoverContext
+        : undefined
+
     if (!('mouseEnterDelay' in props)) {
         // If not preserving default behavior and mouseEnterDelay is not already provided, we use a custom default here
         props.mouseEnterDelay = delayMs
@@ -31,7 +41,7 @@ export function Tooltip({ children, visible, delayMs = DEFAULT_DELAY_MS, ...prop
     const derivedVisible = typeof visible === 'undefined' ? localVisible && debouncedLocalVisible : visible
 
     return props.title ? (
-        <AntdTooltip {...props} visible={derivedVisible}>
+        <AntdTooltip {...props} getPopupContainer={getPopupContainer} visible={derivedVisible}>
             {React.cloneElement(child, {
                 onMouseEnter: () => {
                     child.props.onMouseEnter?.()
