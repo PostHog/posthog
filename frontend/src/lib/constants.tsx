@@ -150,6 +150,7 @@ export const FEATURE_FLAGS = {
     FEEDBACK_SCENE: 'feedback-scene', // owner: @lharries
     NOTEBOOKS: 'notebooks', // owner: #team-replay
     EARLY_ACCESS_FEATURE_SITE_BUTTON: 'early-access-feature-site-button', // owner: @neilkakkar
+    HEDGEHOG_MODE: 'hedgehog-mode', // owner: @benjackwhite
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
     GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // experiment, owner: @raquelmsmith
     WEB_ANALYTICS: 'web-analytics', // owner @robbie-c #team-web-analytics

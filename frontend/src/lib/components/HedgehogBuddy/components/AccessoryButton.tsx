@@ -3,7 +3,7 @@ import { IconLock } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { capitalizeFirstLetter } from 'lib/utils'
 
-import { hedgehogbuddyLogic } from '../hedgehogbuddyLogic'
+import { hedgehogBuddyLogic } from '../hedgehogbuddyLogic'
 import { AccessoryInfo, baseSpriteAccessoriesPath } from '../sprites/sprites'
 
 export type HedgehogBuddyAccessoryProps = {
@@ -17,8 +17,8 @@ export function HedgehogBuddyAccessory({
     accessory,
     isDarkModeOn,
 }: HedgehogBuddyAccessoryProps): JSX.Element {
-    const { accessories, availableAccessories } = useValues(hedgehogbuddyLogic)
-    const { addAccessory, removeAccessory } = useActions(hedgehogbuddyLogic)
+    const { accessories, availableAccessories } = useValues(hedgehogBuddyLogic)
+    const { addAccessory, removeAccessory } = useActions(hedgehogBuddyLogic)
 
     const isUnlocked = availableAccessories.includes(accessoryKey)
 

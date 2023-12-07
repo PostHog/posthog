@@ -9,7 +9,7 @@ import { range, sampleOne, shouldIgnoreInput } from 'lib/utils'
 import { MutableRefObject, useEffect, useRef, useState } from 'react'
 
 import { HedgehogAccessories } from './HedgehogAccessories'
-import { hedgehogbuddyLogic } from './hedgehogbuddyLogic'
+import { hedgehogBuddyLogic } from './hedgehogbuddyLogic'
 import {
     AccessoryInfo,
     baseSpriteAccessoriesPath,
@@ -402,7 +402,7 @@ export function HedgehogBuddy({
     }
 
     const actor = actorRef.current
-    const { accessories } = useValues(hedgehogbuddyLogic)
+    const { accessories } = useValues(hedgehogBuddyLogic)
 
     useEffect(() => {
         return actor.setupKeyboardListeners()
