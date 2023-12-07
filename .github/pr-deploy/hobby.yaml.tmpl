@@ -18,6 +18,10 @@ spec:
         imagePullPolicy: Always
         securityContext:
           privileged: true
+        resources:
+          requests:
+            cpu: 500m
+            memory: 700M          
         ports:
         - containerPort: 2375
         - containerPort: 80
