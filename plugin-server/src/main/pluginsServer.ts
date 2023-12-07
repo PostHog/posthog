@@ -21,7 +21,11 @@ import { status } from '../utils/status'
 import { delay } from '../utils/utils'
 import { AppMetrics } from '../worker/ingestion/app-metrics'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
-import { DeferredPersonOverrideWorker, PersonOverrideWriter } from '../worker/ingestion/person-state'
+import {
+    DeferredPersonOverrideWorker,
+    FlatPersonOverrideWriter,
+    PersonOverrideWriter,
+} from '../worker/ingestion/person-state'
 import { TeamManager } from '../worker/ingestion/team-manager'
 import Piscina, { makePiscina as defaultMakePiscina } from '../worker/piscina'
 import { GraphileWorker } from './graphile-worker/graphile-worker'
@@ -440,7 +444,9 @@ export async function startPluginsServer(
             personOverridesPeriodicTask = new DeferredPersonOverrideWorker(
                 postgres,
                 kafkaProducer,
-                new PersonOverrideWriter(postgres)
+                hub?.POE_DEFERRED_WRITES_USE_FLAT_OVERRIDES // XXX: should we ensure there is a valid hub instance here for config?
+                    ? new FlatPersonOverrideWriter(postgres)
+                    : new PersonOverrideWriter(postgres)
             ).runTask(5000)
             personOverridesPeriodicTask.promise.catch(async () => {
                 status.error('⚠️', 'Person override worker task crashed! Requesting shutdown...')
