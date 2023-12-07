@@ -74,6 +74,135 @@ export default function SurveyEdit(): JSX.Element {
                     }}
                     panels={[
                         {
+                            key: SurveyEditSection.Presentation,
+                            header: 'Presentation',
+                            content: (
+                                <Field name="type">
+                                    {({ onChange, value }) => {
+                                        return (
+                                            <div className="flex gap-4">
+                                                <PresentationTypeCard
+                                                    active={value === SurveyType.Popover}
+                                                    onClick={() => onChange(SurveyType.Popover)}
+                                                    title="Popover"
+                                                    description="Automatically appears when PostHog JS is installed"
+                                                    value={SurveyType.Popover}
+                                                >
+                                                    <div
+                                                        style={{
+                                                            transform: 'scale(.8)',
+                                                            position: 'absolute',
+                                                            top: '-1rem',
+                                                            left: '-1rem',
+                                                        }}
+                                                    >
+                                                        <SurveyAppearance
+                                                            preview
+                                                            type={survey.questions[0].type}
+                                                            surveyQuestionItem={survey.questions[0]}
+                                                            appearance={{
+                                                                ...(survey.appearance || defaultSurveyAppearance),
+                                                                ...(survey.questions.length > 1
+                                                                    ? { submitButtonText: 'Next' }
+                                                                    : null),
+                                                            }}
+                                                        />
+                                                    </div>
+                                                </PresentationTypeCard>
+                                                <PresentationTypeCard
+                                                    active={value === SurveyType.API}
+                                                    onClick={() => onChange(SurveyType.API)}
+                                                    title="API"
+                                                    description="Use the PostHog API to show/hide your survey programmatically"
+                                                    value={SurveyType.API}
+                                                >
+                                                    <div className="absolute left-4" style={{ width: 350 }}>
+                                                        <SurveyAPIEditor survey={survey} />
+                                                    </div>
+                                                </PresentationTypeCard>
+                                                <PresentationTypeCard
+                                                    active={value === SurveyType.Widget}
+                                                    onClick={() => onChange(SurveyType.Widget)}
+                                                    title="Widget"
+                                                    description="Set up a survey based on your own custom widget or our default tab"
+                                                    value={SurveyType.Widget}
+                                                >
+                                                    Widget
+                                                </PresentationTypeCard>
+                                            </div>
+                                        )
+                                    }}
+                                </Field>
+                            ),
+                        },
+                        ...(survey.type === SurveyType.Widget
+                            ? [
+                                  {
+                                      key: SurveyEditSection.Widget,
+                                      header: 'Widget',
+                                      content: (
+                                          <>
+                                              <PureField label="Widget type">
+                                                  <LemonSelect
+                                                      value={survey.appearance.widgetType}
+                                                      onChange={(val) =>
+                                                          setSurveyValue('appearance', {
+                                                              ...survey.appearance,
+                                                              widgetType: val,
+                                                          })
+                                                      }
+                                                      options={[
+                                                          { label: 'Tab', value: 'tab' },
+                                                          { label: 'Custom widget', value: 'selector' },
+                                                      ]}
+                                                  />
+                                              </PureField>
+                                              {survey.appearance.widgetType === 'selector' ? (
+                                                  <PureField label="Custom selector" className="mt-4">
+                                                      <LemonInput
+                                                          value={survey.appearance.widgetSelector}
+                                                          onChange={(widgetSelector) =>
+                                                              setSurveyValue('appearance', {
+                                                                  ...survey.appearance,
+                                                                  widgetSelector,
+                                                              })
+                                                          }
+                                                          placeholder="ex: .feedback-button"
+                                                      />
+                                                  </PureField>
+                                              ) : (
+                                                  <>
+                                                      <PureField label="Label" className="mt-4">
+                                                          <LemonInput
+                                                              value={survey.appearance.widgetLabel}
+                                                              onChange={(widgetLabel) =>
+                                                                  setSurveyValue('appearance', {
+                                                                      ...survey.appearance,
+                                                                      widgetLabel,
+                                                                  })
+                                                              }
+                                                          />
+                                                      </PureField>
+                                                      <PureField label="Background color" className="mt-4">
+                                                          <LemonInput
+                                                              value={survey.appearance.widgetColor}
+                                                              onChange={(widgetColor) =>
+                                                                  setSurveyValue('appearance', {
+                                                                      ...survey.appearance,
+                                                                      widgetColor,
+                                                                  })
+                                                              }
+                                                              placeholder="ex: #000000"
+                                                          />
+                                                      </PureField>
+                                                  </>
+                                              )}
+                                          </>
+                                      ),
+                                  },
+                              ]
+                            : []),
+                        {
                             key: SurveyEditSection.Steps,
                             header: 'Steps',
                             content: (
@@ -265,59 +394,6 @@ export default function SurveyEdit(): JSX.Element {
                                         )}
                                     </div>
                                 </>
-                            ),
-                        },
-                        {
-                            key: SurveyEditSection.Presentation,
-                            header: 'Presentation',
-                            content: (
-                                <Field name="type">
-                                    {({ onChange, value }) => {
-                                        return (
-                                            <div className="flex gap-4">
-                                                <PresentationTypeCard
-                                                    active={value === SurveyType.Popover}
-                                                    onClick={() => onChange(SurveyType.Popover)}
-                                                    title="Popover"
-                                                    description="Automatically appears when PostHog JS is installed"
-                                                    value={SurveyType.Popover}
-                                                >
-                                                    <div
-                                                        style={{
-                                                            transform: 'scale(.8)',
-                                                            position: 'absolute',
-                                                            top: '-1rem',
-                                                            left: '-1rem',
-                                                        }}
-                                                    >
-                                                        <SurveyAppearance
-                                                            preview
-                                                            type={survey.questions[0].type}
-                                                            surveyQuestionItem={survey.questions[0]}
-                                                            appearance={{
-                                                                ...(survey.appearance || defaultSurveyAppearance),
-                                                                ...(survey.questions.length > 1
-                                                                    ? { submitButtonText: 'Next' }
-                                                                    : null),
-                                                            }}
-                                                        />
-                                                    </div>
-                                                </PresentationTypeCard>
-                                                <PresentationTypeCard
-                                                    active={value === SurveyType.API}
-                                                    onClick={() => onChange(SurveyType.API)}
-                                                    title="API"
-                                                    description="Use the PostHog API to show/hide your survey programmatically"
-                                                    value={SurveyType.API}
-                                                >
-                                                    <div className="absolute left-4" style={{ width: 350 }}>
-                                                        <SurveyAPIEditor survey={survey} />
-                                                    </div>
-                                                </PresentationTypeCard>
-                                            </div>
-                                        )
-                                    }}
-                                </Field>
                             ),
                         },
                         ...(survey.type !== SurveyType.API

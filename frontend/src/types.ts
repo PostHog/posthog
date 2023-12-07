@@ -2239,7 +2239,7 @@ export enum SurveyUrlMatchType {
 
 export enum SurveyType {
     Popover = 'popover',
-    Button = 'button',
+    Widget = 'widget',
     FullScreen = 'full_screen',
     Email = 'email',
     API = 'api',
@@ -2260,6 +2260,11 @@ export interface SurveyAppearance {
     thankYouMessageDescription?: string
     autoDisappear?: boolean
     position?: string
+    // widget only
+    widgetType?: 'button' | 'tab' | 'selector'
+    widgetSelector?: string
+    widgetLabel?: string
+    widgetColor?: string
 }
 
 export interface SurveyQuestionBase {

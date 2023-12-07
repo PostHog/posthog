@@ -127,7 +127,6 @@ export function SurveyAppearance({
 
 export function Customization({ appearance, surveyQuestionItem, onAppearanceChange }: CustomizationProps): JSX.Element {
     const { whitelabelAvailable, surveysStylingAvailable } = useValues(surveysLogic)
-
     return (
         <div className="flex flex-col">
             {!surveysStylingAvailable && (
