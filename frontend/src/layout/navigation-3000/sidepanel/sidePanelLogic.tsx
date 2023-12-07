@@ -77,8 +77,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         ],
 
         enabledTabs: [
-            (s) => [s.featureFlags, s.isCloudOrDev, s.isReady, s.hasCompletedAllTasks],
-            (featureFlags, isCloudOrDev, isReady, hasCompletedAllTasks) => {
+            (s) => [s.isCloudOrDev, s.isReady, s.hasCompletedAllTasks],
+            (isCloudOrDev, isReady, hasCompletedAllTasks) => {
                 const tabs: SidePanelTab[] = []
 
                 tabs.push(SidePanelTab.Notebooks)
