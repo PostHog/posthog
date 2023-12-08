@@ -72,7 +72,6 @@ class UserPermissions:
         candidate_teams = Team.objects.filter(organization_id__in=self.organizations.keys()).only(
             "pk", "organization_id", "access_control"
         )
-
         return [team.pk for team in candidate_teams if self.team(team).effective_membership_level is not None]
 
     # Cached properties/functions for efficient lookups in other classes
