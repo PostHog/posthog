@@ -1,8 +1,8 @@
 import './PluginSource.scss'
 
 import { useMonaco } from '@monaco-editor/react'
-import { Link } from '@posthog/lemon-ui'
-import { Button, Skeleton } from 'antd'
+import { LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { Button } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { CodeEditor } from 'lib/components/CodeEditors'
@@ -109,7 +109,7 @@ export function PluginSource({
                         </p>
 
                         {pluginSourceLoading ? (
-                            <Skeleton />
+                            <LemonSkeleton />
                         ) : (
                             <>
                                 <PluginSourceTabs logic={logic} />

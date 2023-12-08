@@ -1,6 +1,6 @@
 import './FeatureFlag.scss'
 
-import { Card, Popconfirm, Radio, Skeleton } from 'antd'
+import { Card, Popconfirm, Radio } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
@@ -20,6 +20,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
@@ -476,7 +477,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                 ) : (
                     <>
                         {featureFlagLoading ? (
-                            <Skeleton active />
+                            <LemonSkeleton active />
                         ) : (
                             <>
                                 <PageHeader
