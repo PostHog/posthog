@@ -502,48 +502,21 @@ function chooseConverter<T extends wireframe>(
     // but since this is coming over the wire we can't really be sure,
     // and so we default to div
     const converterType: MobileNodeType = wireframe.type || 'div'
-    switch (converterType) {
-        case 'text':
-            return makeTextElement as unknown as (
-                wireframe: T,
-                children: serializedNodeWithId[]
-            ) => serializedNodeWithId | null
-        case 'image':
-            return makeImageElement as unknown as (
-                wireframe: T,
-                children: serializedNodeWithId[]
-            ) => serializedNodeWithId | null
-        case 'rectangle':
-            return makeRectangleElement as unknown as (
-                wireframe: T,
-                children: serializedNodeWithId[]
-            ) => serializedNodeWithId | null
-        case 'div':
-            return makeDivElement as unknown as (
-                wireframe: T,
-                children: serializedNodeWithId[]
-            ) => serializedNodeWithId | null
-        case 'input':
-            return makeInputElement as unknown as (
-                wireframe: T,
-                children: serializedNodeWithId[]
-            ) => serializedNodeWithId | null
-        case 'radio_group':
-            return makeRadioGroupElement as unknown as (
-                wireframe: T,
-                children: serializedNodeWithId[]
-            ) => serializedNodeWithId | null
-        case 'web_view':
-            return makeWebViewElement as unknown as (
-                wireframe: T,
-                children: serializedNodeWithId[]
-            ) => serializedNodeWithId | null
-        case 'placeholder':
-            return makePlaceholderElement as unknown as (
-                wireframe: T,
-                children: serializedNodeWithId[]
-            ) => serializedNodeWithId | null
+    const converterMapping: Record<
+        MobileNodeType,
+        (wireframe: T, children: serializedNodeWithId[]) => serializedNodeWithId | null
+    > = {
+        // KLUDGE: TS can't tell that the wireframe type of each function is safe based on the converter type
+        text: makeTextElement as any,
+        image: makeImageElement as any,
+        rectangle: makeRectangleElement as any,
+        div: makeDivElement as any,
+        input: makeInputElement as any,
+        radio_group: makeRadioGroupElement as any,
+        web_view: makeWebViewElement as any,
+        placeholder: makePlaceholderElement as any,
     }
+    return converterMapping[converterType]
 }
 
 function convertWireframesFor(wireframes: wireframe[] | undefined): serializedNodeWithId[] {
