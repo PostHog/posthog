@@ -139,7 +139,7 @@
             "type": "number"
         },
         "MobileNodeType": {
-            "enum": ["text", "image", "rectangle", "input", "div", "radio_group", "placeholder", "web_view"],
+            "enum": ["text", "image", "rectangle", "placeholder", "web_view", "input", "div", "radio_group"],
             "type": "string"
         },
         "MobileStyles": {
@@ -205,6 +205,12 @@
                 },
                 {
                     "$ref": "#/definitions/wireframeRadioGroup"
+                },
+                {
+                    "$ref": "#/definitions/wireframeWebView"
+                },
+                {
+                    "$ref": "#/definitions/wireframePlaceholder"
                 }
             ]
         },
@@ -452,6 +458,44 @@
                     "$ref": "#/definitions/wireframeToggle"
                 }
             ]
+        },
+        "wireframePlaceholder": {
+            "additionalProperties": false,
+            "properties": {
+                "childWireframes": {
+                    "items": {
+                        "$ref": "#/definitions/wireframe"
+                    },
+                    "type": "array"
+                },
+                "height": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "style": {
+                    "$ref": "#/definitions/MobileStyles"
+                },
+                "type": {
+                    "$ref": "#/definitions/MobileNodeType"
+                },
+                "width": {
+                    "type": "number"
+                },
+                "x": {
+                    "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
+                    "type": "number"
+                },
+                "y": {
+                    "type": "number"
+                }
+            },
+            "required": ["height", "id", "type", "width", "x", "y"],
+            "type": "object"
         },
         "wireframeProgress": {
             "additionalProperties": false,
@@ -807,6 +851,41 @@
                 }
             },
             "required": ["checked", "disabled", "height", "id", "inputType", "type", "width", "x", "y"],
+            "type": "object"
+        },
+        "wireframeWebView": {
+            "additionalProperties": false,
+            "properties": {
+                "childWireframes": {
+                    "items": {
+                        "$ref": "#/definitions/wireframe"
+                    },
+                    "type": "array"
+                },
+                "height": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "style": {
+                    "$ref": "#/definitions/MobileStyles"
+                },
+                "type": {
+                    "$ref": "#/definitions/MobileNodeType"
+                },
+                "width": {
+                    "type": "number"
+                },
+                "x": {
+                    "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
+                    "type": "number"
+                },
+                "y": {
+                    "type": "number"
+                }
+            },
+            "required": ["height", "id", "type", "width", "x", "y"],
             "type": "object"
         }
     }
