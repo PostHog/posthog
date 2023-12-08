@@ -53,7 +53,7 @@ export type NodeWrapperProps<T extends CustomNotebookNodeAttributes> = Omit<Note
 export interface Node extends PMNode {}
 export interface JSONContent extends TTJSONContent {}
 
-export {
+export type {
     ChainedCommands as EditorCommands,
     FocusPosition as EditorFocusPosition,
     Range as EditorRange,

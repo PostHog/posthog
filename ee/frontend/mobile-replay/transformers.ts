@@ -23,9 +23,11 @@ import {
 } from './mobile.types'
 import {
     makeBodyStyles,
+    makeDeterminateProgressStyles,
     makeHTMLStyles,
+    makeIndeterminateProgressStyles,
+    makeMinimalStyles,
     makePositionStyles,
-    makeProgressStyles,
     makeStylesString,
     makeSvgBorder,
 } from './wireframeStyle'
@@ -77,7 +79,7 @@ export const makeMetaEvent = (
     timestamp: mobileMetaEvent.timestamp,
 })
 
-function _isPositiveInteger(id: unknown): boolean {
+function _isPositiveInteger(id: unknown): id is number {
     return typeof id === 'number' && id > 0 && id % 1 === 0
 }
 
@@ -280,51 +282,37 @@ function makeProgressElement(
     children: serializedNodeWithId[]
 ): serializedNodeWithId | null {
     if (wireframe.style?.bar === 'circular') {
-        if (!wireframe.value || !wireframe.max) {
-            // spinner
-            return {
-                type: NodeType.Element,
-                tagName: 'div',
-                attributes: {
-                    style: makeStylesString(wireframe),
-                },
-                id: wireframe.id,
-                childNodes: [
-                    {
-                        type: NodeType.Element,
-                        tagName: 'div',
-                        attributes: {
-                            style: makeProgressStyles(wireframe),
-                        },
-                        id: idSequence.next().value,
-                        childNodes: [],
-                    },
-                    ...children,
-                ],
-            }
+        // value needs to be expressed as a number between 0 and 100
+        const max = wireframe.max || 1
+        let value = wireframe.value || null
+        if (_isPositiveInteger(value) && value <= max) {
+            value = (value / max) * 100
         } else {
-            // progress circle
-            return {
-                type: NodeType.Element,
-                tagName: 'div',
-                attributes: {
-                    style: makeStylesString(wireframe),
-                },
-                id: wireframe.id,
-                childNodes: [
-                    {
-                        type: NodeType.Element,
-                        tagName: 'div',
-                        attributes: {
-                            // TODO this is only a spinner... it doesn't represent provided value
-                            style: makeProgressStyles(wireframe),
-                        },
-                        id: idSequence.next().value,
-                        childNodes: [],
+            value = null
+        }
+
+        return {
+            type: NodeType.Element,
+            tagName: 'div',
+            attributes: {
+                style: makeMinimalStyles(wireframe),
+            },
+            id: wireframe.id,
+            childNodes: [
+                {
+                    type: NodeType.Element,
+                    tagName: 'div',
+                    attributes: {
+                        // with no provided value we render a spinner
+                        style: _isPositiveInteger(value)
+                            ? makeDeterminateProgressStyles(wireframe)
+                            : makeIndeterminateProgressStyles(wireframe),
                     },
-                    ...children,
-                ],
-            }
+                    id: idSequence.next().value,
+                    childNodes: [],
+                },
+                ...children,
+            ],
         }
     } else {
         return {
