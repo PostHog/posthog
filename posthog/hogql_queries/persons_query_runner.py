@@ -31,7 +31,7 @@ class PersonsQueryRunner(QueryRunner):
             person_ids = [str(result[person_column_index]) for result in response.results]
             pg_persons = {
                 str(p.uuid): p
-                for p in Person.objects.filter(team_id=self.team.pk)
+                for p in Person.objects.filter(team_id=self.team.pk, persondistinctid__team_id=self.team.pk)
                 .filter(uuid__in=person_ids)
                 .prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
             }
