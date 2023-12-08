@@ -57,27 +57,16 @@ const BillingGaugeItem = ({ item, maxValue, isWithinUsageLimit }: BillingGaugeIt
     )
 }
 
-const getBgColorClassForItem3000 = (item: BillingGaugeItemType, isWithinUsageLimit: boolean): string => {
-    if (item.type === BillingGaugeItemKind.FreeTier) {
-        return 'bg-success-light'
-    } else if (item.type === BillingGaugeItemKind.CurrentUsage) {
-        return isWithinUsageLimit ? 'bg-success' : 'bg-danger'
-    } else if (item.type === BillingGaugeItemKind.ProjectedUsage) {
-        return 'bg-border'
-    } else if (item.type === BillingGaugeItemKind.BillingLimit) {
-        return 'bg-primary-alt-light'
-    } else {
-        throw new Error(`Unknown type: ${item.type}`)
-    }
-}
-
 const BillingGaugeItem3000 = ({ item, maxValue, isWithinUsageLimit }: BillingGaugeItemProps): JSX.Element => {
     const width = `${(item.value / maxValue) * 100}%`
-    const bgColorClass = getBgColorClassForItem3000(item, isWithinUsageLimit)
 
     return (
         <div
-            className={`BillingGaugeItem absolute top-0 left-0 bottom-0 h-2 ${bgColorClass}`}
+            className={clsx(
+                `BillingGaugeItem BillingGaugeItem--${item.type}`,
+                { 'BillingGaugeItem--within-usage-limit': isWithinUsageLimit },
+                'absolute top-0 left-0 bottom-0 h-2'
+            )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{ '--billing-gauge-item-width': width } as React.CSSProperties}
         >
