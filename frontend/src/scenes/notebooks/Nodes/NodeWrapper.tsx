@@ -145,6 +145,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
             <BindLogic logic={notebookNodeLogic} props={logicProps}>
                 <NodeViewWrapper as="div">
                     <div
+                        draggable
                         ref={setRefs}
                         className={clsx(nodeType, 'NotebookNode', {
                             'NotebookNode--auto-hide-metadata': autoHideMetadata,
@@ -336,7 +337,8 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
         name: wrapperProps.nodeType,
         group: 'block',
         atom: true,
-        draggable: true,
+        draggable: false,
+        selectable: false,
 
         serializedText: serializedText,
 

@@ -7,7 +7,8 @@ import { IconPlus, IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Popover, PopoverProps } from 'lib/lemon-ui/Popover'
-import { ReactChild, useEffect } from 'react'
+import { ReactChild, ReactElement, useEffect } from 'react'
+import React from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import {
     notebookSelectButtonLogic,
@@ -30,8 +31,8 @@ export type NotebookSelectProps = NotebookSelectButtonLogicProps & {
 }
 
 export type NotebookSelectPopoverProps = NotebookSelectProps &
-    Partial<PopoverProps> & {
-        children?: ReactChild
+    Partial<Omit<PopoverProps, 'children'>> & {
+        children: ReactElement
     }
 
 export type NotebookSelectButtonProps = NotebookSelectProps &
@@ -215,9 +216,9 @@ export function NotebookSelectPopover({
             }
             {...props}
         >
-            <span className="flex flex-1 overflow-hidden" onClick={() => setShowPopover(!showPopover)}>
-                {children}
-            </span>
+            {React.cloneElement(children, {
+                onClick: () => setShowPopover(!showPopover),
+            })}
         </Popover>
     )
 }
