@@ -23,6 +23,8 @@ pub struct WebhookConsumer<'p> {
     client: reqwest::Client,
     /// Maximum number of concurrent jobs being processed.
     max_concurrent_jobs: usize,
+    /// Indicates whether we are holding an open transaction while processing or not.
+    transactional: bool,
 }
 
 impl<'p> WebhookConsumer<'p> {
@@ -55,6 +57,19 @@ impl<'p> WebhookConsumer<'p> {
     }
 
     /// Wait until a job becomes available in our queue.
+    async fn wait_for_job_tx<'a>(
+        &self,
+    ) -> Result<PgTransactionJob<'a, WebhookJobParameters>, WebhookConsumerError> {
+        loop {
+            if let Some(job) = self.queue.dequeue_tx(&self.name).await? {
+                return Ok(job);
+            } else {
+                task::sleep(self.poll_interval).await;
+            }
+        }
+    }
+
+    /// Wait until a job becomes available in our queue.
     async fn wait_for_job<'a>(
         &self,
     ) -> Result<PgTransactionJob<'a, WebhookJobParameters, WebhookJobMetadata>, ConsumerError> {
@@ -72,7 +87,10 @@ impl<'p> WebhookConsumer<'p> {
         let semaphore = Arc::new(sync::Semaphore::new(self.max_concurrent_jobs));
 
         loop {
-            let webhook_job = self.wait_for_job().await?;
+            let webhook_job = match self.transactional {
+                true => self.wait_for_job_tx().await,
+                false => self.wait_for_job().await,
+            }?;
 
             // reqwest::Client internally wraps with Arc, so this allocation is cheap.
             let client = self.client.clone();
