@@ -438,11 +438,6 @@ export class SessionRecordingIngester {
             // TODO: immediately die? or just keep going?
         })
 
-        // Make sure to disconnect the producer after we've finished consuming.
-        this.batchConsumer.join().finally(() => {
-            status.debug('🔁', 'blob_ingester_consumer - batch consumer has finished')
-        })
-
         this.batchConsumer.consumer.on('disconnected', async (err) => {
             // since we can't be guaranteed that the consumer will be stopped before some other code calls disconnect
             // we need to listen to disconnect and make sure we're stopped
