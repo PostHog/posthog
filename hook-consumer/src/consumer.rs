@@ -6,34 +6,10 @@ use std::time;
 use async_std::task;
 use hook_common::pgqueue::{PgJobError, PgQueue, PgQueueError, PgTransactionJob};
 use http::StatusCode;
+use reqwest::header;
 use serde::{de::Visitor, Deserialize, Serialize};
-use thiserror::Error;
 
-/// Enumeration of errors for operations with WebhookConsumer.
-#[derive(Error, Debug)]
-pub enum WebhookConsumerError {
-    #[error("timed out while waiting for jobs to be available")]
-    TimeoutError,
-    #[error("{0} is not a valid HttpMethod")]
-    ParseHttpMethodError(String),
-    #[error("error parsing webhook headers")]
-    ParseHeadersError(http::Error),
-    #[error("error parsing webhook url")]
-    ParseUrlError(url::ParseError),
-    #[error("an error occurred in the underlying queue")]
-    QueueError(#[from] PgQueueError),
-    #[error("an error occurred in the underlying job")]
-    PgJobError(String),
-    #[error("an error occurred when attempting to send a request")]
-    RequestError(#[from] reqwest::Error),
-    #[error("a webhook could not be delivered but it could be retried later: {reason}")]
-    RetryableWebhookError {
-        reason: String,
-        retry_after: Option<time::Duration>,
-    },
-    #[error("a webhook could not be delivered and it cannot be retried further: {0}")]
-    NonRetryableWebhookError(String),
-}
+use crate::error::WebhookConsumerError;
 
 /// Supported HTTP methods for webhooks.
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -165,8 +141,8 @@ pub struct WebhookConsumer<'p> {
     queue: &'p PgQueue,
     /// The interval for polling the queue.
     poll_interval: time::Duration,
-    /// A timeout for webhook requests.
-    request_timeout: time::Duration,
+    /// The client used for HTTP requests.
+    client: reqwest::Client,
 }
 
 impl<'p> WebhookConsumer<'p> {
@@ -175,13 +151,24 @@ impl<'p> WebhookConsumer<'p> {
         queue: &'p PgQueue,
         poll_interval: time::Duration,
         request_timeout: time::Duration,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, WebhookConsumerError> {
+        let mut headers = header::HeaderMap::new();
+        headers.insert(
+            header::CONTENT_TYPE,
+            header::HeaderValue::from_static("application/json"),
+        );
+
+        let client = reqwest::Client::builder()
+            .default_headers(headers)
+            .timeout(request_timeout)
+            .build()?;
+
+        Ok(Self {
             name: name.to_owned(),
             queue,
             poll_interval,
-            request_timeout,
-        }
+            client,
+        })
     }
 
     /// Wait until a job becomes available in our queue.
@@ -203,8 +190,9 @@ impl<'p> WebhookConsumer<'p> {
             // TODO: The number of jobs processed will be capped by the PG connection limit when running in transactional mode.
             let webhook_job = self.wait_for_job().await?;
 
-            let request_timeout = self.request_timeout; // Required to avoid capturing self in closure.
-            tokio::spawn(async move { process_webhook_job(webhook_job, request_timeout).await });
+            // reqwest::Client internally wraps with Arc, so this allocation is cheap.
+            let client = self.client.clone();
+            tokio::spawn(async move { process_webhook_job(client, webhook_job).await });
         }
     }
 }
@@ -223,15 +211,15 @@ impl<'p> WebhookConsumer<'p> {
 /// * `webhook_job`: The webhook job to process as dequeued from `hook_common::pgqueue::PgQueue`.
 /// * `request_timeout`: A timeout for the HTTP request.
 async fn process_webhook_job(
+    client: reqwest::Client,
     webhook_job: PgTransactionJob<'_, WebhookJobParameters>,
-    request_timeout: std::time::Duration,
 ) -> Result<(), WebhookConsumerError> {
     match send_webhook(
+        client,
         &webhook_job.job.parameters.method,
         &webhook_job.job.parameters.url,
         &webhook_job.job.parameters.headers,
         webhook_job.job.parameters.body.clone(),
-        request_timeout,
     )
     .await
     {
@@ -279,13 +267,12 @@ async fn process_webhook_job(
 /// * `body`: The body of the request. Ownership is required.
 /// * `timeout`: A timeout for the HTTP request.
 async fn send_webhook(
+    client: reqwest::Client,
     method: &HttpMethod,
     url: &str,
     headers: &collections::HashMap<String, String>,
     body: String,
-    timeout: std::time::Duration,
 ) -> Result<reqwest::Response, WebhookConsumerError> {
-    let client = reqwest::Client::new();
     let method: http::Method = method.into();
     let url: reqwest::Url = (url).parse().map_err(WebhookConsumerError::ParseUrlError)?;
     let headers: reqwest::header::HeaderMap = (headers)
@@ -296,7 +283,6 @@ async fn send_webhook(
     let response = client
         .request(method, url)
         .headers(headers)
-        .timeout(timeout)
         .body(body)
         .send()
         .await?;
@@ -446,7 +432,8 @@ mod tests {
             &queue,
             time::Duration::from_millis(100),
             time::Duration::from_millis(5000),
-        );
+        )
+        .expect("consumer failed to initialize");
         let consumed_job = consumer
             .wait_for_job()
             .await
@@ -472,15 +459,11 @@ mod tests {
         let url = "http://localhost:18081/echo";
         let headers = collections::HashMap::new();
         let body = "a very relevant request body";
-        let response = send_webhook(
-            &method,
-            url,
-            &headers,
-            body.to_owned(),
-            time::Duration::from_millis(5000),
-        )
-        .await
-        .expect("send_webhook failed");
+        let client = reqwest::Client::new();
+
+        let response = send_webhook(client, &method, url, &headers, body.to_owned())
+            .await
+            .expect("send_webhook failed");
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
