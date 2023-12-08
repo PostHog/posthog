@@ -106,11 +106,16 @@ def render_2023(request, user_uuid: str) -> HttpResponse:
                     "explanation": explanation.get(b),
                 }
 
+        achievements_count = len(data.get("badges") or [])
+        if achievements_count >= 3:
+            achievements_count += 1
+
         context = {
             "debug": settings.DEBUG,
             "api_token": os.environ.get("DEBUG_API_TOKEN", "unknown") if settings.DEBUG else "sTMFPsFhdP1Ssg",
             "badge": badge,
             "badges": badge_images if len(badge_images.items()) > 1 else {},
+            "achievements_count": achievements_count,
             "human_badge": human_badge.get(badge),
             "highlight_color": highlight_color.get(badge),
             "image_png": f"year_in_hog/badges/2023_{badge}.png",
