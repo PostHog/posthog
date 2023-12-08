@@ -68,11 +68,11 @@ export type MobileNodeType =
     | 'text'
     | 'image'
     | 'rectangle'
+    | 'placeholder'
+    | 'web_view'
     | 'input'
     | 'div'
     | 'radio_group'
-    | 'placeholder'
-    | 'web_view'
 
 export type MobileStyles = {
     /**

@@ -6,6 +6,7 @@ import {
     fullSnapshotEvent as MobileFullSnapshotEvent,
     incrementalSnapshotEvent as MobileIncrementalSnapshotEvent,
     metaEvent as MobileMetaEvent,
+    MobileNodeType,
     NodeType,
     serializedNodeWithId,
     textNode,
@@ -500,7 +501,7 @@ function chooseConverter<T extends wireframe>(
     // in theory type is always present
     // but since this is coming over the wire we can't really be sure,
     // and so we default to div
-    const converterType = wireframe.type || 'div'
+    const converterType: MobileNodeType = wireframe.type || 'div'
     switch (converterType) {
         case 'text':
             return makeTextElement as unknown as (
