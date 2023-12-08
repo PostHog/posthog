@@ -139,7 +139,7 @@
             "type": "number"
         },
         "MobileNodeType": {
-            "enum": ["text", "image", "rectangle", "input", "div", "radio_group"],
+            "enum": ["text", "image", "rectangle", "input", "div", "radio_group", "placeholder", "web_view"],
             "type": "string"
         },
         "MobileStyles": {

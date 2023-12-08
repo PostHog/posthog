@@ -64,7 +64,15 @@ export type serializedNodeWithId = serializedNode & { id: number }
 
 // end copied section
 
-export type MobileNodeType = 'text' | 'image' | 'rectangle' | 'input' | 'div' | 'radio_group'
+export type MobileNodeType =
+    | 'text'
+    | 'image'
+    | 'rectangle'
+    | 'input'
+    | 'div'
+    | 'radio_group'
+    | 'placeholder'
+    | 'web_view'
 
 export type MobileStyles = {
     /**
@@ -223,6 +231,15 @@ export type wireframeImage = wireframeBase & {
 
 export type wireframeRectangle = wireframeBase & {
     type: 'rectangle'
+}
+
+export type wireframeWebView = wireframeBase & {
+    type: 'web_view'
+}
+
+export type wireframePlaceholder = wireframeBase & {
+    type: 'placeholder'
+    label?: string
 }
 
 export type wireframeDiv = wireframeBase & {
