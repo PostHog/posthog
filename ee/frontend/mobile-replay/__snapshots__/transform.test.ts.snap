@@ -2648,7 +2648,7 @@ exports[`replay/transform transform inputs placeholder - $inputType - $value 1`]
                           "childNodes": [
                             {
                               "id": 172,
-                              "textContent": "placeholder",
+                              "textContent": "hello",
                               "type": 3,
                             },
                           ],
