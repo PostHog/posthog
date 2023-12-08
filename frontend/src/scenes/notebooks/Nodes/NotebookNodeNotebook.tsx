@@ -8,6 +8,7 @@ import { notebookLogic } from '../Notebook/notebookLogic'
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeNotebookAttributes>): JSX.Element => {
     const { id } = attributes
 
+    // TODO: This is far from perfect as it will get mounted by the child so we need to somehow account for that...
     const mountedLogic = notebookLogic.findMounted({ shortId: id })
 
     if (mountedLogic) {
