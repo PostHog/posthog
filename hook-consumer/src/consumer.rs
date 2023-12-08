@@ -51,6 +51,8 @@ pub struct WebhookConsumer<'p> {
     client: reqwest::Client,
     /// Maximum number of concurrent jobs being processed.
     max_concurrent_jobs: usize,
+    /// Indicates whether we are holding an open transaction while processing or not.
+    transactional: bool,
 }
 
 impl<'p> WebhookConsumer<'p> {
@@ -79,6 +81,19 @@ impl<'p> WebhookConsumer<'p> {
             poll_interval,
             client,
             max_concurrent_jobs,
+        }
+    }
+
+    /// Wait until a job becomes available in our queue.
+    async fn wait_for_job_tx<'a>(
+        &self,
+    ) -> Result<PgTransactionJob<'a, WebhookJobParameters>, WebhookConsumerError> {
+        loop {
+            if let Some(job) = self.queue.dequeue_tx(&self.name).await? {
+                return Ok(job);
+            } else {
+                task::sleep(self.poll_interval).await;
+            }
         }
     }
 
