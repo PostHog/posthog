@@ -1728,6 +1728,7 @@
                 "TrendsQuery",
                 "FunnelsQuery",
                 "RetentionQuery",
+                "RetentionAppearanceQuery",
                 "PathsQuery",
                 "StickinessQuery",
                 "LifecycleQuery"
@@ -1767,6 +1768,9 @@
                 },
                 {
                     "$ref": "#/definitions/RetentionQuery"
+                },
+                {
+                    "$ref": "#/definitions/RetentionAppearanceQuery"
                 },
                 {
                     "$ref": "#/definitions/PathsQuery"

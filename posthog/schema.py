@@ -307,6 +307,7 @@ class InsightNodeKind(str, Enum):
     TrendsQuery = "TrendsQuery"
     FunnelsQuery = "FunnelsQuery"
     RetentionQuery = "RetentionQuery"
+    RetentionAppearanceQuery = "RetentionAppearanceQuery"
     PathsQuery = "PathsQuery"
     StickinessQuery = "StickinessQuery"
     LifecycleQuery = "LifecycleQuery"
@@ -1920,7 +1921,9 @@ class InsightVizNode(BaseModel):
     showLastComputationRefresh: Optional[bool] = None
     showResults: Optional[bool] = None
     showTable: Optional[bool] = None
-    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
+    source: Union[
+        TrendsQuery, FunnelsQuery, RetentionQuery, RetentionAppearanceQuery, PathsQuery, StickinessQuery, LifecycleQuery
+    ]
     suppressSessionAnalysisWarning: Optional[bool] = None
     vizSpecificOptions: Optional[VizSpecificOptions] = None
 
@@ -1932,7 +1935,9 @@ class InsightPersonsQuery(BaseModel):
     day: Optional[str] = None
     kind: Literal["InsightPersonsQuery"] = "InsightPersonsQuery"
     response: Optional[PersonsQueryResponse] = None
-    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
+    source: Union[
+        TrendsQuery, FunnelsQuery, RetentionQuery, RetentionAppearanceQuery, PathsQuery, StickinessQuery, LifecycleQuery
+    ]
     status: Optional[str] = None
 
 

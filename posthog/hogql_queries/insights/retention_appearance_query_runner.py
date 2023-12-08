@@ -69,7 +69,16 @@ class RetentionAppearanceQueryRunner(QueryRunner):
             retention_query.offset = ast.Constant(value=self.query.offset)
         return retention_query
 
+    def to_persons_query(self) -> ast.SelectQuery:
+        appearances_query = self.to_query()
+        # Only select actor_id for the persons query
+        appearances_query.select = [ast.Field(chain=["actor_id"])]
+        appearances_query.order_by = []
+        return appearances_query
+
     def get_actors_from_result(self, raw_result) -> Union[List[SerializedGroup], List[SerializedPerson]]:
+        # TODO: Overhaul by leveraging common functionality in PersonsQueryRunner
+
         serialized_actors: Union[List[SerializedGroup], List[SerializedPerson]]
 
         actor_ids = [row[0] for row in raw_result]

@@ -737,6 +737,7 @@ export type InsightQueryNode =
     | TrendsQuery
     | FunnelsQuery
     | RetentionQuery
+    | RetentionAppearanceQuery
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
