@@ -204,7 +204,7 @@ impl<'p> WebhookConsumer<'p> {
             tokio::spawn(async move {
                 let result = process_webhook_job(client, webhook_job).await;
                 drop(permit);
-                result.expect("webhook processing failed");
+                result
             });
         }
     }
