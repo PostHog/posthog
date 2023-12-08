@@ -1695,7 +1695,6 @@ export const shouldIgnoreInput = (e: KeyboardEvent): boolean => {
 export const base64Encode = (str: string): string => {
     const data = new TextEncoder().encode(str)
     const binString = Array.from(data, (byte) => String.fromCharCode(byte)).join('')
-    console.log(binString)
     return btoa(binString)
 }
 
