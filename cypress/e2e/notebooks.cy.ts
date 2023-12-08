@@ -54,9 +54,10 @@ describe('Notebooks', () => {
 
     it('Can comment on a recording', () => {
         cy.visit(urls.replay())
-        cy.get('[data-attr="notebooks-add-button"]').click()
 
-        cy.get('[data-attr="notebooks-select-button-create"').click()
+        cy.get('[data-attr="notebooks-add-button"][aria-disabled="true"]').should('not.exist')
+        cy.get('[data-attr="notebooks-add-button"]').click()
+        cy.get('[data-attr="notebooks-select-button-create"]').click()
 
         cy.get('.Notebook.Notebook--editable').should('be.visible')
         cy.get('.ph-recording.NotebookNode').should('be.visible')
