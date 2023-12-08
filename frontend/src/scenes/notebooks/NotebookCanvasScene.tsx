@@ -1,13 +1,17 @@
 import './NotebookScene.scss'
 
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { IconEllipsis } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonMenu, lemonToast } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
+import { router } from 'kea-router'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { uuid } from 'lib/utils'
+import { base64Encode, uuid } from 'lib/utils'
+import { getTextFromFile, selectFiles } from 'lib/utils/file-utils'
 import { useMemo } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { Notebook } from './Notebook/Notebook'
 import { notebookLogic, NotebookLogicProps } from './Notebook/notebookLogic'
@@ -24,7 +28,7 @@ export function NotebookCanvas(): JSX.Element {
         mode: 'canvas',
     }
 
-    const { duplicateNotebook } = useActions(notebookLogic(logicProps))
+    const { duplicateNotebook, exportJSON, setLocalContent } = useActions(notebookLogic(logicProps))
 
     const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
@@ -40,6 +44,41 @@ export function NotebookCanvas(): JSX.Element {
                 title="Canvas"
                 buttons={
                     <>
+                        <LemonMenu
+                            items={[
+                                {
+                                    label: 'Clear canvas',
+                                    onClick: () => setLocalContent({ type: 'doc', content: [] }, true),
+                                },
+                                {
+                                    label: 'Export as JSON',
+                                    onClick: () => exportJSON(),
+                                },
+                                {
+                                    label: 'Load from JSON',
+                                    onClick: () => {
+                                        void selectFiles({
+                                            contentType: 'application/json',
+                                            multiple: false,
+                                        })
+                                            .then((files) => getTextFromFile(files[0]))
+                                            .then((text) => {
+                                                const data = JSON.parse(text)
+                                                if (data.type !== 'doc') {
+                                                    throw new Error('Not a notebook')
+                                                }
+                                                // Looks like a notebook
+                                                setLocalContent(data, true)
+                                            })
+                                            .catch((e) => {
+                                                lemonToast.error(e.message)
+                                            })
+                                    },
+                                },
+                            ]}
+                        >
+                            <LemonButton icon={<IconEllipsis />} status="stealth" size="small" />
+                        </LemonMenu>
                         <LemonButton type="primary" onClick={duplicateNotebook}>
                             Save as Notebook
                         </LemonButton>
