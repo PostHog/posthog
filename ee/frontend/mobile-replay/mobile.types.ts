@@ -256,6 +256,8 @@ export type wireframe =
     | wireframeDiv
     | wireframeInputComponent
     | wireframeRadioGroup
+    | wireframeWebView
+    | wireframePlaceholder
 
 // the rrweb full snapshot event type, but it contains wireframes not html
 export type fullSnapshotEvent = {
