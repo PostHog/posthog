@@ -670,14 +670,22 @@ export class SessionRecordingIngester {
                     : metrics.lastMessageOffset // Or the last message we have seen as it is no longer blocked
 
                 if (!highestOffsetToCommit) {
-                    status.debug('🤔', 'blob_ingester_consumer - no highestOffsetToCommit for partition', {
-                        blockingSession: potentiallyBlockingSession?.sessionId,
-                        blockingSessionTeamId: potentiallyBlockingSession?.teamId,
-                        partition: partition,
-                        // committedHighOffset,
-                        lastMessageOffset: metrics.lastMessageOffset,
-                        highestOffsetToCommit,
-                    })
+                    const partitionDebug = this.debugPartition === partition
+                    const logMethod = partitionDebug ? status.info : status.debug
+                    logMethod(
+                        '🤔',
+                        `[blob_ingester_consumer]${
+                            partitionDebug ? ' - [PARTITION DEBUG] - ' : ' - '
+                        }no highestOffsetToCommit for partition`,
+                        {
+                            blockingSession: potentiallyBlockingSession?.sessionId,
+                            blockingSessionTeamId: potentiallyBlockingSession?.teamId,
+                            partition: partition,
+                            // committedHighOffset,
+                            lastMessageOffset: metrics.lastMessageOffset,
+                            highestOffsetToCommit,
+                        }
+                    )
                     return
                 }
 
