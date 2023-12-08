@@ -332,17 +332,6 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
-    def test_facebook_marketplace_ad(self):
-        # chrome
-        # go to facebook -> click an ad in the marketplace
-        self.assertEqual(
-            "Paid Social",
-            self._get_initial_channel_type_from_wild_clicks(
-                "https://mynextbike.co.uk/collections/road-bike?utm_source=facebook&utm_medium=social&utm_campaign=KC%20-%20AAA%20-%20Prospecting&utm_term=Road%20Cycling%20%E2%80%93%20Copy%202&utm_content=Image%20-%20Bike%20On%20Wall&cmc_adid=fb_120202383554070310&fbclid=IwAR30EpkagUJ3vLo7_tl0R8FjnA3vnm5d6jzHvjwhNCm4kXDsAmTfDsckJBc",
-                "https://l.facebook.com/",
-            ),
-        )
-
     def test_facebook_feed_organic_link(self):
         # chrome
         # go to facebook -> click a link in the feed
@@ -406,5 +395,18 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
     #         "Paid Social",
     #         self._get_initial_channel_type_from_wild_clicks(
     #             "https://learning.central.xero.com/student/path/2667", "https://www.linkedin.com/"
+    #         ),
+    #     )
+
+    # # This one won't work, as fcblid is not enough to know whether something is an ad or not.
+    # # Customers would need to add their own params to the url to work around this.
+    # def test_facebook_marketplace_ad(self):
+    #     # chrome
+    #     # go to facebook -> click an ad in the marketplace
+    #     self.assertEqual(
+    #         "Paid Social",
+    #         self._get_initial_channel_type_from_wild_clicks(
+    #             "https://mynextbike.co.uk/collections/road-bike?utm_source=facebook&utm_medium=social&utm_campaign=KC%20-%20AAA%20-%20Prospecting&utm_term=Road%20Cycling%20%E2%80%93%20Copy%202&utm_content=Image%20-%20Bike%20On%20Wall&cmc_adid=fb_120202383554070310&fbclid=IwAR30EpkagUJ3vLo7_tl0R8FjnA3vnm5d6jzHvjwhNCm4kXDsAmTfDsckJBc",
+    #             "https://l.facebook.com/",
     #         ),
     #     )

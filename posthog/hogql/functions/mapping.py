@@ -568,10 +568,6 @@ HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "nth_value": HogQLFunctionMeta("nth_value", 2, 2),
     "lagInFrame": HogQLFunctionMeta("lagInFrame", 1, 1),
     "leadInFrame": HogQLFunctionMeta("leadInFrame", 1, 1),
-    # dict
-    "dictGet": HogQLFunctionMeta("dictGet", 3, 3),
-    "dictGetOrNull": HogQLFunctionMeta("dictGetOrNull", 3, 3),
-    "dictGetOrDefault": HogQLFunctionMeta("dictGetOrDefault", 4, 4),
 }
 # Permitted HogQL aggregations
 HOGQL_AGGREGATIONS: Dict[str, HogQLFunctionMeta] = {
@@ -746,6 +742,13 @@ HOGQL_AGGREGATIONS: Dict[str, HogQLFunctionMeta] = {
 }
 HOGQL_POSTHOG_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "sparkline": HogQLFunctionMeta("sparkline", 1, 1),
+    "lookupDomainType": HogQLFunctionMeta("lookupDomainType", 1, 1),
+    "lookupPaidDomainType": HogQLFunctionMeta("lookupPaidDomainType", 1, 1),
+    "lookupPaidSourceType": HogQLFunctionMeta("lookupPaidSourceType", 1, 1),
+    "lookupPaidMediumType": HogQLFunctionMeta("lookupPaidMediumType", 1, 1),
+    "lookupOrganicDomainType": HogQLFunctionMeta("lookupOrganicDomainType", 1, 1),
+    "lookupOrganicSourceType": HogQLFunctionMeta("lookupOrganicSourceType", 1, 1),
+    "lookupOrganicMediumType": HogQLFunctionMeta("lookupOrganicMediumType", 1, 1),
 }
 
 ALL_EXPOSED_FUNCTION_NAMES = [

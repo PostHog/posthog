@@ -24,11 +24,7 @@ def create_initial_domain_type(name: str):
 if(
     properties.$initial_referring_domain = '$direct',
     '$direct',
-    dictGetOrNull(
-        'channel_definition_dict',
-        'domain_type',
-        (cutToFirstSignificantSubdomain(coalesce(properties.$initial_referring_domain, '')), 'source')
-    )
+    lookupDomainType(properties.$initial_referring_domain)
 )
 """
         ),
@@ -50,32 +46,14 @@ multiIf(
         properties.$initial_gad_source IS NOT NULL
     ),
     coalesce(
-        dictGetOrNull(
-            'channel_definition_dict',
-            'type_if_paid',
-            (
-                coalesce(properties.$initial_utm_source, ''),
-                'source'
-            )
-        ),
-        dictGetOrNull(
-            'channel_definition_dict',
-            'type_if_paid',
-            (
-                cutToFirstSignificantSubdomain(coalesce(properties.$initial_referring_domain, '')),
-                'source'
-            )
-        ),
+        lookupPaidSourceType(properties.$initial_utm_source),
+        lookupPaidDomainType(properties.$initial_referring_domain),
         if(
             match(properties.$initial_utm_campaign, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
             'Paid Shopping',
             NULL
         ),
-        dictGetOrNull(
-            'channel_definition_dict',
-            'type_if_paid',
-            (coalesce(properties.$initial_utm_medium, ''), 'medium')
-        ),
+        lookupPaidMediumType(properties.$initial_utm_medium),
         multiIf (
             properties.$initial_gad_source = '1',
             'Paid Search',
@@ -95,38 +73,19 @@ multiIf(
     'Direct',
 
     coalesce(
-        dictGetOrNull(
-            'channel_definition_dict',
-            'type_if_organic',
-            (
-                coalesce(properties.$initial_utm_source, ''),
-                'source'
-            )
-        ),
-        dictGetOrNull(
-            'channel_definition_dict',
-            'type_if_organic',
-            (
-                cutToFirstSignificantSubdomain(coalesce(properties.$initial_referring_domain, '')),
-                'source'
-            )
-        ),
+        lookupOrganicSourceType(properties.$initial_utm_source),
+        lookupOrganicDomainType(properties.$initial_referring_domain),
         if(
             match(properties.$initial_utm_campaign, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
             'Organic Shopping',
             NULL
         ),
-        dictGetOrNull(
-            'channel_definition_dict',
-            'type_if_paid',
-            (coalesce(properties.$initial_utm_medium, ''), 'medium')
-        ),
+        lookupOrganicMediumType(properties.$initial_utm_medium),
         multiIf(
             match(properties.$initial_utm_campaign, '^(.*video.*)$'),
             'Organic Video',
 
-              match(properties.$initial_utm_medium, '(push$|mobile|notification)')
-                OR properties.$initial_utm_source = 'firebase',
+            match(properties.$initial_utm_medium, 'push$'),
             'Push',
 
             NULL

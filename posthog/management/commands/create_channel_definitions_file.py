@@ -3,7 +3,7 @@ import re
 import subprocess
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional
+from typing import Optional, Tuple
 
 from django.core.management.base import BaseCommand
 
@@ -18,8 +18,6 @@ class EntryKind(str, Enum):
 
 @dataclass()
 class SourceEntry:
-    hostname: str
-    kind: EntryKind
     hostname_type: Optional[str]
     type_if_paid: Optional[str]
     type_if_organic: Optional[str]
@@ -56,9 +54,9 @@ class Command(BaseCommand):
                 return None
             domain, raw_type = items
             base_type, type_if_paid, type_if_organic = types[raw_type]
-            return SourceEntry(domain, EntryKind.source, base_type, type_if_paid, type_if_organic)
+            return (domain, EntryKind.source), SourceEntry(base_type, type_if_paid, type_if_organic)
 
-        entries: list[SourceEntry] = list(map(handle_entry, split_items))
+        entries: dict[Tuple[str, str], SourceEntry] = dict(map(handle_entry, split_items))
 
         # add google domains to this, from https://www.google.com/supported_domains
         for google_domain in (
@@ -93,38 +91,43 @@ class Command(BaseCommand):
                 google_domain = google_domain[1:]
             if not google_domain:
                 continue
-            entries.append(SourceEntry(google_domain, EntryKind.source, "Search", "Paid Search", "Organic Search"))
+            entries[(google_domain, EntryKind.source)] = SourceEntry("Search", "Paid Search", "Organic Search")
+
+        # add bing domains to this, selectively picked from
+        # https://github.com/v2fly/domain-list-community/blob/master/data/bing
+        for bing_domain in ("bing.com", "bing.com.cn", "bing.net", "bingworld.com"):
+            entries[(bing_domain, EntryKind.source)] = SourceEntry("Search", "Paid Search", "Organic Search")
 
         # add other sources
         for email_spelling in ("email", "e-mail", "e_mail", "e mail"):
-            entries.append(SourceEntry(email_spelling, EntryKind.source, None, None, "Email"))
-            entries.append(SourceEntry(email_spelling, EntryKind.medium, None, None, "Email"))
-        entries.append(SourceEntry("firebase", EntryKind.source, None, None, "Push"))
-        entries.append(SourceEntry("sms", EntryKind.source, None, None, "SMS"))
+            entries[email_spelling, EntryKind.source] = SourceEntry(None, None, "Email")
+            entries[email_spelling, EntryKind.medium] = SourceEntry(None, None, "Email")
+        entries["firebase", EntryKind.source] = SourceEntry(None, None, "Push")
+        entries["sms", EntryKind.source] = SourceEntry(None, None, "SMS")
 
         # add mediums
         for display_medium in ("display", "banner", "expandable", "interstitial", "cpm"):
-            entries.append(SourceEntry(display_medium, EntryKind.medium, None, "Display", "Display"))
+            entries[display_medium, EntryKind.medium] = SourceEntry(None, "Display", "Display")
         for social_medium in ("social", "social-network", "social-media", "sm", "social network", "social media"):
-            entries.append(SourceEntry(social_medium, EntryKind.medium, None, "Paid Social", "Organic Social"))
+            entries[social_medium, EntryKind.medium] = SourceEntry(None, "Paid Social", "Organic Social")
         for video_medium in ("video",):
-            entries.append(SourceEntry(video_medium, EntryKind.medium, None, "Paid Video", "Organic Video"))
+            entries[video_medium, EntryKind.medium] = SourceEntry(None, "Paid Video", "Organic Video")
         for referral_medium in ("referral", "app", "link"):
-            entries.append(SourceEntry(referral_medium, EntryKind.medium, None, None, "Referral"))
+            entries[referral_medium, EntryKind.medium] = SourceEntry(None, None, "Referral")
         for affiliate_medium in ("affiliate",):
-            entries.append(SourceEntry(affiliate_medium, EntryKind.medium, None, None, "Affiliate"))
+            entries[affiliate_medium, EntryKind.medium] = SourceEntry(None, None, "Affiliate")
         for audio_medium in ("audio",):
-            entries.append(SourceEntry(audio_medium, EntryKind.medium, None, None, "Audio"))
+            entries[audio_medium, EntryKind.medium] = SourceEntry(None, None, "Audio")
         for push_medium in ("push", "mobile", "notification"):
-            entries.append(SourceEntry(push_medium, EntryKind.medium, None, None, "Push"))
+            entries[push_medium, EntryKind.medium] = SourceEntry(None, None, "Push")
 
         # write a pretty JSON file out
         with open(OUTPUT_FILE, "w") as output_file:
             output_file.write(
                 json.dumps(
                     [
-                        [entry.hostname, entry.kind, entry.hostname_type, entry.type_if_paid, entry.type_if_organic]
-                        for entry in entries
+                        [hostname, kind, entry.hostname_type, entry.type_if_paid, entry.type_if_organic]
+                        for (hostname, kind), entry in entries.items()
                     ]
                 )
             )
