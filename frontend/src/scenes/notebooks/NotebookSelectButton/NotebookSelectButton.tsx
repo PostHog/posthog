@@ -222,10 +222,10 @@ export function NotebookSelectPopover({
     )
 }
 
-export function NotebookSelectButton({ children, ...props }: NotebookSelectButtonProps): JSX.Element {
+export function NotebookSelectButton({ children, onNotebookOpened, ...props }: NotebookSelectButtonProps): JSX.Element {
     // if nodeLogic is available then the button is on a resource that _is already and currently in a notebook_
     const nodeLogic = useNotebookNode()
-    const logic = notebookSelectButtonLogic({ ...props })
+    const logic = notebookSelectButtonLogic({ ...props, onNotebookOpened })
     const { showPopover, notebooksLoading, notebooksContainingResource } = useValues(logic)
     const { loadNotebooksContainingResource } = useActions(logic)
 
@@ -251,7 +251,7 @@ export function NotebookSelectButton({ children, ...props }: NotebookSelectButto
                 props.onClick?.()
                 if (nodeLogic) {
                     // If we are in a Notebook then we just call the callback directly
-                    props.onNotebookOpened?.(nodeLogic.props.notebookLogic, nodeLogic)
+                    onNotebookOpened?.(nodeLogic.props.notebookLogic, nodeLogic)
                 }
             }}
         >
