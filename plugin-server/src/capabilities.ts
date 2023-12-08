@@ -19,6 +19,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 processAsyncOnEventHandlers: true,
                 processAsyncWebhooksHandlers: true,
                 sessionRecordingBlobIngestion: true,
+                personOverrides: config.POE_DEFERRED_WRITES_ENABLED,
                 transpileFrontendApps: true,
                 preflightSchedules: true,
                 ...sharedCapabilities,
@@ -73,6 +74,11 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 pluginScheduledTasks: true,
                 transpileFrontendApps: true, // TODO: move this away from pod startup, into a graphile job
+                ...sharedCapabilities,
+            }
+        case PluginServerMode.person_overrides:
+            return {
+                personOverrides: true,
                 ...sharedCapabilities,
             }
     }
