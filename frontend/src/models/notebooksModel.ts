@@ -82,16 +82,10 @@ export const notebooksModel = kea<notebooksModelType>([
         scratchpadNotebook: [SCRATCHPAD_NOTEBOOK],
     }),
 
-    loaders(({ actions, values }) => ({
+    loaders(({ values }) => ({
         notebooks: [
             [] as NotebookListItemType[],
             {
-                loadNotebooks: async (_, breakpoint) => {
-                    // TODO: Support pagination
-                    await breakpoint(100)
-                    const res = await api.notebooks.list()
-                    return res.results
-                },
                 createNotebook: async ({ title, location, content, onCreate }, breakpoint) => {
                     await breakpoint(100)
 
@@ -115,7 +109,6 @@ export const notebooksModel = kea<notebooksModelType>([
                     await deleteWithUndo({
                         endpoint: `projects/${values.currentTeamId}/notebooks`,
                         object: { name: title || shortId, id: shortId },
-                        callback: actions.loadNotebooks,
                     })
 
                     return values.notebooks.filter((n) => n.short_id !== shortId)

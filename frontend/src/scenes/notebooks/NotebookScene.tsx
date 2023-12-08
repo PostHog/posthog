@@ -43,7 +43,7 @@ export function NotebookScene(): JSX.Element {
     const { selectedNotebook, visibility } = useValues(notebookPanelLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const buttonSize = featureFlags[FEATURE_FLAGS.POSTHOG_3000] ? 'small' : 'medium'
+    const buttonSize = featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test' ? 'small' : 'medium'
 
     useEffect(() => {
         if (notebookId === 'new') {

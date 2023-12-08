@@ -19,8 +19,11 @@ from posthog.warehouse.data_load.service import (
     cancel_external_data_workflow,
     delete_data_import_folder,
 )
-from posthog.warehouse.models import ExternalDataSource
-from posthog.warehouse.models import ExternalDataJob
+from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, ExternalDataJob
+from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer
+from posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline import (
+    PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -29,12 +32,12 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
     account_id = serializers.CharField(write_only=True)
     client_secret = serializers.CharField(write_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
+    schemas = ExternalDataSchemaSerializer(many=True, read_only=True)
 
     class Meta:
         model = ExternalDataSource
         fields = [
             "id",
-            "source_id",
             "created_at",
             "created_by",
             "status",
@@ -43,8 +46,9 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
             "source_type",
             "prefix",
             "last_run_at",
+            "schemas",
         ]
-        read_only_fields = ["id", "source_id", "created_by", "created_at", "status", "source_type", "last_run_at"]
+        read_only_fields = ["id", "created_by", "created_at", "status", "source_type", "last_run_at", "schemas"]
 
     def get_last_run_at(self, instance: ExternalDataSource) -> str:
         latest_completed_run = (
@@ -73,9 +77,15 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             raise NotAuthenticated()
 
         if self.action == "list":
-            return self.queryset.filter(team_id=self.team_id).prefetch_related("created_by").order_by(self.ordering)
+            return (
+                self.queryset.filter(team_id=self.team_id)
+                .prefetch_related("created_by", "schemas")
+                .order_by(self.ordering)
+            )
 
-        return self.queryset.filter(team_id=self.team_id).prefetch_related("created_by").order_by(self.ordering)
+        return (
+            self.queryset.filter(team_id=self.team_id).prefetch_related("created_by", "schemas").order_by(self.ordering)
+        )
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         client_secret = request.data["client_secret"]
@@ -105,9 +115,17 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             prefix=prefix,
         )
 
+        schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source_type]
+        for schema in schemas:
+            ExternalDataSchema.objects.create(
+                name=schema,
+                team=self.team,
+                source=new_source_model,
+            )
+
         sync_external_data_job_workflow(new_source_model, create=True)
 
-        return Response(status=status.HTTP_201_CREATED, data={"source_id": new_source_model.source_id})
+        return Response(status=status.HTTP_201_CREATED, data={"id": new_source_model.pk})
 
     def prefix_required(self, source_type: str) -> bool:
         source_type_exists = ExternalDataSource.objects.filter(team_id=self.team.pk, source_type=source_type).exists()

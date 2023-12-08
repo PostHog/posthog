@@ -37,6 +37,7 @@ from posthog.tasks.usage_report import (
     _get_full_org_usage_report,
     _get_full_org_usage_report_as_dict,
     _get_team_report,
+    _get_teams_for_usage_reports,
     capture_event,
     get_instance_metadata,
     send_all_org_usage_reports,
@@ -1399,3 +1400,18 @@ class SendUsageNoLicenseTest(APIBaseTest):
         send_all_org_usage_reports()
 
         mock_post.assert_not_called()
+
+    def test_get_teams_for_usage_reports_only_fields(self) -> None:
+        teams = _get_teams_for_usage_reports()
+        team: Team = teams[0]
+
+        # these fields are included in the query, so shouldn't require additional queries
+        with self.assertNumQueries(0):
+            _ = team.id
+            _ = team.organization.id
+            _ = team.organization.name
+            _ = team.organization.created_at
+
+        # This field is not included in the original team query, so should require an additional query
+        with self.assertNumQueries(1):
+            _ = team.organization.for_internal_metrics

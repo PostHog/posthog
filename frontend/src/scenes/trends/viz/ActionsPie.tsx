@@ -129,9 +129,9 @@ export function ActionsPie({
                         />
                     </div>
                     {showAggregation && (
-                        <h3 className="text-7xl text-center font-bold m-0">
+                        <div className="text-7xl text-center font-bold m-0">
                             {formatAggregationAxisValue(trendsFilter, total)}
-                        </h3>
+                        </div>
                     )}
                 </div>
                 {inCardView && trendsFilter?.show_legend && <InsightLegend inCardView />}

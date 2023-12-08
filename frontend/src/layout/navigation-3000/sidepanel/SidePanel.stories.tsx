@@ -24,6 +24,9 @@ const meta: Meta = {
                 '/api/projects/:team_id/dashboard_templates/': {},
                 '/api/projects/:id/integrations': { results: [] },
             },
+            post: {
+                '/api/projects/:team_id/query': {},
+            },
         }),
     ],
 }
@@ -42,6 +45,10 @@ const BaseTemplate = (props: { panel: SidePanelTab }): JSX.Element => {
 
 export const SidePanelDocs: StoryFn = () => {
     return <BaseTemplate panel={SidePanelTab.Docs} />
+}
+
+export const SidePanelWelcome: StoryFn = () => {
+    return <BaseTemplate panel={SidePanelTab.Welcome} />
 }
 
 export const SidePanelSettings: StoryFn = () => {
