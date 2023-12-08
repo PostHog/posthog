@@ -70,18 +70,15 @@ class RetentionQueryRunner(QueryRunner):
         else:
             event_date_expr = start_of_interval_sql
 
-        group_index = None
+        target_field = "person_id"
         if self.query.aggregation_group_type_index is not None:
             group_index = int(self.query.aggregation_group_type_index)
-
-        if group_index is not None and 0 <= group_index <= 4:
-            target_field = ast.Field(chain=["events", f"$group_{group_index}"])
-        else:
-            target_field = ast.Field(chain=["events", "person_id"])
+            if 0 <= group_index <= 4:
+                target_field = f"$group_{group_index}"
 
         fields = [
             ast.Alias(alias="event_date", expr=event_date_expr),
-            ast.Alias(alias="target", expr=target_field),
+            ast.Alias(alias="target", expr=ast.Field(chain=["events", target_field])),
         ]
 
         if event_query_type in [RetentionQueryType.TARGET, RetentionQueryType.TARGET_FIRST_TIME]:
