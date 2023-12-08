@@ -28,7 +28,7 @@ async fn main() -> Result<(), WebhookConsumerError> {
         &queue,
         config.poll_interval.0,
         config.request_timeout.0,
-        config.max_requests,
+        config.max_concurrent_jobs,
     )?;
 
     let _ = consumer.run().await;

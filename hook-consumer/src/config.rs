@@ -21,7 +21,7 @@ pub struct Config {
     pub request_timeout: EnvMsDuration,
 
     #[envconfig(default = "1024")]
-    pub max_requests: usize,
+    pub max_concurrent_jobs: usize,
 
     #[envconfig(nested = true)]
     pub retry_policy: RetryPolicyConfig,

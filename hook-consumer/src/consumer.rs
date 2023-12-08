@@ -145,8 +145,8 @@ pub struct WebhookConsumer<'p> {
     poll_interval: time::Duration,
     /// The client used for HTTP requests.
     client: reqwest::Client,
-    /// Maximum number of concurrent HTTP requests.
-    max_requests: usize,
+    /// Maximum number of concurrent jobs being processed.
+    max_concurrent_jobs: usize,
 }
 
 impl<'p> WebhookConsumer<'p> {
@@ -155,7 +155,7 @@ impl<'p> WebhookConsumer<'p> {
         queue: &'p PgQueue,
         poll_interval: time::Duration,
         request_timeout: time::Duration,
-        max_requests: usize,
+        max_concurrent_jobs: usize,
     ) -> Result<Self, WebhookConsumerError> {
         let mut headers = header::HeaderMap::new();
         headers.insert(
@@ -173,7 +173,7 @@ impl<'p> WebhookConsumer<'p> {
             queue,
             poll_interval,
             client,
-            max_requests,
+            max_concurrent_jobs,
         })
     }
 
@@ -192,7 +192,7 @@ impl<'p> WebhookConsumer<'p> {
 
     /// Run this consumer to continuously process any jobs that become available.
     pub async fn run(&self) -> Result<(), WebhookConsumerError> {
-        let semaphore = Arc::new(sync::Semaphore::new(self.max_requests));
+        let semaphore = Arc::new(sync::Semaphore::new(self.max_concurrent_jobs));
 
         loop {
             // TODO: The number of jobs processed will be capped by the PG connection limit when running in transactional mode.
