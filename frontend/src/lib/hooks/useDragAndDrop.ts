@@ -1,5 +1,9 @@
 import { HTMLAttributes, useEffect, useRef } from 'react'
 
+export type UseDragAndDropOptions = {
+    onDragStart: (e: React.DragEvent<HTMLElement>) => void
+}
+
 export type UseDragAndDropResponse = {
     parentProps: {
         draggable?: HTMLAttributes<HTMLElement>['draggable']
@@ -12,7 +16,7 @@ export type UseDragAndDropResponse = {
     }
 }
 
-export function useDragAndDrop(): UseDragAndDropResponse {
+export function useDragAndDrop(props: UseDragAndDropOptions): UseDragAndDropResponse {
     const handleClickedRef = useRef(false)
 
     useEffect(() => {
@@ -20,8 +24,8 @@ export function useDragAndDrop(): UseDragAndDropResponse {
             handleClickedRef.current = false
         }
 
-        document.addEventListener('mouseup', onMouseUp)
-        return () => document.removeEventListener('mouseup', onMouseUp)
+        window.addEventListener('mouseup', onMouseUp)
+        return () => window.removeEventListener('mouseup', onMouseUp)
     }, [])
 
     const onMouseDown = (): void => {
@@ -34,17 +38,15 @@ export function useDragAndDrop(): UseDragAndDropResponse {
             return
         }
 
-        e.dataTransfer.effectAllowed = 'move'
-        e.dataTransfer.setData('text/plain', '')
+        handleClickedRef.current = false
+        props.onDragStart(e)
     }
 
     return {
         parentProps: {
             draggable: true,
             onDragStart: onDragStart,
-            onDragEnd: (e) => {
-                e.preventDefault()
-            },
+            onDragEnd: (e) => {},
         },
         handleProps: {
             onMouseDown: onMouseDown,
