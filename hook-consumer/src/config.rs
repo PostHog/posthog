@@ -20,6 +20,9 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub request_timeout: EnvMsDuration,
 
+    #[envconfig(default = "1024")]
+    pub max_requests: usize,
+
     #[envconfig(nested = true)]
     pub retry_policy: RetryPolicyConfig,
 

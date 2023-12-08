@@ -1,6 +1,7 @@
 use std::collections;
 use std::fmt;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time;
 
 use async_std::task;
@@ -8,6 +9,7 @@ use hook_common::pgqueue::{PgJobError, PgQueue, PgQueueError, PgTransactionJob};
 use http::StatusCode;
 use reqwest::header;
 use serde::{de::Visitor, Deserialize, Serialize};
+use tokio::sync;
 
 use crate::error::WebhookConsumerError;
 
@@ -143,6 +145,8 @@ pub struct WebhookConsumer<'p> {
     poll_interval: time::Duration,
     /// The client used for HTTP requests.
     client: reqwest::Client,
+    /// Maximum number of concurrent HTTP requests.
+    max_requests: usize,
 }
 
 impl<'p> WebhookConsumer<'p> {
@@ -151,6 +155,7 @@ impl<'p> WebhookConsumer<'p> {
         queue: &'p PgQueue,
         poll_interval: time::Duration,
         request_timeout: time::Duration,
+        max_requests: usize,
     ) -> Result<Self, WebhookConsumerError> {
         let mut headers = header::HeaderMap::new();
         headers.insert(
@@ -168,6 +173,7 @@ impl<'p> WebhookConsumer<'p> {
             queue,
             poll_interval,
             client,
+            max_requests,
         })
     }
 
@@ -186,13 +192,21 @@ impl<'p> WebhookConsumer<'p> {
 
     /// Run this consumer to continuously process any jobs that become available.
     pub async fn run(&self) -> Result<(), WebhookConsumerError> {
+        let semaphore = Arc::new(sync::Semaphore::new(self.max_requests));
+
         loop {
             // TODO: The number of jobs processed will be capped by the PG connection limit when running in transactional mode.
             let webhook_job = self.wait_for_job().await?;
 
             // reqwest::Client internally wraps with Arc, so this allocation is cheap.
             let client = self.client.clone();
-            tokio::spawn(async move { process_webhook_job(client, webhook_job).await });
+            let permit = semaphore.clone().acquire_owned().await.unwrap();
+
+            tokio::spawn(async move {
+                let result = process_webhook_job(client, webhook_job).await;
+                drop(permit);
+                result.expect("webhook processing failed");
+            });
         }
     }
 }
@@ -278,8 +292,8 @@ async fn send_webhook(
     let headers: reqwest::header::HeaderMap = (headers)
         .try_into()
         .map_err(WebhookConsumerError::ParseHeadersError)?;
-
     let body = reqwest::Body::from(body);
+
     let response = client
         .request(method, url)
         .headers(headers)
@@ -432,6 +446,7 @@ mod tests {
             &queue,
             time::Duration::from_millis(100),
             time::Duration::from_millis(5000),
+            10,
         )
         .expect("consumer failed to initialize");
         let consumed_job = consumer
