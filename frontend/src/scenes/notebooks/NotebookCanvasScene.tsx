@@ -1,8 +1,9 @@
 import './NotebookScene.scss'
 
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
+import { PageHeader } from 'lib/components/PageHeader'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { uuid } from 'lib/utils'
 import { useMemo } from 'react'
@@ -34,23 +35,28 @@ export function NotebookCanvas(): JSX.Element {
     // TODO: The absolute positioning doesn't work so well in non-3000 mode
 
     return (
-        <div className="flex flex-col flex-1">
-            <LemonBanner
-                type="info"
-                action={{
-                    onClick: duplicateNotebook,
-                    children: 'Save as Notebook',
-                }}
-                className="mx-2 mt-2"
-            >
-                <b>This is a canvas.</b> You can change anything you like and it is persisted to the URL for easy
-                sharing.
-            </LemonBanner>
-            <div className="relative flex-1">
-                <div className="absolute inset-0 p-3 flex flex-column overflow-y-auto">
-                    <Notebook {...logicProps} />
+        <>
+            <PageHeader
+                title="Canvas"
+                buttons={
+                    <>
+                        <LemonButton type="primary" onClick={duplicateNotebook}>
+                            Save as Notebook
+                        </LemonButton>
+                    </>
+                }
+            />
+            <div className="flex flex-col flex-1">
+                <div className="relative flex-1">
+                    <div className="absolute inset-0 p-3 flex flex-col overflow-y-auto">
+                        <LemonBanner type="info" className="mb-4">
+                            <b>This is a canvas.</b> You can change anything you like and it is persisted to the URL for
+                            easy sharing.
+                        </LemonBanner>
+                        <Notebook {...logicProps} />
+                    </div>
                 </div>
             </div>
-        </div>
+        </>
     )
 }
