@@ -1,9 +1,12 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { BuiltLogic, useActions, useValues } from 'kea'
+import { BindLogic, BuiltLogic, useActions, useValues } from 'kea'
 import { LemonWidget } from 'lib/lemon-ui/LemonWidget'
 import { useEffect, useRef, useState } from 'react'
 
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
+
+import { notebookNodeLogic } from '../Nodes/notebookNodeLogic'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { NotebookHistory } from './NotebookHistory'
 import { notebookLogic } from './notebookLogic'
@@ -85,11 +88,15 @@ export const NotebookNodeSettingsWidget = ({ logic }: { logic: BuiltLogic<notebo
         >
             <div onClick={() => selectNode()}>
                 {Settings ? (
-                    <Settings
-                        key={nodeAttributes.nodeId}
-                        attributes={nodeAttributes}
-                        updateAttributes={updateAttributes}
-                    />
+                    <ErrorBoundary>
+                        <BindLogic logic={notebookNodeLogic} props={{ attributes: nodeAttributes }}>
+                            <Settings
+                                key={nodeAttributes.nodeId}
+                                attributes={nodeAttributes}
+                                updateAttributes={updateAttributes}
+                            />
+                        </BindLogic>
+                    </ErrorBoundary>
                 ) : null}
             </div>
         </LemonWidget>
