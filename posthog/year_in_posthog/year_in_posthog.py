@@ -21,7 +21,7 @@ badge_preference = [
     "popcorn_muncher",  # 59 or more recordings viewed
     "scientist",  # 3 or more experiments created
     "reporter",  # 1 or more surveys created
-    "champion",  # recordings, flags, and insights badges
+    "champion",  # 3 or more badges
 ]
 
 human_badge = {
