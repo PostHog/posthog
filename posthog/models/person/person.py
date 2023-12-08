@@ -134,24 +134,6 @@ class PersonOverrideMapping(models.Model):
     uuid = models.UUIDField()
 
 
-class PendingPersonOverride(models.Model):
-    id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
-    team_id = models.BigIntegerField()
-    old_person_id = models.UUIDField()
-    override_person_id = models.UUIDField()
-    oldest_event = models.DateTimeField()
-
-
-class FlatPersonOverride(models.Model):
-    # TODO: What additional constraints here make sense (and are practical to implement?)
-    id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
-    team_id = models.BigIntegerField()
-    old_person_id = models.UUIDField()
-    override_person_id = models.UUIDField()
-    oldest_event = models.DateTimeField()
-    version = models.BigIntegerField(null=True, blank=True)
-
-
 class PersonOverride(models.Model):
     """A model of persons to be overriden in merge or merge-like events.
 
@@ -195,6 +177,23 @@ class PersonOverride(models.Model):
 
     oldest_event: models.DateTimeField = models.DateTimeField()
     version: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
+
+
+class PendingPersonOverride(models.Model):
+    id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
+    team_id = models.BigIntegerField()
+    old_person_id = models.UUIDField()
+    override_person_id = models.UUIDField()
+    oldest_event = models.DateTimeField()
+
+
+class FlatPersonOverride(models.Model):
+    id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
+    team_id = models.BigIntegerField()
+    old_person_id = models.UUIDField()
+    override_person_id = models.UUIDField()
+    oldest_event = models.DateTimeField()
+    version = models.BigIntegerField(null=True, blank=True)
 
 
 def get_distinct_ids_for_subquery(person: Person | None, team: Team) -> List[str]:
