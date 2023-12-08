@@ -1,4 +1,4 @@
-import { LemonDivider, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonDivider, LemonDropdown, ProfilePicture } from '@posthog/lemon-ui'
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -6,9 +6,8 @@ import { dayjs } from 'lib/dayjs'
 import { IconPlus, IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { Popover, PopoverProps } from 'lib/lemon-ui/Popover'
+import { PopoverProps } from 'lib/lemon-ui/Popover'
 import { ReactChild, ReactElement, useEffect } from 'react'
-import React from 'react'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import {
     notebookSelectButtonLogic,
@@ -205,21 +204,19 @@ export function NotebookSelectPopover({
     const { setShowPopover } = useActions(logic)
 
     return (
-        <Popover
-            visible={!!showPopover}
-            onClickOutside={() => setShowPopover(false)}
-            actionable
+        <LemonDropdown
             overlay={
                 <div className="max-w-160">
                     <NotebookSelectList {...props} />
                 </div>
             }
-            {...props}
+            sameWidth={false}
+            actionable
+            visible={!!showPopover}
+            onVisibilityChange={(visible) => setShowPopover(visible)}
         >
-            {React.cloneElement(children, {
-                onClick: () => setShowPopover(!showPopover),
-            })}
-        </Popover>
+            {children}
+        </LemonDropdown>
     )
 }
 

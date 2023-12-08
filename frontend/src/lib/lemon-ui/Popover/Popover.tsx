@@ -17,7 +17,7 @@ import clsx from 'clsx'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { useFloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { CLICK_OUTSIDE_BLOCK_CLASS, useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
-import React, { MouseEventHandler, ReactElement, useContext, useEffect, useLayoutEffect, useRef } from 'react'
+import React, { MouseEventHandler, ReactElement, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { CSSTransition } from 'react-transition-group'
 
 export interface PopoverProps {
@@ -136,6 +136,10 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
             ...(middleware ?? []),
         ],
     })
+
+    // We are just using this state to trigger a re-render, otherwise the autoUpdate won't always work
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const [_, setFloatingRefElement] = useState<HTMLElement | null>(null)
     const mergedReferenceRef = useMergeRefs([referenceRef, extraReferenceRef || null]) as React.RefCallback<HTMLElement>
     const mergedFloatingRef = useMergeRefs([floatingRef, extraFloatingRef || null]) as React.RefCallback<HTMLElement>
 
@@ -224,7 +228,10 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                                 className
                             )}
                             data-placement={effectivePlacement}
-                            ref={mergedFloatingRef}
+                            ref={(el) => {
+                                setFloatingRefElement(el)
+                                mergedFloatingRef(el)
+                            }}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{
                                 display: middlewareData.hide?.referenceHidden ? 'none' : undefined,
