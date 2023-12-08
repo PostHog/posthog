@@ -3224,6 +3224,7 @@ export type NotebookType = NotebookListItemType & {
 }
 
 export enum NotebookNodeType {
+    Collection = 'ph-collection',
     Mention = 'ph-mention',
     Query = 'ph-query',
     Recording = 'ph-recording',

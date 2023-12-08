@@ -1,5 +1,6 @@
 import {
     IconCursor,
+    IconDashboard,
     IconFunnels,
     IconHogQL,
     IconLifecycle,
@@ -27,6 +28,7 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema'
 import { BaseMathType, ChartDisplayType, FunnelVizType, NotebookNodeType, PathType, RetentionPeriod } from '~/types'
 
+import { buildNodeCollection } from '../Nodes/NotebookNodeCollection'
 import { buildNodeEmbed } from '../Nodes/NotebookNodeEmbed'
 import { buildInsightVizQueryContent, buildNodeQueryContent } from '../Nodes/NotebookNodeQuery'
 import { selectFile } from '../Nodes/utils'
@@ -331,6 +333,15 @@ order by count() desc
         icon: <IconCode />,
         command: async (chain, pos) => {
             return chain.insertContentAt(pos, buildNodeEmbed())
+        },
+    },
+
+    {
+        title: 'Collection of items',
+        search: 'collection row multiple',
+        icon: <IconDashboard />,
+        command: async (chain, pos) => {
+            return chain.insertContentAt(pos, buildNodeCollection())
         },
     },
 ]
