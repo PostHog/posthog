@@ -16,7 +16,7 @@ export interface RetentionTrendPayload {
 }
 
 export interface RetentionTablePeoplePayload {
-    next?: string
+    next?: string | number
     result?: RetentionTableAppearanceType[]
     missing_persons?: number
 }

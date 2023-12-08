@@ -779,7 +779,7 @@ export interface RetentionAppearanceQuery extends PaginatableQuery {
     source: RetentionQuery
     /** @asType integer */
     selectedInterval: number
-    response?: RetentionTablePeoplePayload
+    response?: PersonsQueryResponse // TODO: 🤔
 }
 
 export const dateRangeForFilter = (source: FilterType | undefined): DateRange | undefined => {

@@ -140,7 +140,8 @@ export function RetentionModal(): JSX.Element | null {
                         </table>
                         {people.next ? (
                             <div className="m-4 flex justify-center">
-                                <LemonButton type="primary" onClick={loadMorePeople} loading={peopleLoadingMore}>
+                                <LemonButton type="primary" onClick={() => loadMorePeople(selectedRow)}
+                                             loading={peopleLoadingMore}>
                                     Load more {aggregationTargetLabel.plural}
                                 </LemonButton>
                             </div>

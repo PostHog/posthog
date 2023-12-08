@@ -6,11 +6,11 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toParams } from 'lib/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { RetentionTablePeoplePayload } from 'scenes/retention/types'
+import {RetentionTableAppearanceType, RetentionTablePeoplePayload} from 'scenes/retention/types'
 
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { query } from '~/queries/query'
-import { NodeKind, RetentionAppearanceQuery, RetentionQuery } from '~/queries/schema'
+import {NodeKind, RetentionAppearanceQuery, RetentionQuery} from '~/queries/schema'
 import { InsightLogicProps } from '~/types'
 
 import type { retentionPeopleLogicType } from './retentionPeopleLogicType'
@@ -33,21 +33,39 @@ export function wrapRetentionQuery(
 const hogQLInsightsRetentionFlagEnabled = (): boolean =>
     Boolean(featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION])
 
+async function hogqlRetentionQuery(values: retentionPeopleLogicType['values'], selectedInterval: number, offset: number = 0): Promise<RetentionTablePeoplePayload> {
+    const newAppearanceQuery = wrapRetentionQuery(values.querySource as RetentionQuery, selectedInterval, offset)
+    const response = await query(newAppearanceQuery)
+    const result: RetentionTableAppearanceType[] = response.results.map((row) => ({
+            person: row[0],
+            appearances: row[1],
+        })
+    )
+    return {
+        result,
+        next: response.hasMore ? offset + 100 : undefined, // TODO: Urgh
+        //missing_persons: response.missing_persons,
+    }
+}
+
 export const retentionApiService = {
     loadPeople: async (
         values: retentionPeopleLogicType['values'],
         rowIndex: any
     ): Promise<RetentionTablePeoplePayload> => {
         if (hogQLInsightsRetentionFlagEnabled() && values.querySource?.kind === NodeKind.RetentionQuery) {
-            const newAppearanceQuery = wrapRetentionQuery(values.querySource, rowIndex)
-            return query(newAppearanceQuery)
+            return await hogqlRetentionQuery(values, rowIndex);
         }
 
         const urlParams = toParams({ ...values.apiFilters, selected_interval: rowIndex })
         return api.get<RetentionTablePeoplePayload>(`api/person/retention/?${urlParams}`)
     },
-    loadMorePeople: async (nextUrl: string): Promise<RetentionTablePeoplePayload> => {
-        return api.get<RetentionTablePeoplePayload>(nextUrl)
+    loadMorePeople: async (values: retentionPeopleLogicType['values'], rowIndex: any): Promise<RetentionTablePeoplePayload> => {
+        if (typeof values.people.next === 'number') {
+            return await hogqlRetentionQuery(values, rowIndex, values.people.next);
+        }
+
+        return api.get<RetentionTablePeoplePayload>(values.people.next as string)
     },
 }
 
@@ -61,7 +79,7 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>([
     })),
     actions(() => ({
         clearPeople: true,
-        loadMorePeople: true,
+        loadMorePeople: (rowIndex: number) => rowIndex,
         loadMorePeopleSuccess: (payload: RetentionTablePeoplePayload) => ({ payload }),
     })),
     loaders(({ values }) => ({
@@ -94,10 +112,11 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>([
             // clear people when changing the insight filters
             actions.clearPeople()
         },
-        loadMorePeople: async () => {
+        loadMorePeople: async (rowIndex) => {
             if (values.people.next) {
                 const peopleResult: RetentionTablePeoplePayload = await retentionApiService.loadMorePeople(
-                    values.people.next
+                    values,
+                    rowIndex
                 )
                 const newPayload: RetentionTablePeoplePayload = {
                     result: [...(values.people.result || []), ...(peopleResult.result || [])],
