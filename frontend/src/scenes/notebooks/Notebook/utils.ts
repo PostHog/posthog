@@ -169,6 +169,7 @@ export const textContent = (node: any): string => {
         'ph-map': customOrTitleSerializer,
         'ph-mention': customOrTitleSerializer,
         'ph-embed': customOrTitleSerializer,
+        'ph-notebook': customOrTitleSerializer,
     }
 
     return getText(node, {
