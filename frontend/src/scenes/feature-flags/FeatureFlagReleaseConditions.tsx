@@ -2,7 +2,6 @@ import './FeatureFlag.scss'
 
 import { LemonSelect, Link } from '@posthog/lemon-ui'
 import { InputNumber, Select } from 'antd'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
