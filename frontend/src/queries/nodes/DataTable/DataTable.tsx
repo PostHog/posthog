@@ -19,6 +19,7 @@ import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadNext } from '~/queries/nodes/DataNode/LoadNext'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
+import { BackToSource } from '~/queries/nodes/DataTable/BackToSource'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
 import { dataTableLogic, DataTableLogicProps, DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
@@ -101,6 +102,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         nextDataLoading,
         newDataLoading,
         highlightedRows,
+        backToSourceQuery,
     } = useValues(builtDataNodeLogic)
 
     const dataTableLogicProps: DataTableLogicProps = { query, vizKey: vizKey, dataKey: dataKey, context }
@@ -374,6 +376,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     )
 
     const firstRowLeft = [
+        backToSourceQuery ? <BackToSource key="return-to-source" query={query} setQuery={setQuery} /> : null,
         showDateRange && sourceFeatures.has(QueryFeature.dateRangePicker) ? (
             <DateRange key="date-range" query={query.source} setQuery={setQuerySource} />
         ) : null,

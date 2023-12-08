@@ -33,6 +33,8 @@ import {
     DataNode,
     EventsQuery,
     EventsQueryResponse,
+    InsightVizNode,
+    NodeKind,
     PersonsNode,
     PersonsQuery,
     PersonsQueryResponse,
@@ -41,6 +43,7 @@ import {
 } from '~/queries/schema'
 import {
     isEventsQuery,
+    isInsightPersonsQuery,
     isInsightQueryNode,
     isLifecycleQuery,
     isPersonsNode,
@@ -435,6 +438,21 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         canLoadNextData: [
             (s) => [s.nextQuery, s.isShowingCachedResults],
             (nextQuery, isShowingCachedResults) => (isShowingCachedResults ? false : !!nextQuery),
+        ],
+        backToSourceQuery: [
+            (s) => [s.query],
+            (query): InsightVizNode | null => {
+                if (isPersonsQuery(query) && isInsightPersonsQuery(query.source) && !!query.source.source) {
+                    const insightQuery = query.source.source
+                    const insightVizNode: InsightVizNode = {
+                        kind: NodeKind.InsightVizNode,
+                        source: insightQuery,
+                        full: true,
+                    }
+                    return insightVizNode
+                }
+                return null
+            },
         ],
         autoLoadRunning: [
             (s) => [s.autoLoadToggled, s.autoLoadStarted, s.dataLoading],
