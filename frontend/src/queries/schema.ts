@@ -1,5 +1,3 @@
-import { RetentionTablePeoplePayload } from 'scenes/retention/types'
-
 import {
     AnyPropertyFilter,
     BaseMathType,
@@ -628,6 +626,10 @@ export interface PersonsQueryResponse {
     hogql: string
     timings?: QueryTiming[]
     hasMore?: boolean
+    /** @asType integer */
+    limit: number
+    /** @asType integer */
+    offset: number
 }
 
 export interface PersonsQuery extends DataNode {
@@ -638,7 +640,9 @@ export interface PersonsQuery extends DataNode {
     properties?: AnyPropertyFilter[]
     fixedProperties?: AnyPropertyFilter[]
     orderBy?: string[]
+    /** @asType integer */
     limit?: number
+    /** @asType integer */
     offset?: number
     response?: PersonsQueryResponse
 }

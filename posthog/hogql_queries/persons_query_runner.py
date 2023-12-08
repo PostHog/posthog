@@ -44,6 +44,8 @@ class PersonsQueryRunner(QueryRunner):
             columns=self.input_columns(),
             hogql=response.hogql,
             hasMore=has_more,
+            limit=self.query_limit(),
+            offset=self.query.offset or 0,
         )
 
     def filter_conditions(self) -> List[ast.Expr]:

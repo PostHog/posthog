@@ -130,8 +130,6 @@ class RetentionAppearanceQueryRunner(QueryRunner):
             modifiers=self.modifiers,
         )
         results = self.paginator.trim_results(response.results)
-        has_more = self.paginator.has_more(response.results)
-
         actor_appearances = [
             {"actor_id": str(row[0]), "appearance_count": len(row[1]), "appearances": row[1]} for row in results
         ]
@@ -161,7 +159,9 @@ class RetentionAppearanceQueryRunner(QueryRunner):
             types=[t for _, t in response.types],
             columns=["person", "appearances"],
             hogql=response.hogql,
-            hasMore=has_more,
+            hasMore=self.paginator.has_more(response.results),
+            limit=self.paginator.limit,
+            offset=self.paginator.offset,
         )
         #   "missing_persons": len(actor_appearances) - len(actors),
 

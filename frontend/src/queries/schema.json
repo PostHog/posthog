@@ -68,16 +68,6 @@
             "required": ["id", "kind"],
             "type": "object"
         },
-        "ActorType": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/PersonActorType"
-                },
-                {
-                    "$ref": "#/definitions/GroupActorType"
-                }
-            ]
-        },
         "AggregationAxisFormat": {
             "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled"],
             "type": "string"
@@ -1363,52 +1353,6 @@
             "required": ["kind", "series"],
             "type": "object"
         },
-        "GroupActorType": {
-            "additionalProperties": false,
-            "properties": {
-                "created_at": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "group_key": {
-                    "type": "string"
-                },
-                "group_type_index": {
-                    "type": "number"
-                },
-                "id": {
-                    "description": "Group key.",
-                    "type": "string"
-                },
-                "matched_recordings": {
-                    "items": {
-                        "$ref": "#/definitions/MatchedRecording"
-                    },
-                    "type": "array"
-                },
-                "properties": {
-                    "type": "object"
-                },
-                "type": {
-                    "const": "group",
-                    "type": "string"
-                },
-                "value_at_data_point": {
-                    "type": ["number", "null"]
-                }
-            },
-            "required": [
-                "created_at",
-                "group_key",
-                "group_type_index",
-                "id",
-                "matched_recordings",
-                "properties",
-                "type",
-                "value_at_data_point"
-            ],
-            "type": "object"
-        },
         "GroupMathType": {
             "const": "unique_group",
             "type": "string"
@@ -2000,32 +1944,6 @@
             "enum": ["new", "resurrecting", "returning", "dormant"],
             "type": "string"
         },
-        "MatchedRecording": {
-            "additionalProperties": false,
-            "properties": {
-                "events": {
-                    "items": {
-                        "$ref": "#/definitions/MatchedRecordingEvent"
-                    },
-                    "type": "array"
-                },
-                "session_id": {
-                    "type": "string"
-                }
-            },
-            "required": ["events"],
-            "type": "object"
-        },
-        "MatchedRecordingEvent": {
-            "additionalProperties": false,
-            "properties": {
-                "uuid": {
-                    "type": "string"
-                }
-            },
-            "required": ["uuid"],
-            "type": "object"
-        },
         "NamedParameters<typeof dateRangeForFilter>": {
             "additionalProperties": false,
             "properties": {
@@ -2217,62 +2135,6 @@
             "required": ["kind"],
             "type": "object"
         },
-        "PersonActorType": {
-            "additionalProperties": false,
-            "properties": {
-                "created_at": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "distinct_ids": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "id": {
-                    "description": "Serial ID (NOT UUID).",
-                    "type": "number"
-                },
-                "is_identified": {
-                    "type": "boolean"
-                },
-                "matched_recordings": {
-                    "items": {
-                        "$ref": "#/definitions/MatchedRecording"
-                    },
-                    "type": "array"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "properties": {
-                    "type": "object"
-                },
-                "type": {
-                    "const": "person",
-                    "type": "string"
-                },
-                "uuid": {
-                    "type": "string"
-                },
-                "value_at_data_point": {
-                    "type": ["number", "null"]
-                }
-            },
-            "required": [
-                "created_at",
-                "distinct_ids",
-                "id",
-                "is_identified",
-                "matched_recordings",
-                "properties",
-                "type",
-                "uuid",
-                "value_at_data_point"
-            ],
-            "type": "object"
-        },
         "PersonPropertyFilter": {
             "additionalProperties": false,
             "description": "Sync with plugin-server/src/types.ts",
@@ -2356,10 +2218,10 @@
                     "type": "string"
                 },
                 "limit": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "offset": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "orderBy": {
                     "items": {
@@ -2413,6 +2275,12 @@
                 "hogql": {
                     "type": "string"
                 },
+                "limit": {
+                    "type": "integer"
+                },
+                "offset": {
+                    "type": "integer"
+                },
                 "results": {
                     "items": {
                         "items": {},
@@ -2433,7 +2301,7 @@
                     "type": "array"
                 }
             },
-            "required": ["results", "columns", "types", "hogql"],
+            "required": ["results", "columns", "types", "hogql", "limit", "offset"],
             "type": "object"
         },
         "PropertyFilterType": {
@@ -2711,7 +2579,7 @@
                     "type": "integer"
                 },
                 "response": {
-                    "$ref": "#/definitions/RetentionTablePeoplePayload"
+                    "$ref": "#/definitions/PersonsQueryResponse"
                 },
                 "selectedInterval": {
                     "type": "integer"
@@ -2720,7 +2588,7 @@
                     "$ref": "#/definitions/RetentionQuery"
                 }
             },
-            "required": ["kind", "selectedInterval", "source"],
+            "required": ["kind", "source", "selectedInterval"],
             "type": "object"
         },
         "RetentionEntity": {
@@ -2878,40 +2746,6 @@
                 }
             },
             "required": ["values", "label", "date"],
-            "type": "object"
-        },
-        "RetentionTableAppearanceType": {
-            "additionalProperties": false,
-            "properties": {
-                "appearances": {
-                    "items": {
-                        "type": "number"
-                    },
-                    "type": "array"
-                },
-                "person": {
-                    "$ref": "#/definitions/ActorType"
-                }
-            },
-            "required": ["person", "appearances"],
-            "type": "object"
-        },
-        "RetentionTablePeoplePayload": {
-            "additionalProperties": false,
-            "properties": {
-                "missing_persons": {
-                    "type": "number"
-                },
-                "next": {
-                    "type": "string"
-                },
-                "result": {
-                    "items": {
-                        "$ref": "#/definitions/RetentionTableAppearanceType"
-                    },
-                    "type": "array"
-                }
-            },
             "type": "object"
         },
         "RetentionType": {

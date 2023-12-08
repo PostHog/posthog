@@ -338,13 +338,6 @@ class LifecycleToggle(str, Enum):
     dormant = "dormant"
 
 
-class MatchedRecordingEvent(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    uuid: str
-
-
 class NodeKind(str, Enum):
     EventsNode = "EventsNode"
     ActionsNode = "ActionsNode"
@@ -921,35 +914,11 @@ class LifecycleQueryResponse(BaseModel):
     timings: Optional[List[QueryTiming]] = None
 
 
-class MatchedRecording(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    events: List[MatchedRecordingEvent]
-    session_id: Optional[str] = None
-
-
 class Node(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     kind: NodeKind
-
-
-class PersonActorType(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    created_at: datetime
-    distinct_ids: List[str]
-    id: float = Field(..., description="Serial ID (NOT UUID).")
-    is_identified: bool
-    matched_recordings: List[MatchedRecording]
-    name: Optional[str] = None
-    properties: Dict[str, Any]
-    type: Literal["person"] = "person"
-    uuid: str
-    value_at_data_point: Optional[float] = None
 
 
 class PersonPropertyFilter(BaseModel):
@@ -970,6 +939,8 @@ class PersonsQueryResponse(BaseModel):
     columns: List
     hasMore: Optional[bool] = None
     hogql: str
+    limit: int
+    offset: int
     results: List[List]
     timings: Optional[List[QueryTiming]] = None
     types: List[str]
@@ -1329,20 +1300,6 @@ class EventsQuery(BaseModel):
     where: Optional[List[str]] = Field(default=None, description="HogQL filters to apply on returned data")
 
 
-class GroupActorType(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    created_at: datetime
-    group_key: str
-    group_type_index: float
-    id: str = Field(..., description="Group key.")
-    matched_recordings: List[MatchedRecording]
-    properties: Dict[str, Any]
-    type: Literal["group"] = "group"
-    value_at_data_point: Optional[float] = None
-
-
 class HogQLFilters(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1606,23 +1563,6 @@ class RetentionQuery(BaseModel):
     response: Optional[RetentionQueryResponse] = None
     retentionFilter: RetentionFilter = Field(..., description="Properties specific to the retention insight")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
-
-
-class RetentionTableAppearanceType(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    appearances: List[float]
-    person: Union[PersonActorType, GroupActorType]
-
-
-class RetentionTablePeoplePayload(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    missing_persons: Optional[float] = None
-    next: Optional[str] = None
-    result: Optional[List[RetentionTableAppearanceType]] = None
 
 
 class StickinessQuery(BaseModel):
@@ -1908,7 +1848,7 @@ class RetentionAppearanceQuery(BaseModel):
     kind: Literal["RetentionAppearanceQuery"] = "RetentionAppearanceQuery"
     limit: Optional[int] = None
     offset: Optional[int] = None
-    response: Optional[RetentionTablePeoplePayload] = None
+    response: Optional[PersonsQueryResponse] = None
     selectedInterval: int
     source: RetentionQuery
 
@@ -1971,8 +1911,8 @@ class PersonsQuery(BaseModel):
         ]
     ] = None
     kind: Literal["PersonsQuery"] = "PersonsQuery"
-    limit: Optional[float] = None
-    offset: Optional[float] = None
+    limit: Optional[int] = None
+    offset: Optional[int] = None
     orderBy: Optional[List[str]] = None
     properties: Optional[
         List[

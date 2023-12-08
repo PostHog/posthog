@@ -6,11 +6,12 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toParams } from 'lib/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import {RetentionTableAppearanceType, RetentionTablePeoplePayload} from 'scenes/retention/types'
+import { RetentionTableAppearanceType, RetentionTablePeoplePayload } from 'scenes/retention/types'
+import { urls } from 'scenes/urls'
 
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { query } from '~/queries/query'
-import {NodeKind, RetentionAppearanceQuery, RetentionQuery} from '~/queries/schema'
+import { DataTableNode, NodeKind, PersonsQuery, RetentionAppearanceQuery, RetentionQuery } from '~/queries/schema'
 import { InsightLogicProps } from '~/types'
 
 import type { retentionPeopleLogicType } from './retentionPeopleLogicType'
@@ -33,17 +34,20 @@ export function wrapRetentionQuery(
 const hogQLInsightsRetentionFlagEnabled = (): boolean =>
     Boolean(featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION])
 
-async function hogqlRetentionQuery(values: retentionPeopleLogicType['values'], selectedInterval: number, offset: number = 0): Promise<RetentionTablePeoplePayload> {
+async function hogqlRetentionQuery(
+    values: retentionPeopleLogicType['values'],
+    selectedInterval: number,
+    offset: number = 0
+): Promise<RetentionTablePeoplePayload> {
     const newAppearanceQuery = wrapRetentionQuery(values.querySource as RetentionQuery, selectedInterval, offset)
     const response = await query(newAppearanceQuery)
     const result: RetentionTableAppearanceType[] = response.results.map((row) => ({
-            person: row[0],
-            appearances: row[1],
-        })
-    )
+        person: row[0],
+        appearances: row[1],
+    }))
     return {
         result,
-        next: response.hasMore ? offset + 100 : undefined, // TODO: Urgh
+        next: response.hasMore ? response.offset + response.limit : undefined,
         //missing_persons: response.missing_persons,
     }
 }
@@ -54,15 +58,18 @@ export const retentionApiService = {
         rowIndex: any
     ): Promise<RetentionTablePeoplePayload> => {
         if (hogQLInsightsRetentionFlagEnabled() && values.querySource?.kind === NodeKind.RetentionQuery) {
-            return await hogqlRetentionQuery(values, rowIndex);
+            return await hogqlRetentionQuery(values, rowIndex)
         }
 
         const urlParams = toParams({ ...values.apiFilters, selected_interval: rowIndex })
         return api.get<RetentionTablePeoplePayload>(`api/person/retention/?${urlParams}`)
     },
-    loadMorePeople: async (values: retentionPeopleLogicType['values'], rowIndex: any): Promise<RetentionTablePeoplePayload> => {
+    loadMorePeople: async (
+        values: retentionPeopleLogicType['values'],
+        rowIndex: any
+    ): Promise<RetentionTablePeoplePayload> => {
         if (typeof values.people.next === 'number') {
-            return await hogqlRetentionQuery(values, rowIndex, values.people.next);
+            return await hogqlRetentionQuery(values, rowIndex, values.people.next)
         }
 
         return api.get<RetentionTablePeoplePayload>(values.people.next as string)
@@ -106,6 +113,40 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>([
     }),
     selectors(() => ({
         apiFilters: [(s) => [s.querySource], (querySource) => (querySource ? queryNodeToFilter(querySource) : {})],
+        personsQuery: [
+            (s) => [s.querySource],
+            (querySource: RetentionQuery): PersonsQuery | null => {
+                if (!querySource) {
+                    return null
+                }
+                const retentionAppearance = wrapRetentionQuery(querySource, 0) // TODO: Get correct interval
+                return {
+                    kind: NodeKind.PersonsQuery,
+                    source: {
+                        kind: NodeKind.InsightPersonsQuery,
+                        source: {
+                            ...retentionAppearance,
+                            offset: undefined,
+                            limit: undefined,
+                        },
+                    },
+                }
+            },
+        ],
+        exploreUrl: [
+            (s) => [s.personsQuery],
+            (personsQuery): string | null => {
+                if (!personsQuery) {
+                    return null
+                }
+                const query: DataTableNode = {
+                    kind: NodeKind.DataTableNode,
+                    source: personsQuery,
+                    full: true,
+                }
+                return urls.insightNew(undefined, undefined, JSON.stringify(query))
+            },
+        ],
     })),
     listeners(({ actions, values }) => ({
         loadDataSuccess: () => {
