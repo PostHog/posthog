@@ -117,12 +117,7 @@ SELECT
         recording_viewed_stats.badge,
         experiments_stats.badge,
         dashboards_created_stats.badge,
-        survey_stats.badge,
-        case when
-            recording_viewed_stats.badge is not null
-                and flag_stats.badge is not null
-                and insight_stats.badge is not null
-            then 'champion' end
+        survey_stats.badge
     ],
         NULL
     ) AS badges,

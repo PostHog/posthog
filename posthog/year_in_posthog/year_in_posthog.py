@@ -14,14 +14,14 @@ from posthog.year_in_posthog.calculate_2023 import calculate_year_in_posthog_202
 logger = structlog.get_logger(__name__)
 
 badge_preference = [
-    "astronaut",
-    "deep_diver",
-    "curator",
-    "flag_raiser",
-    "popcorn_muncher",
-    "scientist",
-    "reporter",
-    "champion",
+    "astronaut",  # logged in
+    "deep_diver",  # ten or more insights created
+    "curator",  # 4 or more dashboards created
+    "flag_raiser",  # 5 or more flags created
+    "popcorn_muncher",  # 59 or more recordings viewed
+    "scientist",  # 3 or more experiments created
+    "reporter",  # 1 or more surveys created
+    "champion",  # recordings, flags, and insights badges
 ]
 
 human_badge = {
@@ -60,41 +60,26 @@ explanation = {
 
 def stats_for_badge(data: Dict, badge: str) -> List[Dict[str, Union[int, str]]]:
     stats = data["stats"]
-    # noinspection PyBroadException
-    try:
-        if badge == "astronaut" or badge == "deep_diver":
-            return (
-                [{"count": stats["insight_created_count"], "description": "Insights created"}]
-                if stats.get("insight_created_count")
-                else []
-            )
-        elif badge == "curator":
-            return [{"count": stats["dashboards_created_count"], "description": "Dashboards created"}]
-        elif badge == "flag_raiser":
-            return [{"count": stats["flag_created_count"], "description": "Feature flags created"}]
-        elif badge == "popcorn_muncher":
-            return [{"count": stats["viewed_recording_count"], "description": "Session recordings viewed"}]
-        elif badge == "scientist":
-            return [{"count": stats["experiments_created_count"], "description": "Experiments created"}]
-        elif badge == "reporter":
-            return [{"count": stats["surveys_created_count"], "description": "Surveys created"}]
-        elif badge == "champion":
-            return [
-                {"count": stats["insight_created_count"], "description": "Insights created"},
-                {"count": stats["viewed_recording_count"], "description": "Session recordings viewed"},
-                {"count": stats["flag_created_count"], "description": "Feature flags created"},
-            ]
-        else:
-            raise Exception("A user has to have one badge!")
-    except Exception as e:
-        logger.error(
-            "year_in_posthog_2023_error_getting_stats", exc_info=True, exc=e, data=data or "no data", badge=badge
-        )
-        return []
+
+    return [
+        x
+        for x in [
+            {"count": stats.get("insight_created_count", 0), "description": "Insights created"},
+            {"count": stats.get("viewed_recording_count", 0), "description": "Session recordings viewed"},
+            {"count": stats.get("flag_created_count", 0), "description": "Feature flags created"},
+            {"count": stats.get("dashboards_created_count", 0), "description": "Dashboards created"},
+            {"count": stats.get("experiments_created_count", 0), "description": "Experiments created"},
+            {"count": stats.get("surveys_created_count", 0), "description": "Surveys created"},
+        ]
+        if x["count"]
+    ]
 
 
 def sort_list_based_on_preference(badges: List[str]) -> str:
     """sort a list based on its order in badge_preferences and then choose the last one"""
+    if len(badges) >= 3:
+        return "champion"
+
     badges_by_preference = sorted(badges, key=lambda x: badge_preference.index(x))
     return badges_by_preference[-1]
 
@@ -107,6 +92,7 @@ def render_2023(request, user_uuid: str) -> HttpResponse:
         data = calculate_year_in_posthog_2023(user_uuid)
 
         badge = sort_list_based_on_preference(data.get("badges") or ["astronaut"])
+        stats = stats_for_badge(data, badge)
 
         badge_images = {}
         for b in data.get("badges", {}):
@@ -119,8 +105,6 @@ def render_2023(request, user_uuid: str) -> HttpResponse:
                     "highlight_color": highlight_color.get(b),
                     "explanation": explanation.get(b),
                 }
-
-        stats = stats_for_badge(data, badge)
 
         context = {
             "debug": settings.DEBUG,
