@@ -36,8 +36,6 @@ declare module '@storybook/types' {
             snapshotBrowsers?: SupportedBrowserName[]
             /** If taking a component snapshot, you can narrow it down by specifying the selector. */
             snapshotTargetSelector?: string
-            /** Include snapshots of buttons in 3000. */
-            include3000?: boolean
         }
         msw?: {
             mocks?: Mocks
@@ -99,7 +97,6 @@ async function expectStoryToMatchSnapshot(
         waitForLoadersToDisappear = true,
         waitForSelector,
         excludeNavigationFromSnapshot = false,
-        include3000 = false,
     } = storyContext.parameters?.testOptions ?? {}
 
     let check: (
@@ -139,22 +136,21 @@ async function expectStoryToMatchSnapshot(
         Array.from(document.querySelectorAll('img')).every((i: HTMLImageElement) => i.complete)
     )
 
+    // TODO: Remove the legacy theme once it's no longer used in production
     await check(page, context, browser, 'legacy', storyContext.parameters?.testOptions?.snapshotTargetSelector)
 
-    if (include3000) {
-        await page.evaluate(() => {
-            document.body.classList.add('posthog-3000')
-            document.body.setAttribute('theme', 'light')
-        })
+    await page.evaluate(() => {
+        document.body.classList.add('posthog-3000')
+        document.body.setAttribute('theme', 'light')
+    })
 
-        await check(page, context, browser, 'light', storyContext.parameters?.testOptions?.snapshotTargetSelector)
+    await check(page, context, browser, 'light', storyContext.parameters?.testOptions?.snapshotTargetSelector)
 
-        await page.evaluate(() => {
-            document.body.setAttribute('theme', 'dark')
-        })
+    await page.evaluate(() => {
+        document.body.setAttribute('theme', 'dark')
+    })
 
-        await check(page, context, browser, 'dark', storyContext.parameters?.testOptions?.snapshotTargetSelector)
-    }
+    await check(page, context, browser, 'dark', storyContext.parameters?.testOptions?.snapshotTargetSelector)
 }
 
 async function expectStoryToMatchFullPageSnapshot(
