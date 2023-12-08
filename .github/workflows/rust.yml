@@ -47,14 +47,8 @@ jobs:
       shell: bash
       run: |
           docker compose -f docker-compose.yml down
-          docker compose -f docker-compose.yml up -d --wait
-
-    - name: Run migrations
-      shell: bash
-      run: |
-          cargo install sqlx-cli --no-default-features --features native-tls,postgres
-          DATABASE_URL=postgres://posthog:posthog@localhost:15432/test_database sqlx database create
-          DATABASE_URL=postgres://posthog:posthog@localhost:15432/test_database sqlx migrate run
+          docker compose -f docker-compose.yml up db echo_server -d --wait
+          docker compose -f docker-compose.yml up setup_test_db
 
     - uses: actions/cache@v3
       with:
