@@ -195,7 +195,6 @@ impl<'p> WebhookConsumer<'p> {
         let semaphore = Arc::new(sync::Semaphore::new(self.max_concurrent_jobs));
 
         loop {
-            // TODO: The number of jobs processed will be capped by the PG connection limit when running in transactional mode.
             let webhook_job = self.wait_for_job().await?;
 
             // reqwest::Client internally wraps with Arc, so this allocation is cheap.
