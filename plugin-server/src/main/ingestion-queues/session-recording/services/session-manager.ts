@@ -117,7 +117,8 @@ export class SessionManager {
         public readonly teamId: number,
         public readonly sessionId: string,
         public readonly partition: number,
-        public readonly topic: string
+        public readonly topic: string,
+        public readonly debug: boolean = false
     ) {
         this.buffer = this.createBuffer()
 
@@ -136,20 +137,6 @@ export class SessionManager {
             topic,
             sessionId,
         })
-    }
-
-    private logContext = () => {
-        return {
-            sessionId: this.sessionId,
-            partition: this.partition,
-            teamId: this.teamId,
-            topic: this.topic,
-            oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
-            oldestKafkaTimestampHumanReadable: this.buffer.oldestKafkaTimestamp
-                ? DateTime.fromMillis(this.buffer.oldestKafkaTimestamp).toISO()
-                : undefined,
-            bufferCount: this.buffer.count,
-        }
     }
 
     private captureException(error: Error, extra: Record<string, any> = {}): void {
@@ -234,6 +221,10 @@ export class SessionManager {
             flushThresholdMemoryMs,
         }
 
+        if (this.debug) {
+            status.info('🚽', `[session-manager]  - [PARTITION DEBUG] - flushIfSessionBufferIsOld?`, { logContext })
+        }
+
         if (this.buffer.oldestKafkaTimestamp === null) {
             // We have no messages yet, so we can't flush
             if (this.buffer.count > 0) {
@@ -261,16 +252,7 @@ export class SessionManager {
         histogramSessionSizeKb.observe(this.buffer.sizeEstimate / 1024)
 
         if (isBufferAgeOverThreshold || isSessionAgeOverThreshold) {
-            status.debug('🚽', `[session-manager] attempting to flushing buffer due to age`, {
-                ...logContext,
-            })
-
-            // return the promise and let the caller decide whether to await
             return this.flush(isBufferAgeOverThreshold ? 'buffer_age' : 'buffer_age_realtime')
-        } else {
-            status.debug('🚽', `[session-manager] not flushing buffer due to age`, {
-                ...logContext,
-            })
         }
     }
 
@@ -451,21 +433,15 @@ export class SessionManager {
             const writeStream = new PassThrough()
 
             // The compressed file
-            pipeline(writeStream, zlib.createGzip(), createWriteStream(file('gz')))
-                .then(() => {
-                    status.debug('🥳', '[session-manager] writestream finished', {
-                        ...this.logContext(),
-                    })
+            pipeline(writeStream, zlib.createGzip(), createWriteStream(file('gz'))).catch((error) => {
+                // TODO: If this actually happens we probably want to destroy the buffer as we will be stuck...
+                status.error('🧨', '[session-manager] writestream errored', {
+                    ...this.logContext(),
+                    error,
                 })
-                .catch((error) => {
-                    // TODO: If this actually happens we probably want to destroy the buffer as we will be stuck...
-                    status.error('🧨', '[session-manager] writestream errored', {
-                        ...this.logContext(),
-                        error,
-                    })
 
-                    this.captureException(error)
-                })
+                this.captureException(error)
+            })
 
             // The uncompressed file which we need for realtime playback
             pipeline(writeStream, createWriteStream(file('jsonl'))).catch((error) => {
@@ -531,10 +507,6 @@ export class SessionManager {
         })
 
         this.realtimeTail.on('line', async (data: string) => {
-            status.debug('⚡️', '[session-manager][realtime] writing to redis', {
-                sessionId: this.sessionId,
-                teamId: this.teamId,
-            })
             await this.realtimeManager.addMessagesFromBuffer(this.teamId, this.sessionId, data, Date.now())
         })
 
@@ -592,6 +564,21 @@ export class SessionManager {
                 resolve()
             })
         })
+    }
+
+    private logContext = () => {
+        return {
+            sessionId: this.sessionId,
+            partition: this.partition,
+            teamId: this.teamId,
+            topic: this.topic,
+            oldestKafkaTimestamp: this.buffer.oldestKafkaTimestamp,
+            oldestKafkaTimestampHumanReadable: this.buffer.oldestKafkaTimestamp
+                ? DateTime.fromMillis(this.buffer.oldestKafkaTimestamp).toISO()
+                : undefined,
+            bufferCount: this.buffer.count,
+            ...(this.debug ? this.toJSON() : {}),
+        }
     }
 
     public toJSON(): Record<string, any> {

@@ -80,25 +80,13 @@ export class ReplayEventsIngester {
     }
 
     public async consume(event: IncomingRecordingMessage): Promise<Promise<number | null | undefined>[] | void> {
-        const logDebug = (text: string, labels: Record<string, any> = {}) =>
-            status.debug('⚠️', `[replay-events] ${text}`, {
-                offset: event.metadata.offset,
-                partition: event.metadata.partition,
-                ...labels,
-            })
-
-        const drop = (reason: string, labels: Record<string, any> = {}) => {
+        const drop = (reason: string) => {
             eventDroppedCounter
                 .labels({
                     event_type: 'session_recordings_replay_events',
                     drop_cause: reason,
                 })
                 .inc()
-
-            logDebug(reason, {
-                reason,
-                ...labels,
-            })
         }
 
         if (!this.producer) {
