@@ -16,7 +16,7 @@ export class PeriodicTask {
 
         this.promise = new Promise(async (resolve, reject) => {
             try {
-                status.debug('🔄', 'Periodic task starting...', { task })
+                status.debug('🔄', `${this}: Starting...`)
                 while (!this.abortController.signal.aborted) {
                     const startTimeMs = Date.now()
                     await instrument({ metricName: this.name }, task)
@@ -24,15 +24,14 @@ export class PeriodicTask {
                     const waitTimeMs = Math.max(intervalMs - durationMs, minimumWaitMs)
                     status.debug(
                         '🔄',
-                        `Task completed in ${durationMs / 1000}s, next evaluation in ${waitTimeMs / 1000}s`,
-                        { task }
+                        `${this}: Task completed in ${durationMs / 1000}s, next evaluation in ${waitTimeMs / 1000}s`
                     )
                     await Promise.race([sleep(waitTimeMs), abortRequested])
                 }
-                status.info('✅', 'Periodic task stopped by request.', { task })
+                status.info('🔴', `${this}: Stopped by request.`)
                 resolve()
             } catch (error) {
-                status.warn('⚠️', 'Error in periodic task!', { task, error })
+                status.warn('⚠️', `${this}: Unexpected error!`, { error })
                 reject(error)
             } finally {
                 this.running = false
@@ -40,11 +39,16 @@ export class PeriodicTask {
         })
     }
 
+    public toString(): string {
+        return `Periodic Task (${this.name})`
+    }
+
     public isRunning(): boolean {
         return this.running
     }
 
     public async stop(): Promise<void> {
+        status.info(`⏳`, `${this}: Stop requested...`)
         this.abortController.abort()
         try {
             await this.promise
