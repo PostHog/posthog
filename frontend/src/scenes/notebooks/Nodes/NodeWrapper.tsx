@@ -142,6 +142,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const isDraggable = !!(isEditable && getPos)
 
     const { parentProps, handleProps } = useDragAndDrop({ onDragStart: () => console.log('drag start') })
+    // TODO: Fix general drag and drop movements in the notebook
 
     return (
         <NotebookNodeContext.Provider value={nodeLogic}>
