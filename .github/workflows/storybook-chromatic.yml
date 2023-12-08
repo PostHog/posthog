@@ -124,7 +124,7 @@ jobs:
               run: pnpm install http-server wait-on
 
             - name: Build Storybook
-              run: pnpm build-storybook --quiet # Silence since progress logging results in a massive wall of spam
+              run: pnpm build-storybook --test --quiet # Silence since progress logging results in a massive wall of spam
 
             - name: Serve Storybook in the background
               run: |
