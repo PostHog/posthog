@@ -17,7 +17,7 @@ import {
     IconUnfoldLess,
     IconUnfoldMore,
 } from 'lib/lemon-ui/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonMenuItem } from '@posthog/lemon-ui'
 import './NodeWrapper.scss'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { BindLogic, BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
@@ -40,7 +40,7 @@ import { notebookNodeLogicType } from './notebookNodeLogicType'
 import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
 import { NotebookNodeContext } from './NotebookNodeContext'
-import { IconGear } from '@posthog/icons'
+import { IconEllipsis, IconGear } from '@posthog/icons'
 
 function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperProps<T>): JSX.Element {
     const {
@@ -75,7 +75,15 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     // nodeId can start null, but should then immediately be generated
     const nodeLogic = useMountedLogic(notebookNodeLogic(logicProps))
     const { resizeable, expanded, actions, nodeId } = useValues(nodeLogic)
-    const { setRef, setExpanded, deleteNode, toggleEditing, insertOrSelectNextLine } = useActions(nodeLogic)
+    const {
+        setRef,
+        setExpanded,
+        deleteNode,
+        toggleEditing,
+        insertOrSelectNextLine,
+        toggleEditingTitle,
+        copyToClipboard,
+    } = useActions(nodeLogic)
 
     const { ref: inViewRef, inView } = useInView({ triggerOnce: true })
 
@@ -139,6 +147,26 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     // Element is resizable if resizable is set to true. If expandable is set to true then is is only resizable if expanded is true
     const isResizeable = resizeable && (!expandable || expanded)
     const isDraggable = !!(isEditable && getPos)
+
+    const menuItems: LemonMenuItem[] = [
+        {
+            label: 'Copy',
+            onClick: () => {
+                copyToClipboard()
+            },
+        },
+        isResizeable
+            ? {
+                  label: 'Reset height to default',
+                  onClick: () => {
+                      updateAttributes({
+                          height: null,
+                      } as any)
+                  },
+              }
+            : undefined,
+        isEditable ? { label: 'Edit title', onClick: () => toggleEditingTitle(true) } : undefined,
+    ].filter(Boolean) as LemonMenuItem[]
 
     return (
         <NotebookNodeContext.Provider value={nodeLogic}>
@@ -214,6 +242,16 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                             icon={<IconClose />}
                                                         />
                                                     </>
+                                                ) : null}
+
+                                                {menuItems.length ? (
+                                                    <LemonMenu items={menuItems}>
+                                                        <LemonButton
+                                                            icon={<IconEllipsis />}
+                                                            status="stealth"
+                                                            size="small"
+                                                        />
+                                                    </LemonMenu>
                                                 ) : null}
                                             </div>
                                         </div>
@@ -373,7 +411,20 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
         },
 
         renderHTML({ HTMLAttributes }) {
-            return [wrapperProps.nodeType, mergeAttributes(HTMLAttributes)]
+            // We want to stringify all object attributes so that we can use them in the serializedText
+            const sanitizedAttributes = Object.fromEntries(
+                Object.entries(HTMLAttributes).map(([key, value]) => {
+                    if (Array.isArray(value) || typeof value === 'object') {
+                        return [key, JSON.stringify(value)]
+                    }
+                    return [key, value]
+                })
+            )
+
+            // This method is primarily used by copy and paste so we can remove the nodeID, assuming we don't want duplicates
+            delete sanitizedAttributes['nodeId']
+
+            return [wrapperProps.nodeType, mergeAttributes(sanitizedAttributes)]
         },
 
         addNodeView() {
