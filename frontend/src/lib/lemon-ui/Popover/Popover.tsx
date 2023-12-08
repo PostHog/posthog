@@ -15,6 +15,7 @@ import {
 } from '@floating-ui/react'
 import clsx from 'clsx'
 import { useEventListener } from 'lib/hooks/useEventListener'
+import { useFloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { CLICK_OUTSIDE_BLOCK_CLASS, useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
 import React, { MouseEventHandler, ReactElement, useContext, useEffect, useLayoutEffect, useRef } from 'react'
 import { CSSTransition } from 'react-transition-group'
@@ -55,7 +56,6 @@ export interface PopoverProps {
      *  @default false
      */
     closeParentPopoverOnClickInside?: boolean
-    getPopupContainer?: () => HTMLElement
     /** Whether to show an arrow pointing to a reference element */
     showArrow?: boolean
 }
@@ -93,7 +93,6 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         referenceRef: extraReferenceRef,
         floatingRef: extraFloatingRef,
         style,
-        getPopupContainer,
         showArrow = false,
     },
     contentRef
@@ -183,6 +182,8 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         }
     }, [visible, referenceRef?.current, floatingRef?.current, ...additionalRefs])
 
+    const floatingContainer = useFloatingContainerContext()?.current
+
     const _onClickInside: MouseEventHandler<HTMLDivElement> = (e): void => {
         if (e.target instanceof HTMLElement && e.target.closest(`.${CLICK_OUTSIDE_BLOCK_CLASS}`)) {
             return
@@ -210,7 +211,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                     {clonedChildren}
                 </PopoverReferenceContext.Provider>
             )}
-            <FloatingPortal root={getPopupContainer?.()}>
+            <FloatingPortal root={floatingContainer}>
                 <CSSTransition in={visible} timeout={50} classNames="Popover-" appear mountOnEnter unmountOnExit>
                     <PopoverOverlayContext.Provider value={[visible, currentPopoverLevel]}>
                         <div

@@ -246,6 +246,9 @@
                 "breakdown_histogram_bin_count": {
                     "type": "number"
                 },
+                "breakdown_limit": {
+                    "type": "number"
+                },
                 "breakdown_normalize_url": {
                     "type": "boolean"
                 },

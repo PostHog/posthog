@@ -71,18 +71,6 @@ export function getToolbarElement(): HTMLElement | null {
     return window.document.getElementById('__POSTHOG_TOOLBAR__') || null
 }
 
-export function getShadowRoot(): ShadowRoot | null {
-    return getToolbarElement()?.shadowRoot || null
-}
-
-export function getToolbarContainer(): HTMLElement {
-    return getShadowRoot()?.getElementById('button-toolbar') as unknown as HTMLElement
-}
-
-export function getShadowRootPopoverContainer(): HTMLElement {
-    return getShadowRoot() as unknown as HTMLElement
-}
-
 export function hasCursorPointer(element: HTMLElement): boolean {
     return window.getComputedStyle(element)?.getPropertyValue('cursor') === 'pointer'
 }

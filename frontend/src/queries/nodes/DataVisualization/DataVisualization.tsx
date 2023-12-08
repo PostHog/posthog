@@ -51,7 +51,7 @@ export function DataTableVisualization(props: DataTableVisualizationProps): JSX.
         cachedResults: props.cachedResults,
     }
 
-    const { query, visualizationType, showEditingUI, showResultControls, sourceFeatures, response } =
+    const { query, visualizationType, showEditingUI, showResultControls, sourceFeatures } =
         useValues(builtDataVisualizationLogic)
 
     const setQuerySource = useCallback(
@@ -65,14 +65,17 @@ export function DataTableVisualization(props: DataTableVisualizationProps): JSX.
             <DataTable
                 uniqueKey={key}
                 query={{ kind: NodeKind.DataTableNode, source: query.source }}
-                cachedResults={response ?? props.cachedResults}
+                cachedResults={props.cachedResults}
                 context={{
                     showQueryEditor: false,
                     showOpenEditorButton: false,
                 }}
             />
         )
-    } else if (visualizationType === ChartDisplayType.ActionsLineGraph) {
+    } else if (
+        visualizationType === ChartDisplayType.ActionsLineGraph ||
+        visualizationType === ChartDisplayType.ActionsBar
+    ) {
         component = <Chart />
     }
 

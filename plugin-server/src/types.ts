@@ -219,6 +219,9 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: boolean
     SESSION_RECORDING_PARALLEL_CONSUMPTION: boolean
     SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: boolean
+    // a single partition which will output many more log messages to the console
+    // useful when that partition is lagging unexpectedly
+    SESSION_RECORDING_DEBUG_PARTITION: number | undefined
 
     // Dedicated infra values
     SESSION_RECORDING_KAFKA_HOSTS: string | undefined

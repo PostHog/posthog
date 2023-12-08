@@ -1,7 +1,7 @@
 import './HedgehogBuddy.scss'
-import './HedgehogBuddy.scss'
 
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
@@ -9,7 +9,7 @@ import { range, sampleOne, shouldIgnoreInput } from 'lib/utils'
 import { MutableRefObject, useEffect, useRef, useState } from 'react'
 
 import { HedgehogAccessories } from './HedgehogAccessories'
-import { hedgehogbuddyLogic } from './hedgehogbuddyLogic'
+import { hedgehogBuddyLogic } from './hedgehogBuddyLogic'
 import {
     AccessoryInfo,
     baseSpriteAccessoriesPath,
@@ -262,7 +262,7 @@ export class HedgehogActor {
                     // Only calculate block bounding rects once we need to
                     blocksWithBoundingRects = Array.from(
                         document.querySelectorAll(
-                            '.border, .border-t, .LemonButton--primary, .LemonButton--secondary, .LemonInput, .LemonSelect, .LemonTable'
+                            '.border, .border-t, .LemonButton--primary, .LemonButton--secondary:not(.LemonButton--is-stealth:not(.LemonButton--active)), .LemonInput, .LemonSelect, .LemonTable'
                         )
                     ).map((block) => [block, block.getBoundingClientRect()])
                 }
@@ -402,7 +402,8 @@ export function HedgehogBuddy({
     }
 
     const actor = actorRef.current
-    const { accessories } = useValues(hedgehogbuddyLogic)
+    const { accessories } = useValues(hedgehogBuddyLogic)
+    const { addAccessory } = useActions(hedgehogBuddyLogic)
 
     useEffect(() => {
         return actor.setupKeyboardListeners()
@@ -419,6 +420,14 @@ export function HedgehogBuddy({
     useEffect(() => {
         actor.darkMode = isDarkModeOn
     }, [isDarkModeOn])
+
+    // NOTE: Temporary - turns on christmas clothes for the holidays
+    useEffect(() => {
+        if (accessories.length === 0 && dayjs().month() === 11) {
+            addAccessory(standardAccessories['xmas_hat'])
+            addAccessory(standardAccessories['xmas_scarf'])
+        }
+    }, [])
 
     useEffect(() => {
         let timer: any = null
