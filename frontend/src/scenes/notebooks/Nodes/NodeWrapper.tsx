@@ -17,7 +17,7 @@ import {
     IconUnfoldLess,
     IconUnfoldMore,
 } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonMenu, LemonMenuItem } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonMenuItem, LemonMenuItems } from '@posthog/lemon-ui'
 import './NodeWrapper.scss'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { BindLogic, BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
@@ -40,7 +40,7 @@ import { notebookNodeLogicType } from './notebookNodeLogicType'
 import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
 import { NotebookNodeContext } from './NotebookNodeContext'
-import { IconEllipsis, IconGear } from '@posthog/icons'
+import { IconCopy, IconEllipsis, IconGear } from '@posthog/icons'
 
 function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperProps<T>): JSX.Element {
     const {
@@ -148,12 +148,11 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const isResizeable = resizeable && (!expandable || expanded)
     const isDraggable = !!(isEditable && getPos)
 
-    const menuItems: LemonMenuItem[] = [
+    const menuItems: LemonMenuItems = [
         {
             label: 'Copy',
-            onClick: () => {
-                copyToClipboard()
-            },
+            onClick: () => copyToClipboard(),
+            sideIcon: <IconCopy />,
         },
         isResizeable
             ? {
@@ -164,9 +163,12 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                       } as any)
                   },
               }
-            : undefined,
-        isEditable ? { label: 'Edit title', onClick: () => toggleEditingTitle(true) } : undefined,
-    ].filter(Boolean) as LemonMenuItem[]
+            : null,
+        isEditable ? { label: 'Edit title', onClick: () => toggleEditingTitle(true) } : null,
+        isEditable ? { label: 'Remove', onClick: () => deleteNode(), sideIcon: <IconClose />, status: 'danger' } : null,
+    ]
+
+    const hasMenu = menuItems.some((x) => !!x)
 
     return (
         <NotebookNodeContext.Provider value={nodeLogic}>
@@ -234,17 +236,10 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                                 active={editingNodeId === nodeId}
                                                             />
                                                         ) : null}
-
-                                                        <LemonButton
-                                                            onClick={() => deleteNode()}
-                                                            size="small"
-                                                            status="danger"
-                                                            icon={<IconClose />}
-                                                        />
                                                     </>
                                                 ) : null}
 
-                                                {menuItems.length ? (
+                                                {hasMenu ? (
                                                     <LemonMenu items={menuItems}>
                                                         <LemonButton
                                                             icon={<IconEllipsis />}
