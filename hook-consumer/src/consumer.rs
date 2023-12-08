@@ -200,6 +200,7 @@ impl<'p> WebhookConsumer<'p> {
     /// Run this consumer to continuously process any jobs that become available.
     pub async fn run(&self) -> Result<(), WebhookConsumerError> {
         loop {
+            // TODO: The number of jobs processed will be capped by the PG connection limit when running in transactional mode.
             let webhook_job = self.wait_for_job().await?;
 
             let request_timeout = self.request_timeout; // Required to avoid capturing self in closure.
