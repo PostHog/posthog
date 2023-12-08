@@ -3,15 +3,14 @@ import { NotebookNodeType, NotebookType } from '~/types'
 import { urls } from 'scenes/urls'
 import { NotebookNodeProps } from '../Notebook/utils'
 import { Notebook } from '../Notebook/Notebook'
-import { notebookLogic } from '../Notebook/notebookLogic'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeNotebookAttributes>): JSX.Element => {
     const { id } = attributes
 
-    // TODO: This is far from perfect as it will get mounted by the child so we need to somehow account for that...
-    const mountedLogic = notebookLogic.findMounted({ shortId: id })
+    // TODO: Figure out how to detect if a notebook is embedded in itself - especially via another Notebook :thinking:
+    const childOfSelf = false
 
-    if (mountedLogic) {
+    if (childOfSelf) {
         return (
             <div className="border border-dashed rounded p-4 m-4 text-center text-muted-alt italic">
                 Notebook not displayed as it is embedded in itself
