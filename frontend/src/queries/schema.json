@@ -2080,6 +2080,18 @@
             ],
             "type": "string"
         },
+        "PaginatableQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "limit": {
+                    "type": "integer"
+                },
+                "offset": {
+                    "type": "integer"
+                }
+            },
+            "type": "object"
+        },
         "PathCleaningFilter": {
             "additionalProperties": false,
             "properties": {
@@ -2692,6 +2704,9 @@
                     "const": "RetentionAppearanceQuery",
                     "type": "string"
                 },
+                "limit": {
+                    "type": "integer"
+                },
                 "offset": {
                     "type": "integer"
                 },
@@ -2705,7 +2720,7 @@
                     "$ref": "#/definitions/RetentionQuery"
                 }
             },
-            "required": ["kind", "source", "selectedInterval"],
+            "required": ["kind", "selectedInterval", "source"],
             "type": "object"
         },
         "RetentionEntity": {

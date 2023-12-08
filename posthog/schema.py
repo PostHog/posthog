@@ -376,6 +376,14 @@ class NodeKind(str, Enum):
     DatabaseSchemaQuery = "DatabaseSchemaQuery"
 
 
+class PaginatableQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    limit: Optional[int] = None
+    offset: Optional[int] = None
+
+
 class PathCleaningFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1898,6 +1906,7 @@ class RetentionAppearanceQuery(BaseModel):
         extra="forbid",
     )
     kind: Literal["RetentionAppearanceQuery"] = "RetentionAppearanceQuery"
+    limit: Optional[int] = None
     offset: Optional[int] = None
     response: Optional[RetentionTablePeoplePayload] = None
     selectedInterval: int

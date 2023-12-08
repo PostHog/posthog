@@ -767,13 +767,18 @@ export interface InsightPersonsQuery {
     response?: PersonsQueryResponse
 }
 
-export interface RetentionAppearanceQuery {
+export interface PaginatableQuery {
+    /** @asType integer */
+    limit?: number
+    /** @asType integer */
+    offset?: number
+}
+
+export interface RetentionAppearanceQuery extends PaginatableQuery {
     kind: NodeKind.RetentionAppearanceQuery
     source: RetentionQuery
     /** @asType integer */
     selectedInterval: number
-    /** @asType integer */
-    offset?: number
     response?: RetentionTablePeoplePayload
 }
 
