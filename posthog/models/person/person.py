@@ -145,7 +145,7 @@ class PendingPersonOverride(models.Model):
 class FlatPersonOverride(models.Model):
     # TODO: What additional constraints here make sense (and are practical to implement?)
     id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
-    team_id = models.BigIntegerField()  # TODO: Foreign key or not?
+    team_id = models.BigIntegerField()
     old_person_id = models.UUIDField()
     override_person_id = models.UUIDField()
     oldest_event = models.DateTimeField()
