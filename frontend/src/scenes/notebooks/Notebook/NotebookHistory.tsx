@@ -1,20 +1,21 @@
-import { useActions, useValues } from 'kea'
-import { notebookLogic } from './notebookLogic'
-import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { TZLabel } from '@posthog/apps-common'
 import {
     LemonBanner,
     LemonButton,
     LemonSkeleton,
+    lemonToast,
     LemonWidget,
     PaginationControl,
     ProfilePicture,
-    lemonToast,
     usePagination,
 } from '@posthog/lemon-ui'
 import { JSONContent } from '@tiptap/core'
+import { useActions, useValues } from 'kea'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
-import { TZLabel } from '@posthog/apps-common'
+import { ActivityLogItem, ActivityScope, userNameForLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { useMemo } from 'react'
+
+import { notebookLogic } from './notebookLogic'
 
 const getFieldChange = (logItem: ActivityLogItem, field: string): any => {
     return logItem.detail.changes?.find((x) => x.field === field)?.after
@@ -42,7 +43,7 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
                     </div>
                 ) : (
                     activityWithChangedContent?.map((logItem: ActivityLogItem) => {
-                        const name = logItem.user.is_system ? 'System' : logItem.user.first_name
+                        const name = userNameForLogItem(logItem)
                         const isCurrent = getFieldChange(logItem, 'version') === notebook?.version
                         const changedContent = getFieldChange(logItem, 'content')
                         const isButton = changedContent && !isCurrent
@@ -50,9 +51,9 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
                         const buttonContent = (
                             <span className="flex flex-1 gap-2 items-center p-2">
                                 <ProfilePicture
-                                    name={logItem.user.is_system ? logItem.user.first_name : undefined}
-                                    type={logItem.user.is_system ? 'system' : 'person'}
-                                    email={logItem.user.email ?? undefined}
+                                    name={logItem.is_system ? name : undefined}
+                                    type={logItem.is_system ? 'system' : 'person'}
+                                    email={logItem.user?.email ?? undefined}
                                     size={'md'}
                                 />
                                 <span className="flex-1">

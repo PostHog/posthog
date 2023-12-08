@@ -1,11 +1,13 @@
+import { events, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
-import { kea, path, listeners, events } from 'kea'
 import api from 'lib/api'
-import { OrganizationInviteType } from '~/types'
-import type { invitesLogicType } from './invitesLogicType'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+
+import { OrganizationInviteType } from '~/types'
+
+import type { invitesLogicType } from './invitesLogicType'
 
 export const invitesLogic = kea<invitesLogicType>([
     path(['scenes', 'organization', 'Settings', 'invitesLogic']),

@@ -241,7 +241,7 @@ python-dateutil==2.8.2
     #   -r requirements-dev.in
     #   faker
     #   freezegun
-pytz==2021.1
+pytz==2023.3
     # via
     #   -c requirements.txt
     #   django
@@ -306,7 +306,7 @@ types-markdown==3.3.9
     # via -r requirements-dev.in
 types-python-dateutil==2.8.3
     # via -r requirements-dev.in
-types-pytz==2021.3.2
+types-pytz==2023.3
     # via -r requirements-dev.in
 types-pyyaml==6.0.1
     # via
@@ -343,8 +343,10 @@ urllib3-secure-extra==0.1.0
     #   urllib3
 watchdog==2.1.8
     # via pytest-watch
-wheel==0.38.1
-    # via pip-tools
+wheel==0.42.0
+    # via
+    #   -c requirements.txt
+    #   pip-tools
 
 # The following packages are considered to be unsafe in a requirements file:
 # pip

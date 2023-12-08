@@ -11,14 +11,14 @@
         }
 
         h4 {
-            font-size: 1.1em;
+            position: relative;
             display: flex;
             align-items: center;
-            border-bottom: 1px solid var(--border);
             padding: 0.5rem 1rem;
-            margin-left: -1rem;
             margin-right: -1rem;
-            position: relative;
+            margin-left: -1rem;
+            font-size: 1.1em;
+            border-bottom: 1px solid var(--border);
 
             .close-button {
                 position: absolute;

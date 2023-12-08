@@ -1,23 +1,13 @@
+import clsx from 'clsx'
 import { useValues } from 'kea'
-
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
-
-import { QueryContext } from '~/queries/types'
-import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightType, ItemMode } from '~/types'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { Animation } from 'lib/components/Animation/Animation'
 import { AnimationType } from 'lib/animations/animations'
+import { Animation } from 'lib/components/Animation/Animation'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
-
-import { InsightDisplayConfig } from './InsightDisplayConfig'
+import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
-import { TrendInsight } from 'scenes/trends/Trends'
-import { RetentionContainer } from 'scenes/retention/RetentionContainer'
-import { Paths } from 'scenes/paths/Paths'
-import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import {
     FunnelInvalidExclusionState,
     FunnelSingleStepState,
@@ -25,14 +15,23 @@ import {
     InsightErrorState,
     InsightTimeoutState,
 } from 'scenes/insights/EmptyStates'
-import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
-import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
-import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { FunnelCorrelation } from 'scenes/insights/views/Funnels/FunnelCorrelation'
+import { FunnelStepsTable } from 'scenes/insights/views/Funnels/FunnelStepsTable'
+import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
+import { Paths } from 'scenes/paths/Paths'
+import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
+import { RetentionContainer } from 'scenes/retention/RetentionContainer'
+import { TrendInsight } from 'scenes/trends/Trends'
+
+import { QueryContext } from '~/queries/types'
+import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightType, ItemMode } from '~/types'
+
+import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
-import clsx from 'clsx'
-import { Funnel } from 'scenes/funnels/Funnel'
 
 export function InsightVizDisplay({
     disableHeader,

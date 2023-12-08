@@ -1,4 +1,3 @@
-import { StatsD } from 'hot-shots'
 import { Batch, EachBatchHandler, Kafka } from 'kafkajs'
 import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
@@ -7,7 +6,7 @@ import { DependencyUnavailableError } from '../../utils/db/error'
 import { status } from '../../utils/status'
 import Piscina from '../../worker/piscina'
 import { instrumentEachBatchKafkaJS, setupEventHandlers } from './kafka-queue'
-import { latestOffsetTimestampGauge } from './metrics'
+import { latestOffsetTimestampGauge, scheduledTaskCounter } from './metrics'
 
 // The valid task types that can be scheduled.
 // TODO: not sure if there is another place that defines these but it would be good to unify.
@@ -18,13 +17,11 @@ export const startScheduledTasksConsumer = async ({
     producer,
     piscina,
     partitionConcurrency = 3,
-    statsd,
 }: {
     kafka: Kafka
     producer: KafkaProducerWrapper
     piscina: Piscina
     partitionConcurrency: number
-    statsd?: StatsD
 }) => {
     /*
 
@@ -77,7 +74,7 @@ export const startScheduledTasksConsumer = async ({
                     pluginConfigId,
                     durationSeconds: (performance.now() - startTime) / 1000,
                 })
-                statsd?.increment('completed_scheduled_task', { taskType })
+                scheduledTaskCounter.labels({ status: 'completed', task: taskType }).inc()
             } catch (error) {
                 // TODO: figure out a nice way to test this code path.
 
@@ -92,7 +89,7 @@ export const startScheduledTasksConsumer = async ({
                         error: error,
                         stack: error.stack,
                     })
-                    statsd?.increment('retriable_scheduled_task', { taskType })
+                    scheduledTaskCounter.labels({ status: 'error', task: taskType }).inc()
                     throw error
                 }
 
@@ -103,7 +100,7 @@ export const startScheduledTasksConsumer = async ({
                     stack: error.stack,
                 })
                 resolveOffset(message.offset)
-                statsd?.increment('failed_scheduled_tasks', { taskType })
+                scheduledTaskCounter.labels({ status: 'failed', task: taskType }).inc()
             } finally {
                 clearInterval(heartbeatInterval)
             }
@@ -130,7 +127,7 @@ export const startScheduledTasksConsumer = async ({
     await consumer.run({
         partitionsConsumedConcurrently: partitionConcurrency,
         eachBatch: async (payload) => {
-            return await instrumentEachBatchKafkaJS(KAFKA_SCHEDULED_TASKS, eachBatch, payload, statsd)
+            return await instrumentEachBatchKafkaJS(KAFKA_SCHEDULED_TASKS, eachBatch, payload)
         },
     })
 

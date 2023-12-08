@@ -1,15 +1,17 @@
+import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonDivider, LemonSelect } from '@posthog/lemon-ui'
-import { sdksLogic } from './sdksLogic'
 import { useActions, useValues } from 'kea'
-import { OnboardingStep } from '../OnboardingStep'
-import { SDKSnippet } from './SDKSnippet'
-import { OnboardingStepKey, onboardingLogic } from '../onboardingLogic'
+import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { useEffect } from 'react'
 import React from 'react'
-import { SDKInstructionsMap } from '~/types'
+
 import { InviteMembersButton } from '~/layout/navigation/TopBar/SitePopover'
-import { IconArrowLeft } from '@posthog/icons'
-import { useWindowSize } from 'lib/hooks/useWindowSize'
+import { SDKInstructionsMap } from '~/types'
+
+import { onboardingLogic, OnboardingStepKey } from '../onboardingLogic'
+import { OnboardingStep } from '../OnboardingStep'
+import { sdksLogic } from './sdksLogic'
+import { SDKSnippet } from './SDKSnippet'
 
 export function SDKs({
     usersAction,
@@ -71,7 +73,14 @@ export function SDKs({
                                 onClick={selectedSDK?.key !== sdk.key ? () => setSelectedSDK(sdk) : undefined}
                                 fullWidth
                                 icon={
-                                    typeof sdk.image === 'string' ? <img src={sdk.image} className="w-4" /> : sdk.image
+                                    typeof sdk.image === 'string' ? (
+                                        <img src={sdk.image} className="w-4" />
+                                    ) : // storybook handles require() differently and returns an object, from which we can use the url in .default
+                                    typeof sdk.image === 'object' && 'default' in sdk.image ? (
+                                        <img src={sdk.image.default} className="w-4" />
+                                    ) : (
+                                        sdk.image
+                                    )
                                 }
                             >
                                 {sdk.name}

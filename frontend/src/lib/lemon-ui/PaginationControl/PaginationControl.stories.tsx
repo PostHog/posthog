@@ -1,4 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
 import { PaginationControl, PaginationControlProps } from './PaginationControl'
 import { usePagination } from './usePagination'
 

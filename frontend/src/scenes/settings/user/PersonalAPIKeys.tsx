@@ -1,13 +1,16 @@
-import { useState, useCallback, Dispatch, SetStateAction, useEffect } from 'react'
-import { useActions, useValues } from 'kea'
-import { personalAPIKeysLogic } from './personalAPIKeysLogic'
-import { PersonalAPIKeyType } from '~/types'
-import { humanFriendlyDetailedTime } from 'lib/utils'
-import { CopyToClipboardInline } from '../../../lib/components/CopyToClipboard'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog, LemonInput, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { useActions, useValues } from 'kea'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconPlus } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { humanFriendlyDetailedTime } from 'lib/utils'
+import { Dispatch, SetStateAction, useCallback, useEffect, useState } from 'react'
+
+import { PersonalAPIKeyType } from '~/types'
+
+import { CopyToClipboardInline } from '../../../lib/components/CopyToClipboard'
+import { personalAPIKeysLogic } from './personalAPIKeysLogic'
 
 function CreateKeyModal({
     isOpen,
@@ -71,6 +74,7 @@ function CreateKeyModal({
 function PersonalAPIKeysTable(): JSX.Element {
     const { keys } = useValues(personalAPIKeysLogic) as { keys: PersonalAPIKeyType[] }
     const { deleteKey, loadKeys } = useActions(personalAPIKeysLogic)
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     useEffect(() => loadKeys(), [])
 
@@ -119,8 +123,8 @@ function PersonalAPIKeysTable(): JSX.Element {
                         return (
                             <LemonButton
                                 status="danger"
-                                type="primary"
-                                size="small"
+                                type={is3000 ? 'tertiary' : 'primary'}
+                                size="xsmall"
                                 onClick={() => {
                                     LemonDialog.open({
                                         title: `Permanently delete key "${key.label}"?`,

@@ -1,13 +1,15 @@
 // Login.stories.tsx
 import { Meta, StoryFn } from '@storybook/react'
-import { Login } from './Login'
-import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
-import { useEffect } from 'react'
-import preflightJson from '../../mocks/fixtures/_preflight.json'
 import { router } from 'kea-router'
+import { useEffect } from 'react'
 import { urls } from 'scenes/urls'
-import { loginLogic } from './loginLogic'
+
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+
+import preflightJson from '../../mocks/fixtures/_preflight.json'
+import { Login } from './Login'
 import { Login2FA } from './Login2FA'
+import { loginLogic } from './loginLogic'
 
 const meta: Meta = {
     title: 'Scenes-Other/Login',

@@ -1,17 +1,19 @@
-import { OnboardingStep } from './OnboardingStep'
-import { PlanComparison } from 'scenes/billing/PlanComparison'
-import { useActions, useValues } from 'kea'
-import { billingLogic } from 'scenes/billing/billingLogic'
-import { OnboardingStepKey, onboardingLogic } from './onboardingLogic'
-import { BillingProductV2Type } from '~/types'
-import { Spinner } from 'lib/lemon-ui/Spinner'
-import { BillingHero } from 'scenes/billing/BillingHero'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
-import { getUpgradeProductLink } from 'scenes/billing/billing-utils'
-import { billingProductLogic } from 'scenes/billing/billingProductLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { IconCheckCircleOutline } from 'lib/lemon-ui/icons'
+import { useActions, useValues } from 'kea'
 import { StarHog } from 'lib/components/hedgehogs'
+import { IconCheckCircleOutline } from 'lib/lemon-ui/icons'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getUpgradeProductLink } from 'scenes/billing/billing-utils'
+import { BillingHero } from 'scenes/billing/BillingHero'
+import { billingLogic } from 'scenes/billing/billingLogic'
+import { billingProductLogic } from 'scenes/billing/billingProductLogic'
+import { PlanComparison } from 'scenes/billing/PlanComparison'
+
+import { BillingProductV2Type } from '~/types'
+
+import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
+import { OnboardingStep } from './OnboardingStep'
 
 export const OnboardingBillingStep = ({
     product,
@@ -65,7 +67,7 @@ export const OnboardingBillingStep = ({
                                     <StarHog className="h-full w-full" />
                                 </div>
                             </div>
-                            {currentPlan.initial_billing_limit && (
+                            {currentPlan?.initial_billing_limit && (
                                 <div className="mt-2">
                                     <LemonBanner type="info">
                                         To protect your costs and ours, this product has an initial billing limit of $

@@ -26,9 +26,9 @@ from prometheus_client import Counter, Gauge
 
 from posthog.cloud_utils import is_cloud
 from posthog.metrics import pushed_metrics_registry
+from posthog.ph_client import get_ph_client
 from posthog.redis import get_client
 from posthog.utils import get_crontab
-from posthog.ph_client import get_ph_client
 
 # set the default Django settings module for the 'celery' program.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -101,7 +101,7 @@ def on_worker_start(**kwargs) -> None:
     from posthog.settings import sentry_init
 
     sentry_init()
-    start_http_server(8001)
+    start_http_server(int(os.getenv("CELERY_METRICS_PORT", "8001")))
 
 
 def add_periodic_task_with_expiry(
@@ -148,11 +148,18 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     )
 
     # Send all instance usage to the Billing service
+    # Sends later on Sunday due to clickhouse things that happen on Sunday at ~00:00 UTC
     sender.add_periodic_task(
-        crontab(hour="0", minute="5"),
+        crontab(hour="2", minute="15", day_of_week="mon"),
         send_org_usage_reports.s(),
         name="send instance usage report",
     )
+    sender.add_periodic_task(
+        crontab(hour="0", minute="15", day_of_week="tue,wed,thu,fri,sat,sun"),
+        send_org_usage_reports.s(),
+        name="send instance usage report",
+    )
+
     # Update local usage info for rate limiting purposes - offset by 30 minutes to not clash with the above
     sender.add_periodic_task(
         crontab(hour="*", minute="30"),
@@ -395,25 +402,19 @@ def redis_heartbeat():
 
 
 @app.task(ignore_result=True, bind=True)
-def enqueue_clickhouse_execute_with_progress(
-    self, team_id, query_id, query, args=None, settings=None, with_column_types=False
-):
+def process_query_task(self, team_id, query_id, query_json, limit_context=None, refresh_requested=False):
     """
-    Kick off query with progress reporting
-    Iterate over the progress status
-    Save status to redis
+    Kick off query
     Once complete save results to redis
     """
-    from posthog.client import execute_with_progress
+    from posthog.client import execute_process_query
 
-    execute_with_progress(
-        team_id,
-        query_id,
-        query,
-        args,
-        settings,
-        with_column_types,
-        task_id=self.request.id,
+    execute_process_query(
+        team_id=team_id,
+        query_id=query_id,
+        query_json=query_json,
+        limit_context=limit_context,
+        refresh_requested=refresh_requested,
     )
 
 
@@ -515,10 +516,10 @@ def pg_row_count():
 
 
 CLICKHOUSE_TABLES = [
-    "events",
+    "sharded_events",
     "person",
     "person_distinct_id2",
-    "session_replay_events",
+    "sharded_session_replay_events",
     "log_entries",
 ]
 if not is_cloud():
@@ -540,9 +541,8 @@ def clickhouse_lag():
         )
         for table in CLICKHOUSE_TABLES:
             try:
-                QUERY = (
-                    """select max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag from {table};"""
-                )
+                QUERY = """SELECT max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag
+                    FROM {table}"""
                 query = QUERY.format(table=table)
                 lag = sync_execute(query)[0][2]
                 statsd.gauge(
@@ -688,9 +688,8 @@ def clickhouse_row_count():
         )
         for table in CLICKHOUSE_TABLES:
             try:
-                QUERY = (
-                    """select count(1) freq from {table} where _timestamp >= toStartOfDay(date_sub(DAY, 2, now()));"""
-                )
+                QUERY = """SELECT sum(rows) rows from system.parts
+                       WHERE table = '{table}' and active;"""
                 query = QUERY.format(table=table)
                 rows = sync_execute(query)[0][0]
                 row_count_gauge.labels(table_name=table).set(rows)
@@ -745,10 +744,11 @@ def clickhouse_part_count():
     from posthog.client import sync_execute
 
     QUERY = """
-        select table, count(1) freq
-        from system.parts
-        group by table
-        order by freq desc;
+        SELECT table, count(1) freq
+        FROM system.parts
+        WHERE active
+        GROUP BY table
+        ORDER BY freq DESC;
     """
     rows = sync_execute(QUERY)
 
@@ -911,6 +911,7 @@ def debug_task(self):
 @app.task(ignore_result=True)
 def calculate_decide_usage() -> None:
     from django.db.models import Q
+
     from posthog.models import Team
     from posthog.models.feature_flag.flag_analytics import capture_team_decide_usage
 
@@ -927,6 +928,7 @@ def calculate_decide_usage() -> None:
 @app.task(ignore_result=True)
 def calculate_external_data_rows_synced() -> None:
     from django.db.models import Q
+
     from posthog.models import Team
     from posthog.tasks.warehouse import (
         capture_workspace_rows_synced_by_team,

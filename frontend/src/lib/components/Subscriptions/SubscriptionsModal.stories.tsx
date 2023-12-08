@@ -1,13 +1,15 @@
-import { useRef, useState } from 'react'
 import { Meta } from '@storybook/react'
-import { SubscriptionsModal, SubscriptionsModalProps } from './SubscriptionsModal'
-import { AvailableFeature, InsightShortId, Realm } from '~/types'
-import preflightJson from '~/mocks/fixtures/_preflight.json'
-import { useAvailableFeatures } from '~/mocks/features'
-import { uuid } from 'lib/utils'
-import { useStorybookMocks } from '~/mocks/browser'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { uuid } from 'lib/utils'
+import { useRef, useState } from 'react'
+
+import { useStorybookMocks } from '~/mocks/browser'
+import { useAvailableFeatures } from '~/mocks/features'
+import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { createMockSubscription, mockIntegration, mockSlackChannels } from '~/test/mocks'
+import { AvailableFeature, InsightShortId, Realm } from '~/types'
+
+import { SubscriptionsModal, SubscriptionsModalProps } from './SubscriptionsModal'
 
 const meta: Meta<typeof SubscriptionsModal> = {
     title: 'Components/Subscriptions',

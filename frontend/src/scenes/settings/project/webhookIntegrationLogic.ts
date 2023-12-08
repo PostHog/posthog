@@ -1,9 +1,10 @@
+import { kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { kea, path, selectors, listeners } from 'kea'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
+
 import type { webhookIntegrationLogicType } from './webhookIntegrationLogicType'
 
 function adjustDiscordWebhook(webhookUrl: string): string {

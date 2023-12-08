@@ -1,5 +1,6 @@
 body:not(.posthog-3000) {
-    .LemonButton {
+    .LemonButton,
+    .Link.LemonButton {
         --lemon-button-height: 2.5rem;
 
         min-height: var(--lemon-button-height);
@@ -9,9 +10,9 @@ body:not(.posthog-3000) {
         }
 
         &.LemonButton--xsmall {
-            padding: 0.125rem 0.375rem;
-
             --lemon-button-height: 1.5rem;
+
+            padding: 0.125rem 0.375rem;
 
             &.LemonButton--has-icon:not(.LemonButton--no-padding),
             &.LemonButton--no-content:not(.LemonButton--no-padding) {
@@ -25,7 +26,7 @@ body:not(.posthog-3000) {
         }
 
         &.LemonButton--small,
-        .Breadcrumbs3000 & {
+        .TopBar3000 & {
             --lemon-button-height: 2rem;
 
             padding: 0.125rem 0.5rem;
@@ -42,7 +43,14 @@ body:not(.posthog-3000) {
         }
 
         &.LemonButton--full-width {
+            padding-right: 0.5rem;
+            padding-left: 0.5rem;
             overflow: hidden;
+
+            > span,
+            .LemonButton__content {
+                overflow: hidden;
+            }
         }
 
         &.LemonButton--large {
@@ -62,12 +70,12 @@ body:not(.posthog-3000) {
         }
 
         &.LemonButton--no-padding {
-            min-height: 0;
-            height: auto;
             width: auto;
+            height: auto;
+            min-height: 0;
             padding: 0;
-            padding-left: 0;
             padding-right: 0;
+            padding-left: 0;
 
             &.LemonButton--full-width {
                 width: 100%;
@@ -81,8 +89,8 @@ body:not(.posthog-3000) {
 
             &:not([aria-disabled='true']):hover,
             &.LemonButton--active {
-                background: var(--primary-highlight);
                 color: inherit; // Avoid links being colored on hover
+                background: var(--primary-highlight);
             }
 
             &.LemonButton--active {
@@ -119,9 +127,15 @@ body:not(.posthog-3000) {
 
         @each $status in ('primary', 'danger', 'primary-alt', 'muted') {
             &.LemonButton--status-#{$status} {
+                color: var(--#{$status}-3000, var(--#{$status}, var(--primary)));
+
                 &:not([aria-disabled='true']):hover,
                 &.LemonButton--active {
                     background: var(--#{$status}-highlight, var(--primary-highlight));
+                }
+
+                .LemonButton__icon {
+                    color: var(--#{$status}-3000, var(--#{$status}));
                 }
 
                 &:not([aria-disabled='true']):active {
@@ -134,6 +148,9 @@ body:not(.posthog-3000) {
 
                 // Primary - blocked color style
                 &.LemonButton--primary {
+                    color: #fff;
+                    background: var(--#{$status}-3000, var(--#{$status}));
+
                     .LemonButton__icon {
                         color: #fff;
                     }
@@ -178,12 +195,12 @@ body:not(.posthog-3000) {
     }
 
     .LemonButtonWithSideAction__spacer {
-        height: 1.5rem;
         width: 1.5rem;
+        height: 1.5rem;
 
         &.LemonButtonWithSideAction__spacer--divider {
-            opacity: 0.17;
             padding-left: 0.375rem;
+            opacity: 0.17;
         }
 
         .LemonButton--small & {

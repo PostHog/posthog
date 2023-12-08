@@ -1,7 +1,8 @@
-import { useState } from 'react'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { CohortSelectorField } from './CohortField'
+import { useState } from 'react'
 import { CohortSelectorFieldProps, FieldOptionsType } from 'scenes/cohorts/CohortFilters/types'
+
+import { CohortSelectorField } from './CohortField'
 
 type Story = StoryObj<typeof CohortSelectorField>
 const meta: Meta<typeof CohortSelectorField> = {

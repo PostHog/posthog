@@ -1,18 +1,18 @@
 import { BreakPointFunction, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilitySensorLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { EntityTypes, FunnelCorrelationResultsType, FunnelsFilterType, InsightLogicProps } from '~/types'
-import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilitySensorLogic'
 
-import type { funnelCorrelationUsageLogicType } from './funnelCorrelationUsageLogicType'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { parseEventAndProperty } from './funnelUtils'
-import { funnelPersonsModalLogic } from './funnelPersonsModalLogic'
-import { funnelDataLogic } from './funnelDataLogic'
 import { funnelCorrelationLogic } from './funnelCorrelationLogic'
+import type { funnelCorrelationUsageLogicType } from './funnelCorrelationUsageLogicType'
+import { funnelDataLogic } from './funnelDataLogic'
+import { funnelPersonsModalLogic } from './funnelPersonsModalLogic'
 import { funnelPropertyCorrelationLogic } from './funnelPropertyCorrelationLogic'
+import { parseEventAndProperty } from './funnelUtils'
 
 export const funnelCorrelationUsageLogic = kea<funnelCorrelationUsageLogicType>([
     props({} as InsightLogicProps),

@@ -1,16 +1,16 @@
-import { windowValues } from 'kea-window-values'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { kea, path, connect, actions, reducers, selectors, listeners } from 'kea'
+import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
+
 import type { navigationLogicType } from './navigationLogicType'
-import { membersLogic } from 'scenes/organization/membersLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { Scene } from 'scenes/sceneTypes'
 
 export type ProjectNoticeVariant =
     | 'demo_project'
@@ -22,7 +22,7 @@ export type ProjectNoticeVariant =
 export const navigationLogic = kea<navigationLogicType>([
     path(['layout', 'navigation', 'navigationLogic']),
     connect(() => ({
-        values: [sceneLogic, ['sceneConfig', 'activeScene'], membersLogic, ['members', 'membersLoading']],
+        values: [sceneLogic, ['sceneConfig'], membersLogic, ['members', 'membersLoading']],
         actions: [eventUsageLogic, ['reportProjectNoticeDismissed']],
     })),
     actions({
@@ -121,10 +121,9 @@ export const navigationLogic = kea<navigationLogicType>([
             (fullscreen, sceneConfig) => fullscreen || sceneConfig?.layout === 'plain',
         ],
         minimalTopBar: [
-            (s) => [s.activeScene],
-            (activeScene) => {
-                const minimalTopBarScenes = [Scene.Products, Scene.Onboarding]
-                return activeScene && minimalTopBarScenes.includes(activeScene)
+            (s) => [s.sceneConfig],
+            (sceneConfig) => {
+                return sceneConfig?.layout === 'plain' && !sceneConfig.allowUnauthenticated
             },
         ],
         isSideBarShown: [

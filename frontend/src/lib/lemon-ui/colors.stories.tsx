@@ -1,7 +1,8 @@
 import { Meta } from '@storybook/react'
-import { Popover } from './Popover/Popover'
 import { useState } from 'react'
+
 import { LemonTable } from './LemonTable'
+import { Popover } from './Popover/Popover'
 
 const meta: Meta = {
     title: 'Lemon UI/Colors',

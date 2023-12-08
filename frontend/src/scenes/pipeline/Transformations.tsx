@@ -1,3 +1,7 @@
+import { DndContext, DragEndEvent } from '@dnd-kit/core'
+import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
+import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import {
     LemonBadge,
     LemonButton,
@@ -10,21 +14,21 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { pipelineTransformationsLogic } from './transformationsLogic'
-import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
-import { PipelineAppTabs, PipelineTabs, PluginConfigTypeNew, PluginType, ProductKey } from '~/types'
-import { urls } from 'scenes/urls'
-import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { DndContext, DragEndEvent } from '@dnd-kit/core'
-import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
-import { CSS } from '@dnd-kit/utilities'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { deleteWithUndo, humanFriendlyDetailedTime } from 'lib/utils'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
-import { dayjs } from 'lib/dayjs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { dayjs } from 'lib/dayjs'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
+import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { humanFriendlyDetailedTime } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
+import { urls } from 'scenes/urls'
+
+import { PipelineAppTabs, PipelineTabs, PluginConfigTypeNew, ProductKey } from '~/types'
+
 import { NewButton } from './NewButton'
+import { pipelineTransformationsLogic } from './transformationsLogic'
+import { RenderApp } from './utils'
 
 export function Transformations(): JSX.Element {
     const {
@@ -284,32 +288,6 @@ export function Transformations(): JSX.Element {
                 </>
             )}
         </>
-    )
-}
-
-type RenderAppProps = {
-    plugin: PluginType
-}
-
-function RenderApp({ plugin }: RenderAppProps): JSX.Element {
-    return (
-        <div className="flex items-center gap-4">
-            <Tooltip
-                title={
-                    <>
-                        {plugin.name}
-                        <br />
-                        {plugin.description}
-                        <br />
-                        Click to view app source code
-                    </>
-                }
-            >
-                <Link to={plugin.url} target="_blank">
-                    <PluginImage plugin={plugin} />
-                </Link>
-            </Tooltip>
-        </div>
     )
 }
 

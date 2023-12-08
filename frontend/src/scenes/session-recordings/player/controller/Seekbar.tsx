@@ -1,15 +1,18 @@
 import './Seekbar.scss'
-import { useEffect, useRef } from 'react'
-import { useActions, useValues } from 'kea'
+
 import clsx from 'clsx'
-import { seekbarLogic } from './seekbarLogic'
+import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
+
 import { RecordingSegment } from '~/types'
+
+import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
 import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { Timestamp } from './PlayerControllerTime'
-import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
 import { PlayerSeekbarPreview } from './PlayerSeekbarPreview'
 import { PlayerSeekbarTicks } from './PlayerSeekbarTicks'
+import { seekbarLogic } from './seekbarLogic'
 
 export function Seekbar(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -18,7 +21,7 @@ export function Seekbar(): JSX.Element {
     const { endTimeMs, thumbLeftPos, bufferPercent, isScrubbing } = useValues(seekbarLogic(logicProps))
 
     const { handleDown, setSlider, setThumb } = useActions(seekbarLogic(logicProps))
-    const { sessionPlayerData } = useValues(sessionRecordingDataLogic(logicProps))
+    const { sessionPlayerData, sessionPlayerMetaData } = useValues(sessionRecordingDataLogic(logicProps))
 
     const sliderRef = useRef<HTMLDivElement | null>(null)
     const thumbRef = useRef<HTMLDivElement | null>(null)
@@ -77,7 +80,16 @@ export function Seekbar(): JSX.Element {
                             style={{ transform: `translateX(${thumbLeftPos}px)` }}
                         />
 
-                        <PlayerSeekbarPreview minMs={0} maxMs={sessionPlayerData.durationMs} seekBarRef={seekBarRef} />
+                        <PlayerSeekbarPreview
+                            minMs={0}
+                            maxMs={sessionPlayerData.durationMs}
+                            seekBarRef={seekBarRef}
+                            activeMs={
+                                sessionPlayerMetaData?.active_seconds
+                                    ? sessionPlayerMetaData.active_seconds * 1000
+                                    : null
+                            }
+                        />
                     </div>
                 </div>
             </div>

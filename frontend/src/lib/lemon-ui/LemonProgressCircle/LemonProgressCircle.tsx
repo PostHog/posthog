@@ -1,5 +1,6 @@
-import clsx from 'clsx'
 import './LemonProgressCircle.scss'
+
+import clsx from 'clsx'
 
 export type LemonProgressCircleProps = {
     strokePercentage?: number

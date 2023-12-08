@@ -1,10 +1,12 @@
 import { afterMount, connect, kea, key, path, props, selectors } from 'kea'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { notebooksModel } from '~/models/notebooksModel'
 import { Breadcrumb, NotebookTarget } from '~/types'
 
-import type { notebookSceneLogicType } from './notebookSceneLogicType'
 import { notebookLogic } from './Notebook/notebookLogic'
-import { urls } from 'scenes/urls'
-import { notebooksModel } from '~/models/notebooksModel'
+import type { notebookSceneLogicType } from './notebookSceneLogicType'
 
 export type NotebookSceneLogicProps = {
     shortId: string
@@ -29,11 +31,13 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
             (s) => [s.notebook, s.loading],
             (notebook, loading): Breadcrumb[] => [
                 {
+                    key: Scene.Notebooks,
                     name: 'Notebooks',
                     path: urls.notebooks(),
                 },
                 {
-                    name: notebook ? notebook?.title || 'Unnamed' : loading ? 'Loading...' : 'Notebook not found',
+                    key: notebook?.short_id || 'new',
+                    name: notebook ? notebook?.title || 'Unnamed' : loading ? null : 'Notebook not found',
                 },
             ],
         ],

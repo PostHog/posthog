@@ -1,4 +1,5 @@
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+
 import { FilterType } from '~/types'
 
 describe('formatAggregationAxisValue', () => {

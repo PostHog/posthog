@@ -1,5 +1,5 @@
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { windowValues } from 'kea-window-values'
-import { kea, props, key, path, actions, reducers, selectors, listeners } from 'kea'
 
 import type { visibilitySensorLogicType } from './visibilitySensorLogicType'
 export const visibilitySensorLogic = kea<visibilitySensorLogicType>([

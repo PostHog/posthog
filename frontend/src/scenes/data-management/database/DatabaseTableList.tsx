@@ -1,7 +1,8 @@
-import { databaseTableListLogic } from './databaseTableListLogic'
-import { useActions, useValues } from 'kea'
 import { LemonInput, Link } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { DatabaseTablesContainer } from 'scenes/data-management/database/DatabaseTables'
+
+import { databaseTableListLogic } from './databaseTableListLogic'
 
 export function DatabaseTableList(): JSX.Element {
     const { searchTerm } = useValues(databaseTableListLogic)

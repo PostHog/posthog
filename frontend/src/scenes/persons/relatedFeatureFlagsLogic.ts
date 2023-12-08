@@ -1,13 +1,14 @@
 import Fuse from 'fuse.js'
-import { actions, connect, events, kea, key, path, props, selectors, reducers } from 'kea'
+import { actions, connect, events, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { FeatureFlagReleaseType, FeatureFlagType } from '~/types'
-import { FeatureFlagMatchReason } from './RelatedFeatureFlags'
 
+import { FeatureFlagReleaseType, FeatureFlagType } from '~/types'
+
+import { FeatureFlagMatchReason } from './RelatedFeatureFlags'
 import type { relatedFeatureFlagsLogicType } from './relatedFeatureFlagsLogicType'
 export interface RelatedFeatureFlag extends FeatureFlagType {
     value: boolean | string

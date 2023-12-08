@@ -1,13 +1,15 @@
 import { useValues } from 'kea'
-import { urls } from 'scenes/urls'
-import { IngestionWarning, ingestionWarningsLogic, IngestionWarningSummary } from './ingestionWarningsLogic'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { TZLabel } from 'lib/components/TZLabel'
-import { Link } from 'lib/lemon-ui/Link'
-import { TableCellSparkline } from 'lib/lemon-ui/LemonTable/TableCellSparkline'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { ProductKey } from '~/types'
 import { ReadingHog } from 'lib/components/hedgehogs'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { TZLabel } from 'lib/components/TZLabel'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { TableCellSparkline } from 'lib/lemon-ui/LemonTable/TableCellSparkline'
+import { Link } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
+
+import { ProductKey } from '~/types'
+
+import { IngestionWarning, ingestionWarningsLogic, IngestionWarningSummary } from './ingestionWarningsLogic'
 
 const WARNING_TYPE_TO_DESCRIPTION = {
     cannot_merge_already_identified: 'Refused to merge an already identified user',

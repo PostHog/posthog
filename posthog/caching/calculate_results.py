@@ -141,7 +141,7 @@ def calculate_for_query_based_insight(
     )
 
     # local import to avoid circular reference
-    from posthog.api.query import process_query
+    from posthog.api.services.query import process_query
 
     # TODO need to properly check that hogql is enabled?
     return cache_key, cache_type, process_query(team, insight.query, True)

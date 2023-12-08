@@ -1,8 +1,9 @@
-import { initKeaTests } from '~/test/init'
 import { expectLogic, partial } from 'kea-test-utils'
+
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { NodeKind } from '~/queries/schema'
 import { query } from '~/queries/query'
+import { NodeKind } from '~/queries/schema'
+import { initKeaTests } from '~/test/init'
 
 jest.mock('~/queries/query', () => {
     return {

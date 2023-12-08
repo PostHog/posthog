@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 
 import { actionBarLogic } from './actionBarLogic'
-
 import { ActionInput } from './ActionInput'
 import { ActionResults } from './ActionResults'
 

@@ -1,7 +1,7 @@
 # name: TestLazyJoins.test_resolve_lazy_table_as_select_table
   '
   
-  SELECT persons.id, persons.properties___email, persons.`properties___$browser` 
+  SELECT persons.id, persons.properties___email AS email, persons.`properties___$browser` AS `$browser` 
   FROM (
   SELECT argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), person.version) AS properties___email, argMax(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), person.version) AS `properties___$browser`, person.id AS id 
   FROM person 
@@ -15,7 +15,7 @@
 # name: TestLazyJoins.test_resolve_lazy_table_as_table_in_join
   '
   
-  SELECT events.event, events.distinct_id, events__pdi.person_id, persons.properties___email 
+  SELECT events.event, events.distinct_id, events__pdi.person_id, persons.properties___email AS email 
   FROM events INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
@@ -49,7 +49,7 @@
 # name: TestLazyJoins.test_resolve_lazy_tables_one_level_properties
   '
   
-  SELECT person_distinct_ids__person.`properties___$browser` 
+  SELECT person_distinct_ids__person.`properties___$browser` AS `$browser` 
   FROM (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
@@ -68,7 +68,7 @@
 # name: TestLazyJoins.test_resolve_lazy_tables_one_level_properties_deep
   '
   
-  SELECT person_distinct_ids__person.`properties___$browser___in___json` 
+  SELECT person_distinct_ids__person.`properties___$browser___in___json` AS `$browser__in__json` 
   FROM (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
@@ -121,7 +121,7 @@
 # name: TestLazyJoins.test_resolve_lazy_tables_two_levels_properties
   '
   
-  SELECT events.event, events__pdi__person.`properties___$browser` 
+  SELECT events.event, events__pdi__person.`properties___$browser` AS `$browser` 
   FROM events INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
@@ -141,7 +141,7 @@
 # name: TestLazyJoins.test_resolve_lazy_tables_two_levels_properties_duplicate
   '
   
-  SELECT events.event, events__pdi__person.properties, events__pdi__person.properties___name 
+  SELECT events.event, events__pdi__person.properties, events__pdi__person.properties___name AS name 
   FROM events INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 

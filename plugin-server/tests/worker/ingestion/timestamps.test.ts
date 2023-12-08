@@ -51,6 +51,21 @@ describe('parseEventTimestamp()', () => {
         expect(timestamp.toISO()).toEqual('2021-10-29T01:34:00.000Z')
     })
 
+    it('Ignores sent_at if $ignore_sent_at set', () => {
+        const event = {
+            properties: { $ignore_sent_at: true },
+            timestamp: '2021-10-30T03:02:00.000Z',
+            sent_at: '2021-10-30T03:12:00.000Z',
+            now: '2021-11-29T01:44:00.000Z',
+        } as any as PluginEvent
+
+        const callbackMock = jest.fn()
+        const timestamp = parseEventTimestamp(event, callbackMock)
+        expect(callbackMock.mock.calls.length).toEqual(0)
+
+        expect(timestamp.toISO()).toEqual('2021-10-30T03:02:00.000Z')
+    })
+
     it('ignores and reports invalid sent_at', () => {
         const event = {
             timestamp: '2021-10-31T00:44:00.000Z',
@@ -182,6 +197,33 @@ describe('parseEventTimestamp()', () => {
         ])
 
         expect(timestamp.toISO()).toEqual('2021-10-29T01:00:00.000Z')
+    })
+
+    it('reports event_timestamp_in_future with $ignore_sent_at', () => {
+        const event = {
+            timestamp: '2021-10-29T02:30:00.000Z',
+            now: '2021-09-29T01:00:00.000Z',
+            event: 'test event name',
+            uuid: '12345678-1234-1234-1234-123456789abc',
+        } as any as PluginEvent
+
+        const callbackMock = jest.fn()
+        const timestamp = parseEventTimestamp(event, callbackMock)
+        expect(callbackMock.mock.calls).toEqual([
+            [
+                'event_timestamp_in_future',
+                {
+                    now: '2021-09-29T01:00:00.000Z',
+                    offset: '',
+                    result: '2021-10-29T02:30:00.000Z',
+                    sentAt: '',
+                    timestamp: '2021-10-29T02:30:00.000Z',
+                    eventUuid: '12345678-1234-1234-1234-123456789abc',
+                    eventName: 'test event name',
+                },
+            ],
+        ])
+        expect(timestamp.toISO()).toEqual('2021-09-29T01:00:00.000Z')
     })
 
     it('reports event_timestamp_in_future with negative offset', () => {

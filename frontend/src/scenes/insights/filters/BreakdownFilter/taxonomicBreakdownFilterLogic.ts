@@ -9,13 +9,14 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { BreakdownFilter } from '~/queries/schema'
-import { isCohortBreakdown, isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
 import { BreakdownType, ChartDisplayType, InsightLogicProps } from '~/types'
 
 import type { taxonomicBreakdownFilterLogicType } from './taxonomicBreakdownFilterLogicType'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { isCohortBreakdown, isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
 
 export type TaxonomicBreakdownFilterLogicProps = {
     insightProps: InsightLogicProps

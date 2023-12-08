@@ -1,3 +1,10 @@
+import { PluginConfigSchema } from '@posthog/plugin-scaffold'
+import { eventWithTime } from '@rrweb/types'
+import { UploadFile } from 'antd/lib/upload/interface'
+import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
+import { LogicWrapper } from 'kea'
+import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import {
     BIN_COUNT_AUTO,
     DashboardPrivilegeLevel,
@@ -12,20 +19,17 @@ import {
     ShownAsValue,
     TeamMembershipLevel,
 } from 'lib/constants'
-import { PluginConfigSchema } from '@posthog/plugin-scaffold'
-import { PluginInstallationType } from 'scenes/plugins/types'
-import { UploadFile } from 'antd/lib/upload/interface'
-import { eventWithTime } from '@rrweb/types'
-import { PostHog } from 'posthog-js'
-import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
-import { LogLevel } from 'rrweb'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
-import { LogicWrapper } from 'kea'
-import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
+import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
+import { PostHog } from 'posthog-js'
 import { Layout } from 'react-grid-layout'
+import { LogLevel } from 'rrweb'
+import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
+import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
+import { JSONContent } from 'scenes/notebooks/Notebook/utils'
+
+import { QueryContext } from '~/queries/types'
+
 import type {
     DashboardFilter,
     DatabaseSchemaQueryResponseField,
@@ -33,10 +37,7 @@ import type {
     InsightVizNode,
     Node,
 } from './queries/schema'
-import { QueryContext } from '~/queries/types'
-
-import { JSONContent } from 'scenes/notebooks/Notebook/utils'
-import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
+import { NodeKind } from './queries/schema'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -90,15 +91,6 @@ export enum AvailableFeature {
     SURVEYS_STYLING = 'surveys_styling',
     SURVEYS_TEXT_HTML = 'surveys_text_html',
     SURVEYS_MULTIPLE_QUESTIONS = 'surveys_multiple_questions',
-}
-
-export type AvailableProductFeature = {
-    key: AvailableFeature
-    name: string
-    description?: string | null
-    limit?: number | null
-    note?: string | null
-    unit?: string | null
 }
 
 export enum ProductKey {
@@ -193,6 +185,8 @@ export interface UserType extends UserBaseType {
     has_social_auth: boolean
     has_seen_product_intro_for?: Record<string, boolean>
     scene_personalisation?: SceneDashboardChoice[]
+    /** Null means "sync with system". */
+    theme_mode: 'light' | 'dark' | null
 }
 
 export interface NotificationSettings {
@@ -232,7 +226,7 @@ export interface OrganizationType extends OrganizationBasicType {
     plugins_access_level: PluginsAccessLevel
     teams: TeamBasicType[] | null
     available_features: AvailableFeature[]
-    available_product_features: AvailableProductFeature[]
+    available_product_features: BillingV2FeatureType[]
     is_member_join_email_enabled: boolean
     customer_id: string | null
     enforce_2fa: boolean | null
@@ -278,6 +272,8 @@ export interface ExplicitTeamMemberType extends BaseMemberType {
     /** Effective level of the user within the project, which may be higher than parent level, but not lower. */
     effective_level: OrganizationMembershipLevel
 }
+
+export type EitherMemberType = OrganizationMemberType | ExplicitTeamMemberType
 
 /**
  * While OrganizationMemberType and ExplicitTeamMemberType refer to actual Django models,
@@ -524,6 +520,7 @@ export enum PipelineTabs {
     Filters = 'filters',
     Transformations = 'transformations',
     Destinations = 'destinations',
+    AppsManagement = 'apps-management',
 }
 
 export enum PipelineAppTabs {
@@ -662,9 +659,12 @@ export type RecordingConsoleLogV2 = {
     windowId: string | undefined
     level: LogLevel
     content: string
-    lines: string[]
-    trace: string[]
-    count: number
+    // JS code associated with the log - implicitly the empty array when not provided
+    lines?: string[]
+    // stack trace associated with the log - implicitly the empty array when not provided
+    trace?: string[]
+    // number of times this log message was seen - implicitly 1 when not provided
+    count?: number
 }
 
 export interface RecordingSegment {
@@ -827,6 +827,33 @@ export interface PersonListParams {
     distinct_id?: string
     include_total?: boolean // PostHog 3000-only
 }
+
+export type SearchableEntity =
+    | 'action'
+    | 'cohort'
+    | 'insight'
+    | 'dashboard'
+    | 'event_definition'
+    | 'experiment'
+    | 'feature_flag'
+    | 'notebook'
+    | 'survey'
+
+export type SearchListParams = { q: string; entities?: SearchableEntity[] }
+
+export type SearchResultType = {
+    result_id: string
+    type: SearchableEntity
+    rank: number | null
+    extra_fields: Record<string, unknown>
+}
+
+export type SearchResponse = {
+    results: SearchResultType[]
+    counts: Record<SearchableEntity, number | null>
+}
+
+export type GroupListParams = { group_type_index: GroupTypeIndex; search: string }
 
 export interface MatchedRecordingEvent {
     uuid: string
@@ -1081,6 +1108,13 @@ export type Body =
     | ReadableStream<Uint8Array>
     | null
 
+/**
+ * This is our base type for tracking network requests.
+ * It sticks relatively closely to the spec for the web
+ * see https://developer.mozilla.org/en-US/docs/Web/API/Performance_API
+ * we have renamed/added a few fields for the benefit of ClickHouse
+ * but don't yet clash with the spec
+ */
 export interface PerformanceEvent {
     uuid: string
     timestamp: string | number
@@ -1117,6 +1151,8 @@ export interface PerformanceEvent {
     next_hop_protocol?: string
     render_blocking_status?: string
     response_status?: number
+    // see https://developer.mozilla.org/en-US/docs/Web/API/PerformanceResourceTiming/transferSize
+    // zero has meaning for this field so should not be used unless the transfer size was known to be zero
     transfer_size?: number
 
     // LARGEST_CONTENTFUL_PAINT_EVENT_COLUMNS
@@ -1149,6 +1185,10 @@ export interface PerformanceEvent {
     request_body?: Body
     response_body?: Body
     method?: string
+
+    //rrweb/network@1 - i.e. not in ClickHouse table
+    is_initial?: boolean
+    raw?: Record<string, any>
 }
 
 export interface CurrentBillCycleType {
@@ -1156,14 +1196,13 @@ export interface CurrentBillCycleType {
     current_period_end: number
 }
 
-export interface BillingV2FeatureType {
-    key: string
+export type BillingV2FeatureType = {
+    key: AvailableFeature
     name: string
-    description?: string
-    unit?: string
-    limit?: number
-    note?: string
-    group?: AvailableFeature
+    description?: string | null
+    limit?: number | null
+    note?: string | null
+    unit?: string | null
 }
 
 export interface BillingV2TierType {
@@ -1178,36 +1217,30 @@ export interface BillingV2TierType {
 
 export interface BillingProductV2Type {
     type: string
-    usage_key: string
+    usage_key: string | null
     name: string
     description: string
     price_description?: string | null
     icon_key?: string | null
     image_url?: string | null
     docs_url: string | null
-    free_allocation?: number
-    subscribed: boolean
+    free_allocation?: number | null
+    subscribed: boolean | null
     tiers?: BillingV2TierType[] | null
     tiered: boolean
     current_usage?: number
-    projected_amount_usd?: string
+    projected_amount_usd?: string | null
     projected_usage?: number
     percentage_usage: number
     current_amount_usd_before_addons: string | null
     current_amount_usd: string | null
     usage_limit: number | null
     has_exceeded_limit: boolean
-    unit: string
+    unit: string | null
     unit_amount_usd: string | null
     plans: BillingV2PlanType[]
     contact_support: boolean
     inclusion_only: any
-    feature_groups: {
-        // deprecated, remove after removing the billing plans table
-        group: string
-        name: string
-        features: BillingV2FeatureType[]
-    }[]
     addons: BillingProductV2AddonType[]
 
     // addons-only: if this addon is included with the base product and not subscribed individually. for backwards compatibility.
@@ -1236,7 +1269,7 @@ export interface BillingProductV2AddonType {
     projected_amount_usd: string | null
     plans: BillingV2PlanType[]
     usage_key: string
-    free_allocation?: number
+    free_allocation?: number | null
     percentage_usage?: number
 }
 export interface BillingV2Type {
@@ -1267,16 +1300,14 @@ export interface BillingV2Type {
 }
 
 export interface BillingV2PlanType {
-    free_allocation?: number
+    free_allocation?: number | null
     features: BillingV2FeatureType[]
-    key: string
     name: string
     description: string
     is_free?: boolean
-    products: BillingProductV2Type[]
     plan_key?: string
     current_plan?: any
-    tiers?: BillingV2TierType[]
+    tiers?: BillingV2TierType[] | null
     included_if?: 'no_active_subscription' | 'has_subscription' | null
     initial_billing_limit?: number
 }
@@ -1458,6 +1489,13 @@ export interface OrganizationInviteType {
     created_at: string
     updated_at: string
     message?: string
+}
+
+export enum PluginInstallationType {
+    Local = 'local',
+    Custom = 'custom',
+    Repository = 'repository',
+    Source = 'source',
 }
 
 export interface PluginType {
@@ -1752,6 +1790,7 @@ export interface TrendsFilterType extends FilterType {
     aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
     show_values_on_series?: boolean
+    show_labels_on_series?: boolean
     show_percent_stack_view?: boolean
 }
 
@@ -1819,12 +1858,25 @@ export interface PathsFilterType extends FilterType {
     path_end_key?: string // Paths People End Key
     path_dropoff_key?: string // Paths People Dropoff Key
 }
+
+export interface RetentionEntity {
+    id?: string | number // TODO: Fix weird typing issues
+    kind?: NodeKind.ActionsNode | NodeKind.EventsNode
+    name?: string
+    type?: EntityType
+    // @asType integer
+    order?: number
+    uuid?: string
+    custom_name?: string
+}
+
 export interface RetentionFilterType extends FilterType {
     retention_type?: RetentionType
     retention_reference?: 'total' | 'previous' // retention wrt cohort size or previous period
+    /** @asType integer */
     total_intervals?: number // retention total intervals
-    returning_entity?: Record<string, any>
-    target_entity?: Record<string, any>
+    returning_entity?: RetentionEntity
+    target_entity?: RetentionEntity
     period?: RetentionPeriod
 }
 export interface LifecycleFilterType extends FilterType {
@@ -2234,6 +2286,7 @@ export interface RatingSurveyQuestion extends SurveyQuestionBase {
 export interface MultipleSurveyQuestion extends SurveyQuestionBase {
     type: SurveyQuestionType.SingleChoice | SurveyQuestionType.MultipleChoice
     choices: string[]
+    hasOpenChoice?: boolean
 }
 
 export type SurveyQuestion = BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion
@@ -2690,6 +2743,11 @@ export interface KeyMapping {
     system?: boolean
 }
 
+export interface KeyMappingInterface {
+    event: Record<string, KeyMapping>
+    element: Record<string, KeyMapping>
+}
+
 export interface TileParams {
     title: string
     targetPath: string
@@ -2718,6 +2776,7 @@ export interface AppContext {
     frontend_apps?: Record<number, FrontendAppConfig>
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
+    year_in_hog_url?: string
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -2753,16 +2812,32 @@ export interface DateMappingOption {
     defaultInterval?: IntervalType
 }
 
-export interface Breadcrumb {
+interface BreadcrumbBase {
+    /** E.g. scene identifier or item ID. Particularly important if `onRename` is used. */
+    key: string | number
     /** Name to display. */
     name: string | null | undefined
     /** Symbol, e.g. a lettermark or a profile picture. */
     symbol?: React.ReactNode
-    /** Path to link to. */
-    path?: string
     /** Whether to show a custom popover */
     popover?: Pick<PopoverProps, 'overlay' | 'sameWidth' | 'actionable'>
 }
+interface LinkBreadcrumb extends BreadcrumbBase {
+    /** Path to link to. */
+    path?: string
+    onRename?: never
+}
+interface RenamableBreadcrumb extends BreadcrumbBase {
+    path?: never
+    /** When this is set, an "Edit" button shows up next to the title */
+    onRename?: (newName: string) => Promise<void>
+    /** When this is true, the name is always in edit mode, and `onRename` runs on every input change. */
+    forceEditMode?: boolean
+}
+export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb
+export type FinalizedBreadcrumb =
+    | (LinkBreadcrumb & { globalKey: string })
+    | (RenamableBreadcrumb & { globalKey: string })
 
 export enum GraphType {
     Bar = 'bar',
@@ -3196,6 +3271,7 @@ export interface DataWarehouseTable {
     url_pattern: string
     credential: DataWarehouseCredential
     columns: DatabaseSchemaQueryResponseField[]
+    external_data_source?: ExternalDataStripeSource
 }
 
 export type DataWarehouseTableTypes = 'CSV' | 'Parquet'
@@ -3220,6 +3296,8 @@ export interface DataWarehouseViewLink {
 export interface ExternalDataStripeSourceCreatePayload {
     account_id: string
     client_secret: string
+    prefix: string
+    source_type: string
 }
 
 export interface ExternalDataStripeSource {
@@ -3228,6 +3306,8 @@ export interface ExternalDataStripeSource {
     connection_id: string
     status: string
     source_type: string
+    prefix: string
+    last_run_at?: Dayjs
 }
 
 export type BatchExportDestinationS3 = {
@@ -3351,7 +3431,13 @@ export type SDK = {
     key: string
     recommended?: boolean
     tags: string[]
-    image: string | JSX.Element
+    image:
+        | string
+        | JSX.Element
+        // storybook handles require() differently, so we need to support both
+        | {
+              default: string
+          }
     docsLink: string
 }
 
@@ -3396,10 +3482,30 @@ export enum SDKTag {
 
 export type SDKInstructionsMap = Partial<Record<SDKKey, React.ReactNode>>
 
+export interface AppMetricsUrlParams {
+    tab?: AppMetricsTab
+    from?: string
+    error?: [string, string]
+}
+
+export enum AppMetricsTab {
+    Logs = 'logs',
+    ProcessEvent = 'processEvent',
+    OnEvent = 'onEvent',
+    ComposeWebhook = 'composeWebhook',
+    ExportEvents = 'exportEvents',
+    ScheduledTask = 'scheduledTask',
+    HistoricalExports = 'historical_exports',
+    History = 'history',
+}
+
 export enum SidePanelTab {
     Notebooks = 'notebook',
     Support = 'support',
     Docs = 'docs',
     Activation = 'activation',
     Settings = 'settings',
+    Welcome = 'welcome',
+    FeaturePreviews = 'feature-previews',
+    Activity = 'activity',
 }

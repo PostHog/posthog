@@ -1,8 +1,5 @@
-import { ExplicitTeamMemberType, OrganizationMemberType, UserType } from '../../types'
-import { OrganizationMembershipLevel, TeamMembershipLevel } from '../constants'
-
-export type EitherMembershipLevel = OrganizationMembershipLevel | TeamMembershipLevel
-export type EitherMemberType = OrganizationMemberType | ExplicitTeamMemberType
+import { EitherMemberType, ExplicitTeamMemberType, OrganizationMemberType, UserType } from '../../types'
+import { EitherMembershipLevel, OrganizationMembershipLevel, TeamMembershipLevel } from '../constants'
 
 /** If access level change is disallowed given the circumstances, returns a reason why so. Otherwise returns null. */
 export function getReasonForAccessLevelChangeProhibition(

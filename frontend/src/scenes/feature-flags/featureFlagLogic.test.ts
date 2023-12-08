@@ -1,8 +1,9 @@
-import { initKeaTests } from '~/test/init'
-import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { expectLogic } from 'kea-test-utils'
-import { useMocks } from '~/mocks/jest'
 import api from 'lib/api'
+import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
 import {
     FeatureFlagGroupType,
     FeatureFlagType,

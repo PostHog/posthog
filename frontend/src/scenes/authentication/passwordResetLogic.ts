@@ -1,9 +1,10 @@
 import { kea, path, reducers } from 'kea'
+import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
-import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
+
 import type { passwordResetLogicType } from './passwordResetLogicType'
 
 export interface ResponseType {

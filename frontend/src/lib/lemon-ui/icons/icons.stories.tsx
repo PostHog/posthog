@@ -1,9 +1,10 @@
-import * as React from 'react'
-import * as icons from './icons'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import * as React from 'react'
+
+import * as icons from './icons'
 
 const { IconGauge, IconWithCount } = icons
 
@@ -104,7 +105,7 @@ const LibraryTemplate: StoryFn<{ letter?: string | null }> = ({ letter }) => {
 
 // This is for actual Storybook users
 export const Library: LibraryType = LibraryTemplate.bind({})
-Library.parameters = { testOptions: { skip: true } }
+Library.tags = ['autodocs', 'test-skip']
 
 // These are just for snapshots. As opposed to the full library, the stories below are segmented by the first letter
 // of the icon name, which greatly optimizes both the UX and storage aspects of diffing snapshots.

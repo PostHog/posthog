@@ -1,12 +1,12 @@
-import { PropertyFilterType } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
+
+import { getQueryFeatures, QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
+import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, EventsQuery } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
-
 import { isHogQLQuery, trimQuotes } from '~/queries/utils'
-import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
-import { getQueryFeatures, QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
+import { PropertyFilterType } from '~/types'
 
 export interface ColumnMeta {
     title?: JSX.Element | string

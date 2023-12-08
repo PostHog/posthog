@@ -1,39 +1,10 @@
-import { kea, path, connect, actions, listeners } from 'kea'
+import { actions, connect, kea, listeners, path } from 'kea'
+import { convertPropertyGroupToProperties, isGroupPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import type { Dayjs } from 'lib/dayjs'
+import { now } from 'lib/dayjs'
 import { isPostHogProp, keyMappingKeys } from 'lib/taxonomy'
 import posthog from 'posthog-js'
-import { userLogic } from 'scenes/userLogic'
-import type { eventUsageLogicType } from './eventUsageLogicType'
-import {
-    FilterType,
-    DashboardType,
-    PersonType,
-    DashboardMode,
-    EntityType,
-    InsightModel,
-    InsightType,
-    HelpType,
-    SessionRecordingUsageType,
-    FunnelCorrelation,
-    ItemMode,
-    AnyPropertyFilter,
-    Experiment,
-    PropertyGroupFilter,
-    FilterLogicalOperator,
-    PropertyFilterValue,
-    InsightShortId,
-    SessionPlayerData,
-    AnyPartialFilterType,
-    Resource,
-    AccessLevel,
-    RecordingReportLoadTimes,
-    SessionRecordingPlayerTab,
-    Survey,
-} from '~/types'
-import type { Dayjs } from 'lib/dayjs'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { convertPropertyGroupToProperties } from 'lib/utils'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { now } from 'lib/dayjs'
 import {
     isFilterWithDisplay,
     isFunnelsFilter,
@@ -42,9 +13,39 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { isGroupPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { EventIndex } from 'scenes/session-recordings/player/eventIndex'
 import { SurveyTemplateType } from 'scenes/surveys/constants'
+import { userLogic } from 'scenes/userLogic'
+
+import {
+    AccessLevel,
+    AnyPartialFilterType,
+    AnyPropertyFilter,
+    DashboardMode,
+    DashboardType,
+    EntityType,
+    Experiment,
+    FilterLogicalOperator,
+    FilterType,
+    FunnelCorrelation,
+    HelpType,
+    InsightModel,
+    InsightShortId,
+    InsightType,
+    ItemMode,
+    PersonType,
+    PropertyFilterValue,
+    PropertyGroupFilter,
+    RecordingReportLoadTimes,
+    Resource,
+    SessionPlayerData,
+    SessionRecordingPlayerTab,
+    SessionRecordingUsageType,
+    Survey,
+} from '~/types'
+
+import type { eventUsageLogicType } from './eventUsageLogicType'
 
 export enum DashboardEventSource {
     LongPress = 'long_press',
@@ -172,9 +173,10 @@ function sanitizeFilterParams(filters: AnyPartialFilterType): Record<string, any
     const used_cohort_filter_ids = usedCohortFilterIds(filters.properties)
 
     for (const entity of entities) {
-        properties_local = properties_local.concat(flattenProperties(entity.properties || []))
+        const entityProperties = Array.isArray(entity.properties) ? entity.properties : []
+        properties_local = properties_local.concat(flattenProperties(entityProperties))
 
-        using_groups = using_groups || hasGroupProperties(entity.properties || [])
+        using_groups = using_groups || hasGroupProperties(entityProperties)
         if (entity.math_group_type_index != undefined) {
             aggregating_by_groups = true
         }
@@ -441,6 +443,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportAutocaptureToggled: (autocapture_opt_out: boolean) => ({ autocapture_opt_out }),
         reportAutocaptureExceptionsToggled: (autocapture_opt_in: boolean) => ({ autocapture_opt_in }),
         reportFailedToCreateFeatureFlagWithCohort: (code: string, detail: string) => ({ code, detail }),
+        reportFeatureFlagCopySuccess: true,
+        reportFeatureFlagCopyFailure: (error) => ({ error }),
         reportInviteMembersButtonClicked: true,
         reportDashboardLoadingTime: (loadingMilliseconds: number, dashboardId: number) => ({
             loadingMilliseconds,
@@ -614,8 +618,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 properties.stickiness_days = filters.stickiness_days
             }
             properties.mode = insightMode // View or edit
-            // eslint-disable-next-line no-constant-binary-expression
-            properties.viewer_is_creator = insightModel.created_by?.uuid === values.user?.uuid ?? null // `null` means we couldn't determine this
+            properties.viewer_is_creator =
+                insightModel.created_by?.uuid && values.user?.uuid
+                    ? insightModel.created_by?.uuid === values.user?.uuid
+                    : null
             properties.is_saved = insightModel.saved
             properties.description_length = insightModel.description?.length ?? 0
             properties.tags_count = insightModel.tags?.length ?? 0
@@ -1044,6 +1050,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportFailedToCreateFeatureFlagWithCohort: ({ detail, code }) => {
             posthog.capture('failed to create feature flag with cohort', { detail, code })
         },
+        reportFeatureFlagCopySuccess: () => {
+            posthog.capture('feature flag copied')
+        },
+        reportFeatureFlagCopyFailure: ({ error }) => {
+            posthog.capture('feature flag copy failure', { error })
+        },
         reportInviteMembersButtonClicked: () => {
             posthog.capture('invite members button clicked')
         },
@@ -1102,6 +1114,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('survey created', {
                 name: survey.name,
                 id: survey.id,
+                survey_type: survey.type,
                 questions_length: survey.questions.length,
                 question_types: survey.questions.map((question) => question.type),
             })
@@ -1110,6 +1123,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('survey launched', {
                 name: survey.name,
                 id: survey.id,
+                survey_type: survey.type,
                 question_types: survey.questions.map((question) => question.type),
                 created_at: survey.created_at,
                 start_date: survey.start_date,

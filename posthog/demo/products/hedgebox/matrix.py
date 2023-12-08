@@ -30,7 +30,7 @@ from .taxonomy import *
 
 
 @dataclass
-class HedgdboxCompany:
+class HedgeboxCompany:
     name: str
     industry: Industry
 
@@ -42,7 +42,7 @@ class HedgeboxCluster(Cluster):
     MAX_RADIUS: int = 6
 
     # Properties
-    company: Optional[HedgdboxCompany]  # None means the cluster is a social circle instead of a company
+    company: Optional[HedgeboxCompany]  # None means the cluster is a social circle instead of a company
 
     # Internal state - plain
     _business_account: Optional[HedgeboxAccount]  # In social circle clusters the person-level account is used
@@ -51,7 +51,7 @@ class HedgeboxCluster(Cluster):
         super().__init__(*args, **kwargs)
         is_company = self.random.random() < COMPANY_CLUSTERS_PROPORTION
         if is_company:
-            self.company = HedgdboxCompany(
+            self.company = HedgeboxCompany(
                 name=self.finance_provider.company(),
                 industry=self.properties_provider.industry(),
             )
@@ -65,7 +65,7 @@ class HedgeboxCluster(Cluster):
     def radius_distribution(self) -> float:
         return self.random.betavariate(1.5, 5)
 
-    def initation_distribution(self) -> float:
+    def initiation_distribution(self) -> float:
         return self.random.betavariate(1.8, 1)
 
 

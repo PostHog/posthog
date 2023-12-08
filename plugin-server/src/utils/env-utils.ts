@@ -46,3 +46,8 @@ export function isIngestionOverflowEnabled(): boolean {
     const ingestionOverflowEnabled = process.env.INGESTION_OVERFLOW_ENABLED
     return stringToBoolean(ingestionOverflowEnabled)
 }
+
+export function isOverflowBatchByDistinctId(): boolean {
+    const overflowBatchByDistinctId = process.env.INGESTION_OVERFLOW_BATCH_BY_DISTINCT_ID
+    return stringToBoolean(overflowBatchByDistinctId)
+}

@@ -1,8 +1,9 @@
 import { Meta, StoryFn } from '@storybook/react'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+
 import { setFeatureFlags, useStorybookMocks } from '~/mocks/browser'
 import { NotebookNodeType } from '~/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export default {
     title: 'Scenes-App/Notebooks/Components/Notebook Select Button',

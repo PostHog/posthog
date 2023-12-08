@@ -1,4 +1,4 @@
-import { Entity, EntityFilter, FilterType, InsightType } from '~/types'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import {
     extractObjectDiffKeys,
     formatAggregationValue,
@@ -7,9 +7,10 @@ import {
     getDisplayNameFromEntityFilter,
     getDisplayNameFromEntityNode,
 } from 'scenes/insights/utils'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+
 import { ActionsNode, BreakdownFilter, EventsNode, NodeKind } from '~/queries/schema'
 import { isEventsNode } from '~/queries/utils'
+import { Entity, EntityFilter, FilterType, InsightType } from '~/types'
 
 const createFilter = (id?: Entity['id'], name?: string, custom_name?: string): EntityFilter => {
     return {

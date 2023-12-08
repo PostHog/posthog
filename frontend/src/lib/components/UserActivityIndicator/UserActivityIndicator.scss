@@ -1,7 +1,7 @@
 .UserActivityIndicator {
     display: flex;
     align-items: center;
+    overflow-x: auto;
     font-size: 0.8125rem;
     white-space: nowrap;
-    overflow-x: auto;
 }

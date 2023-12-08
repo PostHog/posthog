@@ -1,4 +1,4 @@
-import { buildIntegerMatcher, getDefaultConfig, overrideWithEnv } from '../src/config/config'
+import { buildIntegerMatcher, buildStringMatcher, getDefaultConfig, overrideWithEnv } from '../src/config/config'
 
 describe('config', () => {
     test('overrideWithEnv 1', () => {
@@ -89,5 +89,32 @@ describe('buildIntegerMatcher', () => {
         expect(matcher(3)).toBe(true)
         expect(matcher(4)).toBe(true)
         expect(matcher(5)).toBe(false)
+    })
+})
+
+describe('buildStringMatcher', () => {
+    test('empty input', () => {
+        const matcher = buildStringMatcher('', false)
+        expect(matcher('b')).toBe(false)
+    })
+    test('ignores star star when not allowed', () => {
+        const matcher = buildStringMatcher('*', false)
+        expect(matcher('b')).toBe(false)
+    })
+    test('matches star when allowed', () => {
+        const matcher = buildStringMatcher('*', true)
+        expect(matcher('b')).toBe(true)
+    })
+    test('can match on a single value', () => {
+        const matcher = buildStringMatcher('b', true)
+        expect(matcher('b')).toBe(true)
+        expect(matcher('a')).toBe(false)
+    })
+    test('can match on several values', () => {
+        const matcher = buildStringMatcher('b,c,d', true)
+        expect(matcher('b')).toBe(true)
+        expect(matcher('c')).toBe(true)
+        expect(matcher('d')).toBe(true)
+        expect(matcher('e')).toBe(false)
     })
 })

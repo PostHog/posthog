@@ -1,16 +1,18 @@
-import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
-import { ChartParams, GraphType, GraphDataset } from '~/types'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { capitalizeFirstLetter, shortTimeZone } from 'lib/utils'
-import { dayjs } from 'lib/dayjs'
-import { getFormattedDate } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
-import { buildPeopleUrl } from 'scenes/trends/persons-modal/persons-modal-utils'
 import { useValues } from 'kea'
-import { funnelDataLogic } from './funnelDataLogic'
+import { dayjs } from 'lib/dayjs'
+import { capitalizeFirstLetter, shortTimeZone } from 'lib/utils'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { getFormattedDate } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
+import { buildPeopleUrl } from 'scenes/trends/persons-modal/persons-modal-utils'
+import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
+
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { isInsightQueryNode } from '~/queries/utils'
 import { TrendsFilter } from '~/queries/schema'
+import { isInsightQueryNode } from '~/queries/utils'
+import { ChartParams, GraphDataset, GraphType } from '~/types'
+
+import { funnelDataLogic } from './funnelDataLogic'
 
 const LineGraphWrapper = ({ inCardView, children }: { inCardView?: boolean; children: JSX.Element }): JSX.Element => {
     if (inCardView) {

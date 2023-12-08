@@ -1,10 +1,12 @@
-import { setup2FALogic } from './setup2FALogic'
+import './Setup2FA.scss'
+
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
-import { useValues } from 'kea'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import './Setup2FA.scss'
+
+import { setup2FALogic } from './setup2FALogic'
 
 export function Setup2FA({ onSuccess }: { onSuccess: () => void }): JSX.Element | null {
     const { startSetupLoading, generalError } = useValues(setup2FALogic({ onSuccess }))

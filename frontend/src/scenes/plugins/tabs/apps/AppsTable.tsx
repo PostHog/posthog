@@ -1,9 +1,10 @@
-import { LemonTable, LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginRepositoryEntry, PluginTypeWithConfig } from 'scenes/plugins/types'
+
 import { PluginType } from '~/types'
 
 export function AppsTable({

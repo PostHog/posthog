@@ -1,7 +1,15 @@
+import './InsightCard.scss'
+
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
+import { Resizeable } from 'lib/components/Cards/CardMeta'
+import { QueriesUnsupportedHere } from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import React, { useState } from 'react'
 import { Layout } from 'react-grid-layout'
+import { Funnel } from 'scenes/funnels/Funnel'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import {
     FunnelInvalidExclusionState,
     FunnelSingleStepState,
@@ -9,7 +17,24 @@ import {
     InsightErrorState,
     InsightTimeoutState,
 } from 'scenes/insights/EmptyStates'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { isFilterWithDisplay, isFunnelsFilter, isPathsFilter, isRetentionFilter } from 'scenes/insights/sharedUtils'
+import { BoldNumber } from 'scenes/insights/views/BoldNumber'
+import { DashboardInsightsTable } from 'scenes/insights/views/InsightsTable/DashboardInsightsTable'
+import { WorldMap } from 'scenes/insights/views/WorldMap'
+import { Paths } from 'scenes/paths/Paths'
+import { RetentionContainer } from 'scenes/retention/RetentionContainer'
+import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from 'scenes/trends/viz'
+
+import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
+import { Query } from '~/queries/Query/Query'
+import { InsightQueryNode } from '~/queries/schema'
+import { QueryContext } from '~/queries/types'
 import {
     ChartDisplayType,
     ChartParams,
@@ -23,33 +48,9 @@ import {
     InsightModel,
     InsightType,
 } from '~/types'
+
 import { ResizeHandle1D, ResizeHandle2D } from '../handles'
-import './InsightCard.scss'
-import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from 'scenes/trends/viz'
-import { DashboardInsightsTable } from 'scenes/insights/views/InsightsTable/DashboardInsightsTable'
-import { Funnel } from 'scenes/funnels/Funnel'
-import { RetentionContainer } from 'scenes/retention/RetentionContainer'
-import { Paths } from 'scenes/paths/Paths'
-
-import { WorldMap } from 'scenes/insights/views/WorldMap'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { BoldNumber } from 'scenes/insights/views/BoldNumber'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { isFilterWithDisplay, isFunnelsFilter, isPathsFilter, isRetentionFilter } from 'scenes/insights/sharedUtils'
-import { Resizeable } from 'lib/components/Cards/CardMeta'
-import { Query } from '~/queries/Query/Query'
-import { QueriesUnsupportedHere } from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
-import { InsightQueryNode } from '~/queries/schema'
-import { QueryContext } from '~/queries/types'
-
 import { InsightMeta } from './InsightMeta'
-import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 

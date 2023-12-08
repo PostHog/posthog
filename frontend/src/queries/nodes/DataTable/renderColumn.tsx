@@ -1,14 +1,22 @@
-import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
-import { autoCaptureEventToDescription } from 'lib/utils'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { Link } from 'lib/lemon-ui/Link'
-import { TZLabel } from 'lib/components/TZLabel'
+import { combineUrl, router } from 'kea-router'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { JSONViewer } from 'lib/components/JSONViewer'
 import { Property } from 'lib/components/Property'
-import { urls } from 'scenes/urls'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { TZLabel } from 'lib/components/TZLabel'
+import { TableCellSparkline } from 'lib/lemon-ui/LemonTable/TableCellSparkline'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { Link } from 'lib/lemon-ui/Link'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { autoCaptureEventToDescription } from 'lib/utils'
 import { PersonDisplay, PersonDisplayProps } from 'scenes/persons/PersonDisplay'
+import { urls } from 'scenes/urls'
+
+import { errorColumn, loadingColumn } from '~/queries/nodes/DataTable/dataTableLogic'
+import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
 import { DataTableNode, EventsQueryPersonColumn, HasPropertiesNode } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
-
 import {
     isEventsQuery,
     isHogQLQuery,
@@ -17,15 +25,7 @@ import {
     isTimeToSeeDataSessionsQuery,
     trimQuotes,
 } from '~/queries/utils'
-import { combineUrl, router } from 'kea-router'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
-import ReactJson from '@microlink/react-json-view'
-import { errorColumn, loadingColumn } from '~/queries/nodes/DataTable/dataTableLogic'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { TableCellSparkline } from 'lib/lemon-ui/LemonTable/TableCellSparkline'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
 export function renderColumn(
     key: string,
@@ -52,7 +52,7 @@ export function renderColumn(
             try {
                 if (value.startsWith('{') && value.endsWith('}')) {
                     return (
-                        <ReactJson
+                        <JSONViewer
                             src={JSON.parse(value)}
                             name={key}
                             collapsed={Object.keys(JSON.stringify(value)).length > 10 ? 0 : 1}
@@ -61,7 +61,7 @@ export function renderColumn(
                 }
                 if (value.startsWith('[') && value.endsWith(']')) {
                     return (
-                        <ReactJson
+                        <JSONViewer
                             src={JSON.parse(value)}
                             name={key}
                             collapsed={JSON.stringify(value).length > 10 ? 0 : 1}
@@ -87,9 +87,9 @@ export function renderColumn(
                     }
                 }
 
-                return <ReactJson src={value} name={key} collapsed={value.length > 10 ? 0 : 1} />
+                return <JSONViewer src={value} name={key} collapsed={value.length > 10 ? 0 : 1} />
             }
-            return <ReactJson src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
+            return <JSONViewer src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
         }
         return <Property value={value} />
     } else if (key === 'event' && isEventsQuery(query.source)) {
@@ -249,7 +249,7 @@ export function renderColumn(
         return typeof record === 'object' ? record[parent][child] : 'unknown'
     } else {
         if (typeof value === 'object' && value !== null) {
-            return <ReactJson src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
+            return <JSONViewer src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
         }
         return String(value)
     }

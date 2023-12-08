@@ -1,24 +1,24 @@
 import './index.scss'
 
-import { Alert } from 'antd'
-import { systemStatusLogic, InstanceStatusTabName } from './systemStatusLogic'
+import { LemonBanner, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { IconInfo } from 'lib/lemon-ui/icons'
-import { OverviewTab } from 'scenes/instance/SystemStatus/OverviewTab'
-import { InternalMetricsTab } from 'scenes/instance/SystemStatus/InternalMetricsTab'
-import { SceneExport } from 'scenes/sceneTypes'
-import { InstanceConfigTab } from './InstanceConfigTab'
-import { userLogic } from 'scenes/userLogic'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { StaffUsersTab } from './StaffUsersTab'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { KafkaInspectorTab } from './KafkaInspectorTab'
+import { IconInfo } from 'lib/lemon-ui/icons'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { Link } from '@posthog/lemon-ui'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { InternalMetricsTab } from 'scenes/instance/SystemStatus/InternalMetricsTab'
+import { OverviewTab } from 'scenes/instance/SystemStatus/OverviewTab'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+import { userLogic } from 'scenes/userLogic'
+
+import { InstanceConfigTab } from './InstanceConfigTab'
+import { KafkaInspectorTab } from './KafkaInspectorTab'
+import { StaffUsersTab } from './StaffUsersTab'
+import { InstanceStatusTabName, systemStatusLogic } from './systemStatusLogic'
 
 export const scene: SceneExport = {
     component: SystemStatus,
@@ -105,44 +105,35 @@ export function SystemStatus(): JSX.Element {
                     </>
                 }
             />
-            {error && (
-                <Alert
-                    message="Something went wrong"
-                    description={error || <span>An unknown error occurred. Please try again or contact us.</span>}
-                    type="error"
-                    showIcon
-                />
-            )}
-            {siteUrlMisconfigured && (
-                <Alert
-                    message="Misconfiguration detected"
-                    description={
-                        <>
-                            Your <code>SITE_URL</code> environment variable seems misconfigured. Your{' '}
-                            <code>SITE_URL</code> is set to{' '}
-                            <b>
-                                <code>{preflight?.site_url}</code>
-                            </b>{' '}
-                            but you're currently browsing this page from{' '}
-                            <b>
-                                <code>{window.location.origin}</code>
-                            </b>
-                            . In order for PostHog to work properly, please set this to the origin where your instance
-                            is hosted.{' '}
-                            <Link
-                                target="_blank"
-                                targetBlankIcon
-                                to="https://posthog.com/docs/configuring-posthog/environment-variables?utm_medium=in-product&utm_campaign=system-status-site-url-misconfig"
-                            >
-                                Learn more
-                            </Link>
-                        </>
-                    }
-                    showIcon
-                    type="warning"
-                    style={{ marginBottom: 32 }}
-                />
-            )}
+            <div className="space-y-2">
+                {error && (
+                    <LemonBanner type="error">
+                        <div>Something went wrong</div>
+                        <div>{error || 'An unknown error occurred. Please try again or contact us.'}</div>
+                    </LemonBanner>
+                )}
+                {siteUrlMisconfigured && (
+                    <LemonBanner
+                        type="warning"
+                        action={{
+                            children: 'Learn more',
+                            to: 'https://posthog.com/docs/configuring-posthog/environment-variables?utm_medium=in-product&utm_campaign=system-status-site-url-misconfig',
+                        }}
+                    >
+                        Your <code>SITE_URL</code> environment variable seems misconfigured. Your <code>SITE_URL</code>{' '}
+                        is set to{' '}
+                        <b>
+                            <code>{preflight?.site_url}</code>
+                        </b>{' '}
+                        but you're currently browsing this page from{' '}
+                        <b>
+                            <code>{window.location.origin}</code>
+                        </b>
+                        . In order for PostHog to work properly, please set this to the origin where your instance is
+                        hosted.
+                    </LemonBanner>
+                )}
+            </div>
 
             <LemonTabs activeKey={tab} onChange={setTab} tabs={tabs} />
         </div>

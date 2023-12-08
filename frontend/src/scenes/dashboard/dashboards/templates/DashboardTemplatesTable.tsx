@@ -1,14 +1,15 @@
-import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
-import { useActions, useValues } from 'kea'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
-import { DashboardTemplateType } from '~/types'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { dashboardTemplateEditorLogic } from 'scenes/dashboard/dashboardTemplateEditorLogic'
-import { DashboardTemplateEditor } from 'scenes/dashboard/DashboardTemplateEditor'
-import { userLogic } from 'scenes/userLogic'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
+import { DashboardTemplateEditor } from 'scenes/dashboard/DashboardTemplateEditor'
+import { dashboardTemplateEditorLogic } from 'scenes/dashboard/dashboardTemplateEditorLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { DashboardTemplateType } from '~/types'
 
 export const DashboardTemplatesTable = (): JSX.Element | null => {
     const { allTemplates, allTemplatesLoading } = useValues(dashboardTemplatesLogic)

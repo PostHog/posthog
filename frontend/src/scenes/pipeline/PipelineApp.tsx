@@ -1,14 +1,17 @@
-import { SceneExport } from 'scenes/sceneTypes'
+import { Spinner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { pipelineAppLogic } from './pipelineAppLogic'
+import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
-import { router } from 'kea-router'
-import { PipelineAppTabs } from '~/types'
-import { urls } from 'scenes/urls'
-import { PluginLogs } from 'scenes/plugins/plugin/PluginLogs'
-import { Spinner } from '@posthog/lemon-ui'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { PluginLogs } from 'scenes/plugins/plugin/PluginLogs'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { PipelineAppTabs } from '~/types'
+
+import { AppMetrics } from './AppMetrics'
+import { pipelineAppLogic } from './pipelineAppLogic'
 
 export const scene: SceneExport = {
     component: PipelineApp,
@@ -27,7 +30,7 @@ export function PipelineApp({ id }: { id?: string } = {}): JSX.Element {
 
     const tab_to_content: Record<PipelineAppTabs, JSX.Element> = {
         [PipelineAppTabs.Configuration]: <div>Configuration editing</div>,
-        [PipelineAppTabs.Metrics]: <div>Metrics page</div>,
+        [PipelineAppTabs.Metrics]: <AppMetrics pluginConfigId={confId} />,
         [PipelineAppTabs.Logs]: <PluginLogs pluginConfigId={confId} />,
     }
 

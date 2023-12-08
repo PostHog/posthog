@@ -1,12 +1,10 @@
-import { useActions, useValues } from 'kea'
-import { Card } from 'antd'
-
-import { insightLogic } from 'scenes/insights/insightLogic'
-
-import { IconFeedback } from 'lib/lemon-ui/icons'
 // eslint-disable-next-line no-restricted-imports
 import { CloseOutlined } from '@ant-design/icons'
+import { Card } from 'antd'
+import { useActions, useValues } from 'kea'
+import { IconFeedback } from 'lib/lemon-ui/icons'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 export const FunnelCorrelationSkewWarning = (): JSX.Element | null => {
     const { insightProps } = useValues(insightLogic)

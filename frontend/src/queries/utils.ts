@@ -1,7 +1,12 @@
+import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
+import { dayjs } from 'lib/dayjs'
+import { teamLogic } from 'scenes/teamLogic'
+
 import {
     ActionsNode,
     DatabaseSchemaQuery,
     DataTableNode,
+    DataVisualizationNode,
     DateRange,
     EventsNode,
     EventsQuery,
@@ -32,9 +37,6 @@ import {
     WebStatsTableQuery,
     WebTopClicksQuery,
 } from '~/queries/schema'
-import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
-import { dayjs } from 'lib/dayjs'
-import { teamLogic } from 'scenes/teamLogic'
 
 export function isDataNode(node?: Node | null): node is EventsQuery | PersonsNode | TimeToSeeDataSessionsQuery {
     return (
@@ -66,6 +68,7 @@ export function isNodeWithSource(
 
     return (
         isDataTableNode(node) ||
+        isDataVisualizationNode(node) ||
         isInsightVizNode(node) ||
         isTimeToSeeDataWaterfallNode(node) ||
         isTimeToSeeDataJSONNode(node)
@@ -94,6 +97,10 @@ export function isPersonsQuery(node?: Node | null): node is PersonsQuery {
 
 export function isDataTableNode(node?: Node | null): node is DataTableNode {
     return node?.kind === NodeKind.DataTableNode
+}
+
+export function isDataVisualizationNode(node?: Node | null): node is DataVisualizationNode {
+    return node?.kind === NodeKind.DataVisualizationNode
 }
 
 export function isSavedInsightNode(node?: Node | null): node is SavedInsightNode {
@@ -157,10 +164,6 @@ export function isStickinessQuery(node?: Node | null): node is StickinessQuery {
 
 export function isLifecycleQuery(node?: Node | null): node is LifecycleQuery {
     return node?.kind === NodeKind.LifecycleQuery
-}
-
-export function isQueryWithHogQLSupport(node?: Node | null): node is LifecycleQuery {
-    return isLifecycleQuery(node) || isTrendsQuery(node)
 }
 
 export function isInsightQueryWithDisplay(node?: Node | null): node is TrendsQuery | StickinessQuery {

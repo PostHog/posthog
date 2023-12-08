@@ -1,7 +1,8 @@
-import { useMocks } from '~/mocks/jest'
-import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
 import { sessionRecordingsListPropertiesLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListPropertiesLogic'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
 import { SessionRecordingType } from '~/types'
 
 const mockSessons: SessionRecordingType[] = [

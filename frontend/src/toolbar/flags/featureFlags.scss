@@ -5,8 +5,8 @@
 .toolbar-block {
     .feature-flag-row {
         .feature-flag-row-header {
-            background-color: #fafafa;
             min-height: 38px;
+            background-color: #fafafa;
 
             > * {
                 margin: 0 5px;
@@ -17,8 +17,8 @@
             }
 
             .feature-flag-external-link {
-                color: rgb(0 0 0 / 50%);
                 line-height: normal;
+                color: rgb(0 0 0 / 50%);
 
                 &:hover {
                     color: rgb(0 0 0 / 80%);

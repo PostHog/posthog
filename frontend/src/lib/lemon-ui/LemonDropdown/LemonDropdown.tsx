@@ -1,4 +1,5 @@
 import React, { MouseEventHandler, useContext, useEffect, useRef, useState } from 'react'
+
 import { Popover, PopoverOverlayContext, PopoverProps } from '../Popover'
 
 export interface LemonDropdownProps extends Omit<PopoverProps, 'children' | 'visible'> {

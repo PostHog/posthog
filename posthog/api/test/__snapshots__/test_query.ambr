@@ -3,7 +3,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event,
          events.distinct_id,
-         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''),
+         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') AS key,
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')), ''))
   FROM events
@@ -20,7 +20,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event,
          events.distinct_id,
-         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''),
+         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') AS key,
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')), ''))
   FROM events
@@ -37,7 +37,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event,
          events.distinct_id,
-         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''),
+         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') AS key,
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')), ''))
   FROM events
@@ -54,7 +54,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event,
          events.distinct_id,
-         nullIf(nullIf(events.mat_key, ''), 'null'),
+         nullIf(nullIf(events.mat_key, ''), 'null') AS key,
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(nullIf(nullIf(events.mat_key, ''), 'null')), ''))
   FROM events
@@ -71,7 +71,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event,
          events.distinct_id,
-         nullIf(nullIf(events.mat_key, ''), 'null'),
+         nullIf(nullIf(events.mat_key, ''), 'null') AS key,
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(nullIf(nullIf(events.mat_key, ''), 'null')), ''))
   FROM events
@@ -88,7 +88,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event,
          events.distinct_id,
-         nullIf(nullIf(events.mat_key, ''), 'null'),
+         nullIf(nullIf(events.mat_key, ''), 'null') AS key,
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(nullIf(nullIf(events.mat_key, ''), 'null')), ''))
   FROM events
@@ -144,7 +144,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event,
          events.distinct_id,
-         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')
+         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') AS key
   FROM events
   WHERE equals(events.team_id, 2)
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
@@ -158,7 +158,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event,
          events.distinct_id,
-         nullIf(nullIf(events.mat_key, ''), 'null')
+         nullIf(nullIf(events.mat_key, ''), 'null') AS key
   FROM events
   WHERE equals(events.team_id, 2)
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
@@ -204,7 +204,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event,
          events.distinct_id,
-         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''),
+         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') AS key,
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')), ''))
   FROM events
@@ -221,7 +221,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event,
          events.distinct_id,
-         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''),
+         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') AS key,
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')), ''))
   FROM events
@@ -238,7 +238,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event,
          events.distinct_id,
-         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''),
+         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') AS key,
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')), ''))
   FROM events
@@ -255,7 +255,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event,
          events.distinct_id,
-         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''),
+         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') AS key,
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')), ''))
   FROM events
@@ -272,7 +272,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event,
          events.distinct_id,
-         nullIf(nullIf(events.mat_key, ''), 'null'),
+         nullIf(nullIf(events.mat_key, ''), 'null') AS key,
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(nullIf(nullIf(events.mat_key, ''), 'null')), ''))
   FROM events
@@ -289,7 +289,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event,
          events.distinct_id,
-         nullIf(nullIf(events.mat_key, ''), 'null'),
+         nullIf(nullIf(events.mat_key, ''), 'null') AS key,
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(nullIf(nullIf(events.mat_key, ''), 'null')), ''))
   FROM events
@@ -306,7 +306,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event,
          events.distinct_id,
-         nullIf(nullIf(events.mat_key, ''), 'null'),
+         nullIf(nullIf(events.mat_key, ''), 'null') AS key,
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(nullIf(nullIf(events.mat_key, ''), 'null')), ''))
   FROM events
@@ -323,7 +323,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event,
          events.distinct_id,
-         nullIf(nullIf(events.mat_key, ''), 'null'),
+         nullIf(nullIf(events.mat_key, ''), 'null') AS key,
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(nullIf(nullIf(events.mat_key, ''), 'null')), ''))
   FROM events
@@ -340,7 +340,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event,
          events.distinct_id,
-         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''),
+         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') AS key,
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')), ''))
   FROM events
@@ -374,7 +374,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT events.event,
          events.distinct_id,
-         nullIf(nullIf(events.mat_key, ''), 'null'),
+         nullIf(nullIf(events.mat_key, ''), 'null') AS key,
          'a%sd',
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(nullIf(nullIf(events.mat_key, ''), 'null')), ''))
   FROM events
@@ -406,7 +406,7 @@
 # name: TestQuery.test_property_filter_aggregations
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''),
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') AS key,
          count()
   FROM events
   WHERE and(equals(events.team_id, 2), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
@@ -421,7 +421,7 @@
 # name: TestQuery.test_property_filter_aggregations.1
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''),
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') AS key,
          count()
   FROM events
   WHERE and(equals(events.team_id, 2), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
@@ -437,7 +437,7 @@
 # name: TestQuery.test_property_filter_aggregations_materialized
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT nullIf(nullIf(events.mat_key, ''), 'null'),
+  SELECT nullIf(nullIf(events.mat_key, ''), 'null') AS key,
          count()
   FROM events
   WHERE and(equals(events.team_id, 2), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
@@ -452,7 +452,7 @@
 # name: TestQuery.test_property_filter_aggregations_materialized.1
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT nullIf(nullIf(events.mat_key, ''), 'null'),
+  SELECT nullIf(nullIf(events.mat_key, ''), 'null') AS key,
          count()
   FROM events
   WHERE and(equals(events.team_id, 2), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
@@ -483,7 +483,7 @@
 # name: TestQuery.test_select_hogql_expressions
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', ''),
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') AS key,
          events.event,
          events.distinct_id,
          concat(ifNull(toString(events.event), ''), ' ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '')), ''))

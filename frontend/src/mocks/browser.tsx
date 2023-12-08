@@ -1,7 +1,8 @@
+import { DecoratorFunction } from '@storybook/types'
 import { rest, setupWorker } from 'msw'
+
 import { handlers } from '~/mocks/handlers'
 import { Mocks, mocksToHandlers } from '~/mocks/utils'
-import { DecoratorFunction } from '@storybook/types'
 
 // Default handlers ensure no request is unhandled by msw
 export const worker = setupWorker(...handlers)

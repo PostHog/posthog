@@ -1,11 +1,11 @@
-import { kea, props, path, connect, actions, reducers, selectors, listeners } from 'kea'
-import { BillingProductV2Type, ProductKey } from '~/types'
-import { urls } from 'scenes/urls'
-
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { combineUrl, router, actionToUrl, urlToAction } from 'kea-router'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { urls } from 'scenes/urls'
+
+import { BillingProductV2Type, ProductKey } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
 
@@ -19,6 +19,7 @@ export enum OnboardingStepKey {
     BILLING = 'billing',
     OTHER_PRODUCTS = 'other_products',
     VERIFY = 'verify',
+    PRODUCT_CONFIGURATION = 'configure',
 }
 
 // These types have to be set like this, so that kea typegen is happy
@@ -52,7 +53,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         setProductKey: (productKey: string | null) => ({ productKey }),
         completeOnboarding: (nextProductKey?: string) => ({ nextProductKey }),
         setAllOnboardingSteps: (allOnboardingSteps: AllOnboardingSteps) => ({ allOnboardingSteps }),
-        setStepKey: (stepKey: string) => ({ stepKey }),
+        setStepKey: (stepKey: OnboardingStepKey) => ({ stepKey }),
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
         goToNextStep: true,
         goToPreviousStep: true,
@@ -78,7 +79,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         stepKey: [
-            '' as string,
+            '' as OnboardingStepKey,
             {
                 setStepKey: (_, { stepKey }) => stepKey,
             },

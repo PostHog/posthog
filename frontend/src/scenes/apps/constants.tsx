@@ -1,4 +1,4 @@
-import { AppMetricsTab } from './appMetricsSceneLogic'
+import { AppMetricsTab } from '~/types'
 
 interface Description {
     successes: string

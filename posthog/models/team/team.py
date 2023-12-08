@@ -34,7 +34,7 @@ from posthog.utils import GenericEmails, PersonOnEventsMode
 
 from .team_caching import get_team_in_cache, set_team_in_cache
 
-TIMEZONES = [(tz, tz) for tz in pytz.common_timezones]
+TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
 
 # TODO: DEPRECATED; delete when these attributes can be fully removed from `Team` model
 DEPRECATED_ATTRS = (
@@ -360,7 +360,7 @@ class Team(UUIDClassicModel):
             {"team_id": self.pk, "group_type_index": group_type_index},
         )[0][0]
 
-    @cached_property
+    @property
     def timezone_info(self) -> ZoneInfo:
         return ZoneInfo(self.timezone)
 

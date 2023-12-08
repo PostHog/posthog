@@ -38,11 +38,11 @@
                 position: absolute;
                 bottom: 5px;
                 left: calc(50% - var(--lemon-calendar-today-radius));
-                content: '';
-                border-radius: 100%;
                 width: calc(var(--lemon-calendar-today-radius) * 2);
                 height: calc(var(--lemon-calendar-today-radius) * 2);
+                content: '';
                 background: currentColor;
+                border-radius: 100%;
             }
         }
     }

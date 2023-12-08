@@ -1,10 +1,12 @@
-import { LemonButton, LemonCollapse, LemonDivider, LemonModal, Link } from '@posthog/lemon-ui'
 import { urls } from '@posthog/apps-common'
+import { LemonButton, LemonCollapse, LemonDivider, LemonModal, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { inAppFeedbackLogic } from './inAppFeedbackLogic'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { IconHelpOutline } from 'lib/lemon-ui/icons'
+
 import { Query } from '~/queries/Query/Query'
+
+import { inAppFeedbackLogic } from './inAppFeedbackLogic'
 
 const OPT_IN_SNIPPET = `posthog.init('YOUR_PROJECT_API_KEY', {
     api_host: 'YOUR API HOST',

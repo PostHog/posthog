@@ -1,12 +1,15 @@
 import { useActions, useValues } from 'kea'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { dashboardsModel } from '~/models/dashboardsModel'
-import { Scene } from 'scenes/sceneTypes'
-import { LemonButton, LemonButtonProps, LemonButtonWithSideAction, SideAction } from 'lib/lemon-ui/LemonButton'
-import { sceneConfigurations } from 'scenes/scenes'
+import { LemonButton, LemonButtonProps, SideAction } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
+
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SidebarChangeNoticeTooltip } from '~/layout/navigation/SideBar/SidebarChangeNotice'
+import { dashboardsModel } from '~/models/dashboardsModel'
+
+import { breadcrumbsLogic } from '../Breadcrumbs/breadcrumbsLogic'
 
 export interface PageButtonProps extends Pick<LemonButtonProps, 'icon' | 'onClick' | 'to'> {
     /** Used for highlighting the active scene. `identifier` of type number means dashboard ID instead of scene. */
@@ -17,15 +20,16 @@ export interface PageButtonProps extends Pick<LemonButtonProps, 'icon' | 'onClic
 }
 
 export function PageButton({ title, sideAction, identifier, highlight, ...buttonProps }: PageButtonProps): JSX.Element {
-    const { aliasedActiveScene, activeScene } = useValues(sceneLogic)
+    const { activeScene } = useValues(sceneLogic)
+    const { sceneBreadcrumbKeys } = useValues(breadcrumbsLogic)
     const { hideSideBarMobile } = useActions(navigationLogic)
     const { lastDashboardId } = useValues(dashboardsModel)
 
-    const isActiveSide: boolean = sideAction?.identifier === aliasedActiveScene
+    const isActiveSide: boolean = !!sideAction?.identifier && activeScene === sideAction.identifier
     const isActive: boolean =
         isActiveSide ||
         (typeof identifier === 'string'
-            ? identifier === aliasedActiveScene
+            ? activeScene === identifier || sceneBreadcrumbKeys.includes(identifier)
             : activeScene === Scene.Dashboard && identifier === lastDashboardId)
 
     const buttonStatus = isActive ? 'primary' : 'stealth'
@@ -35,7 +39,7 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
         <li>
             <SidebarChangeNoticeTooltip identifier={identifier}>
                 {sideAction ? (
-                    <LemonButtonWithSideAction
+                    <LemonButton
                         fullWidth
                         status={buttonStatus}
                         active={isActive}
@@ -50,7 +54,7 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
                         {...buttonProps}
                     >
                         <span className="text-default">{title}</span>
-                    </LemonButtonWithSideAction>
+                    </LemonButton>
                 ) : (
                     <LemonButton
                         fullWidth

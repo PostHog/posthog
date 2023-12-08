@@ -1,9 +1,11 @@
-import { useState } from 'react'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { CohortPersonPropertiesValuesField } from './CohortField'
+import { useState } from 'react'
 import { renderField } from 'scenes/cohorts/CohortFilters/constants'
 import { CohortPersonPropertiesValuesFieldProps, FilterType } from 'scenes/cohorts/CohortFilters/types'
+
 import { PropertyOperator } from '~/types'
+
+import { CohortPersonPropertiesValuesField } from './CohortField'
 
 type Story = StoryObj<typeof CohortPersonPropertiesValuesField>
 const meta: Meta<typeof CohortPersonPropertiesValuesField> = {

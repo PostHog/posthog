@@ -12,6 +12,7 @@ from posthog.api.cohort import CohortSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.feature_flag import CanEditFeatureFlag
+from posthog.api.shared import UserBasicSerializer
 from posthog.models import FeatureFlag, Team
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
@@ -44,15 +45,10 @@ class OrganizationFeatureFlagView(
             {
                 "flag_id": flag.id,
                 "team_id": flag.team_id,
-                "created_by": {
-                    "id": flag.created_by.id,
-                    "uuid": flag.created_by.uuid,
-                    "distinct_id": flag.created_by.distinct_id,
-                    "first_name": flag.created_by.first_name,
-                    "email": flag.created_by.email,
-                    "is_email_verified": flag.created_by.is_email_verified,
-                },
-                "filters": flag.filters,
+                "created_by": UserBasicSerializer(flag.created_by).data
+                if hasattr(flag, "created_by") and flag.created_by
+                else None,
+                "filters": flag.get_filters(),
                 "created_at": flag.created_at,
                 "active": flag.active,
             }
@@ -101,7 +97,7 @@ class OrganizationFeatureFlagView(
                 continue
 
             # get all linked cohorts, sorted by creation order
-            seen_cohorts_cache: Dict[str, Cohort] = {}
+            seen_cohorts_cache: Dict[int, Cohort] = {}
             sorted_cohort_ids = flag_to_copy.get_cohort_ids(
                 seen_cohorts_cache=seen_cohorts_cache, sort_by_topological_order=True
             )
@@ -111,7 +107,7 @@ class OrganizationFeatureFlagView(
             # create cohorts in the destination project
             if len(sorted_cohort_ids):
                 for cohort_id in sorted_cohort_ids:
-                    original_cohort = seen_cohorts_cache[str(cohort_id)]
+                    original_cohort = seen_cohorts_cache[cohort_id]
 
                     # search in destination project by name
                     destination_cohort = Cohort.objects.filter(
@@ -125,10 +121,13 @@ class OrganizationFeatureFlagView(
                         ).property_groups
 
                         for prop in prop_group.flat:
-                            if prop.type == "cohort":
-                                original_child_cohort_id = prop.value
-                                original_child_cohort = seen_cohorts_cache[str(original_child_cohort_id)]
-                                prop.value = name_to_dest_cohort_id[original_child_cohort.name]
+                            if prop.type == "cohort" and not isinstance(prop.value, list):
+                                try:
+                                    original_child_cohort_id = int(prop.value)
+                                    original_child_cohort = seen_cohorts_cache[original_child_cohort_id]
+                                    prop.value = name_to_dest_cohort_id[original_child_cohort.name]
+                                except (ValueError, TypeError):
+                                    continue
 
                         destination_cohort_serializer = CohortSerializer(
                             data={
@@ -155,14 +154,17 @@ class OrganizationFeatureFlagView(
                 props = group.get("properties", [])
                 for prop in props:
                     if isinstance(prop, dict) and prop.get("type") == "cohort":
-                        original_cohort_id = prop["value"]
-                        cohort_name = (seen_cohorts_cache[str(original_cohort_id)]).name
-                        prop["value"] = name_to_dest_cohort_id[cohort_name]
+                        try:
+                            original_cohort_id = int(prop["value"])
+                            cohort_name = (seen_cohorts_cache[original_cohort_id]).name
+                            prop["value"] = name_to_dest_cohort_id[cohort_name]
+                        except (ValueError, TypeError):
+                            continue
 
             flag_data = {
                 "key": flag_to_copy.key,
                 "name": flag_to_copy.name,
-                "filters": flag_to_copy.filters,
+                "filters": flag_to_copy.get_filters(),
                 "active": flag_to_copy.active,
                 "rollout_percentage": flag_to_copy.rollout_percentage,
                 "ensure_experience_continuity": flag_to_copy.ensure_experience_continuity,

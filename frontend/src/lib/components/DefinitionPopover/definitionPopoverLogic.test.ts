@@ -1,5 +1,14 @@
-import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
+import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
+import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
+import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { urls } from 'scenes/urls'
+
+import { useMocks } from '~/mocks/jest'
+import { actionsModel } from '~/models/actionsModel'
+import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { initKeaTests } from '~/test/init'
 import {
     mockActionDefinition,
     mockCohort,
@@ -9,15 +18,7 @@ import {
     mockGroup,
     mockPersonProperty,
 } from '~/test/mocks'
-import { initKeaTests } from '~/test/init'
-import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { expectLogic } from 'kea-test-utils'
-import { urls } from 'scenes/urls'
-import { actionsModel } from '~/models/actionsModel'
 import { ActionType, CohortType, PersonProperty, PropertyDefinition } from '~/types'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { cohortsModel } from '~/models/cohortsModel'
-import { useMocks } from '~/mocks/jest'
 
 describe('definitionPopoverLogic', () => {
     let logic: ReturnType<typeof definitionPopoverLogic.build>

@@ -1,19 +1,21 @@
 import { actions, BuiltLogic, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
-import { Breadcrumb, FilterType, InsightShortId, InsightType, ItemMode } from '~/types'
-import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
-import type { insightSceneLogicType } from './insightSceneLogicType'
-import { urls } from 'scenes/urls'
-import { insightLogicType } from 'scenes/insights/insightLogicType'
-import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
+import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
+import { insightLogicType } from 'scenes/insights/insightLogicType'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { Breadcrumb, FilterType, InsightShortId, InsightType, ItemMode } from '~/types'
+
 import { insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import type { insightSceneLogicType } from './insightSceneLogicType'
 
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
@@ -85,14 +87,19 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         insightSelector: [(s) => [s.insightLogicRef], (insightLogicRef) => insightLogicRef?.logic.selectors.insight],
         insight: [(s) => [(state, props) => s.insightSelector?.(state, props)?.(state, props)], (insight) => insight],
         breadcrumbs: [
-            (s) => [s.insight],
-            (insight): Breadcrumb[] => [
+            (s) => [s.insight, s.insightLogicRef],
+            (insight, insightLogicRef): Breadcrumb[] => [
                 {
-                    name: 'Insights',
+                    key: Scene.SavedInsights,
+                    name: 'Product analytics',
                     path: urls.savedInsights(),
                 },
                 {
+                    key: insight?.short_id || 'new',
                     name: insight?.name || insight?.derived_name || 'Unnamed',
+                    onRename: async (name: string) => {
+                        await insightLogicRef?.logic.asyncActions.setInsightMetadata({ name })
+                    },
                 },
             ],
         ],
@@ -238,6 +245,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
 
             if (values.isDev) {
+                // TRICKY: We disable beforeUnload handling in dev, but ONLY for insights
                 return false
             }
 

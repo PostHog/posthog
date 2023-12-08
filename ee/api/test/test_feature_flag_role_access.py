@@ -37,6 +37,26 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
         self.assertEqual(flag_role.role.name, self.eng_role.name)
         self.assertEqual(flag_role.feature_flag.id, self.feature_flag.id)
 
+    def test_role_access_with_deleted_creator_of_feature_flag(self):
+        OrganizationResourceAccess.objects.create(
+            resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS,
+            access_level=OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW,
+            organization=self.organization,
+        )
+
+        flag = FeatureFlag.objects.create(
+            created_by=None,
+            team=self.team,
+            key="flag_role_access_none",
+            name="Flag role access",
+        )
+        self.assertEqual(self.user.role_memberships.count(), 0)
+        flag_role_access_create_res = self.client.post(
+            f"/api/projects/@current/feature_flags/{flag.id}/role_access",
+            {"role_id": self.eng_role.id},
+        )
+        self.assertEqual(flag_role_access_create_res.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_cannot_add_role_access_if_feature_flags_access_level_too_low_and_not_creator(self):
         OrganizationResourceAccess.objects.create(
             resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS,

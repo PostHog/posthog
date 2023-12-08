@@ -1,13 +1,11 @@
-import { actions, props, kea, listeners, path, reducers, selectors, key } from 'kea'
-import { dayjs, Dayjs } from 'lib/dayjs'
-import type { dateFilterLogicType } from './dateFilterLogicType'
-import { isDate, dateFilterToText, dateStringToDayJs, formatDateRange, formatDate } from 'lib/utils'
-import { DateMappingOption } from '~/types'
-import { DateFilterLogicProps, DateFilterView } from 'lib/components/DateFilter/types'
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { CUSTOM_OPTION_VALUE, DateFilterLogicProps, DateFilterView } from 'lib/components/DateFilter/types'
+import { Dayjs, dayjs } from 'lib/dayjs'
+import { dateFilterToText, dateStringToDayJs, formatDate, formatDateRange, isDate } from 'lib/utils'
 
-export const CUSTOM_OPTION_KEY = 'Custom'
-export const CUSTOM_OPTION_VALUE = 'No date range override'
-export const CUSTOM_OPTION_DESCRIPTION = 'Use the original date ranges of insights'
+import { DateMappingOption } from '~/types'
+
+import type { dateFilterLogicType } from './dateFilterLogicType'
 
 export const dateFilterLogic = kea<dateFilterLogicType>([
     path(['lib', 'components', 'DateFilter', 'DateFilterLogic']),

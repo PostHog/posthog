@@ -1,22 +1,25 @@
 import './InsightTooltip.scss'
-import { ReactNode } from 'react'
+
+import { useValues } from 'kea'
+import { InsightLabel } from 'lib/components/InsightLabel'
+import { IconHandClick } from 'lib/lemon-ui/icons'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { shortTimeZone } from 'lib/utils'
+import { ReactNode } from 'react'
+import { formatAggregationValue } from 'scenes/insights/utils'
+
+import { FormatPropertyValueForDisplayFunction, propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+
 import {
     COL_CUTOFF,
-    ROW_CUTOFF,
+    getFormattedDate,
     getTooltipTitle,
     InsightTooltipProps,
     invertDataSource,
     InvertedSeriesDatum,
+    ROW_CUTOFF,
     SeriesDatum,
-    getFormattedDate,
 } from './insightTooltipUtils'
-import { InsightLabel } from 'lib/components/InsightLabel'
-import { IconHandClick } from 'lib/lemon-ui/icons'
-import { shortTimeZone } from 'lib/utils'
-import { useValues } from 'kea'
-import { FormatPropertyValueForDisplayFunction, propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { formatAggregationValue } from 'scenes/insights/utils'
 
 export function ClickToInspectActors({
     isTruncated,

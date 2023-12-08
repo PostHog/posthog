@@ -1,18 +1,17 @@
-import { kea, path, listeners, connect, afterMount, beforeUnmount } from 'kea'
+import { afterMount, beforeUnmount, connect, kea, listeners, path } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 
 import { commandPaletteLogic } from '../CommandPalette/commandPaletteLogic'
-import { commandBarLogic } from './commandBarLogic'
-
-import { BarStatus } from './types'
-
 import type { actionBarLogicType } from './actionBarLogicType'
+import { commandBarLogic } from './commandBarLogic'
+import { BarStatus } from './types'
 
 export const actionBarLogic = kea<actionBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'actionBarLogic']),
     connect({
         actions: [
             commandBarLogic,
-            ['hideCommandBar', 'setCommandBar'],
+            ['hideCommandBar', 'setCommandBar', 'clearInitialQuery'],
             commandPaletteLogic,
             [
                 'showPalette',
@@ -27,6 +26,8 @@ export const actionBarLogic = kea<actionBarLogicType>([
             ],
         ],
         values: [
+            commandBarLogic,
+            ['initialQuery', 'barStatus'],
             commandPaletteLogic,
             [
                 'input',
@@ -42,6 +43,19 @@ export const actionBarLogic = kea<actionBarLogicType>([
         hidePalette: () => {
             // listen on hide action from legacy palette, and hide command bar
             actions.hideCommandBar()
+        },
+    })),
+    subscriptions(({ values, actions }) => ({
+        barStatus: (value, oldvalue) => {
+            if (value !== BarStatus.SHOW_ACTIONS || oldvalue === BarStatus.SHOW_ACTIONS) {
+                return
+            }
+
+            if (values.initialQuery !== null) {
+                // set default query from url
+                actions.setInput(values.initialQuery)
+                actions.clearInitialQuery()
+            }
         },
     })),
     afterMount(({ actions, values, cache }) => {
@@ -65,7 +79,7 @@ export const actionBarLogic = kea<actionBarLogicType>([
                 // navigate to previous result
                 event.preventDefault()
                 actions.onArrowUp()
-            } else if (event.key === 'Escape') {
+            } else if (event.key === 'Escape' && event.repeat === false) {
                 event.preventDefault()
 
                 if (values.activeFlow) {
@@ -79,7 +93,7 @@ export const actionBarLogic = kea<actionBarLogicType>([
                     actions.hidePalette()
                 }
             } else if (event.key === 'Backspace') {
-                if (values.input.length === 0) {
+                if (values.input.length === 0 && event.repeat === false) {
                     // transition to search when pressing backspace with empty input
                     actions.setCommandBar(BarStatus.SHOW_SEARCH)
                 }

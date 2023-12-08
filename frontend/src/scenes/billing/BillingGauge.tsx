@@ -1,8 +1,9 @@
+import './BillingGauge.scss'
+
 import clsx from 'clsx'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { compactNumber } from 'lib/utils'
 import { useMemo } from 'react'
-import './BillingGauge.scss'
 
 type BillingGaugeItemProps = {
     width: string

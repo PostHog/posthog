@@ -1,5 +1,5 @@
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useValues } from 'kea'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
 
 function APISnippet(): JSX.Element {

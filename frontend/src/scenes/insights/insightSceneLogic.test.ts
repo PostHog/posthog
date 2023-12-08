@@ -1,10 +1,11 @@
 import { combineUrl, router } from 'kea-router'
-import { urls } from 'scenes/urls'
 import { expectLogic, partial } from 'kea-test-utils'
-import { InsightShortId, InsightType, ItemMode } from '~/types'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { initKeaTests } from '~/test/init'
+import { urls } from 'scenes/urls'
+
 import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+import { InsightShortId, InsightType, ItemMode } from '~/types'
 
 const Insight12 = '12' as InsightShortId
 const Insight42 = '42' as InsightShortId

@@ -1,19 +1,22 @@
+import { combineUrl } from 'kea-router'
+import { toParams } from 'lib/utils'
+
+import { ExportOptions } from '~/exporter/types'
 import {
     ActionType,
     AnnotationType,
     AnyPartialFilterType,
+    AppMetricsUrlParams,
     DashboardType,
     FilterType,
     InsightShortId,
-    ReplayTabs,
-    PipelineTabs,
     PipelineAppTabs,
+    PipelineTabs,
+    ReplayTabs,
 } from '~/types'
-import { combineUrl } from 'kea-router'
-import { ExportOptions } from '~/exporter/types'
-import { AppMetricsUrlParams } from './apps/appMetricsSceneLogic'
+
+import { OnboardingStepKey } from './onboarding/onboardingLogic'
 import { PluginTab } from './plugins/types'
-import { toParams } from 'lib/utils'
 import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 
 /**
@@ -158,7 +161,8 @@ export const urls = {
         `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
     inviteSignup: (id: string): string => `/signup/${id}`,
     products: (): string => '/products',
-    onboarding: (productKey: string): string => `/onboarding/${productKey}`,
+    onboarding: (productKey: string, stepKey?: OnboardingStepKey): string =>
+        `/onboarding/${productKey}${stepKey ? '?step=' + stepKey : ''}`,
     // Cloud only
     organizationBilling: (): string => '/organization/billing',
     // Self-hosted only

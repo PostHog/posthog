@@ -1,20 +1,12 @@
-import { createRoot } from 'react-dom/client'
 import { Placement } from '@floating-ui/react'
-import { kea, path, actions, reducers, listeners, selectors, connect, afterMount, beforeUnmount } from 'kea'
-import type { inAppPromptLogicType } from './inAppPromptLogicType'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
-import {
-    LemonActionableTooltip,
-    LemonActionableTooltipProps,
-} from 'lib/lemon-ui/LemonActionableTooltip/LemonActionableTooltip'
-import { inAppPromptEventCaptureLogic } from './inAppPromptEventCaptureLogic'
 import api from 'lib/api'
 import { now } from 'lib/dayjs'
-import wcmatch from 'wildcard-match'
 import {
-    IconUnverifiedEvent,
     IconApps,
     IconBarChart,
+    IconCoffee,
     IconCohort,
     IconComment,
     IconExperiment,
@@ -25,10 +17,19 @@ import {
     IconPerson,
     IconRecording,
     IconTools,
-    IconCoffee,
     IconTrendUp,
+    IconUnverifiedEvent,
 } from 'lib/lemon-ui/icons'
+import {
+    LemonActionableTooltip,
+    LemonActionableTooltipProps,
+} from 'lib/lemon-ui/LemonActionableTooltip/LemonActionableTooltip'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
+import { createRoot } from 'react-dom/client'
+import wcmatch from 'wildcard-match'
+
+import { inAppPromptEventCaptureLogic } from './inAppPromptEventCaptureLogic'
+import type { inAppPromptLogicType } from './inAppPromptLogicType'
 
 /** To be extended with other types of notifications e.g. modals, bars */
 export type PromptType = 'tooltip'

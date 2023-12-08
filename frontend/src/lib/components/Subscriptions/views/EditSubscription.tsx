@@ -1,20 +1,33 @@
-import { useEffect, useMemo } from 'react'
+import { LemonDivider, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { membersLogic } from 'scenes/organization/membersLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { Field } from 'lib/forms/Field'
-import { dayjs } from 'lib/dayjs'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { subscriptionLogic } from '../subscriptionLogic'
+import { Form } from 'kea-forms'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
+import { dayjs } from 'lib/dayjs'
+import { Field } from 'lib/forms/Field'
 import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import {
+    LemonSelectMultiple,
+    LemonSelectMultipleOptionItem,
+} from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { useEffect, useMemo } from 'react'
+import { membersLogic } from 'scenes/organization/membersLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { integrationsLogic } from 'scenes/settings/project/integrationsLogic'
+import { urls } from 'scenes/urls'
+
+import { subscriptionLogic } from '../subscriptionLogic'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import {
     bysetposOptions,
-    frequencyOptionsSingular,
     frequencyOptionsPlural,
+    frequencyOptionsSingular,
     getSlackChannelOptions,
     intervalOptions,
     monthlyWeekdayOptions,
@@ -23,18 +36,6 @@ import {
     timeOptions,
     weekdayOptions,
 } from '../utils'
-import { LemonDivider, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
-import {
-    LemonSelectMultiple,
-    LemonSelectMultipleOptionItem,
-} from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
-import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
-import { urls } from 'scenes/urls'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { Form } from 'kea-forms'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { integrationsLogic } from 'scenes/settings/project/integrationsLogic'
 
 interface EditSubscriptionProps extends SubscriptionBaseProps {
     id: number | 'new'

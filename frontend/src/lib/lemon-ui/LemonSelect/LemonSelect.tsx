@@ -1,11 +1,12 @@
+import './LemonSelect.scss'
+
+import clsx from 'clsx'
 import React, { useMemo } from 'react'
+
 import { IconClose } from '../icons'
 import { LemonButton, LemonButtonProps } from '../LemonButton'
-import { PopoverProps } from '../Popover'
-import './LemonSelect.scss'
-import clsx from 'clsx'
-import { TooltipProps } from '../Tooltip'
 import {
+    isLemonMenuSection,
     LemonMenu,
     LemonMenuItem,
     LemonMenuItemBase,
@@ -13,8 +14,9 @@ import {
     LemonMenuItemNode,
     LemonMenuProps,
     LemonMenuSection,
-    isLemonMenuSection,
 } from '../LemonMenu/LemonMenu'
+import { PopoverProps } from '../Popover'
+import { TooltipProps } from '../Tooltip'
 
 // Select options are basically menu items that handle onClick and active state internally
 interface LemonSelectOptionBase extends Omit<LemonMenuItemBase, 'active' | 'status'> {
@@ -61,6 +63,7 @@ export interface LemonSelectPropsBase<T>
         | 'aria-label'
         | 'onClick'
         | 'tabIndex'
+        | 'type'
     > {
     options: LemonSelectOptions<T>
     /** Callback fired when a value is selected, even if it already is set. */
@@ -71,7 +74,7 @@ export interface LemonSelectPropsBase<T>
     dropdownPlacement?: PopoverProps['placement']
     className?: string
     placeholder?: string
-    size?: 'small' | 'medium'
+    size?: LemonButtonProps['size']
     menu?: Pick<LemonMenuProps, 'className' | 'closeParentPopoverOnClickInside'>
 }
 
@@ -137,7 +140,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
             closeParentPopoverOnClickInside={menu?.closeParentPopoverOnClickInside}
         >
             <LemonButton
-                className={clsx(className, isClearButtonShown && 'LemonSelect--clearable')}
+                className={clsx(className, 'LemonSelect', isClearButtonShown && 'LemonSelect--clearable')}
                 icon={activeLeaf?.icon}
                 // so that the pop-up isn't shown along with the close button
                 sideIcon={isClearButtonShown ? <></> : undefined}

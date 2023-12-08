@@ -1,5 +1,6 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { IconInfo, IconPremium } from 'lib/lemon-ui/icons'
+
 import { LemonRow, LemonRowProps } from './LemonRow'
 
 type Story = StoryObj<typeof LemonRow>

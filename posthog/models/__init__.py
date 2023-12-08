@@ -42,6 +42,7 @@ from .insight_caching_state import InsightCachingState
 from .instance_setting import InstanceSetting
 from .integration import Integration
 from .messaging import MessagingRecord
+from .notebook import Notebook
 from .organization import Organization, OrganizationInvite, OrganizationMembership
 from .organization_domain import OrganizationDomain
 from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapping
@@ -102,6 +103,7 @@ __all__ = [
     "InstanceSetting",
     "Integration",
     "MessagingRecord",
+    "Notebook",
     "MigrationStatus",
     "NotificationViewed",
     "Organization",

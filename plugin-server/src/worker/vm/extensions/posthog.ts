@@ -1,6 +1,7 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import crypto from 'crypto'
 import { DateTime } from 'luxon'
+import { Counter } from 'prom-client'
 import { Hub, PluginConfig, RawEventMessage } from 'types'
 
 import { UUIDT } from '../../../utils/utils'
@@ -47,6 +48,12 @@ async function queueEvent(hub: Hub, pluginConfig: PluginConfig, data: InternalDa
     })
 }
 
+const vmPosthogExtensionCaptureCalledCounter = new Counter({
+    name: 'vm_posthog_extension_capture_called_total',
+    help: 'Count of times vm posthog extension capture was called',
+    labelNames: ['plugin_id'],
+})
+
 export function createPosthog(hub: Hub, pluginConfig: PluginConfig): DummyPostHog {
     const distinctId = pluginConfig.plugin?.name || `plugin-id-${pluginConfig.plugin_id}`
 
@@ -67,7 +74,7 @@ export function createPosthog(hub: Hub, pluginConfig: PluginConfig): DummyPostHo
                 uuid: new UUIDT().toString(),
             }
             await queueEvent(hub, pluginConfig, data)
-            hub.statsd?.increment('vm_posthog_extension_capture_called')
+            vmPosthogExtensionCaptureCalledCounter.labels(String(pluginConfig.plugin?.id)).inc()
         },
         api: createApi(hub, pluginConfig),
     }

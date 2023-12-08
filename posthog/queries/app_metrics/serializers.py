@@ -6,7 +6,7 @@ class AppMetricsRequestSerializer(serializers.Serializer):
         # Keep in sync with plugin-server/src/worker/ingestion/app-metrics.ts
         choices=["processEvent", "onEvent", "exportEvents", "scheduledTask", "webhook", "composeWebhook"],
         help_text="What to gather metrics for",
-        required=True,
+        required=False,
     )
     date_from = serializers.CharField(
         default="-30d",
@@ -24,7 +24,7 @@ class AppMetricsErrorsRequestSerializer(serializers.Serializer):
         # Keep in sync with plugin-server/src/worker/ingestion/app-metrics.ts
         choices=["processEvent", "onEvent", "exportEvents", "scheduledTask", "webhook", "composeWebhook"],
         help_text="What to gather errors for",
-        required=True,
+        required=False,
     )
     error_type = serializers.CharField(required=True, help_text="What error type to filter for.")
     job_id = serializers.CharField(help_text="Set this to filter results to a particular job", required=False)

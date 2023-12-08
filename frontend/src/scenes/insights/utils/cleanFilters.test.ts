@@ -1,4 +1,5 @@
-import { cleanFilters } from './cleanFilters'
+import { NON_VALUES_ON_SERIES_DISPLAY_TYPES, ShownAsValue } from 'lib/constants'
+
 import {
     ChartDisplayType,
     FilterType,
@@ -8,7 +9,8 @@ import {
     InsightType,
     TrendsFilterType,
 } from '~/types'
-import { NON_VALUES_ON_SERIES_DISPLAY_TYPES, ShownAsValue } from 'lib/constants'
+
+import { cleanFilters } from './cleanFilters'
 
 describe('cleanFilters', () => {
     it('removes shownas from trends insights', () => {

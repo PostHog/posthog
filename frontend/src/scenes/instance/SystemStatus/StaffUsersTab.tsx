@@ -1,16 +1,18 @@
+import { Link } from '@posthog/lemon-ui'
 import { Divider, Modal } from 'antd'
 import { useActions, useValues } from 'kea'
-import { IconDelete } from 'lib/lemon-ui/icons'
-import { LemonTableColumns, LemonTable } from 'lib/lemon-ui/LemonTable'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { UserType } from '~/types'
-import { staffUsersLogic } from './staffUsersLogic'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { userLogic } from 'scenes/userLogic'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
-import { Link } from '@posthog/lemon-ui'
+import { IconDelete } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { userLogic } from 'scenes/userLogic'
+
+import { UserType } from '~/types'
+
+import { staffUsersLogic } from './staffUsersLogic'
 
 export function StaffUsersTab(): JSX.Element {
     const { user: myself } = useValues(userLogic)
@@ -52,7 +54,7 @@ export function StaffUsersTab(): JSX.Element {
                         data-attr="invite-delete"
                         icon={<IconDelete />}
                         status="danger"
-                        disabled={staffUsers.length < 2}
+                        disabledReason={staffUsers.length < 2 && 'At least one staff user must remain'}
                         title={
                             staffUsers.length < 2
                                 ? 'You should always have at least one staff user.'

@@ -1,18 +1,19 @@
 import './DefinitionPopover.scss'
+
+import { Divider, DividerProps } from 'antd'
 import clsx from 'clsx'
-import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { useActions, useValues } from 'kea'
+import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { getKeyMapping } from 'lib/taxonomy'
-import { KeyMapping, UserBasicType, PropertyDefinition } from '~/types'
-import { Owner } from 'scenes/events/Owner'
 import { dayjs } from 'lib/dayjs'
-import { Divider, DividerProps, Select } from 'antd'
-import { membersLogic } from 'scenes/organization/membersLogic'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { getKeyMapping } from 'lib/taxonomy'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { Owner } from 'scenes/events/Owner'
+
+import { KeyMapping, UserBasicType } from '~/types'
 
 interface DefinitionPopoverProps {
     children: React.ReactNode
@@ -236,48 +237,6 @@ function Card({
     )
 }
 
-function Type({ propertyType }: { propertyType: PropertyDefinition['property_type'] | null }): JSX.Element {
-    return propertyType ? (
-        <div className="definition-popover-grid-card">
-            <div className="property-value-type">{propertyType}</div>
-        </div>
-    ) : (
-        <></>
-    )
-}
-
-function OwnerDropdown(): JSX.Element {
-    const { members } = useValues(membersLogic)
-    const { localDefinition } = useValues(definitionPopoverLogic)
-    const { setLocalDefinition } = useActions(definitionPopoverLogic)
-
-    return (
-        <Select
-            className={'definition-popover-owner-select definition-popover-edit-form-value'}
-            placeholder={<Owner user={'owner' in localDefinition ? localDefinition?.owner : null} />}
-            style={{ minWidth: 200 }}
-            dropdownClassName="owner-option"
-            onChange={(val) => {
-                const newOwner = members.find((mem) => mem.user.id === val)?.user
-                if (newOwner) {
-                    setLocalDefinition({ owner: newOwner })
-                } else {
-                    setLocalDefinition({ owner: null })
-                }
-            }}
-        >
-            <Select.Option key="no-owner" value={-1}>
-                <Owner user={null} />
-            </Select.Option>
-            {members.map((member) => (
-                <Select.Option key={member.user.id} value={member.user.id}>
-                    <Owner user={member.user} />
-                </Select.Option>
-            ))}
-        </Select>
-    )
-}
-
 export const DefinitionPopover = {
     Wrapper,
     Header,
@@ -289,6 +248,4 @@ export const DefinitionPopover = {
     Grid,
     Section,
     Card,
-    OwnerDropdown,
-    Type,
 }

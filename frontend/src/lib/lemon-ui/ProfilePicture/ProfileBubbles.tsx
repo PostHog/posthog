@@ -1,6 +1,7 @@
 import clsx from 'clsx'
-import { ProfilePicture } from '.'
+
 import { Tooltip } from '../Tooltip'
+import { ProfilePicture } from '.'
 
 export interface ProfileBubblesProps extends React.HTMLProps<HTMLDivElement> {
     people: { email: string; name?: string; title?: string }[]

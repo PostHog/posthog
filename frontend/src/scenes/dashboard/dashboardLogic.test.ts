@@ -1,11 +1,18 @@
 // let tiles assert an insight is present in tests i.e. `tile!.insight` when it must be present for tests to pass
 import { expectLogic, truth } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
+import api from 'lib/api'
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { dayjs, now } from 'lib/dayjs'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import _dashboardJson from './__mocks__/dashboard.json'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DashboardFilter } from '~/queries/schema'
+import { initKeaTests } from '~/test/init'
 import {
     DashboardTile,
     DashboardType,
@@ -16,13 +23,8 @@ import {
     TextModel,
     TileLayout,
 } from '~/types'
-import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import { useMocks } from '~/mocks/jest'
-import { dayjs, now } from 'lib/dayjs'
-import { teamLogic } from 'scenes/teamLogic'
-import { MOCK_TEAM_ID } from 'lib/api.mock'
-import api from 'lib/api'
-import { DashboardFilter } from '~/queries/schema'
+
+import _dashboardJson from './__mocks__/dashboard.json'
 
 const dashboardJson = _dashboardJson as any as DashboardType
 

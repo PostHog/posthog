@@ -1,9 +1,10 @@
-import { BuiltLogic, useValues } from 'kea'
 import clsx from 'clsx'
-import { notebookLogic } from './notebookLogic'
-import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
-import { NotebookNodeChildRenderer } from '../Nodes/NodeWrapper'
+import { BuiltLogic, useValues } from 'kea'
 import { uuid } from 'lib/utils'
+
+import { NotebookNodeChildRenderer } from '../Nodes/NodeWrapper'
+import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
+import { notebookLogic } from './notebookLogic'
 
 export const NotebookColumnRight = (): JSX.Element | null => {
     const { isShowingLeftColumn, nodeLogicsWithChildren } = useValues(notebookLogic)

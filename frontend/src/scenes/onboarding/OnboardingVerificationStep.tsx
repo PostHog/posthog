@@ -1,12 +1,13 @@
 import { Spinner } from '@posthog/lemon-ui'
-import { OnboardingStep } from './OnboardingStep'
 import { useActions, useValues } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { useInterval } from 'lib/hooks/useInterval'
 import { BlushingHog } from 'lib/components/hedgehogs'
+import { useInterval } from 'lib/hooks/useInterval'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
 import { OnboardingStepKey } from './onboardingLogic'
+import { OnboardingStep } from './OnboardingStep'
 
 export const OnboardingVerificationStep = ({
     listeningForName,

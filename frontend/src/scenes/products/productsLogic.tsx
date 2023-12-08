@@ -1,10 +1,11 @@
-import { kea, path, actions, listeners, connect } from 'kea'
+import { actions, connect, kea, listeners, path } from 'kea'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 import { teamLogic } from 'scenes/teamLogic'
+
 import { ProductKey } from '~/types'
 
 import type { productsLogicType } from './productsLogicType'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 
 export const productsLogic = kea<productsLogicType>([
     path(() => ['scenes', 'products', 'productsLogic']),

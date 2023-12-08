@@ -1,11 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
-
-import { BaseMathType, ChartDisplayType, InsightShortId, PropertyMathType } from '~/types'
-import { NodeKind, TrendsQuery } from '~/queries/schema'
-
-import { insightsTableDataLogic, AggregationType } from './insightsTableDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
+import { NodeKind, TrendsQuery } from '~/queries/schema'
+import { initKeaTests } from '~/test/init'
+import { BaseMathType, ChartDisplayType, InsightShortId, PropertyMathType } from '~/types'
+
+import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
 
 const Insight123 = '123' as InsightShortId
 

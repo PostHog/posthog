@@ -1,29 +1,32 @@
-import { useActions, useValues } from 'kea'
-import { dashboardsModel, nameCompareFunction } from '~/models/dashboardsModel'
-import { DashboardsFilters, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
-import { userLogic } from 'scenes/userLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
-import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { AvailableFeature, DashboardBasicType, DashboardMode, DashboardType } from '~/types'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { DashboardPrivilegeLevel } from 'lib/constants'
-import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconCottage, IconLock, IconPinOutline, IconPinFilled, IconShare } from 'lib/lemon-ui/icons'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonRow } from 'lib/lemon-ui/LemonRow'
-import { DASHBOARD_CANNOT_EDIT_MESSAGE } from '../DashboardHeader'
+import { IconPin, IconPinFilled, IconShare } from '@posthog/icons'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
-import { membersLogic } from 'scenes/organization/membersLogic'
+import { useActions, useValues } from 'kea'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { DashboardPrivilegeLevel } from 'lib/constants'
+import { IconCottage, IconLock } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonRow } from 'lib/lemon-ui/LemonRow'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardsFilters, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
+import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
+import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { dashboardsModel, nameCompareFunction } from '~/models/dashboardsModel'
+import { AvailableFeature, DashboardBasicType, DashboardMode, DashboardType } from '~/types'
+
+import { DASHBOARD_CANNOT_EDIT_MESSAGE } from '../DashboardHeader'
 
 export function DashboardsTableContainer(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
@@ -70,7 +73,7 @@ export function DashboardsTable({
                                 : () => pinDashboard(id, DashboardEventSource.DashboardsList)
                         }
                         tooltip={pinned ? 'Unpin dashboard' : 'Pin dashboard'}
-                        icon={pinned ? <IconPinFilled /> : <IconPinOutline />}
+                        icon={pinned ? <IconPinFilled /> : <IconPin />}
                     />
                 )
             },
@@ -215,28 +218,31 @@ export function DashboardsTable({
                 />
                 <div className="flex items-center gap-4 flex-wrap">
                     <div className="flex items-center gap-2">
-                        <LemonButton
-                            active={filters.pinned}
-                            type="secondary"
-                            status="stealth"
-                            size="small"
-                            onClick={() => setFilters({ pinned: !filters.pinned })}
-                            icon={<IconPinOutline />}
-                        >
-                            Pinned
-                        </LemonButton>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <LemonButton
-                            active={filters.shared}
-                            type="secondary"
-                            status="stealth"
-                            size="small"
-                            onClick={() => setFilters({ shared: !filters.shared })}
-                            icon={<IconShare />}
-                        >
-                            Shared
-                        </LemonButton>
+                        <span>Filter to:</span>
+                        <div className="flex items-center gap-2">
+                            <LemonButton
+                                active={filters.pinned}
+                                type="secondary"
+                                status="stealth"
+                                size="small"
+                                onClick={() => setFilters({ pinned: !filters.pinned })}
+                                icon={<IconPin />}
+                            >
+                                Pinned
+                            </LemonButton>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <LemonButton
+                                active={filters.shared}
+                                type="secondary"
+                                status="stealth"
+                                size="small"
+                                onClick={() => setFilters({ shared: !filters.shared })}
+                                icon={<IconShare />}
+                            >
+                                Shared
+                            </LemonButton>
+                        </div>
                     </div>
                     <div className="flex items-center gap-2">
                         <span>Created by:</span>

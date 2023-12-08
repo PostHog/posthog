@@ -1,30 +1,32 @@
-import { LemonSelectOptions, LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelectOptions, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import {
-    IconChevronRight,
-    IconCheckmark,
-    IconExpandMore,
-    IconPlus,
     IconArticle,
     IconCheckCircleOutline,
+    IconCheckmark,
+    IconChevronRight,
+    IconExpandMore,
     IconInfo,
+    IconPlus,
 } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
-import { convertLargeNumberToWords, getUpgradeProductLink, summarizeUsage } from './billing-utils'
-import { BillingGauge } from './BillingGauge'
-import { billingLogic } from './billingLogic'
-import { BillingLimitInput } from './BillingLimitInput'
-import { billingProductLogic } from './billingProductLogic'
 import { capitalizeFirstLetter, compactNumber } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { ProductPricingModal } from './ProductPricingModal'
-import { PlanComparisonModal } from './PlanComparison'
 import { getProductIcon } from 'scenes/products/Products'
+
+import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
+
+import { convertLargeNumberToWords, getUpgradeProductLink, summarizeUsage } from './billing-utils'
+import { BillingGauge } from './BillingGauge'
+import { BillingLimitInput } from './BillingLimitInput'
+import { billingLogic } from './billingLogic'
+import { billingProductLogic } from './billingProductLogic'
+import { PlanComparisonModal } from './PlanComparison'
+import { ProductPricingModal } from './ProductPricingModal'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
 
 const UNSUBSCRIBE_SURVEY_ID = '018b6e13-590c-0000-decb-c727a2b3f462'
@@ -501,10 +503,10 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                             {product.tiered && tableTierData ? (
                                 <>
                                     <LemonTable
-                                        borderedRows={false}
+                                        stealth
+                                        embedded
                                         size="xs"
                                         uppercaseHeader={false}
-                                        display="stealth"
                                         columns={tableColumns}
                                         dataSource={tableTierData}
                                     />
@@ -524,9 +526,9 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 </>
                             ) : (
                                 <LemonTable
-                                    borderedRows={false}
+                                    stealth
+                                    embedded
                                     size="xs"
-                                    display="stealth"
                                     uppercaseHeader={false}
                                     columns={[
                                         { title: '', dataIndex: 'name' },

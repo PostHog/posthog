@@ -1,8 +1,9 @@
-import { useState } from 'react'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { LemonCalendarRangeProps } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
 import { dayjs } from 'lib/dayjs'
+import { LemonCalendarRangeProps } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
 import { formatDateRange } from 'lib/utils'
+import { useState } from 'react'
+
 import { LemonCalendarRangeInline } from './LemonCalendarRangeInline'
 
 type Story = StoryObj<typeof LemonCalendarRangeInline>

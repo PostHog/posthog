@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
-import { FilterType } from '~/types'
-import { teamLogic } from 'scenes/teamLogic'
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconSettings } from 'lib/lemon-ui/icons'
-import { urls } from 'scenes/urls'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { FilterType } from '~/types'
 
 export function TestAccountFilter({
     filters,

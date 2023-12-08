@@ -1,21 +1,24 @@
-import { capitalizeFirstLetter, isGroupType, percentage } from 'lib/utils'
-import { RetentionTableAppearanceType } from 'scenes/retention/types'
+import './RetentionTable.scss'
+
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { dayjs } from 'lib/dayjs'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import './RetentionTable.scss'
-import { urls } from 'scenes/urls'
-import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
-import { triggerExport } from 'lib/components/ExportButton/exporter'
-import { ExporterFormat } from '~/types'
-import clsx from 'clsx'
-import { MissingPersonsAlert } from 'scenes/trends/persons-modal/PersonsModal'
-import { useActions, useValues } from 'kea'
+import { capitalizeFirstLetter, isGroupType, percentage } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { retentionLogic } from './retentionLogic'
-import { retentionPeopleLogic } from './retentionPeopleLogic'
-import { retentionModalLogic } from './retentionModalLogic'
+import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { asDisplay } from 'scenes/persons/person-utils'
+import { RetentionTableAppearanceType } from 'scenes/retention/types'
+import { MissingPersonsAlert } from 'scenes/trends/persons-modal/PersonsModal'
+import { urls } from 'scenes/urls'
+
+import { ExporterFormat } from '~/types'
+
+import { retentionLogic } from './retentionLogic'
+import { retentionModalLogic } from './retentionModalLogic'
+import { retentionPeopleLogic } from './retentionPeopleLogic'
 
 export function RetentionModal(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)

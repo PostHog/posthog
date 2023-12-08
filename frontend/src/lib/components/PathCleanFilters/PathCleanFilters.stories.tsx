@@ -1,5 +1,6 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useState } from 'react'
+
 import { PathCleaningFilter } from '~/types'
 
 import { PathCleanFilters, PathCleanFiltersProps } from './PathCleanFilters'

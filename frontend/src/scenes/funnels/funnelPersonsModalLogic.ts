@@ -1,5 +1,9 @@
 import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { funnelTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
+import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
+
 import {
     FunnelCorrelation,
     FunnelCorrelationResultsType,
@@ -8,19 +12,14 @@ import {
     InsightLogicProps,
 } from '~/types'
 
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelDataLogic } from './funnelDataLogic'
-
+import type { funnelPersonsModalLogicType } from './funnelPersonsModalLogicType'
 import {
-    getBreakdownStepValues,
     generateBaselineConversionUrl,
+    getBreakdownStepValues,
     parseBreakdownValue,
     parseEventAndProperty,
 } from './funnelUtils'
-import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
-import { funnelTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
-
-import type { funnelPersonsModalLogicType } from './funnelPersonsModalLogicType'
 
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
 

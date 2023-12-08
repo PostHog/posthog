@@ -25,7 +25,7 @@ import { notebookLogic } from '../Notebook/notebookLogic'
 import { useInView } from 'react-intersection-observer'
 import { NotebookNodeResource } from '~/types'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { NotebookNodeContext, NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
+import { NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
 import { posthogNodePasteRule, useSyncedAttributes } from './utils'
 import {
     KNOWN_NODES,
@@ -39,6 +39,7 @@ import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { notebookNodeLogicType } from './notebookNodeLogicType'
 import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
+import { NotebookNodeContext } from './NotebookNodeContext'
 import { IconGear } from '@posthog/icons'
 
 function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperProps<T>): JSX.Element {
@@ -74,7 +75,17 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     // nodeId can start null, but should then immediately be generated
     const nodeLogic = useMountedLogic(notebookNodeLogic(logicProps))
     const { resizeable, expanded, actions, nodeId } = useValues(nodeLogic)
-    const { setExpanded, deleteNode, toggleEditing, insertOrSelectNextLine } = useActions(nodeLogic)
+    const { setRef, setExpanded, deleteNode, toggleEditing, insertOrSelectNextLine } = useActions(nodeLogic)
+
+    const { ref: inViewRef, inView } = useInView({ triggerOnce: true })
+
+    const setRefs = useCallback(
+        (node) => {
+            setRef(node)
+            inViewRef(node)
+        },
+        [inViewRef]
+    )
 
     useEffect(() => {
         // TRICKY: child nodes mount the parent logic so we need to control the mounting / unmounting directly in this component
@@ -91,7 +102,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         mountedNotebookLogic,
     })
 
-    const [ref, inView] = useInView({ triggerOnce: true })
     const contentRef = useRef<HTMLDivElement | null>(null)
 
     // If resizeable is true then the node attr "height" is required
@@ -135,7 +145,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
             <BindLogic logic={notebookNodeLogic} props={logicProps}>
                 <NodeViewWrapper as="div">
                     <div
-                        ref={ref}
+                        ref={setRefs}
                         className={clsx(nodeType, 'NotebookNode', {
                             'NotebookNode--auto-hide-metadata': autoHideMetadata,
                             'NotebookNode--editable': getPos && isEditable,

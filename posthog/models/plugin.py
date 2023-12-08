@@ -228,6 +228,7 @@ class PluginConfig(models.Model):
     enabled: models.BooleanField = models.BooleanField(default=False)
     order: models.IntegerField = models.IntegerField()
     config: models.JSONField = models.JSONField(default=dict)
+    # DEPRECATED: use `plugin_log_entries` or `app_metrics` in ClickHouse instead
     # Error when running this plugin on an event (frontend: PluginErrorType)
     # - e.g: "undefined is not a function on index.js line 23"
     # - error = { message: "Exception in processEvent()", time: "iso-string", ...meta }

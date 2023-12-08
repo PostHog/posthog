@@ -1,11 +1,13 @@
-import { entityFilterLogic, toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
-import filtersJson from './__mocks__/filters.json'
-import eventDefinitionsJson from './__mocks__/event_definitions.json'
-import { FilterType } from '~/types'
-import { useMocks } from '~/mocks/jest'
 import * as libUtils from 'lib/utils'
+import { entityFilterLogic, toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+import { FilterType } from '~/types'
+
+import eventDefinitionsJson from './__mocks__/event_definitions.json'
+import filtersJson from './__mocks__/filters.json'
 
 describe('entityFilterLogic', () => {
     let logic: ReturnType<typeof entityFilterLogic.build>

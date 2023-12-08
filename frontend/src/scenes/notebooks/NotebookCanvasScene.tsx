@@ -1,13 +1,15 @@
-import { SceneExport } from 'scenes/sceneTypes'
-import { NotebookLogicProps, notebookLogic } from './Notebook/notebookLogic'
-import { Notebook } from './Notebook/Notebook'
 import './NotebookScene.scss'
-import { useMemo } from 'react'
-import { uuid } from 'lib/utils'
-import { useActions } from 'kea'
+
 import { LemonBanner } from '@posthog/lemon-ui'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useActions } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { uuid } from 'lib/utils'
+import { useMemo } from 'react'
+import { SceneExport } from 'scenes/sceneTypes'
+
+import { Notebook } from './Notebook/Notebook'
+import { notebookLogic, NotebookLogicProps } from './Notebook/notebookLogic'
 
 export const scene: SceneExport = {
     component: NotebookCanvas,
@@ -23,7 +25,7 @@ export function NotebookCanvas(): JSX.Element {
 
     const { duplicateNotebook } = useActions(notebookLogic(logicProps))
 
-    const is3000 = useFeatureFlag('POSTHOG_3000')
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     if (!is3000) {
         return <NotFound object="canvas" caption={<>Canvas mode requires PostHog 3000</>} />

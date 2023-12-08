@@ -1,9 +1,11 @@
-import { useActions, useValues } from 'kea'
-import { pluralize } from 'lib/utils'
-import { PluginLogEntryType } from '../../../types'
-import { LOGS_PORTION_LIMIT, pluginLogsLogic, PluginLogsProps } from './pluginLogsLogic'
-import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonCheckbox, LemonInput, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { LOGS_PORTION_LIMIT } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { pluralize } from 'lib/utils'
+
+import { PluginLogEntryType } from '../../../types'
+import { pluginLogsLogic, PluginLogsProps } from './pluginLogsLogic'
 
 function PluginLogEntryTypeDisplay(type: PluginLogEntryType): JSX.Element {
     let color: string | undefined
@@ -117,7 +119,7 @@ export function PluginLogs({ pluginConfigId }: PluginLogsProps): JSX.Element {
                     type="secondary"
                     fullWidth
                     center
-                    disabledReason={!isThereMoreToLoad ? "There's nothing mote to load" : undefined}
+                    disabledReason={!isThereMoreToLoad ? "There's nothing more to load" : undefined}
                 >
                     {isThereMoreToLoad ? `Load up to ${LOGS_PORTION_LIMIT} older entries` : 'No older entries'}
                 </LemonButton>

@@ -1,19 +1,20 @@
 import { SDKKey } from '~/types'
+
 import {
-    UTM_TAGS,
-    FeatureFlagSnippet,
-    JSSnippet,
     AndroidSnippet,
-    iOSSnippet,
-    ReactNativeSnippet,
-    NodeJSSnippet,
-    PythonSnippet,
-    RubySnippet,
     APISnippet,
-    PHPSnippet,
+    FeatureFlagSnippet,
     GolangSnippet,
+    iOSSnippet,
     JSBootstrappingSnippet,
+    JSSnippet,
+    NodeJSSnippet,
+    PHPSnippet,
+    PythonSnippet,
+    ReactNativeSnippet,
     ReactSnippet,
+    RubySnippet,
+    UTM_TAGS,
 } from './FeatureFlagSnippets'
 
 const DOC_BASE_URL = 'https://posthog.com/docs/'
