@@ -751,8 +751,12 @@ const deferredPersonOverridesProcessedCounter = new Counter({
 })
 
 export class DeferredPersonOverrideWorker {
-    // The advisory lock identifier/key used to ensure that only one process is
-    // updating the overrides at a time.
+    // This lock ID is used as an advisory lock identifier/key for a lock that
+    // ensures only one worker is able to update the overrides table at a time.
+    // (We do this to make it simpler to ensure that we maintain the consistency
+    // of transitive updates.) There isn't any special significance to this
+    // particular value (other than Postgres requires it to be a numeric one),
+    // it just needs to be consistent across all processes.
     public readonly lockId = 567
 
     private writer: PersonOverrideWriter
