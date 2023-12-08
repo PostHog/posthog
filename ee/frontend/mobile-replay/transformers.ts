@@ -146,8 +146,9 @@ function makePlaceholderElement(wireframe: wireframe, children: serializedNodeWi
                 type: NodeType.Element,
                 tagName: 'rect',
                 attributes: {
-                    width: '100%',
-                    height: '100%',
+                    width: wireframe.width,
+                    height: wireframe.height,
+                    style: makeStylesString(wireframe),
                     fill: wireframe.style?.backgroundColor || 'grey',
                 },
                 id: idSequence.next().value,
@@ -157,7 +158,7 @@ function makePlaceholderElement(wireframe: wireframe, children: serializedNodeWi
                 type: NodeType.Element,
                 tagName: 'text',
                 attributes: {
-                    fill: 'white',
+                    fill: wireframe.style?.color || 'white',
                     'font-size': '30',
                     x: '50%',
                     y: '50%',
