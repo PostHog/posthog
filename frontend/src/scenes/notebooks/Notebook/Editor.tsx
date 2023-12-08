@@ -26,6 +26,7 @@ import { NotebookNodeGroup } from '../Nodes/NotebookNodeGroup'
 import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
 import { NotebookNodeMap } from '../Nodes/NotebookNodeMap'
 import { NotebookNodeMention } from '../Nodes/NotebookNodeMention'
+import { NotebookNodeNotebook } from '../Nodes/NotebookNodeNotebook'
 import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
 import { NotebookNodePersonFeed } from '../Nodes/NotebookNodePersonFeed/NotebookNodePersonFeed'
 import { NotebookNodePlaylist } from '../Nodes/NotebookNodePlaylist'
@@ -116,6 +117,7 @@ export function Editor(): JSX.Element {
             NotebookNodeProperties,
             NotebookNodeMention,
             NotebookNodeEmbed,
+            NotebookNodeNotebook,
             SlashCommandsExtension,
             MentionsExtension,
             NotebookNodePersonFeed,

@@ -3243,6 +3243,7 @@ export enum NotebookNodeType {
     Properties = 'ph-properties',
     Map = 'ph-map',
     Embed = 'ph-embed',
+    Notebook = 'ph-notebook',
 }
 
 export type NotebookNodeResource = {

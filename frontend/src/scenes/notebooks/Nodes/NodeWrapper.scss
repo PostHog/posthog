@@ -5,7 +5,7 @@
 
     transform: translate3d(0, 0, 0);
 
-    .NotebookNode__box {
+    > .NotebookNode__box {
         overflow: hidden;
         background-color: var(--bg-light);
         border: 1px solid var(--border-color);
@@ -36,7 +36,7 @@
         }
     }
 
-    .NotebookNode__gap {
+    > .NotebookNode__gap {
         display: flex;
         gap: 0.2rem;
         align-items: center;
@@ -48,7 +48,7 @@
 
     &--editable:hover,
     &--selected {
-        .NotebookNode__gap {
+        > .NotebookNode__gap {
             height: 2rem;
             opacity: 1;
             transition: all 150ms linear;

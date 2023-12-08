@@ -228,7 +228,7 @@
     }
 
     &--editable {
-        .NotebookEditor .ProseMirror {
+        > .NotebookEditor .ProseMirror {
             flex: 1;
 
             // Add some padding to help clicking below the last element
