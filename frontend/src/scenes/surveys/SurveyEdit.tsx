@@ -699,12 +699,9 @@ export default function SurveyEdit(): JSX.Element {
                                                     value={SurveyType.Popover}
                                                 >
                                                     <div
-                                                        style={{
-                                                            transform: 'scale(.8)',
-                                                            position: 'absolute',
-                                                            top: '-1rem',
-                                                            left: '-1rem',
-                                                        }}
+                                                        className="absolute scale-08"
+                                                        // eslint-disable-next-line react/forbid-dom-props
+                                                        style={{ top: '-1rem', left: '-1rem' }}
                                                     >
                                                         <SurveyAppearance
                                                             preview

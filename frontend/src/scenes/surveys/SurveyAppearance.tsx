@@ -251,6 +251,7 @@ export function BaseAppearance({
             <div className="survey-box">
                 {!preview && (
                     <div
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={{
                             border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
                         }}
@@ -278,6 +279,7 @@ export function BaseAppearance({
                     {question.type === SurveyQuestionType.Open && (
                         <textarea
                             {...(preview ? { tabIndex: -1 } : null)}
+                            // eslint-disable-next-line react/forbid-dom-props
                             style={{
                                 border: `1px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
                             }}
@@ -416,6 +418,7 @@ const EmojiRating = ({
                         className="ratings-emoji"
                         type="button"
                         key={idx}
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={{ fill: active ? appearance.ratingButtonActiveColor : appearance.ratingButtonColor }}
                         onClick={() => setActiveIndex(idx)}
                     >
@@ -461,6 +464,7 @@ export function SurveyRatingAppearance({
             <div className="survey-box">
                 {!preview && (
                     <div
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={{
                             border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
                         }}
@@ -563,6 +567,7 @@ export function SurveyMultipleChoiceAppearance({
             <div className="survey-box">
                 {!preview && (
                     <div
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={{
                             border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
                         }}
@@ -638,6 +643,7 @@ export function SurveyThankYou({ appearance }: { appearance: SurveyAppearanceTyp
         >
             <div className="thank-you-message-container">
                 <div
+                    // eslint-disable-next-line react/forbid-dom-props
                     style={{ border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}` }}
                     className="cancel-btn-wrapper"
                 >

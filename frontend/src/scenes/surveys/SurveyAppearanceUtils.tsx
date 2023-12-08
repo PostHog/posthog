@@ -46,6 +46,7 @@ export const posthogLogoSVG = (
         <g clipPath="url(#clip0_2415_6911)">
             <mask
                 id="mask0_2415_6911"
+                // eslint-disable-next-line react/forbid-dom-props
                 style={{ maskType: 'luminance' }}
                 maskUnits="userSpaceOnUse"
                 x="0"
