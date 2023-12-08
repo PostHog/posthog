@@ -1,3 +1,4 @@
+import { instrument } from './metrics'
 import { status } from './status'
 import { sleep } from './utils'
 
@@ -6,19 +7,19 @@ export class PeriodicTask {
     private running = true
     private abortController: AbortController
 
-    constructor(task: () => Promise<void> | void, intervalMs: number, minimumWaitMs = 0) {
+    constructor(public name: string, task: () => Promise<void>, intervalMs: number, minimumWaitMs = 0) {
         this.abortController = new AbortController()
 
         const abortRequested = new Promise((resolve) => {
             this.abortController.signal.addEventListener('abort', resolve, { once: true })
         })
 
-        this.promise = new Promise<void>(async (resolve, reject) => {
+        this.promise = new Promise(async (resolve, reject) => {
             try {
                 status.debug('🔄', 'Periodic task starting...', { task })
                 while (!this.abortController.signal.aborted) {
                     const startTimeMs = Date.now()
-                    await task()
+                    await instrument({ metricName: this.name }, task)
                     const durationMs = Date.now() - startTimeMs
                     const waitTimeMs = Math.max(intervalMs - durationMs, minimumWaitMs)
                     status.debug(

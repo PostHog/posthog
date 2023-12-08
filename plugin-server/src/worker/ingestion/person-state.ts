@@ -10,7 +10,6 @@ import { Person, PropertyUpdateOperation, TimestampFormat } from '../../types'
 import { DB } from '../../utils/db/db'
 import { PostgresRouter, PostgresUse, TransactionClient } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
-import { instrument } from '../../utils/metrics'
 import { PeriodicTask } from '../../utils/periodic-task'
 import { promiseRetry } from '../../utils/retries'
 import { status } from '../../utils/status'
@@ -830,13 +829,18 @@ export class DeferredPersonOverrideWorker {
     }
 
     public runTask(intervalMs: number): PeriodicTask {
-        return new PeriodicTask(async () => {
-            status.debug('👥', 'Processing pending overrides...')
-            const overridesCount = await instrument({ metricName: 'processPendingOverrides' }, () =>
-                this.processPendingOverrides()
-            )
-            ;(overridesCount > 0 ? status.info : status.debug)('👥', `Processed ${overridesCount} pending overrides.`)
-        }, intervalMs)
+        return new PeriodicTask(
+            'processPendingOverrides',
+            async () => {
+                status.debug('👥', 'Processing pending overrides...')
+                const overridesCount = await this.processPendingOverrides()
+                ;(overridesCount > 0 ? status.info : status.debug)(
+                    '👥',
+                    `Processed ${overridesCount} pending overrides.`
+                )
+            },
+            intervalMs
+        )
     }
 }
 
