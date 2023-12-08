@@ -15,6 +15,7 @@ import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
 
 const meta: Meta = {
     title: 'Scenes-Other/Onboarding',
+    tags: ['test-skip'],
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',

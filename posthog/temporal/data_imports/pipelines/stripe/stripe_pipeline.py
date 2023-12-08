@@ -1,12 +1,12 @@
 from dataclasses import dataclass
 from typing import Dict
+from uuid import UUID
 
 import dlt
 from django.conf import settings
 from dlt.pipeline.exceptions import PipelineStepFailed
 
 from posthog.warehouse.models import ExternalDataSource
-
 from posthog.temporal.data_imports.pipelines.stripe.helpers import stripe_pagination
 from posthog.temporal.data_imports.pipelines.stripe.settings import ENDPOINTS
 from posthog.temporal.common.logger import bind_temporal_worker_logger
@@ -22,7 +22,9 @@ import asyncio
 
 @dataclass
 class PipelineInputs:
+    source_id: UUID
     run_id: str
+    schemas: list[str]
     dataset_name: str
     job_type: str
     team_id: int
@@ -65,17 +67,19 @@ def create_pipeline(inputs: PipelineInputs):
 
 # a temporal activity
 async def run_stripe_pipeline(inputs: StripeJobInputs) -> None:
-    ordered_endpoints = list(ENDPOINTS)
-
-    # basic logger for now
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
+    schemas = inputs.schemas
+    if not schemas:
+        logger.info(f"No schemas found for source id {inputs.source_id}")
+        return
+
     should_resume, details = await should_resume_from_activity_heartbeat(activity, DataImportHeartbeatDetails, logger)
 
     if should_resume and details:
-        ordered_endpoints = ordered_endpoints[ordered_endpoints.index(details.endpoint) :]
+        schemas = schemas[schemas.index(details.endpoint) :]
         logger.info(f"Resuming from {details.endpoint} with cursor {details.cursor}")
 
-    endpoint = ordered_endpoints[0]
+    endpoint = schemas[0]
     cursor = None
 
     async def worker_shutdown_handler():
@@ -85,7 +89,7 @@ async def run_stripe_pipeline(inputs: StripeJobInputs) -> None:
 
     asyncio.create_task(worker_shutdown_handler())
 
-    for endpoint in ordered_endpoints:
+    for endpoint in schemas:
         if should_resume and details and endpoint == details.endpoint:
             starting_after = details.cursor
         else:

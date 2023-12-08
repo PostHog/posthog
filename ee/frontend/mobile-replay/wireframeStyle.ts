@@ -1,4 +1,4 @@
-import { MobileStyles, wireframe } from './mobile.types'
+import { MobileStyles, wireframe, wireframeProgress } from './mobile.types'
 
 function isNumber(candidate: unknown): candidate is number {
     return typeof candidate === 'number'
@@ -119,8 +119,51 @@ function makeFontStyles(wireframe: wireframe): string {
     return styles
 }
 
+export function makeIndeterminateProgressStyles(wireframe: wireframeProgress): string {
+    let styles = ''
+    if (wireframe.style?.backgroundColor) {
+        styles += `background-color: ${wireframe.style.backgroundColor};`
+    }
+    styles += makePositionStyles(wireframe)
+    styles += `border: 4px solid ${wireframe.style?.borderColor || 'transparent'};`
+    styles += `border-radius: 50%;border-top: 4px solid #fff;`
+    styles += `animation: spin 2s linear infinite;`
+
+    return styles
+}
+
+export function makeDeterminateProgressStyles(wireframe: wireframeProgress): string {
+    let styles = ''
+    if (wireframe.style?.backgroundColor) {
+        styles += `background-color: ${wireframe.style.backgroundColor};`
+    }
+    styles += makePositionStyles(wireframe)
+    styles += 'border-radius: 50%;'
+    const radialGradient = `radial-gradient(closest-side, white 80%, transparent 0 99.9%, white 0)`
+    const conicGradient = `conic-gradient(${wireframe.style?.color || 'black'} calc(${wireframe.value} * 1%), ${
+        wireframe.style?.backgroundColor
+    } 0)`
+    styles += `background: ${radialGradient}, ${conicGradient};`
+
+    return styles
+}
+
+/**
+ * normally use makeStylesString instead, but sometimes you need styles without any colors applied
+ * */
+export function makeMinimalStyles(wireframe: wireframe): string {
+    let styles = ''
+
+    styles += makePositionStyles(wireframe)
+    styles += makeLayoutStyles(wireframe)
+    styles += makeFontStyles(wireframe)
+
+    return styles
+}
+
 export function makeStylesString(wireframe: wireframe): string {
     let styles = ''
+
     if (wireframe.style?.color) {
         styles += `color: ${wireframe.style.color};`
     }
@@ -128,9 +171,8 @@ export function makeStylesString(wireframe: wireframe): string {
         styles += `background-color: ${wireframe.style.backgroundColor};`
     }
     styles += makeBorderStyles(wireframe)
-    styles += makePositionStyles(wireframe)
-    styles += makeLayoutStyles(wireframe)
-    styles += makeFontStyles(wireframe)
+    styles += makeMinimalStyles(wireframe)
+
     return styles
 }
 

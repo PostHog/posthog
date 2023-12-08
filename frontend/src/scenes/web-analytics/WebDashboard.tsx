@@ -156,11 +156,13 @@ const WebQuery = ({ query, showIntervalSelect }: { query: QuerySchema; showInter
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
     return (
-        <div className="WebAnalyticsDashboard w-full flex flex-col pt-2">
+        <>
             <WebAnalyticsNotice />
-            <Filters />
-            <WebAnalyticsHealthCheck />
-            <Tiles />
-        </div>
+            <div className="WebAnalyticsDashboard w-full flex flex-col">
+                <Filters />
+                <WebAnalyticsHealthCheck />
+                <Tiles />
+            </div>
+        </>
     )
 }
