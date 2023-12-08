@@ -107,7 +107,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                                             type: 'person',
                                             id: result[0].id,
                                             uuid: result[0].id,
-                                            distinct_ids: result[1],
+                                            distinct_ids: result[0].distinct_ids,
                                             is_identified: result[0].is_identified,
                                             properties: result[0].properties,
                                             created_at: result[0].created_at,
@@ -267,7 +267,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 return {
                     kind: NodeKind.PersonsQuery,
                     source: query,
-                    select: ['person', 'groupArray(3)(pdi.distinct_id)'],
+                    select: ['person', 'created_at'],
                     orderBy: ['created_at DESC'],
                     search: searchTerm,
                 }
