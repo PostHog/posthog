@@ -2,9 +2,9 @@
     width: 100%;
     padding-top: 1rem;
     margin: 0.5rem 0;
+    background-color: var(--bg-light);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    background-color: var(--bg-light);
 
     &.CohortCriteriaGroups__matching-group--error {
         border: 1px solid var(--danger);
