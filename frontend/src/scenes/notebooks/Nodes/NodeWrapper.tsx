@@ -140,11 +140,22 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const isResizeable = resizeable && (!expandable || expanded)
     const isDraggable = !!(isEditable && getPos)
 
+    const dragStart = (e: any): void => {
+        console.log(e.target)
+        if (e.target.getAttribute('data-drag-handle') !== null) {
+            e.dataTransfer.setData('text/plain', 'This text will be dragged')
+        } else {
+            e.preventDefault()
+        }
+    }
+
     return (
         <NotebookNodeContext.Provider value={nodeLogic}>
             <BindLogic logic={notebookNodeLogic} props={logicProps}>
                 <NodeViewWrapper as="div">
                     <div
+                        draggable
+                        onDragStart={dragStart}
                         ref={setRefs}
                         className={clsx(nodeType, 'NotebookNode', {
                             'NotebookNode--auto-hide-metadata': autoHideMetadata,
@@ -165,7 +176,13 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                     </>
                                 ) : (
                                     <>
-                                        <div className="NotebookNode__meta" data-drag-handle>
+                                        <div
+                                            className="NotebookNode__meta"
+                                            data-drag-handle
+                                            onMouseDown={() => {
+                                                console.log('here!')
+                                            }}
+                                        >
                                             <div className="flex items-center flex-1 overflow-hidden">
                                                 {isDraggable && (
                                                     <IconDragHandle className="cursor-move text-base shrink-0" />
@@ -336,7 +353,8 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
         name: wrapperProps.nodeType,
         group: 'block',
         atom: true,
-        draggable: true,
+        draggable: false,
+        selectable: false,
 
         serializedText: serializedText,
 
