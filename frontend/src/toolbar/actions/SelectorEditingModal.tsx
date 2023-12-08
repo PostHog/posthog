@@ -3,7 +3,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { useState } from 'react'
 
-import { getShadowRootPopoverContainer } from '~/toolbar/utils'
 import { ElementType } from '~/types'
 
 export const SelectorEditingModal = ({
@@ -24,7 +23,6 @@ export const SelectorEditingModal = ({
     return (
         <LemonModal
             forceAbovePopovers={true}
-            getPopupContainer={getShadowRootPopoverContainer}
             description="Click on elements and their attributes to build a selector"
             footer={
                 <>
