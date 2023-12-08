@@ -2,22 +2,14 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { summarizeInsightQuery } from 'scenes/insights/summarizeInsight'
-import { teamLogic } from 'scenes/teamLogic'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { DataTableNode } from '~/queries/schema'
 
-interface ReturnToSourceProps {
-    setQuery?: (query: DataTableNode) => void
-}
-
-export function BackToSource({ setQuery }: ReturnToSourceProps): JSX.Element | null {
-    const { currentTeam } = useValues(teamLogic)
-
+export function BackToSource(): JSX.Element | null {
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
@@ -33,10 +25,6 @@ export function BackToSource({ setQuery }: ReturnToSourceProps): JSX.Element | n
         cohortsById,
         mathDefinitions,
     })
-
-    if (!setQuery || !currentTeam) {
-        return null
-    }
 
     return (
         <LemonButton

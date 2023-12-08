@@ -376,7 +376,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     )
 
     const firstRowLeft = [
-        backToSourceQuery ? <BackToSource key="return-to-source" query={query} setQuery={setQuery} /> : null,
+        backToSourceQuery ? <BackToSource key="return-to-source" /> : null,
         showDateRange && sourceFeatures.has(QueryFeature.dateRangePicker) ? (
             <DateRange key="date-range" query={query.source} setQuery={setQuerySource} />
         ) : null,
