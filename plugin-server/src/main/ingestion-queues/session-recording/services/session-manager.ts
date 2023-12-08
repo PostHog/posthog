@@ -222,7 +222,7 @@ export class SessionManager {
         }
 
         if (this.debug) {
-            status.info('🚽', `[session-manager] debug mode - flushIfSessionBufferIsOld?`, { logContext })
+            status.info('🚽', `[session-manager]  - [PARTITION DEBUG] - flushIfSessionBufferIsOld?`, { logContext })
         }
 
         if (this.buffer.oldestKafkaTimestamp === null) {

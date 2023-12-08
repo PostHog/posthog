@@ -210,7 +210,15 @@ export class SessionRecordingIngester {
         const { team_id, session_id } = event
         const key = `${team_id}-${session_id}`
 
-        const { offset } = event.metadata
+        const { offset, partition } = event.metadata
+        if (this.debugPartition === partition) {
+            status.info('🔁', '[blob_ingester_consumer] - [PARTITION DEBUG] - consuming event', {
+                team_id,
+                session_id,
+                partition,
+                offset,
+            })
+        }
 
         // Check that we are not below the high-water mark for this partition (another consumer may have flushed further than us when revoking)
         if (
