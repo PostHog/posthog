@@ -2,6 +2,7 @@ import './SessionRecordingPlayer.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -164,23 +165,25 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                 })}
                 onClick={incrementClickCount}
             >
-                {explorerMode ? (
-                    <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />
-                ) : (
-                    <>
-                        <div className="SessionRecordingPlayer__main">
-                            {(!noMeta || isFullScreen) && size !== 'tiny' ? <PlayerMeta /> : null}
+                <FloatingContainerContext.Provider value={playerRef}>
+                    {explorerMode ? (
+                        <SessionRecordingPlayerExplorer {...explorerMode} onClose={() => closeExplorer()} />
+                    ) : (
+                        <>
+                            <div className="SessionRecordingPlayer__main">
+                                {(!noMeta || isFullScreen) && size !== 'tiny' ? <PlayerMeta /> : null}
 
-                            <div className="SessionRecordingPlayer__body" draggable={draggable} {...elementProps}>
-                                <PlayerFrame />
-                                <PlayerFrameOverlay />
+                                <div className="SessionRecordingPlayer__body" draggable={draggable} {...elementProps}>
+                                    <PlayerFrame />
+                                    <PlayerFrameOverlay />
+                                </div>
+                                <LemonDivider className="my-0" />
+                                <PlayerController />
                             </div>
-                            <LemonDivider className="my-0" />
-                            <PlayerController />
-                        </div>
-                        {!noInspector && <PlayerInspector onFocusChange={setInspectorFocus} />}
-                    </>
-                )}
+                            {!noInspector && <PlayerInspector onFocusChange={setInspectorFocus} />}
+                        </>
+                    )}
+                </FloatingContainerContext.Provider>
             </div>
         </BindLogic>
     )

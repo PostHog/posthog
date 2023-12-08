@@ -119,6 +119,14 @@ function makeFontStyles(wireframe: wireframe): string {
     return styles
 }
 
+export function makeProgressStyles(wireframe: wireframe): string {
+    return `border: 4px solid ${
+        wireframe.style?.backgroundColor || 'transparent'
+    };border-radius: 50%;border-top: 4px solid ${
+        wireframe.style?.color || 'black'
+    };width: 20px;height: 20px;animation: spin 2s linear infinite;`
+}
+
 export function makeStylesString(wireframe: wireframe): string {
     let styles = ''
     if (wireframe.style?.color) {

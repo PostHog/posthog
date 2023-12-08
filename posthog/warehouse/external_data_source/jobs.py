@@ -13,7 +13,7 @@ def get_external_data_job(team_id: str, run_id: str) -> ExternalDataJob:
 
 
 def create_external_data_job(
-    external_data_source_id: str,
+    external_data_source_id: UUID,
     workflow_id: str,
     team_id: str,
 ) -> ExternalDataJob:
