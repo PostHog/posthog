@@ -17,7 +17,7 @@ import {
     IconUnfoldLess,
     IconUnfoldMore,
 } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonMenu, LemonMenuItem, LemonMenuItems } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import './NodeWrapper.scss'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { BindLogic, BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
@@ -240,7 +240,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                 ) : null}
 
                                                 {hasMenu ? (
-                                                    <LemonMenu items={menuItems}>
+                                                    <LemonMenu items={menuItems} placement="bottom-end">
                                                         <LemonButton
                                                             icon={<IconEllipsis />}
                                                             status="stealth"
