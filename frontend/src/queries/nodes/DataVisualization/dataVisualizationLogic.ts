@@ -11,6 +11,11 @@ import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { getQueryFeatures, QueryFeature } from '../DataTable/queryFeatures'
 import type { dataVisualizationLogicType } from './dataVisualizationLogicType'
 
+export interface AxisSeries<T> {
+    name: string
+    data: T[]
+}
+
 export interface DataVisualizationLogicProps {
     key: string
     query: DataVisualizationNode
@@ -152,22 +157,27 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         ],
         yData: [
             (state) => [state.selectedYIndexes, state.response],
-            (yIndexes, response): null | number[][] => {
+            (yIndexes, response): null | AxisSeries<number>[] => {
                 if (!response || yIndexes === null || yIndexes.length === 0) {
                     return null
                 }
 
                 const data: any[] = response?.['results'] ?? []
+                const columns: string[] = response['columns']
+
                 return yIndexes
                     .filter((n): n is number => Boolean(n))
-                    .map((index) => {
-                        return data.map((n) => {
-                            try {
-                                return parseInt(n[index], 10)
-                            } catch {
-                                return 0
-                            }
-                        })
+                    .map((index): AxisSeries<number> => {
+                        return {
+                            name: columns[index],
+                            data: data.map((n) => {
+                                try {
+                                    return parseInt(n[index], 10)
+                                } catch {
+                                    return 0
+                                }
+                            }),
+                        }
                     })
             },
         ],
@@ -246,6 +256,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     ...props.query,
                     chartSettings: {
                         ...(props.query.chartSettings ?? {}),
+                        yAxisIndex: values.selectedYIndexes?.filter((n: number | null): n is number => Boolean(n)),
                         xAxisIndex: value !== null ? [value] : undefined,
                     },
                 })
@@ -258,6 +269,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     chartSettings: {
                         ...(props.query.chartSettings ?? {}),
                         yAxisIndex: value?.filter((n: number | null): n is number => Boolean(n)),
+                        xAxisIndex: values.selectedXIndex !== null ? [values.selectedXIndex] : undefined,
                     },
                 })
             }

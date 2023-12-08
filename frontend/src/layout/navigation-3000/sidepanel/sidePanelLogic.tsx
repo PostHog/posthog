@@ -44,7 +44,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             { persist: true },
             {
                 closeSidePanel: () => true,
-                openSidePanel: () => true,
+                openSidePanel: (_, { tab }) => tab !== SidePanelTab.Welcome,
             },
         ],
     })),
@@ -77,25 +77,21 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         ],
 
         enabledTabs: [
-            (s) => [s.featureFlags, s.isCloudOrDev, s.isReady, s.hasCompletedAllTasks],
-            (featureFlags, isCloudOrDev, isReady, hasCompletedAllTasks) => {
+            (s) => [s.isCloudOrDev, s.isReady, s.hasCompletedAllTasks],
+            (isCloudOrDev, isReady, hasCompletedAllTasks) => {
                 const tabs: SidePanelTab[] = []
 
-                if (featureFlags[FEATURE_FLAGS.NOTEBOOKS]) {
-                    tabs.push(SidePanelTab.Notebooks)
-                }
+                tabs.push(SidePanelTab.Notebooks)
+                tabs.push(SidePanelTab.Docs)
                 if (isCloudOrDev) {
                     tabs.push(SidePanelTab.Support)
                 }
-                tabs.push(SidePanelTab.Docs)
                 tabs.push(SidePanelTab.Settings)
                 if (isReady && !hasCompletedAllTasks) {
                     tabs.push(SidePanelTab.Activation)
                 }
                 tabs.push(SidePanelTab.Activity)
-                if (featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE_SITE_BUTTON]) {
-                    tabs.push(SidePanelTab.FeaturePreviews)
-                }
+                tabs.push(SidePanelTab.FeaturePreviews)
                 tabs.push(SidePanelTab.Welcome)
 
                 return tabs

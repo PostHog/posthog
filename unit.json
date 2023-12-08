@@ -39,7 +39,10 @@
             "working_directory": "/code",
             "path": ".",
             "module": "posthog.wsgi",
-            "user": "nobody"
+            "user": "nobody",
+            "limits": {
+                "requests": 50000
+            }
         },
         "metrics": {
             "type": "python 3.10",
