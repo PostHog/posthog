@@ -1,10 +1,55 @@
 .LemonDivider {
+    display: flex;
     flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
     width: 100%;
-    height: 1px;
-    background: var(--border);
 
-    &--dashed {
+    &::before,
+    &::after {
+        display: block;
+        height: 1px;
+        background: var(--border);
+    }
+
+    &::before {
+        width: 100%;
+        content: '';
+    }
+
+    &::after {
+        width: 0%;
+        content: '';
+    }
+
+    &--orientation-left {
+        &::before {
+            width: 5%;
+        }
+
+        &::after {
+            width: 95%;
+        }
+    }
+
+    &--orientation-right {
+        &::after {
+            width: 5%;
+        }
+
+        &::before {
+            width: 95%;
+        }
+    }
+
+    &--orientation-center {
+        &::after,
+        &::before {
+            width: 50%;
+        }
+    }
+
+    &--dashed::before {
         background: repeating-linear-gradient(
             to right,
             var(--border),
@@ -14,20 +59,29 @@
         );
     }
 
-    &--thick {
+    &--thick::before {
         height: 3px;
     }
 
     &--vertical {
         align-self: stretch;
-        width: 1px;
-        height: auto;
+        width: auto;
 
-        &.LemonDivider--thick {
+        &::before {
+            align-self: stretch;
+            width: 1px;
+            height: auto;
+        }
+
+        &::after {
+            display: none;
+        }
+
+        &.LemonDivider--thick::before {
             width: 3px;
         }
 
-        &.LemonDivider--dashed {
+        &.LemonDivider--dashed::before {
             background: repeating-linear-gradient(
                 to bottom,
                 var(--border),

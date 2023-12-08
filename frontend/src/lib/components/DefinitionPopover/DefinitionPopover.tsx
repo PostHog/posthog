@@ -1,11 +1,12 @@
 import './DefinitionPopover.scss'
 
-import { Divider, DividerProps } from 'antd'
+import { DividerProps } from 'antd'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -189,9 +190,9 @@ function TimeMeta({
 
 function HorizontalLine({ children, ...props }: DividerProps): JSX.Element {
     return (
-        <Divider className="definition-popover-divider" {...props}>
+        <LemonDivider className="definition-popover-divider" {...props}>
             {children}
-        </Divider>
+        </LemonDivider>
     )
 }
 

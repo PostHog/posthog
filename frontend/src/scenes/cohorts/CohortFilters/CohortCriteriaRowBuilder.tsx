@@ -1,12 +1,12 @@
 import './CohortCriteriaRowBuilder.scss'
 
-import { Divider } from 'antd'
 import clsx from 'clsx'
 import { useActions } from 'kea'
 import { Field as KeaField } from 'kea-forms'
 import { IconCopy, IconDelete } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { cohortEditLogic, CohortLogicProps } from 'scenes/cohorts/cohortEditLogic'
 import { renderField, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterType, CohortFieldProps, Field, FilterType } from 'scenes/cohorts/CohortFilters/types'
@@ -175,8 +175,8 @@ export interface LogicalRowDividerProps {
 
 export function LogicalRowDivider({ logicalOperator }: LogicalRowDividerProps): JSX.Element {
     return (
-        <Divider className="logical-row-divider" orientation="left">
+        <LemonDivider className="logical-row-divider" orientation="left">
             <span className="text-xs text-primary-alt font-semibold">{logicalOperator}</span>
-        </Divider>
+        </LemonDivider>
     )
 }

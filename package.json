@@ -51,6 +51,7 @@
         "prettier:check": "prettier --check \"frontend/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "typescript:check": "tsc --noEmit && echo \"No errors reported by tsc.\"",
         "lint:js": "eslint frontend/src",
+        "lint:js:fix": "eslint frontend/src --fi",
         "lint:css": "stylelint \"frontend/**/*.{css,scss}\"",
         "format:backend": "ruff --exclude posthog/hogql/grammar .",
         "format:frontend": "pnpm lint:js --fix && pnpm lint:css --fix && pnpm prettier",

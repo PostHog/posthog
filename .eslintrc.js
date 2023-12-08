@@ -151,10 +151,6 @@ module.exports = {
                         message: 'use flex utility classes instead - most of the time can simply be a plain <div>',
                     },
                     {
-                        element: 'Divider',
-                        message: 'use <LemonDivider> instead',
-                    },
-                    {
                         element: 'Card',
                         message: 'use utility classes instead',
                     },
@@ -185,6 +181,10 @@ module.exports = {
             'error',
             {
                 forbid: [
+                    {
+                        element: 'Divider',
+                        message: 'use <LemonDivider> instead',
+                    },
                     {
                         element: 'Skeleton',
                         message: 'use <LemonSkeleton> instead',

@@ -1,9 +1,10 @@
 import { Link } from '@posthog/lemon-ui'
-import { Divider, Modal } from 'antd'
+import { Modal } from 'antd'
 import { useActions, useValues } from 'kea'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { IconDelete } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -110,7 +111,7 @@ export function StaffUsersTab(): JSX.Element {
                 </Link>
                 .
             </div>
-            <Divider style={{ margin: 0, marginBottom: 16 }} />
+            <LemonDivider className="m-0 mb-4" />
             <section>
                 <div className="flex gap-2 mb-4">
                     <div className="flex-1">

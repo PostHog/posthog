@@ -1,6 +1,7 @@
 import './LemonDivider.scss'
 
 import clsx from 'clsx'
+import { ReactNode } from 'react'
 
 export interface LemonDividerProps {
     /** 3x the thickness of the line. */
@@ -11,6 +12,10 @@ export interface LemonDividerProps {
     dashed?: boolean
     /** Adding a className will remove the default margin class names, allowing the greatest flexibility */
     className?: string
+    /* The position of title inside divider */
+    orientation?: 'left' | 'right' | 'center'
+    /* The wrapped title */
+    children?: ReactNode
 }
 
 /** A line separator for separating rows of content
@@ -19,15 +24,18 @@ export interface LemonDividerProps {
  * Default padding is `m-2` (e.g. 0.5rem) and can be overridden with `className`
  */
 export function LemonDivider({
-    vertical = false,
-    dashed = false,
-    thick = false,
+    children,
     className,
+    dashed = false,
+    orientation = 'center',
+    thick = false,
+    vertical = false,
 }: LemonDividerProps): JSX.Element {
     return (
         <div
             className={clsx(
                 'LemonDivider',
+                children && `LemonDivider--orientation-${orientation}`,
                 vertical && 'LemonDivider--vertical',
                 thick && 'LemonDivider--thick',
                 dashed && 'LemonDivider--dashed',
@@ -36,6 +44,8 @@ export function LemonDivider({
                 className
             )}
             role="separator"
-        />
+        >
+            {children && children}
+        </div>
     )
 }
