@@ -458,7 +458,10 @@ export interface InsightsQueryBase extends Node {
     filterTestAccounts?: boolean
     /** Property filters for all series */
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
-    /** Groups aggregation */
+    /**
+     * Groups aggregation
+     * @asType integer
+     **/
     aggregation_group_type_index?: number
     /** Sampling rate */
     samplingFactor?: number | null

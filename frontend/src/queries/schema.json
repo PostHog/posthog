@@ -1301,7 +1301,7 @@
             "properties": {
                 "aggregation_group_type_index": {
                     "description": "Groups aggregation",
-                    "type": "number"
+                    "type": "integer"
                 },
                 "breakdown": {
                     "$ref": "#/definitions/BreakdownFilter",
@@ -1844,7 +1844,7 @@
             "properties": {
                 "aggregation_group_type_index": {
                     "description": "Groups aggregation",
-                    "type": "number"
+                    "type": "integer"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
@@ -2161,7 +2161,7 @@
             "properties": {
                 "aggregation_group_type_index": {
                     "description": "Groups aggregation",
-                    "type": "number"
+                    "type": "integer"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
@@ -2767,7 +2767,7 @@
             "properties": {
                 "aggregation_group_type_index": {
                     "description": "Groups aggregation",
-                    "type": "number"
+                    "type": "integer"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
@@ -3376,7 +3376,7 @@
             "properties": {
                 "aggregation_group_type_index": {
                     "description": "Groups aggregation",
-                    "type": "number"
+                    "type": "integer"
                 },
                 "breakdown": {
                     "$ref": "#/definitions/BreakdownFilter",

@@ -69,18 +69,16 @@ class RetentionAppearanceQueryRunner(QueryRunner):
             retention_query.offset = ast.Constant(value=self.query.offset)
         return retention_query
 
-    is_aggregating_by_groups = False  # TODO: What is this?
-
     def get_actors_from_result(self, raw_result) -> Union[List[SerializedGroup], List[SerializedPerson]]:
         serialized_actors: Union[List[SerializedGroup], List[SerializedPerson]]
 
         actor_ids = [row[0] for row in raw_result]
         value_per_actor_id = None
 
-        if self.is_aggregating_by_groups:
+        if self.query.source.aggregation_group_type_index is not None:
             _, serialized_actors = get_groups(
                 self.team.pk,
-                cast(int, self.aggregation_group_type_index),
+                self.query.source.aggregation_group_type_index,
                 actor_ids,
                 value_per_actor_id,
             )

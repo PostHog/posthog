@@ -1569,7 +1569,7 @@ class RetentionQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: Optional[float] = Field(default=None, description="Groups aggregation")
+    aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
@@ -1658,7 +1658,7 @@ class TrendsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: Optional[float] = Field(default=None, description="Groups aggregation")
+    aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     breakdown: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
@@ -1745,7 +1745,7 @@ class FunnelsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: Optional[float] = Field(default=None, description="Groups aggregation")
+    aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     breakdown: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
@@ -1785,7 +1785,7 @@ class InsightsQueryBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: Optional[float] = Field(default=None, description="Groups aggregation")
+    aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
@@ -1863,7 +1863,7 @@ class PathsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: Optional[float] = Field(default=None, description="Groups aggregation")
+    aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
