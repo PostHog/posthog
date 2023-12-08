@@ -15,9 +15,16 @@ export function LoadNext({ query }: LoadNextProps): JSX.Element {
     return (
         <div className="m-2 flex items-center">
             <LemonButton onClick={loadNextData} loading={nextDataLoading} fullWidth center disabled={!canLoadNextData}>
-                Showing {numberOfRows} {canLoadNextData ? '' : 'all '}
-                {isPersonsNode(query) || isPersonsQuery(query) ? 'people' : 'events'}
-                {canLoadNextData ? '. Click to load more.' : ''}
+                Showing {canLoadNextData || numberOfRows === 1 ? '' : 'all '}
+                {numberOfRows === 1 ? 'one' : numberOfRows}{' '}
+                {isPersonsNode(query) || isPersonsQuery(query)
+                    ? numberOfRows === 1
+                        ? 'person'
+                        : 'people'
+                    : numberOfRows === 1
+                    ? 'event'
+                    : 'events'}
+                {canLoadNextData ? '. Click to load more.' : '. Reached the end of results.'}
             </LemonButton>
         </div>
     )
