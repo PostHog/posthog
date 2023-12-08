@@ -49,8 +49,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
     }
 
     const actuallyShowQueryEditor =
-        insightMode === ItemMode.Edit &&
-        ((isQueryBasedInsight && !containsHogQLQuery(query)) || (!isQueryBasedInsight && showQueryEditor))
+        insightMode === ItemMode.Edit && isQueryBasedInsight && !containsHogQLQuery(query) && showQueryEditor
 
     const setQuery = (query: Node): void => {
         if (!isInsightVizNode(query)) {

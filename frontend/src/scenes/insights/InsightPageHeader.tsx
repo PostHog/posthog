@@ -33,7 +33,6 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { DataTableNode, NodeKind } from '~/queries/schema'
-import { isInsightVizNode } from '~/queries/utils'
 import {
     AvailableFeature,
     ExporterFormat,
@@ -203,28 +202,26 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             ) : null}
                                         </>
                                     )}
-                                    {isInsightVizNode(query) ? (
-                                        <LemonButton
-                                            data-attr={`${showQueryEditor ? 'hide' : 'show'}-insight-source`}
-                                            status="stealth"
-                                            onClick={() => {
-                                                // for an existing insight in view mode
-                                                if (hasDashboardItemId && insightMode !== ItemMode.Edit) {
-                                                    // enter edit mode
-                                                    setInsightMode(ItemMode.Edit, null)
+                                    <LemonButton
+                                        data-attr={`${showQueryEditor ? 'hide' : 'show'}-insight-source`}
+                                        status="stealth"
+                                        onClick={() => {
+                                            // for an existing insight in view mode
+                                            if (hasDashboardItemId && insightMode !== ItemMode.Edit) {
+                                                // enter edit mode
+                                                setInsightMode(ItemMode.Edit, null)
 
-                                                    // exit early if query editor doesn't need to be toggled
-                                                    if (showQueryEditor !== false) {
-                                                        return
-                                                    }
+                                                // exit early if query editor doesn't need to be toggled
+                                                if (showQueryEditor !== false) {
+                                                    return
                                                 }
-                                                toggleQueryEditorPanel()
-                                            }}
-                                            fullWidth
-                                        >
-                                            {showQueryEditor ? 'Hide source' : 'View source'}
-                                        </LemonButton>
-                                    ) : null}
+                                            }
+                                            toggleQueryEditorPanel()
+                                        }}
+                                        fullWidth
+                                    >
+                                        {showQueryEditor ? 'Hide source' : 'View source'}
+                                    </LemonButton>
                                     {hogQL && (
                                         <LemonButton
                                             data-attr={`edit-insight-sql`}
