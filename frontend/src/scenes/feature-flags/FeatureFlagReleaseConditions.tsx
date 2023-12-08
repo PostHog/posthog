@@ -10,7 +10,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
-import { IconCopy, IconDelete, IconErrorOutline, IconPlus, IconSubArrowRight } from 'lib/lemon-ui/icons'
+import { IconCopy, IconDelete, IconErrorOutline, IconOpenInNew, IconPlus, IconSubArrowRight } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -84,7 +84,7 @@ export function FeatureFlagReleaseConditions({
         return (
             <div className="w-full" key={`${index}-${filterGroups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
-                <div className={clsx('mb-4', 'border', 'rounded', 'p-4')}>
+                <div className="mb-4 border rounded p-4 bg-bg-light">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center">
                             <span className="simple-tag tag-light-blue font-medium mr-2">Set {index + 1}</span>
@@ -166,14 +166,16 @@ export function FeatureFlagReleaseConditions({
                                         ) : null}
 
                                         {property.type === 'cohort' ? (
-                                            <Link
+                                            <LemonButton
+                                                type="secondary"
+                                                size="xsmall"
                                                 to={urls.cohort(property.value)}
-                                                target="_blank"
-                                                className="simple-tag tag-light-blue text-primary-alt display-value"
+                                                sideIcon={<IconOpenInNew />}
+                                                targetBlank
                                             >
                                                 {(property.value && cohortsById[property.value]?.name) ||
                                                     `ID ${property.value}`}
-                                            </Link>
+                                            </LemonButton>
                                         ) : (
                                             [
                                                 ...(Array.isArray(property.value) ? property.value : [property.value]),
@@ -336,7 +338,7 @@ export function FeatureFlagReleaseConditions({
         return (
             <div className="w-full" key={`${index}-${filterGroups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
-                <div className={clsx('mb-4', 'border', 'rounded', 'p-4', 'FeatureConditionCard--border--highlight')}>
+                <div className="mb-4 rounded p-4 bg-bg-light">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center">
                             <div>
