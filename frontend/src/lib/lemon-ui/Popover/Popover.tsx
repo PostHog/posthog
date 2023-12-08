@@ -227,6 +227,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                             data-placement={effectivePlacement}
                             ref={(el) => {
                                 setFloatingElement(el)
+                                floatingRef.current = el
                                 if (extraFloatingRef) {
                                     extraFloatingRef.current = el
                                 }
