@@ -137,11 +137,8 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         ],
     })
 
-    // We are just using this state to trigger a re-render, otherwise the autoUpdate won't always work
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const [_, setFloatingRefElement] = useState<HTMLElement | null>(null)
+    const [floatingElement, setFloatingElement] = useState<HTMLElement | null>(null)
     const mergedReferenceRef = useMergeRefs([referenceRef, extraReferenceRef || null]) as React.RefCallback<HTMLElement>
-    const mergedFloatingRef = useMergeRefs([floatingRef, extraFloatingRef || null]) as React.RefCallback<HTMLElement>
 
     const arrowStyle = middlewareData.arrow
         ? {
@@ -181,10 +178,10 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     )
 
     useEffect(() => {
-        if (visible && referenceRef?.current && floatingRef?.current) {
-            return autoUpdate(referenceRef.current, floatingRef.current, update)
+        if (visible && referenceRef?.current && floatingElement) {
+            return autoUpdate(referenceRef.current, floatingElement, update)
         }
-    }, [visible, referenceRef?.current, floatingRef?.current, ...additionalRefs])
+    }, [visible, referenceRef?.current, floatingElement, ...additionalRefs])
 
     const floatingContainer = useFloatingContainerContext()?.current
 
@@ -229,8 +226,10 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                             )}
                             data-placement={effectivePlacement}
                             ref={(el) => {
-                                setFloatingRefElement(el)
-                                mergedFloatingRef(el)
+                                setFloatingElement(el)
+                                if (extraFloatingRef) {
+                                    extraFloatingRef.current = el
+                                }
                             }}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{
