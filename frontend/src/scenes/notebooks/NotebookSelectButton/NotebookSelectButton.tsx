@@ -227,7 +227,7 @@ export function NotebookSelectButton({ children, onNotebookOpened, ...props }: N
     // if nodeLogic is available then the button is on a resource that _is already and currently in a notebook_
     const nodeLogic = useNotebookNode()
     const logic = notebookSelectButtonLogic({ ...props, onNotebookOpened })
-    const { showPopover, notebooksLoading, notebooksContainingResource } = useValues(logic)
+    const { showPopover, notebooksContainingResource } = useValues(logic)
     const { loadNotebooksContainingResource } = useActions(logic)
 
     useEffect(() => {
@@ -247,7 +247,6 @@ export function NotebookSelectButton({ children, onNotebookOpened, ...props }: N
             sideIcon={null}
             {...props}
             active={showPopover}
-            loading={notebooksLoading}
             onClick={() => {
                 props.onClick?.()
                 if (nodeLogic) {
