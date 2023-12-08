@@ -8,10 +8,7 @@ describe('Early Access Management', () => {
         cy.get('h1').should('contain', 'Early Access Management')
         cy.title().should('equal', 'Early access features • PostHog')
         cy.get('h2').should('contain', 'Create your first feature')
-        cy.get('[data-attr="product-introduction-docs-link"]').should(
-            'contain',
-            'Learn more about Early access features'
-        )
+        cy.get('[data-attr="product-introduction-docs-link"]').should('contain', 'Learn more')
 
         // go to create a new feature
         cy.get('[data-attr="create-feature"]').click()

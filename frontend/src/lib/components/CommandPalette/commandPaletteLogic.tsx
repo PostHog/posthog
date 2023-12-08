@@ -68,7 +68,7 @@ import { DashboardType, InsightType } from '~/types'
 import { personalAPIKeysLogic } from '../../../scenes/settings/user/personalAPIKeysLogic'
 import { commandBarLogic } from '../CommandBar/commandBarLogic'
 import { BarStatus } from '../CommandBar/types'
-import { hedgehogbuddyLogic } from '../HedgehogBuddy/hedgehogbuddyLogic'
+import { hedgehogBuddyLogic } from '../HedgehogBuddy/hedgehogBuddyLogic'
 import type { commandPaletteLogicType } from './commandPaletteLogicType'
 import { openCHQueriesDebugModal } from './DebugCHQueries'
 
@@ -147,7 +147,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             ['push'],
             userLogic,
             ['updateUser'],
-            hedgehogbuddyLogic,
+            hedgehogBuddyLogic,
             ['setHedgehogModeEnabled'],
             commandBarLogic,
             ['setCommandBar'],
@@ -161,7 +161,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
             ['user'],
             featureFlagLogic,
             ['featureFlags'],
-            hedgehogbuddyLogic,
+            hedgehogBuddyLogic,
             ['hedgehogModeEnabled'],
             sidePanelLogic,
             ['enabledTabs'],

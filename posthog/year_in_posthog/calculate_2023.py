@@ -5,7 +5,6 @@ from django.conf import settings
 from django.db import connection
 
 from posthog.cache_utils import cache_for
-from posthog.logging.timing import timed
 
 query = """
 with insight_stats AS (
@@ -38,7 +37,11 @@ flag_stats AS (
     FROM
         posthog_featureflag
     WHERE
-        date_part('year', created_at) = 2023
+        -- only having a single percentage symbol here gives very misleading Python errors :/
+        key not ilike 'survey-targeting%%'
+        AND key not ilike 'prompt-%%'
+        AND key not ilike 'interview-%%'
+        AND date_part('year', created_at) = 2023
         AND created_by_id = (select id from posthog_user where uuid = %(user_uuid)s)
     GROUP BY
         created_by_id
@@ -148,7 +151,6 @@ def dictfetchall(cursor):
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
-@timed("year_in_posthog_2023_calculation")
 @cache_for(timedelta(seconds=0 if settings.DEBUG else 30))
 def calculate_year_in_posthog_2023(user_uuid: str) -> Optional[Dict]:
     with connection.cursor() as cursor:

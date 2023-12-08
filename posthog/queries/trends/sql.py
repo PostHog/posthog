@@ -374,7 +374,6 @@ WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from_prev_ra
 
 BREAKDOWN_PROP_JOIN_SQL = """
 WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to} {null_person_filter}
-  AND {breakdown_value_expr} in (%(values)s)
   {actions_query}
 """
 

@@ -51,6 +51,10 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
             ? { ...persistedFlags, ...featureFlags }
             : persistedFlags
 
+    if (availableFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test') {
+        availableFlags[FEATURE_FLAGS.NOTEBOOKS] = true
+    }
+
     if (typeof window.Proxy !== 'undefined') {
         return new Proxy(
             {},

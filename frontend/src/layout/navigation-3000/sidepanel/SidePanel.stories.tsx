@@ -24,6 +24,9 @@ const meta: Meta = {
                 '/api/projects/:team_id/dashboard_templates/': {},
                 '/api/projects/:id/integrations': { results: [] },
             },
+            post: {
+                '/api/projects/:team_id/query': {},
+            },
         }),
     ],
 }

@@ -107,30 +107,26 @@ def render_2023(request, user_uuid: str) -> HttpResponse:
         data = calculate_year_in_posthog_2023(user_uuid)
 
         badge = sort_list_based_on_preference(data.get("badges") or ["astronaut"])
-    except Exception as e:
-        # because Harry is trying to hack my URLs
-        logger.error("year_in_posthog_2023_error_loading_data", exc_info=True, exc=e, data=data or "no data")
-        capture_exception(e)
-        badge = "astronaut"
-        data = data or {"stats": {}, "badges": []}
 
-    badge_images = {}
-    for b in data.get("badges") or ["astronaut"]:
-        if b != badge:
-            badge_images[b] = {
-                "human_badge": human_badge.get(b),
-                "image_png": f"year_in_hog/badges/2023_{b}.png",
-                "image_webp": f"year_in_hog/badges/2023_{b}.webp",
-            }
+        badge_images = {}
+        for b in data.get("badges", {}):
+            if b != badge:
+                badge_images[b] = {
+                    "badge": b,
+                    "human_badge": human_badge.get(b),
+                    "image_png": f"year_in_hog/badges/2023_{b}.png",
+                    "image_webp": f"year_in_hog/badges/2023_{b}.webp",
+                    "highlight_color": highlight_color.get(b),
+                    "explanation": explanation.get(b),
+                }
 
-    try:
         stats = stats_for_badge(data, badge)
 
         context = {
             "debug": settings.DEBUG,
             "api_token": os.environ.get("DEBUG_API_TOKEN", "unknown") if settings.DEBUG else "sTMFPsFhdP1Ssg",
             "badge": badge,
-            "badges": badge_images,
+            "badges": badge_images if len(badge_images.items()) > 1 else {},
             "human_badge": human_badge.get(badge),
             "highlight_color": highlight_color.get(badge),
             "image_png": f"year_in_hog/badges/2023_{badge}.png",
@@ -147,11 +143,13 @@ def render_2023(request, user_uuid: str) -> HttpResponse:
     except Exception as e:
         capture_exception(e)
         logger.error("year_in_posthog_2023_error_rendering_2023_page", exc_info=True, exc=e, data=data or "no data")
-        return HttpResponse("Error rendering 2023 page", status=500)
+        template = get_template("hibernating.html")
+        html = template.render({"message": "Something went wrong 🫠"}, request=request)
+        return HttpResponse(html, status=500)
 
 
 @cache_control(public=True, max_age=300)  # cache for 5 minutes
 def render_2022(request, user_uuid: str) -> HttpResponse:
     template = get_template("hibernating.html")
-    html = template.render({}, request=request)
+    html = template.render({"message": "This is the 2022 Year in PostHog. That's too long ago 🙃"}, request=request)
     return HttpResponse(html)
