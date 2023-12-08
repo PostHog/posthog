@@ -154,7 +154,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
             onClick: () => copyToClipboard(),
             sideIcon: <IconCopy />,
         },
-        isResizeable
+        isEditable && isResizeable
             ? {
                   label: 'Reset height to default',
                   onClick: () => {
