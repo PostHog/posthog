@@ -3,7 +3,7 @@
 <head>
     {% load static %}
     <meta charset="utf-8">
-    <title>My year in PostHog</title>
+    <title>PostHog Unwrapped</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/apple-touch-icon.png?v=2021-04-29">
     <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32x32.png?v=2021-04-29">
@@ -13,8 +13,8 @@
     {% else %}
         <link rel="shortcut icon" href="/static/icons/favicon-dev.ico?v=2021-04-29">
     {% endif %}
-    <link rel="preload" href="{% static 'Inter.woff2' %}" as="font" type="font/woff2" crossorigin>
-    <link rel="preload" href="{% static 'Inter.woff' %}" as="font" type="font/woff" crossorigin>
+    <link rel="preload" href="https://d1sdjtjk6xzm7.cloudfront.net/MatterSQ-Medium.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="https://d1sdjtjk6xzm7.cloudfront.net/MatterSQ-SemiBold.woff2" as="font" type="font/woff" crossorigin>
     <link rel="preload" href="{% static image_webp %}" as="image">
     <link rel="preload" href="{% static 'year_in_hog/background.png' %}" as="image">
     <script>
@@ -51,44 +51,28 @@
     </script>
     <link rel="stylesheet" type="text/css" href="https://unpkg.com/microtip@0.2.2/microtip.css">
     <style>
-        /* Inter; bold (700); latin */
         @font-face {
-            font-family: 'Inter';
+            font-family: MatterSQ;
             font-style: normal;
             font-weight: 700;
-            font-display: swap;
-            src: url('{% static 'Inter.woff2' %}') format('woff2'), url('{% static 'Inter.woff' %}') format('woff');
-            unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC,
-            U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+            src: url(https://d1sdjtjk6xzm7.cloudfront.net/MatterSQ-SemiBold.woff2) format("woff2"), url(https://d1sdjtjk6xzm7.cloudfront.net/MatterSQ-SemiBold.woff) format("woff");
+            font-display: swap
         }
 
         @font-face {
-            font-family: 'Inter';
+            font-family: MatterSQ;
             font-style: normal;
             font-weight: 500;
-            font-display: swap;
-            src: url('{% static 'Inter.woff2' %}') format('woff2'), url('{% static 'Inter.woff' %}') format('woff');
-            unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC,
-            U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-        }
-
-        /* Inter; normal (400); latin */
-        @font-face {
-            font-family: 'Inter';
-            font-style: normal;
-            font-weight: 400;
-            font-display: swap;
-            src: url('{% static 'Inter.woff2' %}') format('woff2'), url('{% static 'Inter.woff' %}') format('woff');
-            unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC,
-            U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+            src: url(https://d1sdjtjk6xzm7.cloudfront.net/MatterSQ-Medium.woff2) format("woff2"), url(https://d1sdjtjk6xzm7.cloudfront.net/MatterSQ-Medium.woff) format("woff");
+            font-display: swap
         }
 
         html {
-            font-family: "Inter", -apple-system, BlinkMacSystemFont, avenir next, avenir, segoe ui, helvetica, sans-serif;
+            font-family: "MatterSQ", -apple-system, BlinkMacSystemFont, avenir next, avenir, segoe ui, helvetica, sans-serif;
         }
 
         body {
-            background-color: #2D2D2D;
+            background-color: #35373e;
             color: #fff;
             height: 100vh;
             width: 100vw;
@@ -156,12 +140,6 @@
             gap: 2rem;
         }
 
-        @media only screen and (min-width: 650px) {
-            main {
-                flex-direction: row;
-            }
-        }
-
         .column {
             width: 90vw;
             display: flex;
@@ -179,27 +157,24 @@
             align-items: start;
         }
 
-        @media only screen and (min-width: 650px) {
-            .column.left {
-                width: 45%;
-                margin: 0;
-            }
-
-            .column.right {
-                width: 55%;
-            }
-        }
-
         .footer {
             flex-shrink: 0;
             height: 4rem;
-            background-color: #EEEFE9;
-            color: #000;
+            background-color: #f3f4ef;
+            color: #35373e;
             width: 100vw;
             display: flex;
             flex-direction: row;
             z-index: 9999;
             align-items: center;
+        }
+
+        .footer a {
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            color: #35373e;
+            cursor: pointer;
         }
 
         .highlight {
@@ -250,11 +225,8 @@
             margin-bottom: 1rem;
         }
 
-        @media only screen and (min-width: 650px) {
-            .my-8 {
-                margin-top: 2rem;
-                margin-bottom: 2rem;
-            }
+        .p-1 {
+            padding: 0.25rem;
         }
 
         .px-1 {
@@ -279,20 +251,6 @@
             padding-left: 2rem;
         }
 
-        .stats {
-            display: flex;
-            flex-direction: row;
-            justify-content: space-between;
-            width: 100%;
-        }
-
-        .stat {
-            display: flex;
-            flex-direction: column;
-            flex-basis: 100%;
-        }
-
-
         .achievements-wrapper {
             display: flex;
             flex-direction: column;
@@ -300,48 +258,13 @@
             width: 100%;
         }
 
-        .achievements {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(18%, 1fr));
-            gap: 10px; /* Adjust the gap between grid items as needed */
-            width: 100%;
-        }
-
-        .badge {
-            width: 326px;
-            height: 326px;
+        .grid {
+            grid-template-columns: repeat(auto-fill, minmax(100%, 1fr)); /* Change to 1 column */
         }
 
         .badge.mini {
-            width: 100px;
-            height: 100px;
-        }
-
-        @media screen and (max-width: 980px) {
-            .achievements {
-                grid-template-columns: repeat(auto-fill, minmax(23%, 1fr));
-            }
-        }
-
-        @media screen and (max-width: 790px) {
-            .achievements {
-                grid-template-columns: repeat(auto-fill, minmax(30%, 1fr));
-            }
-        }
-
-        @media screen and (max-width: 400px) {
-            .achievements {
-                grid-template-columns: repeat(auto-fill, minmax(100%, 1fr)); /* Change to 1 column */
-            }
-
-            .badge.mini {
-                width: 250px;
-                height: 250px;
-            }
-        }
-
-        .achievements > * + * {
-            margin-left: 0.5rem;
+            width: 250px;
+            height: 250px;
         }
 
         .achievement {
@@ -374,7 +297,36 @@
             display: none;
         }
 
-        @media only screen and (min-width: 650px) {
+        :root {
+            --microtip-font-size: 15px;
+        }
+
+        @media (min-width: 769px) {
+            main {
+                flex-direction: row;
+            }
+
+            .column.left {
+                width: 45%;
+                margin: 0;
+            }
+
+            .column.right {
+                width: 55%;
+            }
+
+            .grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(45%, 1fr));
+                gap: 10px; /* Adjust the gap between grid items as needed */
+                width: 100%;
+            }
+
+            .badge.mini {
+                width: 100px;
+                height: 100px;
+            }
+
             .right .sharing {
                 display: none;
             }
@@ -405,21 +357,35 @@
             }
         }
 
-        :root {
-         --microtip-font-size: 15px;
+        @media (min-width: 1024px) {
+            .grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(30%, 1fr));
+                gap: 10px; /* Adjust the gap between grid items as needed */
+                width: 100%;
+            }
+        }
+
+        @media (min-width: 1200px) {
+            .grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(23%, 1fr));
+                gap: 10px; /* Adjust the gap between grid items as needed */
+                width: 100%;
+            }
         }
     </style>
     <meta name="description" content="{{ explanation }}">
     <meta name="image" content="{{ request.scheme }}://{{ request.META.HTTP_HOST }}{% static opengraph_image %}">
     <meta property="og:url" content="{{ page_url }}">
-    <meta property="og:title" content="My year in PostHog">
+    <meta property="og:title" content="PostHog Unwrapped">
     <meta property="og:description"
           content="No hedgehogs were harmed in the course of this year on @posthog. {{ explanation }}">
     <meta property="og:image" content="{{ request.scheme }}://{{ request.META.HTTP_HOST }}{% static opengraph_image %}">
 
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:creator" content="@PostHog">
-    <meta name="twitter:title" content="My year in PostHog">
+    <meta name="twitter:title" content="PostHog Unwrapped">
     <meta name="twitter:description"
           content="{{ explanation }}">
     <meta name="twitter:image"
@@ -433,7 +399,7 @@
 <body>
 <main class="px-4 pb-4" role="main">
     <div class="left column">
-        <div>This year, You're {% if badge == "astronaut" %}an{% else %}a{% endif %}</div>
+        <div>This year, you're {% if badge == "astronaut" %}an{% else %}a{% endif %}</div>
 
         <picture class="badge my-8">
             <source type="image/webp" srcset="{% static image_webp %}" width="326" height="326">
@@ -447,9 +413,9 @@
     <div class="right column">
         <div class="muted">You earned this badge because...</div>
         <div class="highlight text-2xl my-4">{{ explanation }}</div>
-        <div class="stats pt-2">
+        <div class="stats grid pt-2">
             {% for stat in stats %}
-                <div class="stat px-1">
+                <div class="stat p-1">
                     <div class="highlight text-3xl">{{ stat.count }}</div>
                     <div>{{ stat.description }}</div>
                 </div>
@@ -458,9 +424,10 @@
         {% if badges %}
             <div class="achievements-wrapper pt-2">
                 <h2 class="highlight text-xl">Achievements unlocked {{ achievements_count }}/7</h2>
-                <div class="achievements">
+                <div class="achievements grid">
                     {% for _, b in badges.items %}
-                        <div class="achievement text-sm" aria-label="{{ b.explanation }}" role="tooltip" data-microtip-position="top-left" data-microtip-size="medium">
+                        <div class="achievement text-sm" aria-label="{{ b.explanation }}" role="tooltip"
+                             data-microtip-position="top-left" data-microtip-size="medium">
                             <picture class="badge mini">
                                 <source type="image/webp" srcset="{% static b.image_webp %}" width="100" height="100">
                                 <source type="image/png" srcset="{% static b.image_png %}" width="100" height="100">
@@ -479,8 +446,14 @@
 </main>
 <footer class="footer" role="contentinfo">
     <div class="pl-8 text-xl grow items-center flex">
-           <svg fill="black" width="3.5rem" height="3.5rem" viewBox="0 0 24 24"  xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M2.751 14.926a.44.44 0 0 0-.751.31v2.017c0 .243.197.44.44.44h2.016a.44.44 0 0 0 .311-.751l-2.016-2.016Zm-.622-1.502A.44.44 0 0 1 2 13.113v-2.274a.44.44 0 0 1 .751-.311l6.414 6.414a.44.44 0 0 1-.31.75H6.58a.44.44 0 0 1-.31-.128l-4.141-4.14Zm0-4.398A.44.44 0 0 1 2 8.715V6.44a.44.44 0 0 1 .751-.311l10.812 10.812a.44.44 0 0 1-.31.75h-2.275a.44.44 0 0 1-.311-.128L2.129 9.026Zm4.398 0a.44.44 0 0 1-.13-.311V6.44a.44.44 0 0 1 .752-.311l7.916 7.916a.44.44 0 0 1 .129.31v2.275a.44.44 0 0 1-.751.31L6.527 9.027Zm4.269-2.585a.44.44 0 0 1 .75-.311l3.519 3.518a.44.44 0 0 1 .129.31v2.275a.44.44 0 0 1-.751.311l-3.518-3.518a.44.44 0 0 1-.13-.311V6.44Zm5.77 4.709 4.142 4.14c.532.533 1.224.87 1.963.967.241.031.439.226.439.468v.528a.44.44 0 0 1-.44.44h-6.414a.44.44 0 0 1-.44-.44v-5.792a.44.44 0 0 1 .75-.311Zm.657 4.432a.704.704 0 1 0 1.408 0 .704.704 0 0 0-1.408 0Z" clip-rule="evenodd"></path></svg>
-                <span>PostHog Unwrapped</span>
+        <a href="https://posthog.com">
+            <svg fill="#35373e" width="3.5rem" height="3.5rem" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path fill-rule="evenodd"
+                      d="M2.751 14.926a.44.44 0 0 0-.751.31v2.017c0 .243.197.44.44.44h2.016a.44.44 0 0 0 .311-.751l-2.016-2.016Zm-.622-1.502A.44.44 0 0 1 2 13.113v-2.274a.44.44 0 0 1 .751-.311l6.414 6.414a.44.44 0 0 1-.31.75H6.58a.44.44 0 0 1-.31-.128l-4.141-4.14Zm0-4.398A.44.44 0 0 1 2 8.715V6.44a.44.44 0 0 1 .751-.311l10.812 10.812a.44.44 0 0 1-.31.75h-2.275a.44.44 0 0 1-.311-.128L2.129 9.026Zm4.398 0a.44.44 0 0 1-.13-.311V6.44a.44.44 0 0 1 .752-.311l7.916 7.916a.44.44 0 0 1 .129.31v2.275a.44.44 0 0 1-.751.31L6.527 9.027Zm4.269-2.585a.44.44 0 0 1 .75-.311l3.519 3.518a.44.44 0 0 1 .129.31v2.275a.44.44 0 0 1-.751.311l-3.518-3.518a.44.44 0 0 1-.13-.311V6.44Zm5.77 4.709 4.142 4.14c.532.533 1.224.87 1.963.967.241.031.439.226.439.468v.528a.44.44 0 0 1-.44.44h-6.414a.44.44 0 0 1-.44-.44v-5.792a.44.44 0 0 1 .75-.311Zm.657 4.432a.704.704 0 1 0 1.408 0 .704.704 0 0 0-1.408 0Z"
+                      clip-rule="evenodd"></path>
+            </svg>
+            <span>&nbsp;PostHog Unwrapped</span>
+        </a>
     </div>
     <div>
         <div class="sharing">{% include "sharing-buttons.html" %}</div>
