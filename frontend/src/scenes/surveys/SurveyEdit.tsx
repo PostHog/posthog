@@ -9,13 +9,16 @@ import {
     LemonDivider,
     LemonInput,
     LemonSelect,
+    LemonTag,
     LemonTextArea,
     Link,
 } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { FlagSelector } from 'lib/components/FlagSelector'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Field, PureField } from 'lib/forms/Field'
 import { IconCancel, IconDelete, IconLock, IconPlus } from 'lib/lemon-ui/icons'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 
@@ -44,6 +47,7 @@ export default function SurveyEdit(): JSX.Element {
     const { setSurveyValue, setWritingHTMLDescription, resetTargeting, setSelectedQuestion, setSelectedSection } =
         useActions(surveyLogic)
     const { surveysMultipleQuestionsAvailable } = useValues(surveysLogic)
+    const { featureFlags } = useValues(enabledFeaturesLogic)
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
 
     function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
@@ -121,15 +125,19 @@ export default function SurveyEdit(): JSX.Element {
                                                         <SurveyAPIEditor survey={survey} />
                                                     </div>
                                                 </PresentationTypeCard>
-                                                <PresentationTypeCard
-                                                    active={value === SurveyType.Widget}
-                                                    onClick={() => onChange(SurveyType.Widget)}
-                                                    title="Widget"
-                                                    description="Set up a survey based on your own custom button or our prebuilt tab widget"
-                                                    value={SurveyType.Widget}
-                                                >
-                                                    <></>
-                                                </PresentationTypeCard>
+                                                {featureFlags[FEATURE_FLAGS.SURVEYS_WIDGETS] && (
+                                                    <PresentationTypeCard
+                                                        active={value === SurveyType.Widget}
+                                                        onClick={() => onChange(SurveyType.Widget)}
+                                                        title="Widget (beta)"
+                                                        description="Set up a survey based on your own custom button or our prebuilt tab widget"
+                                                        value={SurveyType.Widget}
+                                                    >
+                                                        <LemonTag type="warning" className="uppercase ml-2">
+                                                            Beta
+                                                        </LemonTag>
+                                                    </PresentationTypeCard>
+                                                )}
                                             </div>
                                         )
                                     }}
