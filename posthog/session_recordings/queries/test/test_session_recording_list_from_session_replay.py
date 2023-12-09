@@ -22,7 +22,9 @@ from posthog.session_recordings.queries.session_recording_list_from_replay_summa
     SessionRecordingListFromReplaySummary,
 )
 from posthog.session_recordings.queries.session_replay_events import ttl_days
-from posthog.session_recordings.management.util import produce_replay_summary
+from posthog.session_recordings.queries.test.session_replay_sql import (
+    produce_replay_summary,
+)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,

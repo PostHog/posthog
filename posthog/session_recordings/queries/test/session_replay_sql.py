@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, List, Dict
 from uuid import uuid4
 
 from dateutil.parser import parse
@@ -7,8 +7,10 @@ from dateutil.relativedelta import relativedelta
 
 from posthog.clickhouse.log_entries import INSERT_LOG_ENTRY_SQL
 from posthog.kafka_client.client import ClickhouseProducer
-from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS, KAFKA_LOG_ENTRIES
-
+from posthog.kafka_client.topics import (
+    KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+    KAFKA_LOG_ENTRIES,
+)
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.utils import cast_timestamp_or_now
 
@@ -111,25 +113,28 @@ def produce_replay_summary(
     console_error_count: Optional[int] = None,
     log_messages: Dict[str, List[str]] | None = None,
 ):
-    """NB this method is only intended for use in tests or generating data for development machines"""
     if log_messages is None:
         log_messages = {}
 
-    data, first_timestamp, _ = replay_summary_for_insertion(
-        team_id=team_id,
-        session_id=session_id,
-        distinct_id=distinct_id,
-        first_timestamp=first_timestamp,
-        last_timestamp=last_timestamp,
-        first_url=first_url,
-        click_count=click_count,
-        keypress_count=keypress_count,
-        mouse_activity_count=mouse_activity_count,
-        active_milliseconds=active_milliseconds,
-        console_log_count=console_log_count,
-        console_warn_count=console_warn_count,
-        console_error_count=console_error_count,
-    )
+    first_timestamp = _sensible_first_timestamp(first_timestamp, last_timestamp)
+    last_timestamp = _sensible_last_timestamp(first_timestamp, last_timestamp)
+
+    timestamp = format_clickhouse_timestamp(cast_timestamp_or_now(first_timestamp))
+    data = {
+        "session_id": session_id or "1",
+        "team_id": team_id,
+        "distinct_id": distinct_id or "user",
+        "first_timestamp": timestamp,
+        "last_timestamp": format_clickhouse_timestamp(cast_timestamp_or_now(last_timestamp)),
+        "first_url": first_url,
+        "click_count": click_count or 0,
+        "keypress_count": keypress_count or 0,
+        "mouse_activity_count": mouse_activity_count or 0,
+        "active_milliseconds": active_milliseconds or 0,
+        "console_log_count": console_log_count or 0,
+        "console_warn_count": console_warn_count or 0,
+        "console_error_count": console_error_count or 0,
+    }
     p = ClickhouseProducer()
     # because this is in a test it will write directly using SQL not really with Kafka
     p.produce(
@@ -153,43 +158,6 @@ def produce_replay_summary(
                     # otherwise ClickHouse will assume that multiple entries
                     # with the same timestamp can be ignored
                     "instance_id": str(uuid4()),
-                    "timestamp": (format_clickhouse_timestamp(cast_timestamp_or_now(first_timestamp))),
+                    "timestamp": timestamp,
                 },
             )
-
-
-def replay_summary_for_insertion(
-    team_id: int,
-    session_id: Optional[str] = None,
-    distinct_id: Optional[str] = None,
-    first_timestamp: Optional[str | datetime] = None,
-    last_timestamp: Optional[str | datetime] = None,
-    first_url: Optional[str | None] = None,
-    click_count: Optional[int] = None,
-    keypress_count: Optional[int] = None,
-    mouse_activity_count: Optional[int] = None,
-    active_milliseconds: Optional[float] = None,
-    console_log_count: Optional[int] = None,
-    console_warn_count: Optional[int] = None,
-    console_error_count: Optional[int] = None,
-) -> Tuple[dict, str, str]:
-    first_timestamp = _sensible_first_timestamp(first_timestamp, last_timestamp)
-    last_timestamp = _sensible_last_timestamp(first_timestamp, last_timestamp)
-
-    data = {
-        "session_id": session_id or "1",
-        "team_id": team_id,
-        "distinct_id": distinct_id or "user",
-        "first_timestamp": (format_clickhouse_timestamp(cast_timestamp_or_now(first_timestamp))),
-        "last_timestamp": format_clickhouse_timestamp(cast_timestamp_or_now(last_timestamp)),
-        "first_url": first_url,
-        "click_count": click_count or 0,
-        "keypress_count": keypress_count or 0,
-        "mouse_activity_count": mouse_activity_count or 0,
-        "active_milliseconds": active_milliseconds or 0,
-        "console_log_count": console_log_count or 0,
-        "console_warn_count": console_warn_count or 0,
-        "console_error_count": console_error_count or 0,
-    }
-
-    return data, first_timestamp, last_timestamp

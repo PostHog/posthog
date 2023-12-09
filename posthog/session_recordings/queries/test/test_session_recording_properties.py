@@ -7,7 +7,9 @@ from posthog.models.filters.session_recordings_filter import SessionRecordingsFi
 from posthog.session_recordings.queries.session_recording_properties import (
     SessionRecordingProperties,
 )
-from posthog.session_recordings.management.util import produce_replay_summary
+from posthog.session_recordings.queries.test.session_replay_sql import (
+    produce_replay_summary,
+)
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
