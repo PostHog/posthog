@@ -175,6 +175,7 @@ def replay_summary_for_insertion(
 ) -> Tuple[dict, str, str]:
     first_timestamp = _sensible_first_timestamp(first_timestamp, last_timestamp)
     last_timestamp = _sensible_last_timestamp(first_timestamp, last_timestamp)
+
     data = {
         "session_id": session_id or "1",
         "team_id": team_id,
