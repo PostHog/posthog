@@ -351,10 +351,13 @@ exports[`replay/transform transform can process unknown types without error 1`] 
                         "childNodes": [
                           {
                             "attributes": {
+                              "display": "block",
                               "fill": "grey",
                               "height": 30,
-                              "style": "width: 100px;height: 30px;position: fixed;left: 25px;top: 42px;",
+                              "style": "background-color: grey;width: 100px;height: 30px;position: fixed;left: 25px;top: 42px;",
                               "width": 100,
+                              "x": 0,
+                              "y": 0,
                             },
                             "childNodes": [],
                             "id": 101,
@@ -363,9 +366,11 @@ exports[`replay/transform transform can process unknown types without error 1`] 
                           },
                           {
                             "attributes": {
+                              "display": "block",
                               "dominant-baseline": "middle",
                               "fill": "white",
                               "font-size": "30",
+                              "style": "background-color: grey;width: 100px;height: 30px;position: fixed;left: 25px;top: 42px;",
                               "text-anchor": "middle",
                               "x": "50%",
                               "y": "50%",
@@ -2628,10 +2633,13 @@ exports[`replay/transform transform inputs placeholder - $inputType - $value 1`]
                       "childNodes": [
                         {
                           "attributes": {
+                            "display": "block",
                             "fill": "grey",
                             "height": 30,
-                            "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                            "style": "background-color: grey;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                             "width": 100,
+                            "x": 0,
+                            "y": 0,
                           },
                           "childNodes": [],
                           "id": 170,
@@ -2640,9 +2648,11 @@ exports[`replay/transform transform inputs placeholder - $inputType - $value 1`]
                         },
                         {
                           "attributes": {
+                            "display": "block",
                             "dominant-baseline": "middle",
                             "fill": "white",
                             "font-size": "30",
+                            "style": "background-color: grey;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                             "text-anchor": "middle",
                             "x": "50%",
                             "y": "50%",
@@ -3080,10 +3090,13 @@ exports[`replay/transform transform omitting x and y is equivalent to setting th
                         "childNodes": [
                           {
                             "attributes": {
+                              "display": "block",
                               "fill": "grey",
                               "height": 30,
-                              "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                              "style": "background-color: grey;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                               "width": 100,
+                              "x": 0,
+                              "y": 0,
                             },
                             "childNodes": [],
                             "id": 115,
@@ -3092,9 +3105,11 @@ exports[`replay/transform transform omitting x and y is equivalent to setting th
                           },
                           {
                             "attributes": {
+                              "display": "block",
                               "dominant-baseline": "middle",
                               "fill": "white",
                               "font-size": "30",
+                              "style": "background-color: grey;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
                               "text-anchor": "middle",
                               "x": "50%",
                               "y": "50%",
