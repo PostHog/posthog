@@ -49,7 +49,9 @@
             }
         })
     </script>
-    <link rel="stylesheet" type="text/css" href="https://unpkg.com/microtip@0.2.2/microtip.css">
+    {# can defer loading of the tooltip css #}
+    <link rel="preload" href="https://unpkg.com/microtip@0.2.2/microtip.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript><link rel="stylesheet" href="https://unpkg.com/microtip@0.2.2/microtip.css"></noscript>
     <style>
         @font-face {
             font-family: MatterSQ;
