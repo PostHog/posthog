@@ -59,6 +59,7 @@ async def test_create_external_job_activity(activity_environment, team, **kwargs
         team=team,
         status="running",
         source_type="Stripe",
+    )
 
     inputs = CreateExternalDataJobInputs(team_id=team.id, external_data_source_id=new_source.pk)
 

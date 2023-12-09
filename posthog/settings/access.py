@@ -4,7 +4,6 @@ import sys
 
 import structlog
 
-from posthog.settings import SITE_URL
 from posthog.settings.base_variables import DEBUG, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
@@ -26,7 +25,7 @@ SECURE_REDIRECT_EXEMPT = [r"^_health/?"]
 if get_from_env("DISABLE_SECURE_SSL_REDIRECT", False, type_cast=str_to_bool):
     SECURE_SSL_REDIRECT = False
 
-CSRF_TRUSTED_ORIGINS = [SITE_URL]
+CSRF_TRUSTED_ORIGINS = [os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")]
 
 # Proxy settings
 IS_BEHIND_PROXY = get_from_env("IS_BEHIND_PROXY", False, type_cast=str_to_bool)
