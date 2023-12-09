@@ -48,7 +48,7 @@ export function SurveyTemplates(): JSX.Element {
                             }}
                         >
                             <span className="text-md">
-                                <b>{template.type}</b>
+                                <b>{template.templateType}</b>
                             </span>
                             <span className="flex flex-wrap text-xs text-muted max-w-80 font-medium mb-3">
                                 {template.description}
