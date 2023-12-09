@@ -7,10 +7,14 @@ import structlog
 from django.conf import settings
 from django.core.management.base import BaseCommand
 
+from posthog.clickhouse.client import sync_execute
 from posthog.models import User
 from posthog.models.event.util import create_event
 from posthog.models.team.team import Team
-from posthog.session_recordings.management.util import produce_replay_summary
+from posthog.session_recordings.management.util import (
+    replay_summary_for_insertion,
+    INSERT_SINGLE_SESSION_REPLAY,
+)
 from posthog.storage import object_storage
 
 logging.getLogger("kafka").setLevel(logging.ERROR)  # Hide kafka-python's logspam
@@ -1897,7 +1901,7 @@ def add_mobile_recording(team: Team, existing_user: User, now: dt.datetime) -> N
     )
 
     # and write a session replay events row to CH
-    produce_replay_summary(
+    data, _, _ = replay_summary_for_insertion(
         team_id=team.pk,
         session_id=session_id,
         distinct_id=str(existing_user.distinct_id),
@@ -1905,6 +1909,7 @@ def add_mobile_recording(team: Team, existing_user: User, now: dt.datetime) -> N
         last_timestamp=now,
         first_url=None,
     )
+    sync_execute(INSERT_SINGLE_SESSION_REPLAY, data)
 
 
 class Command(BaseCommand):
