@@ -434,6 +434,7 @@
                                 <source type="image/webp" srcset="{% static b.image_webp %}" width="100" height="100">
                                 <source type="image/png" srcset="{% static b.image_png %}" width="100" height="100">
                                 <img class="badge mini" src="{% static b.image_png %}" width="100" height="100"
+                                     loading="lazy"
                                      alt="An illustration of a hedgehog who is a {{ b.human_badge }}">
                             </picture>
                             <div class="my-4 text-center highlight {{ b.badge }}">{{ b.human_badge }}</div>
