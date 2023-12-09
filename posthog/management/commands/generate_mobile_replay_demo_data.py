@@ -13,8 +13,8 @@ from posthog.clickhouse.client import sync_execute
 from posthog.models import User
 from posthog.models.event.util import create_event
 from posthog.models.team.team import Team
-from posthog.session_recordings.management.util import (
-    replay_summary_for_insertion,
+from posthog.session_recordings.management.data_utils import (
+    for_direct_session_replay_insertion,
     INSERT_SINGLE_SESSION_REPLAY,
 )
 from posthog.storage import object_storage
@@ -1937,7 +1937,7 @@ def add_mobile_recording(team: Team, existing_user: User, now: dt.datetime) -> N
     )
 
     # and write a session replay events row to CH
-    data, _, _ = replay_summary_for_insertion(
+    data, _, _ = for_direct_session_replay_insertion(
         team_id=team.pk,
         session_id=session_id,
         distinct_id=str(existing_user.distinct_id),
