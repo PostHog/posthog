@@ -13,8 +13,8 @@
     {% else %}
         <link rel="shortcut icon" href="/static/icons/favicon-dev.ico?v=2021-04-29">
     {% endif %}
-    <link rel="preload" href="{% static 'Inter.woff2' %}" as="font" type="font/woff2" crossorigin>
-    <link rel="preload" href="{% static 'Inter.woff' %}" as="font" type="font/woff" crossorigin>
+    <link rel="preload" href="https://d1sdjtjk6xzm7.cloudfront.net/MatterSQ-Medium.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="https://d1sdjtjk6xzm7.cloudfront.net/MatterSQ-SemiBold.woff2" as="font" type="font/woff" crossorigin>
     <link rel="preload" href="{% static image_webp %}" as="image">
     <link rel="preload" href="{% static 'year_in_hog/background.png' %}" as="image">
     <script>
@@ -67,40 +67,8 @@
             font-display: swap
         }
 
-        /* Inter; bold (700); latin */
-        @font-face {
-            font-family: 'Inter';
-            font-style: normal;
-            font-weight: 700;
-            font-display: swap;
-            src: url('{% static 'Inter.woff2' %}') format('woff2'), url('{% static 'Inter.woff' %}') format('woff');
-            unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC,
-            U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-        }
-
-        @font-face {
-            font-family: 'Inter';
-            font-style: normal;
-            font-weight: 500;
-            font-display: swap;
-            src: url('{% static 'Inter.woff2' %}') format('woff2'), url('{% static 'Inter.woff' %}') format('woff');
-            unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC,
-            U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-        }
-
-        /* Inter; normal (400); latin */
-        @font-face {
-            font-family: 'Inter';
-            font-style: normal;
-            font-weight: 400;
-            font-display: swap;
-            src: url('{% static 'Inter.woff2' %}') format('woff2'), url('{% static 'Inter.woff' %}') format('woff');
-            unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC,
-            U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-        }
-
         html {
-            font-family: "MatterSQ", "Inter", -apple-system, BlinkMacSystemFont, avenir next, avenir, segoe ui, helvetica, sans-serif;
+            font-family: "MatterSQ", -apple-system, BlinkMacSystemFont, avenir next, avenir, segoe ui, helvetica, sans-serif;
         }
 
         body {
