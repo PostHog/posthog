@@ -77,7 +77,7 @@ export function PersonsModal({
         missingActorsCount,
         propertiesTimelineFilterFromUrl,
     } = useValues(logic)
-    const { setSearchTerm, saveCohortWithUrl, setIsCohortModalOpen, closeModal, loadNextActors } = useActions(logic)
+    const { setSearchTerm, saveAsCohort, setIsCohortModalOpen, closeModal, loadNextActors } = useActions(logic)
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { currentTeam } = useValues(teamLogic)
 
@@ -201,7 +201,7 @@ export function PersonsModal({
                     <LemonButton type="secondary" onClick={closeModal}>
                         Close
                     </LemonButton>
-                    {actors && actors.length > 0 && !isGroupType(actors[0]) && !query && (
+                    {actors && actors.length > 0 && !isGroupType(actors[0]) && (
                         <LemonButton
                             onClick={() => setIsCohortModalOpen(true)}
                             type="primary"
@@ -214,7 +214,7 @@ export function PersonsModal({
                 </LemonModal.Footer>
             </LemonModal>
             <SaveCohortModal
-                onSave={(title) => saveCohortWithUrl(title)}
+                onSave={(title) => saveAsCohort(title)}
                 onCancel={() => setIsCohortModalOpen(false)}
                 isOpen={isCohortModalOpen}
             />

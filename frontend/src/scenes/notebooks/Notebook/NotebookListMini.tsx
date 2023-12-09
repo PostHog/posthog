@@ -16,7 +16,7 @@ export type NotebookListMiniProps = {
 export function NotebookListMini({ selectedNotebookId }: NotebookListMiniProps): JSX.Element {
     const { notebooks, notebookTemplates } = useValues(notebooksModel)
 
-    const is3000 = useFeatureFlag('POSTHOG_3000')
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     const selectedTitle =
         selectedNotebookId === 'scratchpad'
@@ -27,8 +27,8 @@ export function NotebookListMini({ selectedNotebookId }: NotebookListMiniProps):
 
     return (
         <NotebookSelectPopover placement="bottom-start">
-            <LemonButton size="small" icon={!is3000 ? <IconNotebook /> : null} status="primary-alt">
-                <span className="font-semibold truncate">{selectedTitle || 'Notebooks'}</span>
+            <LemonButton size="small" icon={!is3000 ? <IconNotebook /> : null} status="primary-alt" truncate>
+                {selectedTitle || 'Notebooks'}
             </LemonButton>
         </NotebookSelectPopover>
     )

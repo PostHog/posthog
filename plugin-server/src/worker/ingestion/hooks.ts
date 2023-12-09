@@ -1,5 +1,4 @@
 import { captureException } from '@sentry/node'
-import { StatsD } from 'hot-shots'
 import { Histogram } from 'prom-client'
 import { format } from 'util'
 
@@ -256,7 +255,6 @@ export class HookCommander {
     teamManager: TeamManager
     organizationManager: OrganizationManager
     appMetrics: AppMetrics
-    statsd: StatsD | undefined
     siteUrl: string
     /** Hook request timeout in ms. */
     EXTERNAL_REQUEST_TIMEOUT: number
@@ -266,7 +264,6 @@ export class HookCommander {
         teamManager: TeamManager,
         organizationManager: OrganizationManager,
         appMetrics: AppMetrics,
-        statsd: StatsD | undefined,
         timeout: number
     ) {
         this.postgres = postgres
@@ -278,7 +275,6 @@ export class HookCommander {
             status.warn('⚠️', 'SITE_URL env is not set for webhooks')
             this.siteUrl = ''
         }
-        this.statsd = statsd
         this.appMetrics = appMetrics
         this.EXTERNAL_REQUEST_TIMEOUT = timeout
     }

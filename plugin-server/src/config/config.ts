@@ -80,9 +80,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: 0,
         SENTRY_PLUGIN_SERVER_PROFILING_SAMPLE_RATE: 0,
         HTTP_SERVER_PORT: DEFAULT_HTTP_SERVER_PORT,
-        STATSD_HOST: null,
-        STATSD_PORT: 8125,
-        STATSD_PREFIX: 'plugin-server.',
         SCHEDULE_LOCK_TTL: 60,
         REDIS_POOL_MIN_SIZE: 1,
         REDIS_POOL_MAX_SIZE: 3,
@@ -124,10 +121,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         PLUGIN_SERVER_MODE: null,
         PLUGIN_LOAD_SEQUENTIALLY: false,
         KAFKAJS_LOG_LEVEL: 'WARN',
-        HISTORICAL_EXPORTS_ENABLED: true,
-        HISTORICAL_EXPORTS_MAX_RETRY_COUNT: 15,
-        HISTORICAL_EXPORTS_INITIAL_FETCH_TIME_WINDOW: 10 * 60 * 1000,
-        HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER: 1.5,
         APP_METRICS_GATHERED_FOR_ALL: isDevEnv() ? true : false,
         MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
         USE_KAFKA_FOR_SCHEDULED_TASKS: true,
@@ -135,6 +128,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         EXTERNAL_REQUEST_TIMEOUT_MS: 10 * 1000, // 10 seconds
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
         DROP_EVENTS_BY_TOKEN: '',
+        POE_DEFERRED_WRITES_ENABLED: false,
         POE_EMBRACE_JOIN_FOR_TEAMS: '',
         RELOAD_PLUGIN_JITTER_MAX_MS: 60000,
 
@@ -162,6 +156,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_SESSION_RECORDING_REDIS_HOST: undefined,
         POSTHOG_SESSION_RECORDING_REDIS_PORT: undefined,
         SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: true,
+        SESSION_RECORDING_DEBUG_PARTITION: undefined,
     }
 }
 

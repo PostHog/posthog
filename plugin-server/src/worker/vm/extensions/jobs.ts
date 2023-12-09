@@ -61,7 +61,6 @@ export function createJobs(server: Hub, pluginConfig: PluginConfig): Jobs {
                 pluginConfigId: pluginConfig.id,
                 pluginConfigTeam: pluginConfig.team_id,
             }
-            server.statsd?.increment('job_enqueue_attempt')
             pluginJobEnqueueCounter.labels(String(pluginConfig.plugin?.id)).inc()
             await server.enqueuePluginJob(job)
         } catch (e) {

@@ -4,6 +4,7 @@ from freezegun import freeze_time
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
+from posthog.models.team import WeekStartDay
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -62,6 +63,8 @@ class TestInsightPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_insight_persons_lifecycle_query(self):
         self._create_test_events()
+        self.team.timezone = "US/Pacific"
+        self.team.save()
 
         date_from = "2020-01-09"
         date_to = "2020-01-19"
@@ -83,3 +86,59 @@ class TestInsightPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual([("p1",)], response.results)
+
+    def test_insight_persons_lifecycle_query_week_monday(self):
+        self._create_test_events()
+        self.team.timezone = "US/Pacific"
+        self.team.week_start_day = WeekStartDay.MONDAY
+        self.team.save()
+
+        date_from = "2020-01-09"
+        date_to = "2020-01-19"
+
+        response = self.select(
+            """
+            select * from (
+                <PersonsQuery select={['properties.name as n']}>
+                    <InsightPersonsQuery day='2020-01-13' status='returning'>
+                        <LifecycleQuery
+                            interval='week'
+                            dateRange={<DateRange date_from={{date_from}} date_to={{date_to}} />}
+                            series={[<EventsNode event='$pageview' math='total' />]}
+                        />
+                    </InsightPersonsQuery>
+                </PersonsQuery>
+            )
+            """,
+            {"date_from": ast.Constant(value=date_from), "date_to": ast.Constant(value=date_to)},
+        )
+
+        self.assertEqual([("p1",)], response.results)
+
+    def test_insight_persons_lifecycle_query_week_sunday(self):
+        self._create_test_events()
+        self.team.timezone = "US/Pacific"
+        self.team.week_start_day = WeekStartDay.SUNDAY
+        self.team.save()
+
+        date_from = "2020-01-09"
+        date_to = "2020-01-19"
+
+        response = self.select(
+            """
+            select * from (
+                <PersonsQuery select={['properties.name as n']}>
+                    <InsightPersonsQuery day='2020-01-12' status='returning'>
+                        <LifecycleQuery
+                            interval='week'
+                            dateRange={<DateRange date_from={{date_from}} date_to={{date_to}} />}
+                            series={[<EventsNode event='$pageview' math='total' />]}
+                        />
+                    </InsightPersonsQuery>
+                </PersonsQuery>
+            )
+            """,
+            {"date_from": ast.Constant(value=date_from), "date_to": ast.Constant(value=date_to)},
+        )
+
+        self.assertEqual([("p1",), ("p2",)], response.results)

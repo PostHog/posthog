@@ -12,15 +12,16 @@ import v8Profiler from 'v8-profiler-next'
 import { getPluginServerCapabilities } from '../capabilities'
 import { defaultConfig, sessionRecordingConsumerConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
-import { createHub, createKafkaClient, createKafkaProducerWrapper, createStatsdClient } from '../utils/db/hub'
+import { createHub, createKafkaClient, createKafkaProducerWrapper } from '../utils/db/hub'
 import { PostgresRouter } from '../utils/db/postgres'
-import { captureEventLoopMetrics } from '../utils/metrics'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
+import { PeriodicTask } from '../utils/periodic-task'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { delay } from '../utils/utils'
 import { AppMetrics } from '../worker/ingestion/app-metrics'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
+import { DeferredPersonOverrideWorker } from '../worker/ingestion/person-state'
 import { TeamManager } from '../worker/ingestion/team-manager'
 import Piscina, { makePiscina as defaultMakePiscina } from '../worker/piscina'
 import { GraphileWorker } from './graphile-worker/graphile-worker'
@@ -109,6 +110,8 @@ export async function startPluginsServer(
     let jobsConsumer: Consumer | undefined
     let schedulerTasksConsumer: Consumer | undefined
 
+    let personOverridesPeriodicTask: PeriodicTask | undefined
+
     let httpServer: Server | undefined // healthcheck server
 
     let graphileWorker: GraphileWorker | undefined
@@ -147,6 +150,7 @@ export async function startPluginsServer(
             jobsConsumer?.disconnect(),
             stopSessionRecordingBlobConsumer?.(),
             schedulerTasksConsumer?.disconnect(),
+            personOverridesPeriodicTask?.stop(),
         ])
 
         if (piscina) {
@@ -250,7 +254,7 @@ export async function startPluginsServer(
         // 4. conversion_events_buffer
         //
         if (capabilities.processPluginJobs || capabilities.pluginScheduledTasks) {
-            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
+            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
             serverInstance = serverInstance ? serverInstance : { hub }
 
             graphileWorker = new GraphileWorker(hub)
@@ -273,7 +277,6 @@ export async function startPluginsServer(
                     producer: hub.kafkaProducer,
                     kafka: hub.kafka,
                     partitionConcurrency: serverConfig.KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY,
-                    statsd: hub.statsd,
                 })
             }
 
@@ -282,13 +285,12 @@ export async function startPluginsServer(
                     kafka: hub.kafka,
                     producer: hub.kafkaProducer,
                     graphileWorker: graphileWorker,
-                    statsd: hub.statsd,
                 })
             }
         }
 
         if (capabilities.ingestion) {
-            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
+            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
             serverInstance = serverInstance ? serverInstance : { hub }
 
             piscina = piscina ?? (await makePiscina(serverConfig, hub))
@@ -304,7 +306,7 @@ export async function startPluginsServer(
         }
 
         if (capabilities.ingestionHistorical) {
-            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
+            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
             serverInstance = serverInstance ? serverInstance : { hub }
 
             piscina = piscina ?? (await makePiscina(serverConfig, hub))
@@ -319,7 +321,7 @@ export async function startPluginsServer(
         }
 
         if (capabilities.ingestionOverflow) {
-            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
+            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
             serverInstance = serverInstance ? serverInstance : { hub }
 
             piscina = piscina ?? (await makePiscina(serverConfig, hub))
@@ -332,7 +334,7 @@ export async function startPluginsServer(
         }
 
         if (capabilities.processAsyncOnEventHandlers) {
-            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
+            ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, capabilities)
             serverInstance = serverInstance ? serverInstance : { hub }
 
             piscina = piscina ?? (await makePiscina(serverConfig, hub))
@@ -349,10 +351,9 @@ export async function startPluginsServer(
         if (capabilities.processAsyncWebhooksHandlers) {
             // If we have a hub, then reuse some of it's attributes, otherwise
             // we need to create them. We only initialize the ones we need.
-            const statsd = hub?.statsd ?? createStatsdClient(serverConfig, null)
-            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig, statsd)
+            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
             const kafka = hub?.kafka ?? createKafkaClient(serverConfig)
-            const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig, statsd)
+            const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
             const organizationManager = hub?.organizationManager ?? new OrganizationManager(postgres, teamManager)
             const KafkaProducerWrapper = hub?.kafkaProducer ?? (await createKafkaProducerWrapper(serverConfig))
             const appMetrics =
@@ -371,7 +372,6 @@ export async function startPluginsServer(
                     organizationManager: organizationManager,
                     serverConfig: serverConfig,
                     appMetrics: appMetrics,
-                    statsd: statsd,
                 })
 
             stopWebhooksHandlerConsumer = webhooksStopConsumer
@@ -401,15 +401,10 @@ export async function startPluginsServer(
                 startPreflightSchedules(hub)
             }
 
-            if (hub.statsd) {
-                stopEventLoopMetrics = captureEventLoopMetrics(hub.statsd, hub.instanceId)
-            }
-
             serverInstance.piscina = piscina
             serverInstance.queue = analyticsEventsIngestionConsumer
             serverInstance.stop = closeJobs
 
-            hub.statsd?.timing('total_setup_time', timer)
             pluginServerStartupTimeMs.inc(Date.now() - timer.valueOf())
             status.info('🚀', 'All systems go')
 
@@ -419,8 +414,7 @@ export async function startPluginsServer(
 
         if (capabilities.sessionRecordingBlobIngestion) {
             const recordingConsumerConfig = sessionRecordingConsumerConfig(serverConfig)
-            const statsd = hub?.statsd ?? createStatsdClient(serverConfig, null)
-            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig, statsd)
+            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
             const s3 = hub?.objectStorage ?? getObjectStorage(recordingConsumerConfig)
 
             if (!s3) {
@@ -437,6 +431,18 @@ export async function startPluginsServer(
                 shutdownOnConsumerExit(batchConsumer)
                 healthChecks['session-recordings-blob'] = () => ingester.isHealthy() ?? false
             }
+        }
+
+        if (capabilities.personOverrides) {
+            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
+            const kafkaProducer = hub?.kafkaProducer ?? (await createKafkaProducerWrapper(serverConfig))
+
+            personOverridesPeriodicTask = new DeferredPersonOverrideWorker(postgres, kafkaProducer).runTask(5000)
+            personOverridesPeriodicTask.promise.catch(async () => {
+                status.error('⚠️', 'Person override worker task crashed! Requesting shutdown...')
+                await closeJobs()
+                process.exit(1)
+            })
         }
 
         if (capabilities.http) {

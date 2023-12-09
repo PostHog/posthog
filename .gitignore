@@ -24,6 +24,7 @@ frontend/__snapshots__/__failures__/
 *Type.ts
 frontend/pnpm-error.log
 frontend/tmp
+**/*.tsbuildinfo
 .idea
 celerybeat-schedule
 celerybeat.pid

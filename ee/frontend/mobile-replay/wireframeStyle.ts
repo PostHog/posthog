@@ -1,17 +1,33 @@
-import { MobileStyles, wireframe } from './mobile.types'
+import { MobileStyles, wireframe, wireframeProgress } from './mobile.types'
+
+function isNumber(candidate: unknown): candidate is number {
+    return typeof candidate === 'number'
+}
+
+function isString(candidate: unknown): candidate is string {
+    return typeof candidate === 'string'
+}
+
+function isUnitLike(candidate: unknown): candidate is string | number {
+    return isNumber(candidate) || (isString(candidate) && candidate.length > 0)
+}
 
 function ensureUnit(value: string | number): string {
-    return typeof value === 'number' ? `${value}px` : value.replace(/px$/g, '') + 'px'
+    return isNumber(value) ? `${value}px` : value.replace(/px$/g, '') + 'px'
 }
 
 function makeBorderStyles(wireframe: wireframe): string {
     let styles = ''
 
-    if (wireframe.style?.borderWidth) {
+    if (!wireframe.style) {
+        return styles
+    }
+
+    if (isUnitLike(wireframe.style.borderWidth)) {
         const borderWidth = ensureUnit(wireframe.style.borderWidth)
         styles += `border-width: ${borderWidth};`
     }
-    if (wireframe.style?.borderRadius) {
+    if (isUnitLike(wireframe.style.borderRadius)) {
         const borderRadius = ensureUnit(wireframe.style.borderRadius)
         styles += `border-radius: ${borderRadius};`
     }
@@ -29,13 +45,17 @@ function makeBorderStyles(wireframe: wireframe): string {
 export function makeSvgBorder(style: MobileStyles | undefined): Record<string, string> {
     const svgBorderStyles: Record<string, string> = {}
 
-    if (style?.borderWidth) {
-        svgBorderStyles['stroke-width'] = style.borderWidth.toString()
+    if (!style) {
+        return svgBorderStyles
     }
-    if (style?.borderColor) {
+
+    if (isUnitLike(style.borderWidth)) {
+        svgBorderStyles['stroke-width'] = ensureUnit(style.borderWidth)
+    }
+    if (style.borderColor) {
         svgBorderStyles.stroke = style.borderColor
     }
-    if (style?.borderRadius) {
+    if (isUnitLike(style.borderRadius)) {
         svgBorderStyles.rx = ensureUnit(style.borderRadius)
     }
 
@@ -44,19 +64,22 @@ export function makeSvgBorder(style: MobileStyles | undefined): Record<string, s
 
 export function makePositionStyles(wireframe: wireframe): string {
     let styles = ''
-    if (wireframe.width) {
+    if (isNumber(wireframe.width)) {
         styles += `width: ${ensureUnit(wireframe.width)};`
     }
-    if (wireframe.height) {
+    if (isNumber(wireframe.height)) {
         styles += `height: ${ensureUnit(wireframe.height)};`
     }
-    if (wireframe.x || wireframe.y) {
-        styles += `position: absolute;`
-        if (wireframe.x) {
-            styles += `left: ${ensureUnit(wireframe.x)};`
+
+    const posX = wireframe.x || 0
+    const posY = wireframe.y || 0
+    if (isNumber(posX) || isNumber(posY)) {
+        styles += `position: fixed;`
+        if (isNumber(posX)) {
+            styles += `left: ${ensureUnit(posX)};`
         }
-        if (wireframe.y) {
-            styles += `top: ${ensureUnit(wireframe.y)};`
+        if (isNumber(posY)) {
+            styles += `top: ${ensureUnit(posY)};`
         }
     }
     return styles
@@ -82,17 +105,65 @@ function makeLayoutStyles(wireframe: wireframe): string {
 
 function makeFontStyles(wireframe: wireframe): string {
     let styles = ''
-    if (wireframe.style?.fontSize) {
+
+    if (!wireframe.style) {
+        return styles
+    }
+
+    if (isUnitLike(wireframe.style.fontSize)) {
         styles += `font-size: ${ensureUnit(wireframe.style?.fontSize)};`
     }
-    if (wireframe.style?.fontFamily) {
-        styles += `font-family: ${wireframe.style?.fontFamily};`
+    if (wireframe.style.fontFamily) {
+        styles += `font-family: ${wireframe.style.fontFamily};`
     }
+    return styles
+}
+
+export function makeIndeterminateProgressStyles(wireframe: wireframeProgress): string {
+    let styles = ''
+    if (wireframe.style?.backgroundColor) {
+        styles += `background-color: ${wireframe.style.backgroundColor};`
+    }
+    styles += makePositionStyles(wireframe)
+    styles += `border: 4px solid ${wireframe.style?.borderColor || 'transparent'};`
+    styles += `border-radius: 50%;border-top: 4px solid #fff;`
+    styles += `animation: spin 2s linear infinite;`
+
+    return styles
+}
+
+export function makeDeterminateProgressStyles(wireframe: wireframeProgress): string {
+    let styles = ''
+    if (wireframe.style?.backgroundColor) {
+        styles += `background-color: ${wireframe.style.backgroundColor};`
+    }
+    styles += makePositionStyles(wireframe)
+    styles += 'border-radius: 50%;'
+    const radialGradient = `radial-gradient(closest-side, white 80%, transparent 0 99.9%, white 0)`
+    const conicGradient = `conic-gradient(${wireframe.style?.color || 'black'} calc(${wireframe.value} * 1%), ${
+        wireframe.style?.backgroundColor
+    } 0)`
+    styles += `background: ${radialGradient}, ${conicGradient};`
+
+    return styles
+}
+
+/**
+ * normally use makeStylesString instead, but sometimes you need styles without any colors applied
+ * */
+export function makeMinimalStyles(wireframe: wireframe): string {
+    let styles = ''
+
+    styles += makePositionStyles(wireframe)
+    styles += makeLayoutStyles(wireframe)
+    styles += makeFontStyles(wireframe)
+
     return styles
 }
 
 export function makeStylesString(wireframe: wireframe): string {
     let styles = ''
+
     if (wireframe.style?.color) {
         styles += `color: ${wireframe.style.color};`
     }
@@ -100,9 +171,8 @@ export function makeStylesString(wireframe: wireframe): string {
         styles += `background-color: ${wireframe.style.backgroundColor};`
     }
     styles += makeBorderStyles(wireframe)
-    styles += makePositionStyles(wireframe)
-    styles += makeLayoutStyles(wireframe)
-    styles += makeFontStyles(wireframe)
+    styles += makeMinimalStyles(wireframe)
+
     return styles
 }
 
