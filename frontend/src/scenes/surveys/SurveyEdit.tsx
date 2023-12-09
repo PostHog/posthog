@@ -39,6 +39,7 @@ export default function SurveyEdit(): JSX.Element {
         hasTargetingSet,
         selectedQuestion,
         selectedSection,
+        isEditingSurvey,
     } = useValues(surveyLogic)
     const { setSurveyValue, setWritingHTMLDescription, resetTargeting, setSelectedQuestion, setSelectedSection } =
         useActions(surveyLogic)
@@ -98,7 +99,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     >
                                                         <SurveyAppearance
                                                             preview
-                                                            type={survey.questions[0].type}
+                                                            surveyType={survey.type}
                                                             surveyQuestionItem={survey.questions[0]}
                                                             appearance={{
                                                                 ...(survey.appearance || defaultSurveyAppearance),
@@ -124,10 +125,10 @@ export default function SurveyEdit(): JSX.Element {
                                                     active={value === SurveyType.Widget}
                                                     onClick={() => onChange(SurveyType.Widget)}
                                                     title="Widget"
-                                                    description="Set up a survey based on your own custom widget or our default tab"
+                                                    description="Set up a survey based on your own custom button or our prebuilt tab widget"
                                                     value={SurveyType.Widget}
                                                 >
-                                                    Widget
+                                                    <></>
                                                 </PresentationTypeCard>
                                             </div>
                                         )
@@ -615,6 +616,7 @@ export default function SurveyEdit(): JSX.Element {
                     activePreview={selectedQuestion || 0}
                     survey={survey}
                     setActivePreview={(preview) => setSelectedQuestion(preview)}
+                    isEditingSurvey={isEditingSurvey}
                 />
             </div>
         </div>

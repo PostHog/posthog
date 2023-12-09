@@ -14,6 +14,7 @@ import {
     SurveyAppearance as SurveyAppearanceType,
     SurveyQuestion,
     SurveyQuestionType,
+    SurveyType,
 } from '~/types'
 
 import { defaultSurveyAppearance } from './constants'
@@ -32,10 +33,11 @@ import { surveysLogic } from './surveysLogic'
 import { sanitizeHTML } from './utils'
 
 interface SurveyAppearanceProps {
-    type: SurveyQuestionType
+    surveyType: SurveyType
     appearance: SurveyAppearanceType
     surveyQuestionItem: SurveyQuestion
     preview?: boolean
+    isEditingSurvey?: boolean
 }
 
 interface CustomizationProps {
@@ -88,17 +90,21 @@ const Button = ({
 }
 
 export function SurveyAppearance({
-    type,
+    surveyType,
     appearance,
     surveyQuestionItem,
     preview,
+    isEditingSurvey,
 }: SurveyAppearanceProps): JSX.Element {
     return (
         <div data-attr="survey-preview">
-            {type === SurveyQuestionType.Rating && (
+            {!preview && isEditingSurvey && surveyType === SurveyType.Widget && appearance.widgetType === 'tab' && (
+                <SurveyWidgetAppearance appearance={appearance} surveyQuestionItem={surveyQuestionItem} />
+            )}
+            {surveyQuestionItem.type === SurveyQuestionType.Rating && (
                 <SurveyRatingAppearance
                     preview={preview}
-                    ratingSurveyQuestion={surveyQuestionItem as RatingSurveyQuestion}
+                    ratingSurveyQuestion={surveyQuestionItem}
                     appearance={appearance}
                     onSubmit={() => undefined}
                 />
@@ -224,11 +230,13 @@ export function BaseAppearance({
     appearance,
     onSubmit,
     preview,
+    isWidgetSurvey,
 }: {
     question: BasicSurveyQuestion | LinkSurveyQuestion
     appearance: SurveyAppearanceType
     onSubmit: () => void
     preview?: boolean
+    isWidgetSurvey?: boolean
 }): JSX.Element {
     const [textColor, setTextColor] = useState('black')
     const ref = useRef(null)
@@ -243,7 +251,7 @@ export function BaseAppearance({
     return (
         <form
             ref={ref}
-            className="survey-form"
+            className={`survey-form ${isWidgetSurvey ? 'widget-survey' : ''}`}
             style={{
                 backgroundColor: appearance.backgroundColor,
                 border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
@@ -434,11 +442,13 @@ export function SurveyRatingAppearance({
     appearance,
     onSubmit,
     preview,
+    isWidgetSurvey,
 }: {
     ratingSurveyQuestion: RatingSurveyQuestion
     appearance: SurveyAppearanceType
     onSubmit: () => void
     preview?: boolean
+    isWidgetSurvey?: boolean
 }): JSX.Element {
     const [textColor, setTextColor] = useState('black')
     const ref = useRef(null)
@@ -453,7 +463,7 @@ export function SurveyRatingAppearance({
     return (
         <form
             ref={ref}
-            className="survey-form"
+            className={`survey-form ${isWidgetSurvey ? 'widget-survey' : ''}`}
             style={{
                 backgroundColor: appearance.backgroundColor,
                 border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
@@ -592,12 +602,14 @@ export function SurveyMultipleChoiceAppearance({
     onSubmit,
     preview,
     initialChecked,
+    isWidgetSurvey,
 }: {
     multipleChoiceQuestion: MultipleSurveyQuestion
     appearance: SurveyAppearanceType
     onSubmit: () => void
     preview?: boolean
     initialChecked?: number[]
+    isWidgetSurvey?: boolean
 }): JSX.Element {
     const [textColor, setTextColor] = useState('black')
     const ref = useRef(null)
@@ -613,7 +625,7 @@ export function SurveyMultipleChoiceAppearance({
     return (
         <form
             ref={ref}
-            className="survey-form"
+            className={`survey-form ${isWidgetSurvey ? 'widget-survey' : ''}`}
             style={{
                 backgroundColor: appearance.backgroundColor,
                 border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
@@ -736,5 +748,82 @@ export function SurveyThankYou({ appearance }: { appearance: SurveyAppearanceTyp
                 )}
             </div>
         </div>
+    )
+}
+
+export function SurveyWidgetAppearance({
+    appearance,
+    surveyQuestionItem,
+}: {
+    appearance: SurveyAppearanceType
+    surveyQuestionItem: SurveyQuestion
+}): JSX.Element {
+    const [textColor, setTextColor] = useState('black')
+    const [displaySurveyBox, setDisplaySurveyBox] = useState(false)
+    const ref = useRef(null)
+
+    useEffect(() => {
+        if (ref.current) {
+            const textColor = getTextColor(ref.current)
+            setTextColor(textColor)
+        }
+    }, [appearance.widgetColor])
+
+    useEffect(() => {
+        const widgetSurvey = document.getElementsByClassName('widget-survey')[0] as HTMLFormElement
+        widgetSurvey.style.display = displaySurveyBox ? 'block' : 'none'
+        if (displaySurveyBox) {
+            const widget = document.getElementsByClassName('ph-survey-widget-tab')[0]
+            const widgetPos = widget.getBoundingClientRect()
+            widgetSurvey.style.position = 'fixed'
+            widgetSurvey.style.zIndex = '9999999'
+            widgetSurvey.style.top = '50%'
+            widgetSurvey.style.left = `${widgetPos.right - 360}px`
+        }
+    }, [displaySurveyBox, surveyQuestionItem])
+
+    return (
+        <>
+            <div
+                className="ph-survey-widget-tab auto-text-color"
+                style={{
+                    backgroundColor: appearance.widgetColor || '#e0a045',
+                    color: textColor,
+                }}
+                onClick={() => setDisplaySurveyBox(!displaySurveyBox)}
+            >
+                <div className="ph-survey-widget-tab-icon" />
+                {appearance?.widgetLabel || ''}
+            </div>
+            {surveyQuestionItem.type === SurveyQuestionType.Rating && (
+                <SurveyRatingAppearance
+                    preview={false}
+                    ratingSurveyQuestion={surveyQuestionItem}
+                    appearance={appearance}
+                    onSubmit={() => undefined}
+                    isWidgetSurvey={true}
+                />
+            )}
+            {(surveyQuestionItem.type === SurveyQuestionType.SingleChoice ||
+                surveyQuestionItem.type === SurveyQuestionType.MultipleChoice) && (
+                <SurveyMultipleChoiceAppearance
+                    preview={false}
+                    multipleChoiceQuestion={surveyQuestionItem}
+                    appearance={appearance}
+                    onSubmit={() => undefined}
+                    isWidgetSurvey={true}
+                />
+            )}
+            {(surveyQuestionItem.type === SurveyQuestionType.Open ||
+                surveyQuestionItem.type === SurveyQuestionType.Link) && (
+                <BaseAppearance
+                    preview={false}
+                    question={surveyQuestionItem}
+                    appearance={appearance}
+                    onSubmit={() => undefined}
+                    isWidgetSurvey={true}
+                />
+            )}
+        </>
     )
 }
