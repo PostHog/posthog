@@ -261,6 +261,7 @@
         }
 
         .grid {
+            display: grid;
             grid-template-columns: repeat(auto-fill, minmax(100%, 1fr)); /* Change to 1 column */
         }
 
@@ -301,6 +302,20 @@
 
         :root {
             --microtip-font-size: 15px;
+        }
+
+        @media (min-width: 600px) {
+            .grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(45%, 1fr));
+                gap: 10px; /* Adjust the gap between grid items as needed */
+                width: 100%;
+            }
+
+            .badge.mini {
+                width: 100px;
+                height: 100px;
+            }
         }
 
         @media (min-width: 769px) {
