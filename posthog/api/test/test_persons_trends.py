@@ -5,9 +5,7 @@ from freezegun import freeze_time
 
 from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE, TRENDS_CUMULATIVE
 from posthog.models import Action, ActionStep, Cohort, Organization
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
+from posthog.session_recordings.management.util import produce_replay_summary
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,

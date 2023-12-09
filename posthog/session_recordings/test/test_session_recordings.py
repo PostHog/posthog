@@ -20,9 +20,7 @@ from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
 from posthog.models import Organization, Person, SessionRecording
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.team import Team
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
+from posthog.session_recordings.management.util import produce_replay_summary
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,

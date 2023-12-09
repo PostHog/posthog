@@ -9,9 +9,7 @@ from posthog.models.filters import Filter
 from posthog.queries.funnels.funnel_unordered_persons import (
     ClickhouseFunnelUnorderedActors,
 )
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
+from posthog.session_recordings.management.util import produce_replay_summary
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,

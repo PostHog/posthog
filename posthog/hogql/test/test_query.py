@@ -15,9 +15,7 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.models import Cohort
 from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.utils import UUIDT
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
+from posthog.session_recordings.management.util import produce_replay_summary
 from posthog.schema import HogQLFilters, EventPropertyFilter, DateRange, QueryTiming
 from posthog.test.base import (
     APIBaseTest,

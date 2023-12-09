@@ -28,9 +28,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.plugin import PluginConfig
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.schema import EventsQuery
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
+from posthog.session_recordings.management.util import produce_replay_summary
 from posthog.tasks.usage_report import (
     _get_all_org_reports,
     _get_all_usage_data_as_team_rows,

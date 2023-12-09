@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional, List, Dict
+from typing import Optional, Dict, List
 from uuid import uuid4
 
 from dateutil.parser import parse
@@ -7,10 +7,8 @@ from dateutil.relativedelta import relativedelta
 
 from posthog.clickhouse.log_entries import INSERT_LOG_ENTRY_SQL
 from posthog.kafka_client.client import ClickhouseProducer
-from posthog.kafka_client.topics import (
-    KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
-    KAFKA_LOG_ENTRIES,
-)
+from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS, KAFKA_LOG_ENTRIES
+
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.utils import cast_timestamp_or_now
 
@@ -113,6 +111,7 @@ def produce_replay_summary(
     console_error_count: Optional[int] = None,
     log_messages: Dict[str, List[str]] | None = None,
 ):
+    """NB this method is only intended for use in tests or generating data for development machines"""
     if log_messages is None:
         log_messages = {}
 
