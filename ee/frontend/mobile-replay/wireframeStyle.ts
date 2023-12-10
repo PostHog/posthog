@@ -16,23 +16,28 @@ function ensureUnit(value: string | number): string {
     return isNumber(value) ? `${value}px` : value.replace(/px$/g, '') + 'px'
 }
 
-function makeBorderStyles(wireframe: wireframe): string {
+function makeBorderStyles(wireframe: wireframe, styleOverride?: MobileStyles): string {
     let styles = ''
 
-    if (!wireframe.style) {
+    const combinedStyles = {
+        ...wireframe.style,
+        ...styleOverride,
+    }
+
+    if (!combinedStyles) {
         return styles
     }
 
-    if (isUnitLike(wireframe.style.borderWidth)) {
-        const borderWidth = ensureUnit(wireframe.style.borderWidth)
+    if (isUnitLike(combinedStyles.borderWidth)) {
+        const borderWidth = ensureUnit(combinedStyles.borderWidth)
         styles += `border-width: ${borderWidth};`
     }
-    if (isUnitLike(wireframe.style.borderRadius)) {
-        const borderRadius = ensureUnit(wireframe.style.borderRadius)
+    if (isUnitLike(combinedStyles.borderRadius)) {
+        const borderRadius = ensureUnit(combinedStyles.borderRadius)
         styles += `border-radius: ${borderRadius};`
     }
-    if (wireframe.style?.borderColor) {
-        styles += `border-color: ${wireframe.style.borderColor};`
+    if (combinedStyles?.borderColor) {
+        styles += `border-color: ${combinedStyles.borderColor};`
     }
 
     if (styles.length > 0) {
@@ -85,16 +90,22 @@ export function makePositionStyles(wireframe: wireframe): string {
     return styles
 }
 
-function makeLayoutStyles(wireframe: wireframe): string {
+function makeLayoutStyles(wireframe: wireframe, styleOverride?: MobileStyles): string {
     let styles = ''
-    if (wireframe.style?.verticalAlign) {
+
+    const combinedStyles = {
+        ...wireframe.style,
+        ...styleOverride,
+    }
+
+    if (combinedStyles.verticalAlign) {
         styles += `align-items: ${
-            { top: 'flex-start', center: 'center', bottom: 'flex-end' }[wireframe.style.verticalAlign]
+            { top: 'flex-start', center: 'center', bottom: 'flex-end' }[combinedStyles.verticalAlign]
         };`
     }
-    if (wireframe.style?.horizontalAlign) {
+    if (combinedStyles.horizontalAlign) {
         styles += `justify-content: ${
-            { left: 'flex-start', center: 'center', right: 'flex-end' }[wireframe.style.horizontalAlign]
+            { left: 'flex-start', center: 'center', right: 'flex-end' }[combinedStyles.horizontalAlign]
         };`
     }
     if (styles.length) {
@@ -103,18 +114,23 @@ function makeLayoutStyles(wireframe: wireframe): string {
     return styles
 }
 
-function makeFontStyles(wireframe: wireframe): string {
+function makeFontStyles(wireframe: wireframe, styleOverride?: MobileStyles): string {
     let styles = ''
 
-    if (!wireframe.style) {
+    const combinedStyles = {
+        ...wireframe.style,
+        ...styleOverride,
+    }
+
+    if (!combinedStyles) {
         return styles
     }
 
-    if (isUnitLike(wireframe.style.fontSize)) {
-        styles += `font-size: ${ensureUnit(wireframe.style?.fontSize)};`
+    if (isUnitLike(combinedStyles.fontSize)) {
+        styles += `font-size: ${ensureUnit(combinedStyles?.fontSize)};`
     }
-    if (wireframe.style.fontFamily) {
-        styles += `font-family: ${wireframe.style.fontFamily};`
+    if (combinedStyles.fontFamily) {
+        styles += `font-family: ${combinedStyles.fontFamily};`
     }
     return styles
 }
@@ -151,27 +167,33 @@ export function makeDeterminateProgressStyles(wireframe: wireframeProgress): str
 /**
  * normally use makeStylesString instead, but sometimes you need styles without any colors applied
  * */
-export function makeMinimalStyles(wireframe: wireframe): string {
+export function makeMinimalStyles(wireframe: wireframe, styleOverride?: MobileStyles): string {
     let styles = ''
 
     styles += makePositionStyles(wireframe)
-    styles += makeLayoutStyles(wireframe)
-    styles += makeFontStyles(wireframe)
+    styles += makeLayoutStyles(wireframe, styleOverride)
+    styles += makeFontStyles(wireframe, styleOverride)
 
     return styles
 }
 
-export function makeStylesString(wireframe: wireframe): string {
+export function makeStylesString(wireframe: wireframe, styleOverride?: MobileStyles): string {
     let styles = ''
 
-    if (wireframe.style?.color) {
-        styles += `color: ${wireframe.style.color};`
+    const combinedStyles = {
+        ...wireframe.style,
+        ...styleOverride,
     }
-    if (wireframe.style?.backgroundColor) {
-        styles += `background-color: ${wireframe.style.backgroundColor};`
+
+    if (combinedStyles.color) {
+        styles += `color: ${combinedStyles.color};`
     }
-    styles += makeBorderStyles(wireframe)
-    styles += makeMinimalStyles(wireframe)
+    if (combinedStyles.backgroundColor) {
+        styles += `background-color: ${combinedStyles.backgroundColor};`
+    }
+
+    styles += makeBorderStyles(wireframe, styleOverride)
+    styles += makeMinimalStyles(wireframe, styleOverride)
 
     return styles
 }

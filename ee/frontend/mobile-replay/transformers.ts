@@ -146,10 +146,14 @@ function makePlaceholderElement(wireframe: wireframe, children: serializedNodeWi
                 type: NodeType.Element,
                 tagName: 'rect',
                 attributes: {
+                    x: 0,
+                    y: 0,
                     width: wireframe.width,
                     height: wireframe.height,
-                    style: makeStylesString(wireframe),
                     fill: wireframe.style?.backgroundColor || 'grey',
+                    ...makeSvgBorder(wireframe.style),
+                    style: makeStylesString(wireframe, { backgroundColor: 'grey' }),
+                    display: 'block', // otherwise defaults to inline
                 },
                 id: idSequence.next().value,
                 childNodes: [],
@@ -164,6 +168,9 @@ function makePlaceholderElement(wireframe: wireframe, children: serializedNodeWi
                     y: '50%',
                     'dominant-baseline': 'middle',
                     'text-anchor': 'middle',
+                    ...makeSvgBorder(wireframe.style),
+                    style: makeStylesString(wireframe, { backgroundColor: 'grey' }),
+                    display: 'block', // otherwise defaults to inline
                 },
                 id: idSequence.next().value,
                 childNodes: [
