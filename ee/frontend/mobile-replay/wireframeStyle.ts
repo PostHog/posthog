@@ -47,26 +47,6 @@ function makeBorderStyles(wireframe: wireframe, styleOverride?: MobileStyles): s
     return styles
 }
 
-export function makeSvgBorder(style: MobileStyles | undefined): Record<string, string> {
-    const svgBorderStyles: Record<string, string> = {}
-
-    if (!style) {
-        return svgBorderStyles
-    }
-
-    if (isUnitLike(style.borderWidth)) {
-        svgBorderStyles['stroke-width'] = ensureUnit(style.borderWidth)
-    }
-    if (style.borderColor) {
-        svgBorderStyles.stroke = style.borderColor
-    }
-    if (isUnitLike(style.borderRadius)) {
-        svgBorderStyles.rx = ensureUnit(style.borderRadius)
-    }
-
-    return svgBorderStyles
-}
-
 export function makePositionStyles(wireframe: wireframe): string {
     let styles = ''
     if (isNumber(wireframe.width)) {
