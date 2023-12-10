@@ -28,7 +28,6 @@ import {
     makeHTMLStyles,
     makeIndeterminateProgressStyles,
     makeMinimalStyles,
-    makePositionStyles,
     makeStylesString,
 } from './wireframeStyle'
 
@@ -437,7 +436,7 @@ function makeRectangleElement(
         type: NodeType.Element,
         tagName: 'div',
         attributes: {
-            style: makePositionStyles(wireframe),
+            style: makeStylesString(wireframe),
         },
         id: wireframe.id,
         childNodes: children,

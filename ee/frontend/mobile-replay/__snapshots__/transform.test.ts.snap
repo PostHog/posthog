@@ -147,7 +147,7 @@ exports[`replay/transform transform can convert rect with text 1`] = `
                     "childNodes": [
                       {
                         "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;",
+                          "style": "color: #ee3ee4;border-width: 4px;border-radius: 10px;border-color: #ee3ee4;border-style: solid;width: 100px;height: 30px;position: fixed;left: 11px;top: 12px;",
                         },
                         "childNodes": [],
                         "id": 12345,

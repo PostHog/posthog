@@ -47,7 +47,7 @@ function makeBorderStyles(wireframe: wireframe, styleOverride?: MobileStyles): s
     return styles
 }
 
-export function makePositionStyles(wireframe: wireframe): string {
+function makePositionStyles(wireframe: wireframe): string {
     let styles = ''
     if (isNumber(wireframe.width)) {
         styles += `width: ${ensureUnit(wireframe.width)};`
