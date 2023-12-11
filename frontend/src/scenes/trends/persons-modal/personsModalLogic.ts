@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { query as performQuery } from '~/queries/query'
-import { InsightPersonsQuery, NodeKind, PersonsQuery } from '~/queries/schema'
+import { DataTableNode, InsightPersonsQuery, NodeKind, PersonsQuery } from '~/queries/schema'
 import {
     ActorType,
     BreakdownType,
@@ -40,28 +40,12 @@ export interface ListActorsResponse {
     next_offset?: number
 }
 
-export function wrapInsightsPersonsQuery(
-    query: InsightPersonsQuery,
-    search?: string,
-    limit = RESULTS_PER_PAGE,
-    offset = 0
-): PersonsQuery {
-    return {
-        kind: NodeKind.PersonsQuery,
-        source: query,
-        select: ['person', 'groupArray(3)(pdi.distinct_id)'],
-        search,
-        limit,
-        offset,
-    }
-}
-
 export const personsModalLogic = kea<personsModalLogicType>([
     path(['scenes', 'trends', 'personsModalLogic']),
     props({} as PersonModalLogicProps),
     actions({
         setSearchTerm: (search: string) => ({ search }),
-        saveCohortWithUrl: (cohortName: string) => ({ cohortName }),
+        saveAsCohort: (cohortName: string) => ({ cohortName }),
         resetActors: () => true,
         closeModal: () => true,
         setIsCohortModalOpen: (isOpen: boolean) => ({ isOpen }),
@@ -70,12 +54,12 @@ export const personsModalLogic = kea<personsModalLogicType>([
             query,
             clear,
             offset,
-        }): {
+        }: {
             url?: string | null
             query?: InsightPersonsQuery | null
             clear?: boolean
             offset?: number
-        } => ({
+        }) => ({
             url,
             query,
             clear,
@@ -107,13 +91,11 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         }
                         return res
                     } else if (query) {
-                        const personsQuery = wrapInsightsPersonsQuery(
-                            query,
-                            values.searchTerm,
-                            RESULTS_PER_PAGE + 1,
-                            offset || 0
-                        )
-                        const response = await performQuery(personsQuery)
+                        const response = await performQuery({
+                            ...values.personsQuery,
+                            limit: RESULTS_PER_PAGE + 1,
+                            offset: offset || 0,
+                        } as PersonsQuery)
                         const newResponse: ListActorsResponse = {
                             results: [
                                 {
@@ -123,7 +105,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                                             type: 'person',
                                             id: result[0].id,
                                             uuid: result[0].id,
-                                            distinct_ids: result[1],
+                                            distinct_ids: result[0].distinct_ids,
                                             is_identified: result[0].is_identified,
                                             properties: result[0].properties,
                                             created_at: result[0].created_at,
@@ -193,26 +175,38 @@ export const personsModalLogic = kea<personsModalLogicType>([
             await breakpoint(500)
             actions.loadActors({ query: props.query, url: props.url, clear: true })
         },
-        saveCohortWithUrl: async ({ cohortName }) => {
+        saveAsCohort: async ({ cohortName }) => {
             const cohortParams = {
                 is_static: true,
                 name: cohortName,
             }
+            if (values.personsQuery) {
+                const cohort = await api.create('api/cohort', { ...cohortParams, query: values.personsQuery })
+                cohortsModel.actions.cohortCreated(cohort)
+                lemonToast.success('Cohort saved', {
+                    toastId: `cohort-saved-${cohort.id}`,
+                    button: {
+                        label: 'View cohort',
+                        action: () => router.actions.push(urls.cohort(cohort.id)),
+                    },
+                })
+                actions.setIsCohortModalOpen(false)
+            } else {
+                const qs = props.url?.split('?').pop() || ''
+                const cohort = await api.create('api/cohort?' + qs, cohortParams)
+                cohortsModel.actions.cohortCreated(cohort)
+                lemonToast.success('Cohort saved', {
+                    toastId: `cohort-saved-${cohort.id}`,
+                    button: {
+                        label: 'View cohort',
+                        action: () => router.actions.push(urls.cohort(cohort.id)),
+                    },
+                })
 
-            const qs = props.url?.split('?').pop() || ''
-            const cohort = await api.create('api/cohort?' + qs, cohortParams)
-            cohortsModel.actions.cohortCreated(cohort)
-            lemonToast.success('Cohort saved', {
-                toastId: `cohort-saved-${cohort.id}`,
-                button: {
-                    label: 'View cohort',
-                    action: () => router.actions.push(urls.cohort(cohort.id)),
-                },
-            })
-
-            const filters = fromParamsGivenUrl('?' + qs)
-            actions.setIsCohortModalOpen(false)
-            actions.reportCohortCreatedFromPersonsModal(filters)
+                const filters = fromParamsGivenUrl('?' + qs)
+                actions.setIsCohortModalOpen(false)
+                actions.reportCohortCreatedFromPersonsModal(filters)
+            }
         },
         loadNextActors: () => {
             if (values.actorsResponse?.next) {
@@ -260,6 +254,36 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     breakdown_type: (params.get('breakdown_type') || undefined) as BreakdownType | undefined,
                 }
                 return cleanFilters(filter)
+            },
+        ],
+        personsQuery: [
+            (s) => [(_, p) => p.query, s.searchTerm],
+            (query, searchTerm): PersonsQuery | null => {
+                if (!query) {
+                    return null
+                }
+                return {
+                    kind: NodeKind.PersonsQuery,
+                    source: query,
+                    select: ['person', 'created_at'],
+                    orderBy: ['created_at DESC'],
+                    search: searchTerm,
+                }
+            },
+        ],
+        exploreUrl: [
+            (s) => [s.personsQuery],
+            (personsQuery): string | null => {
+                if (!personsQuery) {
+                    return null
+                }
+                const { select: _select, ...source } = personsQuery
+                const query: DataTableNode = {
+                    kind: NodeKind.DataTableNode,
+                    source,
+                    full: true,
+                }
+                return urls.insightNew(undefined, undefined, JSON.stringify(query))
             },
         ],
     }),

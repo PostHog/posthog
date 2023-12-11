@@ -14,6 +14,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { NotebookButton } from '~/layout/navigation/TopBar/NotebookButton'
+import { YearInHogButton } from '~/layout/navigation/TopBar/YearInHogButton'
 import { NotificationBell } from '~/layout/navigation-3000/sidepanel/panels/activity/NotificationBell'
 import { groupsModel } from '~/models/groupsModel'
 import { Logo } from '~/toolbar/assets/Logo'
@@ -83,6 +84,12 @@ export function TopBar(): JSX.Element {
                 <div className="TopBar__segment TopBar__segment--right">
                     {!minimalTopBar ? (
                         <>
+                            {!!featureFlags[FEATURE_FLAGS.YEAR_IN_HOG] &&
+                                window.POSTHOG_APP_CONTEXT?.year_in_hog_url && (
+                                    <YearInHogButton
+                                        url={`${window.location.origin}${window.POSTHOG_APP_CONTEXT.year_in_hog_url}`}
+                                    />
+                                )}
                             {hasNotebooks && <NotebookButton />}
                             <NotificationBell />
                         </>

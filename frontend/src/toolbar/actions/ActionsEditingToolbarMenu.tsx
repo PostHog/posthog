@@ -10,7 +10,6 @@ import { SelectorEditingModal } from '~/toolbar/actions/SelectorEditingModal'
 import { StepField } from '~/toolbar/actions/StepField'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { posthog } from '~/toolbar/posthog'
-import { getShadowRootPopoverContainer } from '~/toolbar/utils'
 
 export const ActionsEditingToolbarMenu = (): JSX.Element => {
     const {
@@ -131,7 +130,6 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                                                         })
                                                         editSelectorWithIndex(index)
                                                     }}
-                                                    getTooltipPopupContainer={getShadowRootPopoverContainer}
                                                 >
                                                     Edit the selector
                                                 </LemonButton>

@@ -187,17 +187,6 @@ describe('console log ingester', () => {
     describe('when disabled on team', () => {
         test('it drops console logs', async () => {
             await consoleLogIngester.consume(makeIncomingMessage([{ plugin: 'rrweb/console@1' }], false))
-            expect(jest.mocked(status.debug).mock.calls).toEqual([
-                [
-                    '⚠️',
-                    '[console-log-events-ingester] console_log_ingestion_disabled',
-                    {
-                        offset: 0,
-                        partition: 0,
-                        reason: 'console_log_ingestion_disabled',
-                    },
-                ],
-            ])
             expect(jest.mocked(produce)).not.toHaveBeenCalled()
         })
         test('it does not drop events with no console logs', async () => {

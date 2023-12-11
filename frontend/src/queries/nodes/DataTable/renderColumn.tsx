@@ -206,7 +206,6 @@ export function renderColumn(
         return <Property value={eventRecord.person?.properties?.[propertyKey]} />
     } else if (key === 'person') {
         const personRecord = record as PersonType
-
         const displayProps: PersonDisplayProps = {
             withIcon: true,
             person: record as PersonType,
@@ -222,8 +221,11 @@ export function renderColumn(
             displayProps.href = urls.personByDistinctId(personRecord.distinct_ids[0])
         }
 
-        if (isPersonsQuery(query.source)) {
-            displayProps.href = urls.personByUUID(personRecord.id ?? '-')
+        if (isPersonsQuery(query.source) && value) {
+            displayProps.person = value
+            displayProps.href = value.id
+                ? urls.personByUUID(value.id)
+                : urls.personByDistinctId(value.distinct_ids?.[0] ?? '-')
         }
 
         return <PersonDisplay {...displayProps} />

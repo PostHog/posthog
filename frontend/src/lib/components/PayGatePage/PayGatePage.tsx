@@ -1,6 +1,8 @@
 import './PayGatePage.scss'
 
+import { IconOpenSidebar } from '@posthog/icons'
 import { useValues } from 'kea'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { identifierToHuman } from 'lib/utils'
@@ -26,6 +28,7 @@ export function PayGatePage({
     featureName,
 }: PayGatePageInterface): JSX.Element {
     const { upgradeLink } = useValues(billingLogic)
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
     featureName = featureName || identifierToHuman(featureKey, 'title')
 
     return (
@@ -46,7 +49,7 @@ export function PayGatePage({
                         center
                         data-attr={`${featureKey}-learn-more`}
                     >
-                        Learn more about {featureName} <IconOpenInNew style={{ marginLeft: 8 }} />
+                        Learn more {is3000 ? <IconOpenSidebar className="ml-2" /> : <IconOpenInNew className="ml-2" />}
                     </LemonButton>
                 )}
             </div>

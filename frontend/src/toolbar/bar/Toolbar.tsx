@@ -22,7 +22,6 @@ import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { getToolbarContainer } from '~/toolbar/utils'
 
 import { HedgehogMenu } from '../hedgehog/HedgehogMenu'
 import { ToolbarButton } from './ToolbarButton'
@@ -42,7 +41,6 @@ function MoreMenu(): JSX.Element {
         <LemonMenu
             placement="top-end"
             fallbackPlacements={['bottom-end']}
-            getPopupContainer={getToolbarContainer}
             items={
                 [
                     {
