@@ -65,10 +65,6 @@ def create_pipeline(inputs: PipelineInputs):
     )
 
 
-def run_pipeline(pipeline, gen):
-    pipeline.run(gen())
-
-
 # a temporal activity
 async def run_stripe_pipeline(inputs: StripeJobInputs) -> None:
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
