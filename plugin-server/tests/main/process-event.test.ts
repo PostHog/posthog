@@ -274,8 +274,8 @@ test('capture new person', async () => {
     await hub.db.postgres.query(
         PostgresUse.COMMON_WRITE,
         `UPDATE posthog_team
-             SET ingested_event = $1
-             WHERE id = $2`,
+         SET ingested_event = $1
+         WHERE id = $2`,
         [true, team.id],
         'testTag'
     )
@@ -1473,20 +1473,20 @@ const sessionReplayEventTestCases: {
         },
         snapshotSource: 'mobile',
         expected: {
-            click_count: 6,
-            keypress_count: 0,
-            mouse_activity_count: 6,
-            first_url: null,
-            first_timestamp: '2023-04-25 18:58:13.000',
-            last_timestamp: '2023-04-25 18:58:19.000',
-            active_milliseconds: 6000, // can sum up the activity across windows
+            active_milliseconds: 1,
+            click_count: 1,
+            console_error_count: 0,
             console_log_count: 0,
             console_warn_count: 0,
-            console_error_count: 0,
-            size: 433,
-            event_count: 6,
+            event_count: 1,
+            first_timestamp: '2023-04-25 18:58:13.000',
+            first_url: null,
+            keypress_count: 0,
+            last_timestamp: '2023-04-25 18:58:13.000',
             message_count: 1,
-            snapshot_source: 'web',
+            mouse_activity_count: 1,
+            size: 73,
+            snapshot_source: 'mobile',
         },
     },
 ]
@@ -3024,12 +3024,15 @@ describe('ingestion in any order', () => {
     async function ingest0() {
         await runProcessEvent(set0, setOnce0, ts0)
     }
+
     async function ingest1() {
         await runProcessEvent(set1, setOnce1, ts1)
     }
+
     async function ingest2() {
         await runProcessEvent(set2, setOnce2, ts2)
     }
+
     async function ingest3() {
         await runProcessEvent(set3, setOnce3, ts3)
     }
