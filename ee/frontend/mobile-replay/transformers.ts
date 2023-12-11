@@ -329,8 +329,8 @@ function makeProgressElement(
         }
 
         const styleOverride = {
-            color: wireframe.style?.color || '#35373e',
-            backgroundColor: wireframe.style?.backgroundColor || '#f3f4ef',
+            color: wireframe.style?.color || FOREGROUND,
+            backgroundColor: wireframe.style?.backgroundColor || BACKGROUND,
         }
 
         // if not _isPositiveInteger(value) then we render a spinner,
