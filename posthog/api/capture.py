@@ -32,7 +32,7 @@ from posthog.kafka_client.topics import (
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
 )
 from posthog.logging.timing import timed
-from posthog.metrics import LABEL_RESOURCE_TYPE
+from posthog.metrics import LABEL_RESOURCE_TYPE, KLUDGES_COUNTER
 from posthog.models.utils import UUIDT
 from posthog.session_recordings.session_recording_helpers import (
     preprocess_replay_events_for_blob_ingestion,
@@ -74,7 +74,6 @@ EVENTS_DROPPED_OVER_QUOTA_COUNTER = Counter(
     "Events dropped by capture due to quota-limiting, per resource_type and token.",
     labelnames=[LABEL_RESOURCE_TYPE, "token"],
 )
-
 
 PARTITION_KEY_CAPACITY_EXCEEDED_COUNTER = Counter(
     "capture_partition_key_capacity_exceeded_total",
@@ -182,6 +181,7 @@ def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
     if len(timestamp) > 11:  # assuming milliseconds / update "11" to "12" if year > 5138 (set a reminder!)
         timestamp_number = float(timestamp) / 1000
     else:
+        KLUDGES_COUNTER.labels(kludge="sent_at_seconds_timestamp").inc()
         timestamp_number = int(timestamp)
 
     return datetime.fromtimestamp(timestamp_number, timezone.utc)
@@ -194,6 +194,7 @@ def _get_sent_at(data, request) -> Tuple[Optional[datetime], Any]:
         elif isinstance(data, dict) and data.get("sent_at"):  # posthog-android, posthog-ios
             sent_at = data["sent_at"]
         elif request.POST.get("sent_at"):  # when urlencoded body and not JSON (in some test)
+            KLUDGES_COUNTER.labels(kludge="sent_at_post_field").inc()
             sent_at = request.POST["sent_at"]
         else:
             return None, None
@@ -201,6 +202,7 @@ def _get_sent_at(data, request) -> Tuple[Optional[datetime], Any]:
         if re.match(r"^\d+(?:\.\d+)?$", sent_at):
             return _datetime_from_seconds_or_millis(sent_at), None
 
+        KLUDGES_COUNTER.labels(kludge="sent_at_not_timestamp").inc()
         return parser.isoparse(sent_at), None
     except Exception as error:
         statsd.incr("capture_endpoint_invalid_sent_at")
@@ -358,6 +360,7 @@ def get_event(request):
             if data.get("batch"):  # posthog-python and posthog-ruby
                 data = data["batch"]
                 assert data is not None
+                KLUDGES_COUNTER.labels(kludge="data_is_batch_field").inc()
             elif "engage" in request.path_info:  # JS identify call
                 data["event"] = "$identify"  # make sure it has an event name
 
