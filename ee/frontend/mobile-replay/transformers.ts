@@ -319,6 +319,28 @@ function makeProgressElement(
             backgroundColor: wireframe.style?.backgroundColor || '#f3f4ef',
         }
 
+        // if not _isPositiveInteger(value) then we render a spinner,
+        // so we need to add a style element with the spin keyframe
+        const stylingChildren: serializedNodeWithId[] = _isPositiveInteger(value)
+            ? []
+            : [
+                  {
+                      type: NodeType.Element,
+                      tagName: 'style',
+                      attributes: {
+                          type: 'text/css',
+                      },
+                      id: idSequence.next().value,
+                      childNodes: [
+                          {
+                              type: NodeType.Text,
+                              textContent: `@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`,
+                              id: idSequence.next().value,
+                          },
+                      ],
+                  },
+              ]
+
         return {
             type: NodeType.Element,
             tagName: 'div',
@@ -337,25 +359,7 @@ function makeProgressElement(
                             : makeIndeterminateProgressStyles(wireframe, styleOverride),
                     },
                     id: idSequence.next().value,
-                    childNodes: [
-                        // if not _isPositiveInteger(value) then we render a spinner
-                        // so we need to add a style element with the spin keyframe
-                        {
-                            type: NodeType.Element,
-                            tagName: 'style',
-                            attributes: {
-                                type: 'text/css',
-                            },
-                            id: idSequence.next().value,
-                            childNodes: [
-                                {
-                                    type: NodeType.Text,
-                                    textContent: `@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`,
-                                    id: idSequence.next().value,
-                                },
-                            ],
-                        },
-                    ],
+                    childNodes: stylingChildren,
                 },
                 ...children,
             ],
