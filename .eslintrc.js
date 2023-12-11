@@ -32,20 +32,14 @@ module.exports = {
         'plugin:eslint-comments/recommended',
         'plugin:storybook/recommended',
         'plugin:compat/recommended',
-        'prettier',
+        'prettier', // Disables any formatting rules to let prettier do its job
     ],
     globals,
     parser: '@typescript-eslint/parser',
     parserOptions: {
-        ecmaFeatures: {
-            jsx: true,
-        },
-        ecmaVersion: 2018,
-        sourceType: 'module',
         project: 'tsconfig.json',
     },
     plugins: [
-        'prettier',
         'react',
         'cypress',
         '@typescript-eslint',

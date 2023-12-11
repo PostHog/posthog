@@ -1,6 +1,6 @@
 import './SidePanelWelcome.scss'
 
-import { IconArrowLeft, IconEllipsis, IconExternal, IconX } from '@posthog/icons'
+import { IconArrowLeft, IconEllipsis, IconExternal, IconOpenSidebar, IconX } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -245,11 +245,12 @@ export const SidePanelWelcome = (): JSX.Element => {
                     <LemonButton
                         onClick={() => openSidePanel(SidePanelTab.Support, 'feedback:posthog-3000')}
                         type="secondary"
+                        sideIcon={<IconOpenSidebar className="text-xl" />}
                     >
-                        Let us know what you think!
+                        Share feedback
                     </LemonButton>
                 </div>
-                <div className="-mb-3">
+                <div className="-mb-3" style={{ fontSize: 13 /* eslint-disable-line react/forbid-dom-props */ }}>
                     <IconArrowLeft className="text-base mr-2 inline" />
                     <span className="m-0">
                         <strong>Pro tip:</strong> Access this panel again from the{' '}

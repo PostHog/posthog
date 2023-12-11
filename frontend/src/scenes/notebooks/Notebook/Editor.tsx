@@ -159,17 +159,7 @@ export function Editor(): JSX.Element {
                         return true
                     }
 
-                    if (!moved && event.dataTransfer.files && event.dataTransfer.files[0]) {
-                        // if dropping external files
-                        const file = event.dataTransfer.files[0] // the dropped file
-
-                        posthog.capture('notebook file dropped', { file_type: file.type })
-
-                        if (!file.type.startsWith('image/')) {
-                            lemonToast.warning('Only images can be added to Notebooks at this time.')
-                            return true
-                        }
-
+                    if (!moved && event.dataTransfer.files && event.dataTransfer.files.length > 0) {
                         const coordinates = view.posAtCoords({
                             left: event.clientX,
                             top: event.clientY,
@@ -180,21 +170,60 @@ export function Editor(): JSX.Element {
                             return true
                         }
 
-                        editor
-                            .chain()
-                            .focus()
-                            .setTextSelection(coordinates.pos)
-                            .insertContent({
-                                type: NotebookNodeType.Image,
-                                attrs: { file },
-                            })
-                            .run()
+                        // if dropping external files
+                        const fileList = Array.from(event.dataTransfer.files)
+                        const contentToAdd: any[] = []
+                        for (const file of fileList) {
+                            if (file.type.startsWith('image/')) {
+                                contentToAdd.push({
+                                    type: NotebookNodeType.Image,
+                                    attrs: { file },
+                                })
+                            } else {
+                                lemonToast.warning('Only images can be added to Notebooks at this time.')
+                            }
+                        }
+
+                        editor.chain().focus().setTextSelection(coordinates.pos).insertContent(contentToAdd).run()
+                        posthog.capture('notebook files dropped', {
+                            file_types: fileList.map((x) => x.type),
+                        })
 
                         return true
                     }
                 }
 
                 return false
+            },
+            handlePaste: (_view, event) => {
+                const editor = editorRef.current
+                if (!editor) {
+                    return false
+                }
+
+                // Special handling for pasting files such as images
+                if (event.clipboardData && event.clipboardData.files?.length > 0) {
+                    // iterate over the clipboard files and add any supported file types
+                    const fileList = Array.from(event.clipboardData.files)
+                    const contentToAdd: any[] = []
+                    for (const file of fileList) {
+                        if (file.type.startsWith('image/')) {
+                            contentToAdd.push({
+                                type: NotebookNodeType.Image,
+                                attrs: { file },
+                            })
+                        } else {
+                            lemonToast.warning('Only images can be added to Notebooks at this time.')
+                        }
+                    }
+
+                    editor.chain().focus().insertContent(contentToAdd).run()
+                    posthog.capture('notebook files pasted', {
+                        file_types: fileList.map((x) => x.type),
+                    })
+
+                    return true
+                }
             },
         },
         onCreate: ({ editor }) => {

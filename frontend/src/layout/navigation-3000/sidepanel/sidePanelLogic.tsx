@@ -82,10 +82,10 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 const tabs: SidePanelTab[] = []
 
                 tabs.push(SidePanelTab.Notebooks)
+                tabs.push(SidePanelTab.Docs)
                 if (isCloudOrDev) {
                     tabs.push(SidePanelTab.Support)
                 }
-                tabs.push(SidePanelTab.Docs)
                 tabs.push(SidePanelTab.Settings)
                 if (isReady && !hasCompletedAllTasks) {
                     tabs.push(SidePanelTab.Activation)

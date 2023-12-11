@@ -64,7 +64,15 @@ export type serializedNodeWithId = serializedNode & { id: number }
 
 // end copied section
 
-export type MobileNodeType = 'text' | 'image' | 'rectangle' | 'input' | 'div' | 'radio_group'
+export type MobileNodeType =
+    | 'text'
+    | 'image'
+    | 'rectangle'
+    | 'placeholder'
+    | 'web_view'
+    | 'input'
+    | 'div'
+    | 'radio_group'
 
 export type MobileStyles = {
     /**
@@ -182,6 +190,21 @@ export type wireframeButton = wireframeInputBase & {
     value?: string
 }
 
+export type wireframeProgress = wireframeInputBase & {
+    inputType: 'progress'
+    /**
+     * @description This attribute specifies how much of the task that has been completed. It must be a valid floating point number between 0 and max, or between 0 and 1 if max is omitted. If there is no value attribute, the progress bar is indeterminate; this indicates that an activity is ongoing with no indication of how long it is expected to take.
+     */
+    value?: number
+    /**
+     * @description The max attribute, if present, must have a value greater than 0 and be a valid floating point number. The default value is 1.
+     */
+    max?: number
+    style?: MobileStyles & {
+        bar: 'horizontal' | 'circular'
+    }
+}
+
 // these are grouped as a type so that we can easily use them as function parameters
 export type wireframeInputComponent =
     | wireframeCheckBox
@@ -190,6 +213,7 @@ export type wireframeInputComponent =
     | wireframeSelect
     | wireframeTextArea
     | wireframeButton
+    | wireframeProgress
     | wireframeToggle
 
 export type wireframeText = wireframeBase & {
@@ -209,6 +233,16 @@ export type wireframeRectangle = wireframeBase & {
     type: 'rectangle'
 }
 
+export type wireframeWebView = wireframeBase & {
+    type: 'web_view'
+    url?: string
+}
+
+export type wireframePlaceholder = wireframeBase & {
+    type: 'placeholder'
+    label?: string
+}
+
 export type wireframeDiv = wireframeBase & {
     /*
      * @description this is the default type, if no type is specified then it is assumed to be a div
@@ -223,6 +257,8 @@ export type wireframe =
     | wireframeDiv
     | wireframeInputComponent
     | wireframeRadioGroup
+    | wireframeWebView
+    | wireframePlaceholder
 
 // the rrweb full snapshot event type, but it contains wireframes not html
 export type fullSnapshotEvent = {

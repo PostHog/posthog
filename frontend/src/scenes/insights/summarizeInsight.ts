@@ -182,7 +182,7 @@ function summarizeInsightFilters(filters: AnyPartialFilterType, context: Summary
     return ''
 }
 
-function summarizeInsightQuery(query: InsightQueryNode, context: SummaryContext): string {
+export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryContext): string {
     if (isTrendsQuery(query)) {
         let summary = query.series
             .map((s, index) => {

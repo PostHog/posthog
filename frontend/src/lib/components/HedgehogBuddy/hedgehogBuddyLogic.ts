@@ -1,11 +1,13 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 
-import type { hedgehogbuddyLogicType } from './hedgehogbuddyLogicType'
+import type { hedgehogBuddyLogicType } from './hedgehogBuddyLogicType'
 import { AccessoryInfo, standardAccessories } from './sprites/sprites'
 
-export const hedgehogbuddyLogic = kea<hedgehogbuddyLogicType>([
-    path(['hedgehog', 'hedgehogbuddyLogic']),
+export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
+    path(['hedgehog', 'hedgehogBuddyLogic']),
     actions({
         setHedgehogModeEnabled: (enabled: boolean) => ({ enabled }),
         addAccessory: (accessory: AccessoryInfo) => ({ accessory }),
@@ -13,13 +15,6 @@ export const hedgehogbuddyLogic = kea<hedgehogbuddyLogicType>([
     }),
 
     reducers(() => ({
-        hedgehogModeEnabled: [
-            false as boolean,
-            { persist: true },
-            {
-                setHedgehogModeEnabled: (_, { enabled }) => enabled,
-            },
-        ],
         accessories: [
             [] as AccessoryInfo[],
             { persist: true },
@@ -45,15 +40,16 @@ export const hedgehogbuddyLogic = kea<hedgehogbuddyLogicType>([
                 return Object.keys(standardAccessories)
             },
         ],
+        hedgehogModeEnabled: [
+            () => [featureFlagLogic.selectors.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.HEDGEHOG_MODE],
+        ],
     }),
 
     listeners(() => ({
         setHedgehogModeEnabled: ({ enabled }) => {
-            if (enabled) {
-                posthog.capture('hedgehog mode enabled')
-            } else {
-                posthog.capture('hedgehog mode disabled')
-            }
+            posthog.updateEarlyAccessFeatureEnrollment(FEATURE_FLAGS.HEDGEHOG_MODE, enabled)
+            posthog.capture(enabled ? 'hedgehog mode enabled' : 'hedgehog mode disabled')
         },
     })),
 ])

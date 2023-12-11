@@ -432,6 +432,27 @@ describe('replay/transform', () => {
                     })
                 ).toMatchSnapshot()
             })
+
+            test('web_view with URL', () => {
+                expect(
+                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                        type: 2,
+                        data: {
+                            wireframes: [
+                                {
+                                    id: 12365,
+                                    width: 100,
+                                    height: 30,
+                                    type: 'web_view',
+                                    url: 'https://example.com',
+                                },
+                            ],
+                        },
+                        timestamp: 1,
+                    })
+                ).toMatchSnapshot()
+            })
+
             test('radio_group', () => {
                 expect(
                     posthogEEModule.mobileReplay?.transformEventToWeb({
@@ -694,6 +715,54 @@ describe('replay/transform', () => {
                     // inputType: 'select',
                     value: 'hello',
                     options: ['hello', 'world'],
+                },
+                {
+                    id: 12365,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'progress',
+                    style: { bar: 'circular' },
+                },
+                {
+                    id: 12365,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'progress',
+                    style: { bar: 'horizontal' },
+                },
+                {
+                    id: 12365,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'progress',
+                    style: { bar: 'horizontal' },
+                    value: 0.75,
+                },
+                {
+                    id: 12365,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'progress',
+                    style: { bar: 'horizontal' },
+                    value: 0.75,
+                    max: 2.5,
+                },
+                {
+                    id: 12365,
+                    width: 100,
+                    height: 30,
+                    type: 'placeholder',
+                    label: 'hello',
+                },
+                {
+                    id: 12365,
+                    width: 100,
+                    height: 30,
+                    type: 'web_view',
                 },
             ])('$type - $inputType - $value', (testCase) => {
                 expect(

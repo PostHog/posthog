@@ -176,6 +176,10 @@ input::-ms-clear {
     border-radius: var(--radius);
     box-shadow: var(--shadow-elevation);
     opacity: 1 !important;
+
+    .posthog-3000 & {
+        border-color: var(--secondary-3000-button-border);
+    }
 }
 
 .Toastify__toast-container {

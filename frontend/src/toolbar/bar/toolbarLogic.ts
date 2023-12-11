@@ -1,5 +1,4 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { subscriptions } from 'kea-subscriptions'
 import { windowValues } from 'kea-window-values'
 import { HedgehogActor } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
 import { SPRITE_SIZE } from 'lib/components/HedgehogBuddy/sprites/sprites'
@@ -7,7 +6,7 @@ import { SPRITE_SIZE } from 'lib/components/HedgehogBuddy/sprites/sprites'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
-import { getShadowRoot, inBounds } from '~/toolbar/utils'
+import { inBounds } from '~/toolbar/utils'
 
 import type { toolbarLogicType } from './toolbarLogicType'
 
@@ -258,10 +257,4 @@ export const toolbarLogic = kea<toolbarLogicType>([
             actions.setVisibleMenu('actions')
         },
     })),
-    subscriptions({
-        theme: (theme) => {
-            const toolbarElement = getShadowRoot()?.getElementById('button-toolbar')
-            toolbarElement?.setAttribute('theme', theme)
-        },
-    }),
 ])
