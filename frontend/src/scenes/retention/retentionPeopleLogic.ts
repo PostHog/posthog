@@ -7,11 +7,10 @@ import { toParams } from 'lib/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { RetentionTableAppearanceType, RetentionTablePeoplePayload } from 'scenes/retention/types'
-import { urls } from 'scenes/urls'
 
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { query } from '~/queries/query'
-import { DataTableNode, NodeKind, PersonsQuery, RetentionAppearanceQuery, RetentionQuery } from '~/queries/schema'
+import { NodeKind, RetentionAppearanceQuery, RetentionQuery } from '~/queries/schema'
 import { InsightLogicProps } from '~/types'
 
 import type { retentionPeopleLogicType } from './retentionPeopleLogicType'
@@ -113,40 +112,6 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>([
     }),
     selectors(() => ({
         apiFilters: [(s) => [s.querySource], (querySource) => (querySource ? queryNodeToFilter(querySource) : {})],
-        personsQuery: [
-            (s) => [s.querySource],
-            (querySource: RetentionQuery): PersonsQuery | null => {
-                if (!querySource) {
-                    return null
-                }
-                const retentionAppearance = wrapRetentionQuery(querySource, 0) // TODO: Get correct interval
-                return {
-                    kind: NodeKind.PersonsQuery,
-                    source: {
-                        kind: NodeKind.InsightPersonsQuery,
-                        source: {
-                            ...retentionAppearance,
-                            offset: undefined,
-                            limit: undefined,
-                        },
-                    },
-                }
-            },
-        ],
-        exploreUrl: [
-            (s) => [s.personsQuery],
-            (personsQuery): string | null => {
-                if (!personsQuery) {
-                    return null
-                }
-                const query: DataTableNode = {
-                    kind: NodeKind.DataTableNode,
-                    source: personsQuery,
-                    full: true,
-                }
-                return urls.insightNew(undefined, undefined, JSON.stringify(query))
-            },
-        ],
     })),
     listeners(({ actions, values }) => ({
         loadDataSuccess: () => {

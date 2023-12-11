@@ -23,7 +23,7 @@ import { retentionPeopleLogic } from './retentionPeopleLogic'
 export function RetentionModal(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { results } = useValues(retentionLogic(insightProps))
-    const { people, peopleLoading, peopleLoadingMore, exploreUrl } = useValues(retentionPeopleLogic(insightProps))
+    const { people, peopleLoading, peopleLoadingMore } = useValues(retentionPeopleLogic(insightProps))
     const { loadMorePeople } = useActions(retentionPeopleLogic(insightProps))
     const { aggregationTargetLabel, selectedRow } = useValues(retentionModalLogic(insightProps))
     const { closeModal } = useActions(retentionModalLogic(insightProps))
@@ -43,18 +43,6 @@ export function RetentionModal(): JSX.Element | null {
                     <LemonButton type="secondary" onClick={closeModal}>
                         Close
                     </LemonButton>
-                    {exploreUrl && (
-                        <LemonButton
-                            type="primary"
-                            to={exploreUrl}
-                            data-attr="person-modal-new-insight"
-                            onClick={() => {
-                                closeModal()
-                            }}
-                        >
-                            Explore
-                        </LemonButton>
-                    )}
                     <LemonButton
                         type="primary"
                         onClick={() =>
