@@ -323,7 +323,7 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
 
     def test_facebook_feed_ad(self):
         # chrome
-        # go to facebook -> click an ad in the sidebar
+        # go to facebook -> click an ad in the feed
         self.assertEqual(
             "Paid Social",
             self._get_initial_channel_type_from_wild_clicks(
@@ -363,13 +363,35 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_bing_organic_click(self):
-        # go to bing -> search shoes -> click an ad
+        # go to bing -> search shoes -> click an organic result
         # chrome and firefox
         self.assertEqual(
             "Organic Search",
             self._get_initial_channel_type_from_wild_clicks(
                 "https://www.schuh.co.uk/",
                 "https://www.bing.com/",
+            ),
+        )
+
+    def test_duckduckgo_organic_click(self):
+        # go to duckduckgo -> search shoes -> click an organic result
+        # firefox
+        self.assertEqual(
+            "Organic Search",
+            self._get_initial_channel_type_from_wild_clicks(
+                "https://www.asos.com/women/shoes/cat/?cid=4172",
+                "https://duckduckgo.com/",
+            ),
+        )
+
+    def test_duckduckgo_paid_click(self):
+        # go to duckduckgo -> search shoes -> click an ad
+        # chrome
+        self.assertEqual(
+            "Paid Search",
+            self._get_initial_channel_type_from_wild_clicks(
+                "https://www.temu.com/uk/kuiper/un2.html?_p_rfs=1&subj=un-search1&_p_jump_id=831&_x_vst_scene=adg&search_key=.%20shoes&_x_ads_sub_channel=search&_x_ads_channel=bing&_x_ads_account=176202190&_x_ads_set=519193183&_x_ads_id=1316117718217619&_x_ads_creative_id=82257583982288&_x_ns_source=s&_x_ns_msclkid=0c97748ea8581c0fa51611f9afccba18&_x_ns_match_type=e&_x_ns_bid_match_type=be&_x_ns_query=shoes&_x_ns_keyword=.%20shoes&_x_ns_device=c&_x_ns_targetid=kwd-82258273368290%3Aloc-188&_x_ns_extensionid=&msclkid=0c97748ea8581c0fa51611f9afccba18&utm_source=bing&utm_medium=cpc&utm_campaign=0725_WJJ_UK_KW_web-app-purchase-offline%7Cweb-purchase-offline_UK%E9%AB%98%E8%8A%B1%E8%B4%B9%E8%AF%8D9533&utm_term=.%20shoes&utm_content=0725_WJJ-%E9%80%9A%E6%8A%95-UK_UK_%E7%BB%9F%E4%B8%80%E6%90%9C%E7%B4%A2%E9%A1%B5%20%E3%80%90%E7%9B%B4%E6%8E%A5%E6%8A%95%E6%94%BE%E7%94%A8%E3%80%91_webtoapp_EXACT_UK%E9%AB%98%E8%8A%B1%E8%B4%B9%E8%AF%8D4977&adg_ctx=f-939d4ecb",
+                "https://duckduckgo.com/",
             ),
         )
 
