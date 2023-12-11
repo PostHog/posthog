@@ -555,7 +555,7 @@ export function SavedInsights(): JSX.Element {
                 <>
                     <SavedInsightsFilters />
                     <LemonDivider className="my-4" />
-                    <div className="flex justify-between mb-4 mt-2 items-center">
+                    <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
                         <span className="text-muted-alt">
                             {count
                                 ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${
