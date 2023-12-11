@@ -28,6 +28,7 @@ import {
     makeHTMLStyles,
     makeIndeterminateProgressStyles,
     makeMinimalStyles,
+    makePositionStyles,
     makeStylesString,
 } from './wireframeStyle'
 
@@ -379,16 +380,55 @@ function makeToggleElement(
     wireframe: wireframeToggle,
     children: serializedNodeWithId[]
 ): (elementNode & { id: number }) | null {
-    // first return simply a checkbox
+    /**
+     * <button id="btn-switch" type="button" role="switch">
+     *     <div class="slider"></div>
+     *     <div class="handle"></div>
+     * </button>
+     */
+
     return {
         type: NodeType.Element,
-        tagName: 'input',
+        tagName: 'div',
         attributes: {
-            ...inputAttributes(wireframe),
-            type: 'checkbox',
+            style: makePositionStyles(wireframe),
         },
         id: wireframe.id,
-        childNodes: children,
+        childNodes: [
+            {
+                type: NodeType.Element,
+                tagName: 'div',
+                attributes: {
+                    // relative position, fills parent
+                    style: 'position:relative;width:100%;height:100%;',
+                },
+                id: idSequence.next().value,
+                childNodes: [
+                    {
+                        type: NodeType.Element,
+                        tagName: 'div',
+                        attributes: {
+                            id: 'slider',
+                            style: `position:absolute;top:5px;left:0;display:inline-block;width:100%;height:10%;background-color:${
+                                wireframe.style?.backgroundColor || BACKGROUND
+                            };border-radius:0.625rem;transition:background-color .1s ease;`,
+                        },
+                        id: idSequence.next().value,
+                        childNodes: [],
+                    },
+                    {
+                        type: NodeType.Element,
+                        tagName: 'div',
+                        attributes: {
+                            id: 'handle',
+                        },
+                        id: idSequence.next().value,
+                        childNodes: [],
+                    },
+                    ...children,
+                ],
+            },
+        ],
     }
 }
 
