@@ -95,10 +95,15 @@ class Table(FieldOrTable):
         for key, field in self.fields.items():
             if key in fields_to_avoid:
                 continue
-            if isinstance(field, DatabaseField):
+            if (
+                isinstance(field, Table)
+                or isinstance(field, LazyJoin)
+                or isinstance(field, FieldTraverser)
+                or isinstance(field, ExpressionField)
+            ):
+                pass  # ignore virtual tables and columns for now
+            elif isinstance(field, DatabaseField):
                 asterisk[key] = field
-            elif isinstance(field, Table) or isinstance(field, LazyJoin) or isinstance(field, FieldTraverser):
-                pass  # ignore virtual tables for now
             else:
                 raise HogQLException(f"Unknown field type {type(field).__name__} for asterisk")
         return asterisk

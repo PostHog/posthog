@@ -1,9 +1,0 @@
-@import '../../../../styles/mixins';
-
-.DataVisualization {
-    .ChartSelectionWrapper {
-        min-width: 20vw;
-        height: var(--viz-min-height);
-        border-radius: var(--radius);
-    }
-}
