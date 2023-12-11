@@ -44,18 +44,18 @@ async def create_external_data_job_model(inputs: CreateExternalDataJobInputs) ->
         workflow_id=activity.info().workflow_id,
     )
 
-    source = await sync_to_async(ExternalDataSource.objects.get)(  # type: ignore
+    source = await sync_to_async(ExternalDataSource.objects.get)(
         team_id=inputs.team_id, id=inputs.external_data_source_id
     )
 
     # Sync schemas if they have changed
-    await sync_to_async(sync_old_schemas_with_new_schemas)(  # type: ignore
-        list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source.source_type]),  # type: ignore
+    await sync_to_async(sync_old_schemas_with_new_schemas)(
+        list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source.source_type]),
         source_id=inputs.external_data_source_id,
         team_id=inputs.team_id,
     )
 
-    schemas = await sync_to_async(get_active_schemas_for_source_id)(  # type: ignore
+    schemas = await sync_to_async(get_active_schemas_for_source_id)(
         team_id=inputs.team_id, source_id=inputs.external_data_source_id
     )
 
