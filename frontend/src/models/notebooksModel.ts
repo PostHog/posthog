@@ -5,7 +5,7 @@ import api from 'lib/api'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import posthog from 'posthog-js'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
-import { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogicType'
+import type { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogicType'
 import { defaultNotebookContent, EditorFocusPosition, JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { LOCAL_NOTEBOOK_TEMPLATES } from 'scenes/notebooks/NotebookTemplates/notebookTemplates'
@@ -28,7 +28,7 @@ export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
 export const openNotebook = async (
     notebookId: string,
     target: NotebookTarget,
-    focus: EditorFocusPosition | undefined = undefined,
+    autofocus: EditorFocusPosition | undefined = undefined,
     // operations to run against the notebook once it has opened and the editor is ready
     onOpen: (logic: BuiltLogic<notebookLogicType>) => void = () => {}
 ): Promise<void> => {
@@ -36,7 +36,7 @@ export const openNotebook = async (
     const thePanelLogic = notebookPanelLogic.findMounted()
 
     if (thePanelLogic && target === NotebookTarget.Popover) {
-        notebookPanelLogic.actions.selectNotebook(notebookId, focus)
+        notebookPanelLogic.actions.selectNotebook(notebookId, { autofocus })
     } else {
         if (router.values.location.pathname === urls.notebook('new')) {
             router.actions.replace(urls.notebook(notebookId))
@@ -54,10 +54,10 @@ export const openNotebook = async (
         unmount()
     }
 }
+
 export const notebooksModel = kea<notebooksModelType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebooksModel']),
     actions({
-        setScratchpadNotebook: (notebook: NotebookListItemType) => ({ notebook }),
         createNotebook: (
             location: NotebookTarget,
             title?: string,
@@ -79,12 +79,7 @@ export const notebooksModel = kea<notebooksModelType>([
     }),
 
     reducers({
-        scratchpadNotebook: [
-            SCRATCHPAD_NOTEBOOK,
-            {
-                setScratchpadNotebook: (_, { notebook }) => notebook,
-            },
-        ],
+        scratchpadNotebook: [SCRATCHPAD_NOTEBOOK],
     }),
 
     loaders(({ values }) => ({
@@ -116,7 +111,11 @@ export const notebooksModel = kea<notebooksModelType>([
                         object: { name: title || shortId, id: shortId },
                     })
 
-                    notebookPanelLogic.findMounted()?.actions.selectNotebook(SCRATCHPAD_NOTEBOOK.short_id)
+                    const panelLogic = notebookPanelLogic.findMounted()
+
+                    if (panelLogic && panelLogic.values.selectedNotebook === shortId) {
+                        panelLogic.actions.selectNotebook(SCRATCHPAD_NOTEBOOK.short_id, { silent: true })
+                    }
 
                     return values.notebooks.filter((n) => n.short_id !== shortId)
                 },

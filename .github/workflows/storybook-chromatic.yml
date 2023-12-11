@@ -35,7 +35,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@v3
               with:
-                  node-version: 18
+                  node-version: 18.12.1
                   cache: pnpm
 
             - name: Install dependencies and Chromatic
@@ -114,7 +114,7 @@ jobs:
             - name: Set up Node.js
               uses: buildjet/setup-node@v3
               with:
-                  node-version: 18
+                  node-version: 18.12.1
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
@@ -180,12 +180,12 @@ jobs:
                     echo "Snapshots updated ($ADDED new, $MODIFIED changed), running OptiPNG"
                     apt update && apt install -y optipng
                     optipng -clobber -o4 -strip all
-                    
+
                     # we don't want to _always_ run OptiPNG
                     # so, we run it after checking for a diff
                     # but, the files we diffed might then be changed by OptiPNG
                     # and as a result they might no longer be different...
-                    
+
                     # we check again
                     git diff --name-status frontend/__snapshots__/ # For debugging
                     ADDED=$(git diff --name-status frontend/__snapshots__/ | grep '^A' | wc -l)

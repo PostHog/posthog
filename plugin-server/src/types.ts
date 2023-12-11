@@ -76,6 +76,7 @@ export enum PluginServerMode {
     scheduler = 'scheduler',
     analytics_ingestion = 'analytics-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
+    person_overrides = 'person-overrides',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -198,6 +199,7 @@ export interface PluginsServerConfig {
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
     DROP_EVENTS_BY_TOKEN: string
     POE_EMBRACE_JOIN_FOR_TEAMS: string
+    POE_DEFERRED_WRITES_ENABLED: boolean
     RELOAD_PLUGIN_JITTER_MAX_MS: number
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
 
@@ -289,6 +291,7 @@ export interface PluginServerCapabilities {
     processAsyncOnEventHandlers?: boolean
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
+    personOverrides?: boolean
     transpileFrontendApps?: boolean // TODO: move this away from pod startup, into a graphile job
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     http?: boolean
