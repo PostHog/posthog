@@ -1,7 +1,9 @@
 from django.db import models
-
+from django.conf import settings
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UUIDModel, sane_repr
+from posthog.warehouse.s3 import get_s3_client
+from uuid import UUID
 
 
 class ExternalDataJob(CreatedMetaFields, UUIDModel):
@@ -26,3 +28,22 @@ class ExternalDataJob(CreatedMetaFields, UUIDModel):
     @property
     def folder_path(self) -> str:
         return f"team_{self.team_id}_{self.pipeline.source_type}_{str(self.pk)}".lower().replace("-", "_")
+
+    def url_pattern_by_schema(self, schema: str) -> str:
+        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{self.folder_path}/{schema.lower()}/*.parquet"
+
+    def delete_data_in_bucket(self) -> None:
+        s3 = get_s3_client()
+        s3.delete(f"{settings.BUCKET_URL}/{self.folder_path}", recursive=True)
+
+
+def get_latest_run_if_exists(team_id: int, pipeline_id: UUID) -> ExternalDataJob | None:
+    job = (
+        ExternalDataJob.objects.filter(
+            team_id=team_id, pipeline_id=pipeline_id, status=ExternalDataJob.Status.COMPLETED
+        )
+        .order_by("-created_at")
+        .first()
+    )
+
+    return job

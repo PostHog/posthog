@@ -28,7 +28,6 @@ export interface DateFilterProps {
     className?: string
     onChange?: (fromDate: string | null, toDate: string | null) => void
     disabled?: boolean
-    getPopupContainer?: () => HTMLElement
     dateOptions?: DateMappingOption[]
     isDateFormatted?: boolean
     size?: LemonButtonProps['size']
@@ -47,7 +46,6 @@ export function DateFilter({
     disabled,
     makeLabel,
     onChange,
-    getPopupContainer,
     dateFrom,
     dateTo,
     dateOptions = dateMapping,
@@ -172,7 +170,6 @@ export function DateFilter({
                 actionable: true,
                 closeOnClickInside: false,
                 additionalRefs: [rollingDateRangeRef, '.datefilter-datepicker'],
-                getPopupContainer,
             }}
             icon={<IconCalendar />}
         >

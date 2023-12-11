@@ -18,8 +18,6 @@ body:not(.posthog-3000) {
 
 .posthog-3000 {
     .LemonButton.LemonSelect--clearable {
-        --lemon-button-gap: 0rem;
-
         .LemonButton__content {
             gap: 0.25rem;
 
@@ -29,9 +27,5 @@ body:not(.posthog-3000) {
                 }
             }
         }
-    }
-
-    .LemonButton.LemonSelect {
-        --lemon-button-gap: 0.1875rem;
     }
 }

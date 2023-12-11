@@ -139,7 +139,7 @@
             "type": "number"
         },
         "MobileNodeType": {
-            "enum": ["text", "image", "rectangle", "input", "div", "radio_group"],
+            "enum": ["text", "image", "rectangle", "placeholder", "web_view", "input", "div", "radio_group"],
             "type": "string"
         },
         "MobileStyles": {
@@ -205,6 +205,12 @@
                 },
                 {
                     "$ref": "#/definitions/wireframeRadioGroup"
+                },
+                {
+                    "$ref": "#/definitions/wireframeWebView"
+                },
+                {
+                    "$ref": "#/definitions/wireframePlaceholder"
                 }
             ]
         },
@@ -444,8 +450,103 @@
                 },
                 {
                     "$ref": "#/definitions/wireframeButton"
+                },
+                {
+                    "$ref": "#/definitions/wireframeProgress"
+                },
+                {
+                    "$ref": "#/definitions/wireframeToggle"
                 }
             ]
+        },
+        "wireframePlaceholder": {
+            "additionalProperties": false,
+            "properties": {
+                "childWireframes": {
+                    "items": {
+                        "$ref": "#/definitions/wireframe"
+                    },
+                    "type": "array"
+                },
+                "height": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "style": {
+                    "$ref": "#/definitions/MobileStyles"
+                },
+                "type": {
+                    "$ref": "#/definitions/MobileNodeType"
+                },
+                "width": {
+                    "type": "number"
+                },
+                "x": {
+                    "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
+                    "type": "number"
+                },
+                "y": {
+                    "type": "number"
+                }
+            },
+            "required": ["height", "id", "type", "width", "x", "y"],
+            "type": "object"
+        },
+        "wireframeProgress": {
+            "additionalProperties": false,
+            "properties": {
+                "childWireframes": {
+                    "items": {
+                        "$ref": "#/definitions/wireframe"
+                    },
+                    "type": "array"
+                },
+                "disabled": {
+                    "description": "for several attributes we technically only care about true or absent as values. They are represented as bare attributes in HTML <input disabled>. When true that attribute is added to the HTML element, when absent that attribute is not added to the HTML element. When false or absent they are not added to the element.",
+                    "type": "boolean"
+                },
+                "height": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "inputType": {
+                    "const": "progress",
+                    "type": "string"
+                },
+                "max": {
+                    "description": "The max attribute, if present, must have a value greater than 0 and be a valid floating point number. The default value is 1.",
+                    "type": "number"
+                },
+                "style": {
+                    "$ref": "#/definitions/MobileStyles"
+                },
+                "type": {
+                    "$ref": "#/definitions/MobileNodeType"
+                },
+                "value": {
+                    "description": "This attribute specifies how much of the task that has been completed. It must be a valid floating point number between 0 and max, or between 0 and 1 if max is omitted. If there is no value attribute, the progress bar is indeterminate; this indicates that an activity is ongoing with no indication of how long it is expected to take.",
+                    "type": "number"
+                },
+                "width": {
+                    "type": "number"
+                },
+                "x": {
+                    "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
+                    "type": "number"
+                },
+                "y": {
+                    "type": "number"
+                }
+            },
+            "required": ["disabled", "height", "id", "inputType", "type", "width", "x", "y"],
+            "type": "object"
         },
         "wireframeRadio": {
             "additionalProperties": false,
@@ -701,6 +802,90 @@
                 }
             },
             "required": ["disabled", "height", "id", "inputType", "type", "width", "x", "y"],
+            "type": "object"
+        },
+        "wireframeToggle": {
+            "additionalProperties": false,
+            "properties": {
+                "checked": {
+                    "type": "boolean"
+                },
+                "childWireframes": {
+                    "items": {
+                        "$ref": "#/definitions/wireframe"
+                    },
+                    "type": "array"
+                },
+                "disabled": {
+                    "description": "for several attributes we technically only care about true or absent as values. They are represented as bare attributes in HTML <input disabled>. When true that attribute is added to the HTML element, when absent that attribute is not added to the HTML element. When false or absent they are not added to the element.",
+                    "type": "boolean"
+                },
+                "height": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "inputType": {
+                    "const": "toggle",
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "style": {
+                    "$ref": "#/definitions/MobileStyles"
+                },
+                "type": {
+                    "$ref": "#/definitions/MobileNodeType"
+                },
+                "width": {
+                    "type": "number"
+                },
+                "x": {
+                    "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
+                    "type": "number"
+                },
+                "y": {
+                    "type": "number"
+                }
+            },
+            "required": ["checked", "disabled", "height", "id", "inputType", "type", "width", "x", "y"],
+            "type": "object"
+        },
+        "wireframeWebView": {
+            "additionalProperties": false,
+            "properties": {
+                "childWireframes": {
+                    "items": {
+                        "$ref": "#/definitions/wireframe"
+                    },
+                    "type": "array"
+                },
+                "height": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "style": {
+                    "$ref": "#/definitions/MobileStyles"
+                },
+                "type": {
+                    "$ref": "#/definitions/MobileNodeType"
+                },
+                "width": {
+                    "type": "number"
+                },
+                "x": {
+                    "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
+                    "type": "number"
+                },
+                "y": {
+                    "type": "number"
+                }
+            },
+            "required": ["height", "id", "type", "width", "x", "y"],
             "type": "object"
         }
     }
