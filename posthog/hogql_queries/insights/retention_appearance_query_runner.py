@@ -1,48 +1,16 @@
 from datetime import timedelta
-from typing import (
-    Any,
-    Dict,
-    List,
-    Optional,
-    Union,
-    cast,
-)
+from typing import Any, Dict, List, Optional, Union, cast
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext, get_max_limit_for_context, get_default_limit_for_context
 from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql_queries.insights.paginators import HogQlHasMorePaginator
 from posthog.hogql_queries.insights.retention_query_runner import RetentionQueryRunner, DEFAULT_TOTAL_INTERVALS
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
 from posthog.models import Team
 from posthog.queries.actor_base_query import get_groups, get_people, SerializedGroup, SerializedPerson
 from posthog.schema import HogQLQueryModifiers, RetentionAppearanceQuery, PersonsQueryResponse
-
-
-class HogQlHasMorePaginator:
-    """
-    Paginator that fetches one more result than requested to determine if there are more results.
-    Takes care of setting the limit and offset on the query.
-    """
-
-    def __init__(self, limit: int, offset: int):
-        self.limit = limit
-        self.offset = offset
-
-    def paginate(self, query: ast.SelectQuery) -> ast.SelectQuery:
-        query.limit = ast.Constant(value=self.limit + 1)
-        query.offset = ast.Constant(value=self.offset or 0)
-        return query
-
-    def has_more(self, results: List[Any]) -> bool:
-        return len(results) > self.limit
-
-    def trim_results(self, results: List[Any]) -> List[Any]:
-        if self.has_more(results):
-            return results[:-1]
-
-        return results
 
 
 class RetentionAppearanceQueryRunner(QueryRunner):
@@ -125,16 +93,16 @@ class RetentionAppearanceQueryRunner(QueryRunner):
         return serialized_actors
 
     def calculate(self) -> PersonsQueryResponse:
-        response = execute_hogql_query(
+        response = self.paginator.execute_hogql_query(
             query_type="RetentionQuery",
-            query=self.paginator.paginate(self.to_query()),
+            query=self.to_query(),
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
         )
-        results = self.paginator.trim_results(response.results)
         actor_appearances = [
-            {"actor_id": str(row[0]), "appearance_count": len(row[1]), "appearances": row[1]} for row in results
+            {"actor_id": str(row[0]), "appearance_count": len(row[1]), "appearances": row[1]}
+            for row in self.paginator.results
         ]
 
         serialized_actors = self.get_actors_from_result(
@@ -161,9 +129,7 @@ class RetentionAppearanceQueryRunner(QueryRunner):
             types=[t for _, t in response.types],
             columns=["person", "appearances"],
             hogql=response.hogql,
-            hasMore=self.paginator.has_more(response.results),
-            limit=self.paginator.limit,
-            offset=self.paginator.offset,
+            **self.paginator.response_kwargs(),
         )
         #   "missing_persons": len(actor_appearances) - len(actors),
 
