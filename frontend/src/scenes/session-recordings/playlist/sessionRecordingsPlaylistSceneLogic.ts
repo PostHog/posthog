@@ -1,9 +1,10 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { Breadcrumb, RecordingFilters, SessionRecordingPlaylistType, ReplayTabs, SessionRecordingType } from '~/types'
-import { urls } from 'scenes/urls'
+import { lemonToast } from '@posthog/lemon-ui'
 import equal from 'fast-deep-equal'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { beforeUnload, router } from 'kea-router'
-import { cohortsModel } from '~/models/cohortsModel'
+import api from 'lib/api'
+import { Scene } from 'scenes/sceneTypes'
 import {
     deletePlaylist,
     duplicatePlaylist,
@@ -11,12 +12,14 @@ import {
     summarizePlaylistFilters,
     updatePlaylist,
 } from 'scenes/session-recordings/playlist/playlistUtils'
-import { loaders } from 'kea-loaders'
+import { urls } from 'scenes/urls'
 
-import type { sessionRecordingsPlaylistSceneLogicType } from './sessionRecordingsPlaylistSceneLogicType'
-import { PINNED_RECORDINGS_LIMIT } from './sessionRecordingsPlaylistLogic'
-import api from 'lib/api'
+import { cohortsModel } from '~/models/cohortsModel'
+import { Breadcrumb, RecordingFilters, ReplayTabs, SessionRecordingPlaylistType, SessionRecordingType } from '~/types'
+
 import { addRecordingToPlaylist, removeRecordingFromPlaylist } from '../player/utils/playerUtils'
+import { PINNED_RECORDINGS_LIMIT } from './sessionRecordingsPlaylistLogic'
+import type { sessionRecordingsPlaylistSceneLogicType } from './sessionRecordingsPlaylistSceneLogicType'
 
 export interface SessionRecordingsPlaylistLogicProps {
     shortId: string
@@ -130,21 +133,30 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
         },
     })),
 
-    selectors(() => ({
+    selectors(({ asyncActions }) => ({
         breadcrumbs: [
             (s) => [s.playlist],
             (playlist): Breadcrumb[] => [
                 {
+                    key: Scene.Replay,
                     name: 'Replay',
                     path: urls.replay(),
                 },
                 {
+                    key: ReplayTabs.Playlists,
                     name: 'Playlists',
                     path: urls.replay(ReplayTabs.Playlists),
                 },
                 {
-                    name: playlist?.name || playlist?.derived_name || '(Untitled)',
-                    path: urls.replayPlaylist(playlist?.short_id || ''),
+                    key: playlist?.short_id || 'new',
+                    name: playlist?.name || playlist?.derived_name || 'Unnamed',
+                    onRename: async (name: string) => {
+                        if (!playlist) {
+                            lemonToast.error('Cannot rename unsaved playlist')
+                            return
+                        }
+                        await asyncActions.updatePlaylist({ short_id: playlist.short_id, name })
+                    },
                 },
             ],
         ],
@@ -156,8 +168,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
         ],
         derivedName: [
             (s) => [s.filters, s.cohortsById],
-            (filters, cohortsById) =>
-                summarizePlaylistFilters(filters || {}, cohortsById)?.slice(0, 400) || '(Untitled)',
+            (filters, cohortsById) => summarizePlaylistFilters(filters || {}, cohortsById)?.slice(0, 400) || 'Unnamed',
         ],
     })),
 

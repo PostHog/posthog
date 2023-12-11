@@ -1,10 +1,10 @@
 .help-button {
+    display: flex;
     align-items: center;
     height: 2.5rem;
-    cursor: pointer;
-    display: flex;
     font-size: 1.5rem;
     color: var(--primary-alt);
+    cursor: pointer;
 
     &.inline {
         display: inline-flex;

@@ -1,9 +1,11 @@
+import { Meta, StoryFn } from '@storybook/react'
 import { useState } from 'react'
-import { StoryFn, Meta } from '@storybook/react'
-import { SSOSelect } from './SSOSelect'
-import { SSOProvider } from '~/types'
+
 import { useStorybookMocks } from '~/mocks/browser'
 import preflightJSON from '~/mocks/fixtures/_preflight.json'
+import { SSOProvider } from '~/types'
+
+import { SSOSelect } from './SSOSelect'
 
 const meta: Meta<typeof SSOSelect> = {
     title: 'Components/SSO Select',

@@ -1,19 +1,21 @@
 .ExportedInsight {
     position: relative;
+    z-index: 3;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
     min-width: 0;
     max-width: 100%;
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
-    z-index: 3;
+    height: 100%;
     background: var(--bg-light);
-    display: flex;
-    flex-direction: column;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
 
     .ExportedInsight__header {
-        padding: 1rem;
-        border-bottom: 1px solid var(--border);
         display: flex;
         justify-content: space-between;
+        padding: 1rem;
+        border-bottom: 1px solid var(--border);
 
         .ExportedInsight__header__title {
             font-size: 1rem;
@@ -22,63 +24,34 @@
     }
 
     .ExportedInsight__content {
-        flex: 1;
         position: relative;
         z-index: 1;
-        .FunnelBarChart {
-            min-height: 50vw;
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+
+        .LemonTable {
+            background: none;
+            border: none;
+            border-radius: 0;
         }
 
-        .InsightViz {
-            position: relative;
-            display: flex;
+        .InsightCard__viz {
+            // We can't use the viewport height, as the screenshotter will resize the height of the window to capture the full content
+            // Instead we try to make it roughly rectangular
             min-height: 50vw;
-
-            > * {
-                flex: 1;
-            }
-
-            .ActionsPie {
-                position: absolute;
-            }
         }
     }
 
     .ExportedInsight__watermark {
         position: absolute;
-        right: 0;
         top: 0;
+        right: 0;
         z-index: 2;
+
         svg {
-            font-size: 0.75rem;
             margin: 0.25rem;
-        }
-    }
-
-    &.ExportedInsight--fit-screen {
-        height: 100vh;
-        max-height: 100vh;
-
-        .ExportedInsight__content {
-            display: flex;
-            flex-direction: column;
-
-            .FunnelBarChart {
-                height: 100%;
-                max-height: 100%;
-                min-height: auto;
-                flex: 1;
-            }
-
-            .InsightViz {
-                flex: 1;
-                min-height: 100px;
-                max-height: 100%;
-            }
-
-            &.ExportedInsight__content--with-watermark {
-                padding-top: 1rem;
-            }
+            font-size: 0.75rem;
         }
     }
 }

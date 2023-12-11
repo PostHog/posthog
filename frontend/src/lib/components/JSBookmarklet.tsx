@@ -1,8 +1,9 @@
-import { TeamBasicType } from '~/types'
 import { useActions } from 'kea'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { IconBookmarkBorder } from 'lib/lemon-ui/icons'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useEffect, useRef } from 'react'
+
+import { TeamBasicType } from '~/types'
 
 export function JSBookmarklet({ team }: { team: TeamBasicType }): JSX.Element {
     const initCall = `posthog.init('${team?.api_token}',{api_host:'${location.origin}', loaded: () => alert('PostHog is now tracking events!')})`

@@ -1,17 +1,19 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
-import { objectClean, objectsEqual, toParams } from 'lib/utils'
-import { SessionRecordingPlaylistType, ReplayTabs } from '~/types'
 import { dayjs } from 'lib/dayjs'
-import type { savedSessionRecordingPlaylistsLogicType } from './savedSessionRecordingPlaylistsLogicType'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
-import { actionToUrl, router, urlToAction } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { createPlaylist, deletePlaylist } from '../playlist/playlistUtils'
-import { lemonToast } from '@posthog/lemon-ui'
+import { objectClean, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { urls } from 'scenes/urls'
+
+import { ReplayTabs, SessionRecordingPlaylistType } from '~/types'
+
+import { createPlaylist, deletePlaylist } from '../playlist/playlistUtils'
+import type { savedSessionRecordingPlaylistsLogicType } from './savedSessionRecordingPlaylistsLogicType'
 
 export const PLAYLISTS_PER_PAGE = 30
 
@@ -25,7 +27,7 @@ export interface SavedSessionRecordingPlaylistsFilters {
     order: string
     search: string
     createdBy: number | 'All users'
-    dateFrom: string | dayjs.Dayjs | undefined | 'all' | null
+    dateFrom: string | dayjs.Dayjs | undefined | null
     dateTo: string | dayjs.Dayjs | undefined | null
     page: number
     pinned: boolean
@@ -227,7 +229,7 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
         }
     }),
     urlToAction(({ actions, values }) => ({
-        [urls.replay(ReplayTabs.Playlists)]: async (_, searchParams) => {
+        [urls.replay(ReplayTabs.Playlists)]: (_, searchParams) => {
             const currentFilters = values.filters
             const nextFilters = objectClean(searchParams)
             if (!objectsEqual(currentFilters, nextFilters)) {

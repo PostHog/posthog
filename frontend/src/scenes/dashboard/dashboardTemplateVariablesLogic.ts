@@ -1,8 +1,9 @@
 import { actions, kea, path, props, propsChanged, reducers } from 'kea'
+import { isEmptyObject } from 'lib/utils'
+
 import { DashboardTemplateVariableType, FilterType, Optional } from '~/types'
 
 import type { dashboardTemplateVariablesLogicType } from './dashboardTemplateVariablesLogicType'
-import { isEmptyObject } from 'lib/utils'
 
 export interface DashboardTemplateVariablesLogicProps {
     variables: DashboardTemplateVariableType[]

@@ -1,13 +1,15 @@
+import { useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React, { FunctionComponent, ReactNode, useCallback, useMemo } from 'react'
+
+import { KeyboardShortcut, KeyboardShortcutProps } from '~/layout/navigation-3000/components/KeyboardShortcut'
+
 import { LemonButton, LemonButtonProps } from '../LemonButton'
-import { TooltipProps } from '../Tooltip'
 import { LemonDivider } from '../LemonDivider'
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
+import { TooltipProps } from '../Tooltip'
 import { useKeyboardNavigation } from './useKeyboardNavigation'
-import { useValues } from 'kea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { KeyboardShortcut, KeyboardShortcutProps } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 type KeyboardShortcut = Array<keyof KeyboardShortcutProps>
 
@@ -128,7 +130,7 @@ export function LemonMenuOverlay({ items, tooltipPlacement, itemsRef }: LemonMen
     const { featureFlags } = useValues(featureFlagLogic)
     const sectionsOrItems = useMemo(() => normalizeItems(items), [items])
 
-    const buttonSize = featureFlags[FEATURE_FLAGS.POSTHOG_3000] ? 'small' : 'medium'
+    const buttonSize = featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test' ? 'small' : 'medium'
 
     return sectionsOrItems.length > 0 && isLemonMenuSection(sectionsOrItems[0]) ? (
         <LemonMenuSectionList

@@ -1,8 +1,9 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { mswDecorator } from '~/mocks/browser'
-import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
-import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 import { App } from 'scenes/App'
+import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
+import { samplePersonProperties, sampleRetentionPeopleResponse } from 'scenes/insights/__mocks__/insight.mocks'
+
+import { mswDecorator } from '~/mocks/browser'
 
 type Story = StoryObj<typeof App>
 const meta: Meta = {
@@ -22,16 +23,6 @@ const meta: Meta = {
                 '/api/projects/:team_id/persons/retention': sampleRetentionPeopleResponse,
                 '/api/projects/:team_id/persons/properties': samplePersonProperties,
                 '/api/projects/:team_id/groups_types': [],
-                '/api/projects/:team_id/notebooks': () => {
-                    // this was matching on `?contains=query` but that made MSW unhappy and seems unnecessary
-                    return [
-                        200,
-                        {
-                            count: 0,
-                            results: [],
-                        },
-                    ]
-                },
             },
             post: {
                 '/api/projects/:team_id/cohorts/': { id: 1 },
@@ -81,6 +72,15 @@ export const TrendsLineBreakdownEdit: Story = createInsightStory(
     'edit'
 )
 TrendsLineBreakdownEdit.parameters = {
+    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+}
+
+export const TrendsLineBreakdownLabels: Story = createInsightStory(
+    require('../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json'),
+    'view',
+    true
+)
+TrendsLineBreakdownLabels.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 }
 
@@ -221,6 +221,13 @@ export const TrendsPieBreakdownEdit: Story = createInsightStory(
 TrendsPieBreakdownEdit.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-pie-graph] > canvas' },
 }
+
+export const TrendsPieBreakdownLabels: Story = createInsightStory(
+    require('../../mocks/fixtures/api/projects/team_id/insights/trendsPieBreakdown.json'),
+    'view',
+    true
+)
+TrendsPieBreakdownLabels.parameters = { testOptions: { waitForSelector: '[data-attr=trend-pie-graph] > canvas' } }
 
 export const TrendsWorldMap: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json')

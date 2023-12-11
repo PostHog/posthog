@@ -1,13 +1,15 @@
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { FunnelVizType, InsightLogicProps, InsightShortId, InsightType, StepOrderValue } from '~/types'
-import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
+
 import { useMocks } from '~/mocks/jest'
-import { InsightVizNode, Node, NodeKind } from '~/queries/schema'
-import { insightDataLogic } from '../insightDataLogic'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
+import { InsightVizNode, Node, NodeKind } from '~/queries/schema'
+import { initKeaTests } from '~/test/init'
+import { FunnelVizType, InsightLogicProps, InsightShortId, InsightType, StepOrderValue } from '~/types'
+
+import { insightDataLogic } from '../insightDataLogic'
 
 describe('insightNavLogic', () => {
     let logic: ReturnType<typeof insightNavLogic.build>

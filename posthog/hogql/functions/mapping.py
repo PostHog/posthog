@@ -48,6 +48,21 @@ class HogQLFunctionMeta:
     """Whether the function is timezone-aware. This means the project timezone will be appended as the last arg."""
 
 
+HOGQL_COMPARISON_MAPPING: Dict[str, ast.CompareOperationOp] = {
+    "equals": ast.CompareOperationOp.Eq,
+    "notEquals": ast.CompareOperationOp.NotEq,
+    "less": ast.CompareOperationOp.Lt,
+    "greater": ast.CompareOperationOp.Gt,
+    "lessOrEquals": ast.CompareOperationOp.LtEq,
+    "greaterOrEquals": ast.CompareOperationOp.GtEq,
+    "like": ast.CompareOperationOp.Like,
+    "ilike": ast.CompareOperationOp.ILike,
+    "notLike": ast.CompareOperationOp.NotLike,
+    "notILike": ast.CompareOperationOp.NotILike,
+    "in": ast.CompareOperationOp.In,
+    "notIn": ast.CompareOperationOp.NotIn,
+}
+
 HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     # arithmetic
     "plus": HogQLFunctionMeta("plus", 2, 2),

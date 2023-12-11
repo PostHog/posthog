@@ -1,4 +1,5 @@
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+
 import { SDKInstallPHPInstructions } from '../sdk-install-instructions'
 
 function PHPCaptureSnippet(): JSX.Element {

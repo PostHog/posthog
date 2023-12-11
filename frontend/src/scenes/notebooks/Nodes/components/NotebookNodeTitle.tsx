@@ -1,9 +1,11 @@
-import { KeyboardEvent } from 'react'
-import { useActions, useValues } from 'kea'
-import { notebookNodeLogic } from '../notebookNodeLogic'
-import { useEffect, useState } from 'react'
 import { LemonInput, Tooltip } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+import { KeyboardEvent } from 'react'
+import { useEffect, useState } from 'react'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+
+import { notebookNodeLogic } from '../notebookNodeLogic'
 
 export function NotebookNodeTitle(): JSX.Element {
     const { isEditable } = useValues(notebookLogic)
@@ -20,6 +22,10 @@ export function NotebookNodeTitle(): JSX.Element {
         updateAttributes({
             title: newValue ?? undefined,
         })
+
+        if (title != newValue) {
+            posthog.capture('notebook node title updated')
+        }
 
         setEditing(false)
     }
@@ -42,7 +48,10 @@ export function NotebookNodeTitle(): JSX.Element {
             <span
                 title={title}
                 className="NotebookNodeTitle NotebookNodeTitle--editable"
-                onDoubleClick={() => setEditing(true)}
+                onDoubleClick={() => {
+                    setEditing(true)
+                    posthog.capture('notebook editing node title')
+                }}
             >
                 {title}
             </span>

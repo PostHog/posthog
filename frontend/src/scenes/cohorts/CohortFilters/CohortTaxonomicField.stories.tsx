@@ -1,12 +1,14 @@
-import { useState } from 'react'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { CohortTaxonomicField } from './CohortField'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import { useMountedLogic } from 'kea'
-import { actionsModel } from '~/models/actionsModel'
+import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useState } from 'react'
 import { renderField } from 'scenes/cohorts/CohortFilters/constants'
 import { CohortTaxonomicFieldProps, FilterType } from 'scenes/cohorts/CohortFilters/types'
+
+import { actionsModel } from '~/models/actionsModel'
+
+import { CohortTaxonomicField } from './CohortField'
 
 type Story = StoryObj<typeof CohortTaxonomicField>
 const meta: Meta<typeof CohortTaxonomicField> = {

@@ -1,6 +1,8 @@
-import { columnConfiguratorLogic } from './columnConfiguratorLogic'
 import { expectLogic } from 'kea-test-utils'
+
 import { initKeaTests } from '~/test/init'
+
+import { columnConfiguratorLogic } from './columnConfiguratorLogic'
 
 describe('columnConfiguratorLogic', () => {
     let logic: ReturnType<typeof columnConfiguratorLogic.build>

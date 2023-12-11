@@ -1,7 +1,8 @@
 import clsx from 'clsx'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { capitalizeFirstLetter, autoCaptureEventToDescription } from 'lib/utils'
+import { autoCaptureEventToDescription, capitalizeFirstLetter } from 'lib/utils'
 import { memo } from 'react'
+
 import { InspectorListItemEvent } from '../inspector/playerInspectorLogic'
 
 function PlayerSeekbarTick(props: {

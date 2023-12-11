@@ -344,9 +344,15 @@ def render_template(
     context["js_kea_verbose_logging"] = settings.KEA_VERBOSE_LOGGING
     context["js_url"] = get_js_url(request)
 
+    try:
+        year_in_hog_url = f"/year_in_posthog/2023/{str(request.user.uuid)}"  # type: ignore
+    except:
+        year_in_hog_url = None
+
     posthog_app_context: Dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         "anonymous": not request.user or not request.user.is_authenticated,
+        "year_in_hog_url": year_in_hog_url,
     }
 
     posthog_bootstrap: Dict[str, Any] = {}
@@ -550,6 +556,7 @@ def get_compare_period_dates(
     date_from_delta_mapping: Optional[Dict[str, int]],
     date_to_delta_mapping: Optional[Dict[str, int]],
     interval: str,
+    ignore_date_from_alignment: bool = False,  # New HogQL trends no longer requires the adjustment
 ) -> Tuple[datetime.datetime, datetime.datetime]:
     diff = date_to - date_from
     new_date_from = date_from - diff
@@ -568,6 +575,7 @@ def get_compare_period_dates(
             and date_from_delta_mapping.get("days", None)
             and date_from_delta_mapping["days"] % 7 == 0
             and not date_to_delta_mapping
+            and not ignore_date_from_alignment
         ):
             # KLUDGE: Unfortunately common relative date ranges such as "Last 7 days" (-7d) or "Last 14 days" (-14d)
             # are wrong because they treat the current ongoing day as an _extra_ one. This means that those ranges
@@ -1002,8 +1010,6 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
             offset = pytz.timezone(tz).utcoffset(now)
         except Exception:
             offset = pytz.timezone(tz).utcoffset(now + dt.timedelta(hours=2))
-        if offset is None:
-            continue
         offset_hours = int(offset.total_seconds()) / 3600
         result[tz] = offset_hours
     return result

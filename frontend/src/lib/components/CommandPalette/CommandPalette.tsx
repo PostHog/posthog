@@ -1,21 +1,23 @@
-import { useRef, useMemo } from 'react'
-import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
-import { useMountedLogic, useValues, useActions } from 'kea'
-import { commandPaletteLogic } from './commandPaletteLogic'
-import { CommandInput } from './CommandInput'
-import { CommandResults } from './CommandResults'
-import { useEventListener } from 'lib/hooks/useEventListener'
-import squeakFile from 'public/squeak.mp3'
 import './CommandPalette.scss'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import CommandBar from '../CommandBar/CommandBar'
+import { useEventListener } from 'lib/hooks/useEventListener'
+import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import squeakFile from 'public/squeak.mp3'
+import { useMemo, useRef } from 'react'
+
+import { CommandBar } from '../CommandBar/CommandBar'
+import { CommandInput } from './CommandInput'
+import { commandPaletteLogic } from './commandPaletteLogic'
+import { CommandResults } from './CommandResults'
 
 /** Use the new Cmd+K search when the respective feature flag is enabled. */
 export function CommandPalette(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const isUsingCmdKSearch = featureFlags[FEATURE_FLAGS.CMD_K_SEARCH]
+    const isUsingCmdKSearch = featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test'
 
     if (isUsingCmdKSearch) {
         return <CommandBar />
@@ -36,7 +38,7 @@ function _CommandPalette(): JSX.Element | null {
 
     useEventListener('keydown', (event) => {
         if (isSqueak && event.key === 'Enter') {
-            squeakAudio?.play()
+            void squeakAudio?.play()
         } else if (event.key === 'Escape') {
             event.preventDefault()
             // Return to previous flow

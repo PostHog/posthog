@@ -1,4 +1,4 @@
-import { kea, path, reducers, actions, listeners, events, selectors, connect } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { filterTestAccountsDefaultsLogicType } from './filterTestAccountDefaultsLogicType'

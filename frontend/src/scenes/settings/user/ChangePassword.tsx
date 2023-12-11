@@ -1,8 +1,9 @@
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { Field } from 'lib/forms/Field'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import PasswordStrength from 'lib/components/PasswordStrength'
+import { Field } from 'lib/forms/Field'
+
 import { changePasswordLogic } from './changePasswordLogic'
 
 export function ChangePassword(): JSX.Element {

@@ -32,6 +32,7 @@ RUN corepack enable && pnpm --version && \
     rm -rf /tmp/pnpm-store
 
 COPY frontend/ frontend/
+COPY ee/frontend/ ee/frontend/
 COPY ./bin/ ./bin/
 COPY babel.config.js tsconfig.json webpack.config.js ./
 RUN pnpm build
@@ -294,6 +295,9 @@ COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/
 COPY --chown=posthog:posthog hogvm hogvm/
+
+# Keep server command backwards compatible
+RUN cp ./bin/docker-server-unit ./bin/docker-server
 
 # Setup ENV.
 ENV NODE_ENV=production \

@@ -1,5 +1,6 @@
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { CSSProperties } from 'react'
+
 import { UserBasicType } from '~/types'
 
 export function Owner({ user, style = {} }: { user?: UserBasicType | null; style?: CSSProperties }): JSX.Element {

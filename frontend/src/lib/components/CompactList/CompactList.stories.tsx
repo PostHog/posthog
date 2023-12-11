@@ -1,9 +1,9 @@
 import { Meta } from '@storybook/react'
-
-import { CompactList } from './CompactList'
-import { urls } from 'scenes/urls'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { urls } from 'scenes/urls'
+
+import { CompactList } from './CompactList'
 
 const meta: Meta<typeof CompactList> = {
     title: 'Components/Compact List',

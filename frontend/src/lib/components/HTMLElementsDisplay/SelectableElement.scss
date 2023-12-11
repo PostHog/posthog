@@ -1,15 +1,17 @@
 .SelectableElement {
-    transition: background-color 200ms ease, color 200ms ease, border 200ms ease;
     border: 1px solid transparent;
-    border-radius: 4px;
+    border-radius: var(--radius);
+    transition: background-color 200ms ease, color 200ms ease, border 200ms ease;
 
     &.SelectableElement--selected {
-        background: var(--primary);
+        background: var(--primary-3000);
     }
+
     &:hover {
-        background: var(--primary-light);
+        background: var(--primary-3000-hover);
     }
+
     &:active {
-        background: var(--primary-dark);
+        background: var(--primary-3000-active);
     }
 }

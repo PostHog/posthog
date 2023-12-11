@@ -86,6 +86,7 @@ class TestQueryAlternator:
         ["hogql", None],
     ],
 )
+@pytest.mark.django_db
 def test_all_cases_return(
     math: Union[
         BaseMathType,
@@ -96,10 +97,11 @@ def test_all_cases_return(
     ],
     math_property: str,
 ):
+    team = Team()
     series = EventsNode(event="$pageview", math=math, math_property=math_property)
-    query_date_range = QueryDateRange(date_range=None, interval=None, now=datetime.now(), team=Team())
+    query_date_range = QueryDateRange(date_range=None, interval=None, now=datetime.now(), team=team)
 
-    agg_ops = AggregationOperations(series, query_date_range)
+    agg_ops = AggregationOperations(team, series, query_date_range, False)
     res = agg_ops.select_aggregation()
     assert isinstance(res, ast.Expr)
 
@@ -140,9 +142,10 @@ def test_requiring_query_orchestration(
     ],
     result: bool,
 ):
+    team = Team()
     series = EventsNode(event="$pageview", math=math)
-    query_date_range = QueryDateRange(date_range=None, interval=None, now=datetime.now(), team=Team())
+    query_date_range = QueryDateRange(date_range=None, interval=None, now=datetime.now(), team=team)
 
-    agg_ops = AggregationOperations(series, query_date_range)
+    agg_ops = AggregationOperations(team, series, query_date_range, False)
     res = agg_ops.requires_query_orchestration()
     assert res == result

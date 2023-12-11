@@ -3,18 +3,20 @@ import { router } from 'kea-router'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
+
 import { mswDecorator } from '~/mocks/browser'
+
 import { feedbackLogic } from './feedbackLogic'
 import { inAppFeedbackLogic } from './inAppFeedbackLogic'
 import { userInterviewSchedulerLogic } from './userInterviewSchedulerLogic'
 
 const meta: Meta = {
     title: 'Scenes-App/Feedback',
+    tags: ['test-skip'], // FIXME: Use mockdate in this story
     parameters: {
         layout: 'fullscreen',
         testOptions: {
             excludeNavigationFromSnapshot: true,
-            skip: true, // FIXME: Use mockdate in this story
         },
         viewMode: 'story',
         // Might need to add a mockdate here, however when I do it breaks the page

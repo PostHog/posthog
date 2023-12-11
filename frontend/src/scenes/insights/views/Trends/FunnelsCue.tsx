@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { funnelsCueLogic } from 'scenes/insights/views/Trends/funnelsCueLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { funnelsCueLogic } from 'scenes/insights/views/Trends/funnelsCueLogic'
 
 export function FunnelsCue(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)

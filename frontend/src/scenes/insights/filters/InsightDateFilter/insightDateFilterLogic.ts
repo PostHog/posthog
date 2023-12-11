@@ -1,8 +1,10 @@
-import { kea, props, key, path, connect, actions, selectors, listeners } from 'kea'
-import type { insightDateFilterLogicType } from './insightDateFilterLogicType'
-import { InsightLogicProps } from '~/types'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+
+import { InsightLogicProps } from '~/types'
+
+import type { insightDateFilterLogicType } from './insightDateFilterLogicType'
 
 export const insightDateFilterLogic = kea<insightDateFilterLogicType>([
     props({} as InsightLogicProps),

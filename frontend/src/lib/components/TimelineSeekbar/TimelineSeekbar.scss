@@ -2,13 +2,14 @@
     --timeline-seekbar-thickness: 0.125rem;
     --timeline-seekbar-arrow-width: 0.5rem;
     --timeline-seekbar-arrow-height: 0.75rem;
+
     margin: 0.75rem 0.5rem;
 }
 
 .TimelineSeekbar__meta {
     display: flex;
-    justify-content: space-between;
     gap: 0.5rem;
+    justify-content: space-between;
 }
 
 .TimelineSeekbar__note {
@@ -21,15 +22,17 @@
 .TimelineSeekbar__current {
     width: fit-content;
     padding: 0 0.25rem;
-    border-radius: var(--radius);
-    background: var(--primary);
-    color: var(--bg-light);
-    line-height: 1.25rem;
     font-size: 0.75rem;
     font-weight: 500;
+    line-height: 1.25rem;
+    color: var(--bg-light);
+    background: var(--primary-3000);
+    border-radius: var(--radius);
+
     &::selection {
-        background: var(--primary-light); // Default selection background is invisible on primary
+        background: var(--primary-3000-hover); // Default selection background is invisible on primary
     }
+
     .Spinner {
         margin-right: 0.25rem;
     }
@@ -42,25 +45,28 @@
 }
 
 .TimelineSeekbar__points {
-    display: flex;
-    height: 100%;
     position: relative;
     top: 0;
     left: calc(var(--timeline-seekbar-thickness) * 2);
+    display: flex;
     width: calc(100% - var(--timeline-seekbar-arrow-width) - var(--timeline-seekbar-thickness) * 3 - 1.25rem);
+    height: 100%;
+
     .LemonBadge:not(.LemonBadge--active) {
+        background-clip: padding-box;
+
         // Connect each badge to the line rightward to signal the direction in which the badge is applicable
         border-right-color: transparent;
-        background-clip: padding-box;
     }
 }
 
 .TimelineSeekbar__section {
     position: absolute;
-    cursor: pointer;
     left: calc(var(--timeline-seekbar-section-progress-current) - var(--timeline-seekbar-thickness));
     width: var(--timeline-seekbar-section-progress-next);
+    cursor: pointer;
     border-left: var(--timeline-seekbar-thickness) solid var(--bg-light);
+
     &:last-child {
         width: calc(var(--timeline-seekbar-section-progress-next) + 1.25rem);
     }
@@ -70,9 +76,9 @@
     position: absolute;
     top: calc(50% - var(--timeline-seekbar-thickness) / 2);
     left: 0;
-    height: var(--timeline-seekbar-thickness);
     width: calc(100% - var(--timeline-seekbar-arrow-width));
-    background: var(--primary);
+    height: var(--timeline-seekbar-thickness);
+    background: var(--primary-3000);
 }
 
 .TimelineSeekbar__line-start,
@@ -80,12 +86,13 @@
     position: absolute;
     top: calc(var(--timeline-seekbar-thickness) / 2 - 0.625rem);
     height: 1.25rem;
+
     &::before {
-        content: '';
         display: block;
-        margin: calc(var(--timeline-seekbar-thickness) + 0.125rem) 0;
         height: var(--timeline-seekbar-arrow-height);
-        background: var(--primary);
+        margin: calc(var(--timeline-seekbar-thickness) + 0.125rem) 0;
+        content: '';
+        background: var(--primary-3000);
     }
 }
 
@@ -98,6 +105,7 @@
     left: 100%;
     width: var(--timeline-seekbar-arrow-width);
     cursor: pointer;
+
     &::before {
         clip-path: polygon(0 0, 100% 50%, 0 100%);
     }

@@ -1,26 +1,29 @@
+import './AnnotationsOverlay.scss'
+
+import { Chart } from 'chart.js'
 import { BindLogic, useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDetailedTime, pluralize, shortTimeZone } from 'lib/utils'
-import React, { useRef, useState } from 'react'
-import { IntervalType, AnnotationType } from '~/types'
 import { IconDelete, IconEdit, IconPlusMini } from 'lib/lemon-ui/icons'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { humanFriendlyDetailedTime, pluralize, shortTimeZone } from 'lib/utils'
+import React, { useRef, useState } from 'react'
+import { AnnotationModal } from 'scenes/annotations/AnnotationModal'
+import { annotationModalLogic, annotationScopeToName } from 'scenes/annotations/annotationModalLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+
+import { annotationsModel } from '~/models/annotationsModel'
+import { AnnotationType, IntervalType } from '~/types'
+
 import {
     annotationsOverlayLogic,
     AnnotationsOverlayLogicProps,
     determineAnnotationsDateGroup,
 } from './annotationsOverlayLogic'
-import './AnnotationsOverlay.scss'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { AnnotationModal } from 'scenes/annotations/AnnotationModal'
-import { annotationModalLogic, annotationScopeToName } from 'scenes/annotations/annotationModalLogic'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { annotationsModel } from '~/models/annotationsModel'
-import { Chart } from 'chart.js'
 import { useAnnotationsPositioning } from './useAnnotationsPositioning'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { insightLogic } from 'scenes/insights/insightLogic'
 
 /** User-facing format for annotation groups. */
 const INTERVAL_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {

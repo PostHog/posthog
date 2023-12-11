@@ -1,19 +1,21 @@
-import { kea, path, actions, connect, afterMount, selectors, listeners, reducers } from 'kea'
-import { loaders } from 'kea-loaders'
-import api from 'lib/api'
-import { BillingProductV2Type, BillingV2Type } from '~/types'
-import { router, urlToAction } from 'kea-router'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { dayjs } from 'lib/dayjs'
 import { lemonToast } from '@posthog/lemon-ui'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
+import { router, urlToAction } from 'kea-router'
+import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
+import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { pluralize } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
-import { pluralize } from 'lib/utils'
+
+import { BillingProductV2Type, BillingV2Type, ProductKey } from '~/types'
+
 import type { billingLogicType } from './billingLogicType'
-import { forms } from 'kea-forms'
-import { urls } from 'scenes/urls'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
@@ -25,6 +27,8 @@ export interface BillingAlertConfig {
     contactSupport?: boolean
     buttonCTA?: string
     dismissKey?: string
+    action?: LemonBannerAction
+    pathName?: string
 }
 
 const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
@@ -54,6 +58,8 @@ const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
 export const billingLogic = kea<billingLogicType>([
     path(['scenes', 'billing', 'billingLogic']),
     actions({
+        setProductSpecificAlert: (productSpecificAlert: BillingAlertConfig | null) => ({ productSpecificAlert }),
+        setScrollToProductKey: (scrollToProductKey: ProductKey | null) => ({ scrollToProductKey }),
         setShowLicenseDirectInput: (show: boolean) => ({ show }),
         reportBillingAlertShown: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
         reportBillingAlertActionClicked: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
@@ -67,6 +73,18 @@ export const billingLogic = kea<billingLogicType>([
         actions: [userLogic, ['loadUser'], eventUsageLogic, ['reportProductUnsubscribed']],
     }),
     reducers({
+        scrollToProductKey: [
+            null as ProductKey | null,
+            {
+                setScrollToProductKey: (_, { scrollToProductKey }) => scrollToProductKey,
+            },
+        ],
+        productSpecificAlert: [
+            null as BillingAlertConfig | null,
+            {
+                setProductSpecificAlert: (_, { productSpecificAlert }) => productSpecificAlert,
+            },
+        ],
         showLicenseDirectInput: [
             false,
             {
@@ -77,9 +95,7 @@ export const billingLogic = kea<billingLogicType>([
             '' as string,
             {
                 setRedirectPath: () => {
-                    return window.location.pathname.includes('/ingestion')
-                        ? urls.ingestion() + '/billing'
-                        : window.location.pathname.includes('/onboarding')
+                    return window.location.pathname.includes('/onboarding')
                         ? window.location.pathname + window.location.search
                         : ''
                 },
@@ -88,7 +104,7 @@ export const billingLogic = kea<billingLogicType>([
         isOnboarding: [
             false,
             {
-                setIsOnboarding: () => window.location.pathname.includes('/ingestion'),
+                setIsOnboarding: () => window.location.pathname.includes('/onboarding'),
             },
         ],
     }),
@@ -147,8 +163,12 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
         billingAlert: [
-            (s) => [s.billing, s.preflight, s.projectedTotalAmountUsd],
-            (billing, preflight, projectedTotalAmountUsd): BillingAlertConfig | undefined => {
+            (s) => [s.billing, s.preflight, s.projectedTotalAmountUsd, s.productSpecificAlert],
+            (billing, preflight, projectedTotalAmountUsd, productSpecificAlert): BillingAlertConfig | undefined => {
+                if (productSpecificAlert) {
+                    return productSpecificAlert
+                }
+
                 if (!billing || !preflight?.cloud) {
                     return
                 }
@@ -180,7 +200,7 @@ export const billingLogic = kea<billingLogicType>([
                 }
 
                 const productOverLimit = billing.products?.find((x: BillingProductV2Type) => {
-                    return x.percentage_usage > 1
+                    return x.percentage_usage > 1 && x.usage_key
                 })
 
                 if (productOverLimit) {
@@ -203,7 +223,9 @@ export const billingLogic = kea<billingLogicType>([
                         title: 'You will soon hit your usage limit',
                         message: `You have currently used ${parseFloat(
                             (productApproachingLimit.percentage_usage * 100).toFixed(2)
-                        )}% of your ${productApproachingLimit.usage_key.toLowerCase()} allocation.`,
+                        )}% of your ${
+                            productApproachingLimit.usage_key && productApproachingLimit.usage_key.toLowerCase()
+                        } allocation.`,
                     }
                 }
 
@@ -322,6 +344,10 @@ export const billingLogic = kea<billingLogicType>([
                 actions.setShowLicenseDirectInput(true)
                 actions.setActivateLicenseValues({ license: hash.license })
                 actions.submitActivateLicense()
+            }
+            if (_search.products) {
+                const products = _search.products.split(',')
+                actions.setScrollToProductKey(products[0])
             }
             actions.setRedirectPath()
             actions.setIsOnboarding()

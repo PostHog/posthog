@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -28,6 +29,8 @@ from posthog.schema import (
     HogQLQuery,
     InsightPersonsQuery,
     DashboardFilter,
+    HogQLQueryModifiers,
+    RetentionQuery,
 )
 from posthog.utils import generate_cache_key, get_safe_cache
 
@@ -65,6 +68,8 @@ class CachedQueryResponse(QueryResponse):
     is_cached: bool
     last_refresh: str
     next_allowed_client_refresh: str
+    cache_key: str
+    timezone: str
 
 
 RunnableQueryNode = Union[
@@ -74,6 +79,7 @@ RunnableQueryNode = Union[
     InsightPersonsQuery,
     EventsQuery,
     PersonsQuery,
+    RetentionQuery,
     SessionsTimelineQuery,
     WebOverviewQuery,
     WebTopClicksQuery,
@@ -85,7 +91,8 @@ def get_query_runner(
     query: Dict[str, Any] | RunnableQueryNode | BaseModel,
     team: Team,
     timings: Optional[HogQLTimings] = None,
-    in_export_context: Optional[bool] = False,
+    limit_context: Optional[LimitContext] = None,
+    modifiers: Optional[HogQLQueryModifiers] = None,
 ) -> "QueryRunner":
     kind = None
     if isinstance(query, dict):
@@ -102,7 +109,8 @@ def get_query_runner(
             query=cast(LifecycleQuery | Dict[str, Any], query),
             team=team,
             timings=timings,
-            in_export_context=in_export_context,
+            limit_context=limit_context,
+            modifiers=modifiers,
         )
     if kind == "TrendsQuery":
         from .insights.trends.trends_query_runner import TrendsQueryRunner
@@ -111,7 +119,18 @@ def get_query_runner(
             query=cast(TrendsQuery | Dict[str, Any], query),
             team=team,
             timings=timings,
-            in_export_context=in_export_context,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "RetentionQuery":
+        from .insights.retention_query_runner import RetentionQueryRunner
+
+        return RetentionQueryRunner(
+            query=cast(RetentionQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
         )
     if kind == "EventsQuery":
         from .events_query_runner import EventsQueryRunner
@@ -120,7 +139,8 @@ def get_query_runner(
             query=cast(EventsQuery | Dict[str, Any], query),
             team=team,
             timings=timings,
-            in_export_context=in_export_context,
+            limit_context=limit_context,
+            modifiers=modifiers,
         )
     if kind == "PersonsQuery":
         from .persons_query_runner import PersonsQueryRunner
@@ -129,7 +149,8 @@ def get_query_runner(
             query=cast(PersonsQuery | Dict[str, Any], query),
             team=team,
             timings=timings,
-            in_export_context=in_export_context,
+            limit_context=limit_context,
+            modifiers=modifiers,
         )
     if kind == "InsightPersonsQuery":
         from .insights.insight_persons_query_runner import InsightPersonsQueryRunner
@@ -138,7 +159,8 @@ def get_query_runner(
             query=cast(InsightPersonsQuery | Dict[str, Any], query),
             team=team,
             timings=timings,
-            in_export_context=in_export_context,
+            limit_context=limit_context,
+            modifiers=modifiers,
         )
     if kind == "HogQLQuery":
         from .hogql_query_runner import HogQLQueryRunner
@@ -147,7 +169,8 @@ def get_query_runner(
             query=cast(HogQLQuery | Dict[str, Any], query),
             team=team,
             timings=timings,
-            in_export_context=in_export_context,
+            limit_context=limit_context,
+            modifiers=modifiers,
         )
     if kind == "SessionsTimelineQuery":
         from .sessions_timeline_query_runner import SessionsTimelineQueryRunner
@@ -156,19 +179,20 @@ def get_query_runner(
             query=cast(SessionsTimelineQuery | Dict[str, Any], query),
             team=team,
             timings=timings,
+            modifiers=modifiers,
         )
     if kind == "WebOverviewQuery":
         from .web_analytics.web_overview import WebOverviewQueryRunner
 
-        return WebOverviewQueryRunner(query=query, team=team, timings=timings)
+        return WebOverviewQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
     if kind == "WebTopClicksQuery":
         from .web_analytics.top_clicks import WebTopClicksQueryRunner
 
-        return WebTopClicksQueryRunner(query=query, team=team, timings=timings)
+        return WebTopClicksQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
     if kind == "WebStatsTableQuery":
         from .web_analytics.stats_table import WebStatsTableQueryRunner
 
-        return WebStatsTableQueryRunner(query=query, team=team, timings=timings)
+        return WebStatsTableQueryRunner(query=query, team=team, timings=timings, modifiers=modifiers)
 
     raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
 
@@ -178,18 +202,21 @@ class QueryRunner(ABC):
     query_type: Type[RunnableQueryNode]
     team: Team
     timings: HogQLTimings
-    in_export_context: bool
+    modifiers: HogQLQueryModifiers
+    limit_context: LimitContext
 
     def __init__(
         self,
         query: RunnableQueryNode | BaseModel | Dict[str, Any],
         team: Team,
         timings: Optional[HogQLTimings] = None,
-        in_export_context: Optional[bool] = False,
+        modifiers: Optional[HogQLQueryModifiers] = None,
+        limit_context: Optional[LimitContext] = None,
     ):
         self.team = team
         self.timings = timings or HogQLTimings()
-        self.in_export_context = in_export_context or False
+        self.limit_context = limit_context or LimitContext.QUERY
+        self.modifiers = create_default_modifiers_for_team(team, modifiers)
         if isinstance(query, self.query_type):
             self.query = query  # type: ignore
         else:
@@ -202,7 +229,7 @@ class QueryRunner(ABC):
         raise NotImplementedError()
 
     def run(self, refresh_requested: Optional[bool] = None) -> CachedQueryResponse:
-        cache_key = self._cache_key() + ("_export" if self.in_export_context else "")
+        cache_key = f"{self._cache_key()}_{self.limit_context or LimitContext.QUERY}"
         tag_queries(cache_key=cache_key)
 
         if not refresh_requested:
@@ -223,6 +250,8 @@ class QueryRunner(ABC):
         fresh_response_dict["next_allowed_client_refresh"] = (datetime.now() + self._refresh_frequency()).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         )
+        fresh_response_dict["cache_key"] = cache_key
+        fresh_response_dict["timezone"] = self.team.timezone
         fresh_response = CachedQueryResponse(**fresh_response_dict)
         cache.set(cache_key, fresh_response, settings.CACHED_RESULTS_TTL)
         QUERY_CACHE_WRITE_COUNTER.labels(team_id=self.team.pk).inc()
@@ -244,7 +273,7 @@ class QueryRunner(ABC):
                     team_id=self.team.pk,
                     enable_select_queries=True,
                     timings=self.timings,
-                    modifiers=create_default_modifiers_for_team(self.team),
+                    modifiers=self.modifiers,
                 ),
                 "hogql",
             )
@@ -253,8 +282,9 @@ class QueryRunner(ABC):
         return self.query.model_dump_json(exclude_defaults=True, exclude_none=True)
 
     def _cache_key(self) -> str:
+        modifiers = self.modifiers.model_dump_json(exclude_defaults=True, exclude_none=True)
         return generate_cache_key(
-            f"query_{self.toJSON()}_{self.__class__.__name__}_{self.team.pk}_{self.team.timezone}"
+            f"query_{self.toJSON()}_{self.__class__.__name__}_{self.team.pk}_{self.team.timezone}_{modifiers}"
         )
 
     @abstractmethod

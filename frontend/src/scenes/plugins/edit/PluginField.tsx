@@ -1,11 +1,11 @@
-import { UploadField } from 'scenes/plugins/edit/UploadField'
-import { Button, Input, Select } from 'antd'
-import { useState } from 'react'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold/src/types'
-import { SECRET_FIELD_VALUE } from 'scenes/plugins/utils'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { Button, Input, Select } from 'antd'
 import { CodeEditor } from 'lib/components/CodeEditors'
 import { IconEdit } from 'lib/lemon-ui/icons'
+import { useState } from 'react'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { UploadField } from 'scenes/plugins/edit/UploadField'
+import { SECRET_FIELD_VALUE } from 'scenes/plugins/utils'
 
 function JsonConfigField(props: {
     onChange: (value: any) => void

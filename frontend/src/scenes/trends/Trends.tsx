@@ -1,14 +1,16 @@
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { ActionsPie, ActionsLineGraph, ActionsHorizontalBar } from './viz'
-import { ChartDisplayType, InsightType, ItemMode } from '~/types'
-import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { WorldMap } from 'scenes/insights/views/WorldMap'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
-import { LemonButton } from '@posthog/lemon-ui'
-import { trendsDataLogic } from './trendsDataLogic'
+import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
+import { WorldMap } from 'scenes/insights/views/WorldMap'
+
 import { QueryContext } from '~/queries/types'
+import { ChartDisplayType, InsightType, ItemMode } from '~/types'
+
+import { trendsDataLogic } from './trendsDataLogic'
+import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from './viz'
 
 interface Props {
     view: InsightType
@@ -19,10 +21,10 @@ export function TrendInsight({ view, context }: Props): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
     const { insightProps, showPersonsModal } = useValues(insightLogic)
 
-    const { display, series, breakdown, loadMoreBreakdownUrl, breakdownValuesLoading } = useValues(
+    const { display, series, breakdown, loadMoreBreakdownUrl, hasBreakdownOther, breakdownValuesLoading } = useValues(
         trendsDataLogic(insightProps)
     )
-    const { loadMoreBreakdownValues } = useActions(trendsDataLogic(insightProps))
+    const { loadMoreBreakdownValues, updateBreakdown } = useActions(trendsDataLogic(insightProps))
 
     const renderViz = (): JSX.Element | undefined => {
         if (
@@ -61,28 +63,24 @@ export function TrendInsight({ view, context }: Props): JSX.Element {
 
     return (
         <>
-            {series && (
-                <div
-                    className={
-                        display !== ChartDisplayType.ActionsTable &&
-                        display !== ChartDisplayType.WorldMap &&
-                        display !== ChartDisplayType.BoldNumber
-                            ? 'trends-insights-container'
-                            : undefined /* Tables, numbers, and world map don't need this padding, but graphs do */
-                    }
-                >
-                    {renderViz()}
-                </div>
-            )}
+            {series && <div className={`TrendsInsight TrendsInsight--${display}`}>{renderViz()}</div>}
             {display !== ChartDisplayType.WorldMap && // the world map doesn't need this cta
                 breakdown &&
-                loadMoreBreakdownUrl && (
+                (hasBreakdownOther || loadMoreBreakdownUrl) && (
                     <div className="my-4 flex flex-col items-center">
                         <div className="text-muted mb-2">
                             For readability, <b>not all breakdown values are displayed</b>. Click below to load them.
                         </div>
                         <LemonButton
-                            onClick={loadMoreBreakdownValues}
+                            onClick={
+                                hasBreakdownOther
+                                    ? () =>
+                                          updateBreakdown({
+                                              ...breakdown,
+                                              breakdown_limit: (breakdown.breakdown_limit || 25) * 2,
+                                          })
+                                    : loadMoreBreakdownValues
+                            }
                             loading={breakdownValuesLoading}
                             size="small"
                             type="secondary"

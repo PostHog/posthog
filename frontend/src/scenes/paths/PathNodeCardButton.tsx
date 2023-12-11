@@ -1,14 +1,14 @@
+import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
+import { captureException } from '@sentry/react'
 import { useValues } from 'kea'
-
+import { IconEllipsis } from 'lib/lemon-ui/icons'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, PathsFilterType } from '~/types'
-import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
-import { IconEllipsis } from 'lib/lemon-ui/icons'
-import { copyToClipboard } from 'lib/utils'
 
-import { pageUrl, PathNodeData } from './pathUtils'
 import { pathsDataLogicType } from './pathsDataLogicType'
+import { pageUrl, PathNodeData } from './pathUtils'
 
 type PathNodeCardButton = {
     name: string
@@ -40,8 +40,8 @@ export function PathNodeCardButton({
     const viewFunnel = (): void => {
         viewPathToFunnel(node)
     }
-    const copyName = async (): Promise<void> => {
-        await copyToClipboard(pageUrl(node))
+    const copyName = (): void => {
+        void copyToClipboard(pageUrl(node)).then(captureException)
     }
     const openModal = (): void => openPersonsModal({ path_end_key: name })
 

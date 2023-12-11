@@ -1,6 +1,7 @@
-from pydantic import BaseModel
-from posthog.warehouse.external_data_source.client import send_request
 import structlog
+from pydantic import BaseModel
+
+from posthog.warehouse.external_data_source.client import send_request
 
 AIRBYTE_CONNECTION_URL = "https://api.airbyte.com/v1/connections"
 AIRBYTE_JOBS_URL = "https://api.airbyte.com/v1/jobs"
@@ -35,6 +36,22 @@ def create_connection(source_id: str, destination_id: str) -> ExternalDataConnec
         workspace_id=response["workspaceId"],
         destination_id=response["destinationId"],
     )
+
+
+def activate_connection_by_id(connection_id: str):
+    update_connection_status_by_id(connection_id, "active")
+
+
+def deactivate_connection_by_id(connection_id: str):
+    update_connection_status_by_id(connection_id, "inactive")
+
+
+def update_connection_status_by_id(connection_id: str, status: str):
+    connection_id_url = f"{AIRBYTE_CONNECTION_URL}/{connection_id}"
+
+    payload = {"status": status}
+
+    send_request(connection_id_url, method="PATCH", payload=payload)
 
 
 def update_connection_stream(connection_id: str):

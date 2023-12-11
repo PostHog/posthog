@@ -1,14 +1,15 @@
 import { LemonCheckbox, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { IconPlus, IconOpenInNew, IconWithCount } from 'lib/lemon-ui/icons'
+import { Field } from 'lib/forms/Field'
+import { IconOpenInNew, IconPlus, IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { Field } from 'lib/forms/Field'
 import { urls } from 'scenes/urls'
+
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { playlistPopoverLogic } from './playlistPopoverLogic'
 
@@ -109,7 +110,7 @@ export function PlaylistPopoverButton(props: LemonButtonProps): JSX.Element {
                                 ))}
                             </div>
                         ) : playlistsLoading ? (
-                            <LemonSkeleton className="my-2" repeat={3} />
+                            <LemonSkeleton className="my-2 h-4" repeat={3} />
                         ) : (
                             <div className="p-2 text-center text-muted">No playlists found</div>
                         )}

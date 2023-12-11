@@ -1,44 +1,46 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-
-import { InsightLogicProps, InsightType, ActionFilter } from '~/types'
-import type { insightNavLogicType } from './insightNavLogicType'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import {
-    InsightVizNode,
-    InsightQueryNode,
-    NodeKind,
-    TrendsQuery,
-    FunnelsQuery,
-    RetentionQuery,
-    PathsQuery,
-    StickinessQuery,
-    LifecycleQuery,
-    TrendsFilter,
-    FunnelsFilter,
-    RetentionFilter,
-    PathsFilter,
-    StickinessFilter,
-    LifecycleFilter,
-    EventsNode,
-    ActionsNode,
-} from '~/queries/schema'
-import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
+
+import { examples, TotalEventsTable } from '~/queries/examples'
+import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { insightMap } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { getDisplay, getShowPercentStackView, getShowValueOnSeries } from '~/queries/nodes/InsightViz/utils'
 import {
-    isInsightVizNode,
-    isRetentionQuery,
+    ActionsNode,
+    EventsNode,
+    FunnelsFilter,
+    FunnelsQuery,
+    InsightQueryNode,
+    InsightVizNode,
+    LifecycleFilter,
+    LifecycleQuery,
+    NodeKind,
+    PathsFilter,
+    PathsQuery,
+    RetentionFilter,
+    RetentionQuery,
+    StickinessFilter,
+    StickinessQuery,
+    TrendsFilter,
+    TrendsQuery,
+} from '~/queries/schema'
+import {
+    containsHogQLQuery,
+    filterKeyForQuery,
     isInsightQueryWithBreakdown,
     isInsightQueryWithSeries,
-    filterKeyForQuery,
-    containsHogQLQuery,
+    isInsightVizNode,
+    isRetentionQuery,
 } from '~/queries/utils'
-import { examples, TotalEventsTable } from '~/queries/examples'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { getDisplay, getShowPercentStackView, getShowValueOnSeries } from '~/queries/nodes/InsightViz/utils'
-import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
+import { ActionFilter, InsightLogicProps, InsightType } from '~/types'
+
+import type { insightNavLogicType } from './insightNavLogicType'
 
 export interface Tab {
     label: string | JSX.Element
@@ -55,9 +57,9 @@ export interface CommonInsightFilter
         Partial<LifecycleFilter> {}
 
 export interface QueryPropertyCache
-    extends Omit<Partial<TrendsQuery>, 'kind'>,
+    extends Omit<Partial<TrendsQuery>, 'kind' | 'response'>,
         Omit<Partial<FunnelsQuery>, 'kind'>,
-        Omit<Partial<RetentionQuery>, 'kind'>,
+        Omit<Partial<RetentionQuery>, 'kind' | 'response'>,
         Omit<Partial<PathsQuery>, 'kind'>,
         Omit<Partial<StickinessQuery>, 'kind'>,
         Omit<Partial<LifecycleQuery>, 'kind'> {
@@ -95,9 +97,12 @@ export const insightNavLogic = kea<insightNavLogicType>([
                 }),
             },
         ],
-        userSelectedView: {
-            setActiveView: (_, { view }) => view,
-        },
+        userSelectedView: [
+            null as InsightType | null,
+            {
+                setActiveView: (_, { view }) => view,
+            },
+        ],
     }),
     selectors({
         activeView: [
@@ -205,7 +210,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
                 if (view === InsightType.JSON) {
                     actions.setQuery(TotalEventsTable)
                 } else if (view === InsightType.SQL) {
-                    actions.setQuery(examples.HogQLTable)
+                    const biVizFlag = Boolean(values.featureFlags[FEATURE_FLAGS.BI_VIZ])
+                    actions.setQuery(biVizFlag ? examples.DataVisualization : examples.HogQLTable)
                 }
             } else {
                 let query: InsightVizNode

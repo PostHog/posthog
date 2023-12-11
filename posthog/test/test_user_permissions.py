@@ -321,7 +321,7 @@ class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
                 assert user_permissions.insight(insight).effective_privilege_level is not None
 
     def test_team_lookup_efficiency(self):
-        user = User.objects.create(email="test2@posthog.com")
+        user = User.objects.create(email="test2@posthog.com", distinct_id="test2")
         models = []
         for _ in range(10):
             organization, membership, team = Organization.objects.bootstrap(

@@ -1,5 +1,4 @@
 import { DateTime } from 'luxon'
-import { Pool } from 'pg'
 
 import { defaultConfig } from '../../src/config/config'
 import {
@@ -269,18 +268,6 @@ export async function getFirstTeam(hub: Hub): Promise<Team> {
     return (await getTeams(hub))[0]
 }
 
-export async function getErrorForPluginConfig(id: number): Promise<any> {
-    const db = new Pool({ connectionString: defaultConfig.DATABASE_URL! })
-    let error
-    try {
-        const response = await db.query('SELECT * FROM posthog_pluginconfig WHERE id = $1', [id])
-        error = response.rows[0]['error']
-    } catch {}
-
-    await db.end()
-    return error
-}
-
 export const createPlugin = async (pg: PostgresRouter, plugin: Omit<Plugin, 'id'>) => {
     return await insertRow(pg, 'posthog_plugin', {
         ...plugin,
@@ -296,7 +283,7 @@ export const createPlugin = async (pg: PostgresRouter, plugin: Omit<Plugin, 'id'
 
 export const createPluginConfig = async (
     pg: PostgresRouter,
-    pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'config' | 'has_error'>
+    pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'config'>
 ) => {
     return await insertRow(pg, 'posthog_pluginconfig', {
         ...pluginConfig,

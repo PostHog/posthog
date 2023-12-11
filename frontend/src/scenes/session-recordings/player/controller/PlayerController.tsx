@@ -1,19 +1,21 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { IconExport, IconFullScreen, IconMagnifier, IconPause, IconPlay, IconSkipInactivity } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import {
     PLAYBACK_SPEEDS,
-    SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
+    SessionRecordingPlayerMode,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { SessionPlayerState } from '~/types'
-import { Seekbar } from './Seekbar'
-import { SeekSkip } from './PlayerControllerTime'
-import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
-import { IconExport, IconFullScreen, IconMagnifier, IconPause, IconPlay, IconSkipInactivity } from 'lib/lemon-ui/icons'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import clsx from 'clsx'
-import { playerSettingsLogic } from '../playerSettingsLogic'
-import { More } from 'lib/lemon-ui/LemonButton/More'
+
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { SessionPlayerState } from '~/types'
+
+import { playerSettingsLogic } from '../playerSettingsLogic'
+import { SeekSkip } from './PlayerControllerTime'
+import { Seekbar } from './Seekbar'
 
 export function PlayerController(): JSX.Element {
     const { playingState, logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)

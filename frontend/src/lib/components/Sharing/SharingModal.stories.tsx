@@ -1,10 +1,12 @@
-import { useState } from 'react'
 import { Meta } from '@storybook/react'
-import { SharingModal, SharingModalProps } from './SharingModal'
-import { AvailableFeature, InsightModel, InsightShortId, InsightType } from '~/types'
-import { useStorybookMocks } from '~/mocks/browser'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { useState } from 'react'
+
+import { useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
+import { AvailableFeature, InsightModel, InsightShortId, InsightType } from '~/types'
+
+import { SharingModal, SharingModalProps } from './SharingModal'
 
 const fakeInsight: Partial<InsightModel> = {
     id: 123,
@@ -62,7 +64,7 @@ const Template = (args: Partial<SharingModalProps> & { licensed?: boolean }): JS
                                 created_at: '2022-06-28T12:30:51.459746Z',
                                 enabled: true,
                                 access_token: '1AEQjQ2xNLGoiyI0UnNlLzOiBZWWMQ',
-                                ...(req.body as any),
+                                ...req.body,
                             },
                         ]
                     },

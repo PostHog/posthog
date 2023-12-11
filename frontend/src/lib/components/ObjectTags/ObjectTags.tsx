@@ -1,16 +1,19 @@
-import { Tag, Select } from 'antd'
-import { colorForString } from 'lib/utils'
-import { CSSProperties, useMemo } from 'react'
 // eslint-disable-next-line no-restricted-imports
-import { SyncOutlined, CloseOutlined } from '@ant-design/icons'
-import { SelectGradientOverflow } from '../SelectGradientOverflow'
+import { CloseOutlined, SyncOutlined } from '@ant-design/icons'
+import { IconPlus } from '@posthog/icons'
+import { LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { Select } from 'antd'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { objectTagsLogic } from 'lib/components/ObjectTags/objectTagsLogic'
-import { AvailableFeature } from '~/types'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import clsx from 'clsx'
-import { IconPlus } from '@posthog/icons'
+import { colorForString } from 'lib/utils'
+import { CSSProperties, useMemo } from 'react'
+import { sceneLogic } from 'scenes/sceneLogic'
+
+import { AvailableFeature } from '~/types'
+
+import { SelectGradientOverflow } from '../SelectGradientOverflow'
 
 interface ObjectTagsPropsBase {
     tags: string[]
@@ -36,11 +39,11 @@ export type ObjectTagsProps =
           tagsAvailable?: string[] /** Whether this field should be gated behind a "paywall". */
       })
 
-const COLOR_OVERRIDES: Record<string, string> = {
-    official: 'green',
-    approved: 'green',
-    verified: 'green',
-    deprecated: 'red',
+const COLOR_OVERRIDES: Record<string, LemonTagType> = {
+    official: 'success',
+    approved: 'success',
+    verified: 'success',
+    deprecated: 'danger',
 }
 
 let uniqueMemoizedIndex = 1
@@ -88,9 +91,9 @@ export function ObjectTags({
                       .filter((t) => !!t)
                       .map((tag, index) => {
                           return (
-                              <Tag
+                              <LemonTag
                                   key={index}
-                                  color={COLOR_OVERRIDES[tag] || colorForString(tag)}
+                                  type={COLOR_OVERRIDES[tag] || colorForString(tag)}
                                   style={{ marginRight: 0 }}
                               >
                                   {tag}{' '}
@@ -109,29 +112,28 @@ export function ObjectTags({
                                               }
                                           />
                                       ))}
-                              </Tag>
+                              </LemonTag>
                           )
                       })}
             {saving && <Spinner />}
             {!staticOnly && onChange && saving !== undefined && (
                 <span className="inline-flex font-normal">
-                    <Tag
+                    <LemonTag
+                        type="none"
                         onClick={() =>
                             onGuardClick(() => {
                                 setAddingNewTag(true)
                             })
                         }
                         data-attr="button-add-tag"
-                        style={{
-                            cursor: 'pointer',
-                            borderStyle: 'dashed',
-                            backgroundColor: 'var(--bg-light)',
-                            display: addingNewTag ? 'none' : 'initial',
-                        }}
                         icon={<IconPlus />}
+                        className="border border-dashed"
+                        style={{
+                            display: addingNewTag ? 'none' : 'inline-flex',
+                        }}
                     >
                         Add tag
-                    </Tag>
+                    </LemonTag>
                     {addingNewTag && (
                         <SelectGradientOverflow
                             size="small"

@@ -1,18 +1,20 @@
 import { LemonButton, LemonCheckbox, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconInfo } from 'lib/lemon-ui/icons'
-import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
+import { OrganizationMembershipLevel } from 'lib/constants'
+import { IconInfo } from 'lib/lemon-ui/icons'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { organizationLogic } from 'scenes/organizationLogic'
+
 import { AccessLevel, AvailableFeature, Resource, RoleType } from '~/types'
+
 import { permissionsLogic } from './permissionsLogic'
 import { CreateRoleModal } from './Roles/CreateRoleModal'
 import { rolesLogic } from './Roles/rolesLogic'
 import { getSingularType } from './utils'
-import { OrganizationMembershipLevel } from 'lib/constants'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
 export function PermissionsGrid(): JSX.Element {
     const { resourceRolesAccess, organizationResourcePermissionsLoading } = useValues(permissionsLogic)

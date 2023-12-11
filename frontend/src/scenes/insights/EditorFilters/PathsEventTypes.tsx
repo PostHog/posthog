@@ -1,10 +1,12 @@
-import { useValues, useActions } from 'kea'
-import { PathType, EditorFilterProps, PathsFilterType } from '~/types'
-import { LemonButtonWithDropdown, LemonButton } from 'lib/lemon-ui/LemonButton'
-import { humanizePathsEventTypes } from '../utils'
+import { useActions, useValues } from 'kea'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
+
+import { EditorFilterProps, PathsFilterType, PathType } from '~/types'
+
+import { humanizePathsEventTypes } from '../utils'
 
 export function PathsEventsTypes({ insightProps }: EditorFilterProps): JSX.Element {
     const { pathsFilter } = useValues(pathsDataLogic(insightProps))

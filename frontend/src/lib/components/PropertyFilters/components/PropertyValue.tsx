@@ -1,15 +1,17 @@
-import { useEffect, useRef, useState } from 'react'
-import { AutoComplete } from 'antd'
-import { isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
-import { PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { useActions, useValues } from 'kea'
-import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
-import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import './PropertyValue.scss'
-import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+
+import { AutoComplete } from 'antd'
 import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
+import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
+import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
+import { useEffect, useRef, useState } from 'react'
+
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
 
 export interface PropertyValueProps {
     propertyKey: string

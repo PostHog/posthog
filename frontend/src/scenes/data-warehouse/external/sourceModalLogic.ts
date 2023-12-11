@@ -1,15 +1,16 @@
-import { actions, connect, kea, path, reducers, selectors, listeners } from 'kea'
-
-import type { sourceModalLogicType } from './sourceModalLogicType'
-import { forms } from 'kea-forms'
-import { ExternalDataStripeSourceCreatePayload } from '~/types'
-import api from 'lib/api'
 import { lemonToast } from '@posthog/lemon-ui'
-import { dataWarehouseTableLogic } from '../new_table/dataWarehouseTableLogic'
-import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
 import { router } from 'kea-router'
+import api from 'lib/api'
 import { urls } from 'scenes/urls'
+
+import { ExternalDataStripeSourceCreatePayload } from '~/types'
+
+import { dataWarehouseTableLogic } from '../new_table/dataWarehouseTableLogic'
 import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLogic'
+import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import type { sourceModalLogicType } from './sourceModalLogicType'
 
 export interface ConnectorConfigType {
     name: string
@@ -79,7 +80,12 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
     }),
     forms(() => ({
         externalDataSource: {
-            defaults: { account_id: '', client_secret: '' } as ExternalDataStripeSourceCreatePayload,
+            defaults: {
+                account_id: '',
+                client_secret: '',
+                prefix: '',
+                source_type: 'Stripe',
+            } as ExternalDataStripeSourceCreatePayload,
             errors: ({ account_id, client_secret }) => {
                 return {
                     account_id: !account_id && 'Please enter an account id.',
@@ -100,8 +106,8 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
             actions.loadSources()
             router.actions.push(urls.dataWarehouseSettings())
         },
-        submitExternalDataSourceFailure: () => {
-            lemonToast.error('Error creating new Data Resource. Check that provided credentials are valid.')
+        submitExternalDataSourceFailure: ({ error }) => {
+            lemonToast.error(error?.message || 'Something went wrong')
         },
     })),
 ])

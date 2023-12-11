@@ -1,8 +1,10 @@
-import { actions, props, kea, listeners, path, reducers, selectors } from 'kea'
-import type { rollingDateRangeFilterLogicType } from './rollingDateRangeFilterLogicType'
-import { Dayjs } from 'lib/dayjs'
 import './RollingDateRangeFilter.scss'
+
+import { actions, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { Dayjs } from 'lib/dayjs'
 import { dateFilterToText } from 'lib/utils'
+
+import type { rollingDateRangeFilterLogicType } from './rollingDateRangeFilterLogicType'
 
 const dateOptionsMap = {
     q: 'quarters',

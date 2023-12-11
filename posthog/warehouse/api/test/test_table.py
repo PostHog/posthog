@@ -1,9 +1,9 @@
-from posthog.test.base import (
-    APIBaseTest,
-)
 from unittest.mock import patch
-from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential
+
 from clickhouse_driver.errors import ServerException
+
+from posthog.test.base import APIBaseTest
+from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
 
 
 class TestTable(APIBaseTest):

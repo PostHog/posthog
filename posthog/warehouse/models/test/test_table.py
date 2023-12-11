@@ -1,5 +1,5 @@
 from posthog.test.base import BaseTest
-from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential
+from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
 
 
 class TestTable(BaseTest):

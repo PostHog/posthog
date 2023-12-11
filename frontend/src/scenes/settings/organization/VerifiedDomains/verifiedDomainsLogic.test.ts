@@ -1,9 +1,11 @@
-import { isSecureURL, verifiedDomainsLogic } from './verifiedDomainsLogic'
-import { initKeaTests } from '~/test/init'
-import { useAvailableFeatures } from '~/mocks/features'
-import { AvailableFeature } from '~/types'
-import { useMocks } from '~/mocks/jest'
 import { expectLogic } from 'kea-test-utils'
+
+import { useAvailableFeatures } from '~/mocks/features'
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+import { AvailableFeature } from '~/types'
+
+import { isSecureURL, verifiedDomainsLogic } from './verifiedDomainsLogic'
 
 describe('verifiedDomainsLogic', () => {
     let logic: ReturnType<typeof verifiedDomainsLogic.build>

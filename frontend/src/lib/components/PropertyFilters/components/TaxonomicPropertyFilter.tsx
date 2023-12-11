@@ -1,30 +1,33 @@
 import './TaxonomicPropertyFilter.scss'
-import { useMemo } from 'react'
+
+import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
-import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
-import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
+import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
+import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
+import {
+    isGroupPropertyFilter,
+    isPropertyFilterWithOperator,
+    propertyFilterTypeToTaxonomicFilterType,
+} from 'lib/components/PropertyFilters/utils'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
-import {
-    isGroupPropertyFilter,
-    isPropertyFilterWithOperator,
-    propertyFilterTypeToTaxonomicFilterType,
-} from 'lib/components/PropertyFilters/utils'
-import { PropertyFilterInternalProps } from 'lib/components/PropertyFilters/types'
-import clsx from 'clsx'
+import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
+import { IconPlusMini } from 'lib/lemon-ui/icons'
+import { isOperatorMulti, isOperatorRegex } from 'lib/utils'
+import { useMemo } from 'react'
+
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { AnyPropertyFilter, FilterLogicalOperator, PropertyDefinitionType, PropertyFilterType } from '~/types'
-import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { LemonButtonWithDropdown } from '@posthog/lemon-ui'
-import { IconPlusMini } from 'lib/lemon-ui/icons'
+
 import { OperandTag } from './OperandTag'
+import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
 
 let uniqueMemoizedIndex = 0
 
@@ -156,32 +159,33 @@ export function TaxonomicPropertyFilter({
                         </div>
                     )}
                     <div className="TaxonomicPropertyFilter__row__items">
-                        <LemonButtonWithDropdown
-                            dropdown={{
-                                overlay: dropdownOpen ? taxonomicFilter : null,
-                                visible: dropdownOpen,
-                                placement: 'bottom',
-                                onClickOutside: closeDropdown,
-                            }}
-                            onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
-                            type="secondary"
-                            status={!valuePresent ? 'primary' : 'stealth'}
-                            icon={!valuePresent ? <IconPlusMini /> : undefined}
-                            sideIcon={null}
-                            data-attr={'property-select-toggle-' + index}
+                        <LemonDropdown
+                            overlay={taxonomicFilter}
+                            placement="bottom-start"
+                            visible={dropdownOpen}
+                            onClickOutside={closeDropdown}
                         >
-                            {filter?.type === 'cohort' ? (
-                                selectedCohortName || `Cohort #${filter?.value}`
-                            ) : filter?.key ? (
-                                <PropertyKeyInfo value={filter.key} disablePopover ellipsis />
-                            ) : (
-                                addText || 'Add filter'
-                            )}
-                        </LemonButtonWithDropdown>
+                            <LemonButton
+                                type="secondary"
+                                status={!valuePresent ? 'primary' : 'stealth'}
+                                icon={!valuePresent ? <IconPlusMini /> : undefined}
+                                data-attr={'property-select-toggle-' + index}
+                                onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
+                            >
+                                {filter?.type === 'cohort' ? (
+                                    selectedCohortName || `Cohort #${filter?.value}`
+                                ) : filter?.key ? (
+                                    <PropertyKeyInfo value={filter.key} disablePopover ellipsis />
+                                ) : (
+                                    addText || 'Add filter'
+                                )}
+                            </LemonButton>
+                        </LemonDropdown>
                         {showOperatorValueSelect ? (
                             <OperatorValueSelect
                                 propertyDefinitions={propertyDefinitionsByType(
-                                    filter?.type || PropertyDefinitionType.Event
+                                    filter?.type || PropertyDefinitionType.Event,
+                                    isGroupPropertyFilter(filter) ? filter?.group_type_index : undefined
                                 )}
                                 type={filter?.type}
                                 propkey={filter?.key}

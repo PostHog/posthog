@@ -1,13 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
+import { teamLogic } from 'scenes/teamLogic'
 import timekeeper from 'timekeeper'
 
-import { teamLogic } from 'scenes/teamLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { funnelDataLogic } from './funnelDataLogic'
-
-import { FunnelConversionWindowTimeUnit, FunnelVizType, InsightLogicProps, InsightModel, InsightType } from '~/types'
 import { DataNode, FunnelsQuery, NodeKind } from '~/queries/schema'
+import { initKeaTests } from '~/test/init'
+import { FunnelConversionWindowTimeUnit, FunnelVizType, InsightLogicProps, InsightModel, InsightType } from '~/types'
+
 import {
     funnelResult,
     funnelResultTimeToConvert,
@@ -16,6 +15,7 @@ import {
     funnelResultWithBreakdown,
     funnelResultWithMultiBreakdown,
 } from './__mocks__/funnelDataLogicMocks'
+import { funnelDataLogic } from './funnelDataLogic'
 
 let logic: ReturnType<typeof funnelDataLogic.build>
 let builtDataNodeLogic: ReturnType<typeof dataNodeLogic.build>

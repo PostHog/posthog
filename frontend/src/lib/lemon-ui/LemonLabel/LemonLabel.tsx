@@ -1,8 +1,10 @@
 import './LemonLabel.scss'
-import { Tooltip } from '../Tooltip'
-import { IconInfo } from 'lib/lemon-ui/icons'
+
 import clsx from 'clsx'
+import { IconInfo } from 'lib/lemon-ui/icons'
+
 import { Link, LinkProps } from '../Link'
+import { Tooltip } from '../Tooltip'
 
 export interface LemonLabelProps
     extends Pick<React.LabelHTMLAttributes<HTMLLabelElement>, 'id' | 'htmlFor' | 'form' | 'children' | 'className'> {

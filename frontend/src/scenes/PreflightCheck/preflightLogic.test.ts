@@ -1,7 +1,9 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { urls } from 'scenes/urls'
+
 import { initKeaTests } from '~/test/init'
+
 import { preflightLogic } from './preflightLogic'
 
 describe('preflightLogic', () => {

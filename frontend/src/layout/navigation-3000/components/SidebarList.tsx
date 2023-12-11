@@ -1,19 +1,20 @@
 import { Link, TZLabel } from '@posthog/apps-common'
+import { LemonButton, LemonTag, lemonToast } from '@posthog/lemon-ui'
+import { captureException } from '@sentry/react'
 import clsx from 'clsx'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import { isDayjs } from 'lib/dayjs'
 import { IconCheckmark, IconClose, IconEllipsis } from 'lib/lemon-ui/icons'
-import { BasicListItem, ExtendedListItem, ExtraListItemContext, SidebarCategory, TentativeListItem } from '../types'
-import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { LemonButton, LemonTag, lemonToast } from '@posthog/lemon-ui'
-import { ITEM_KEY_PART_SEPARATOR, navigation3000Logic } from '../navigationLogic'
-import { captureException } from '@sentry/react'
-import { KeyboardShortcut } from './KeyboardShortcut'
-import { List, ListProps } from 'react-virtualized/dist/es/List'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { InfiniteLoader } from 'react-virtualized/dist/es/InfiniteLoader'
-import { useActions, useAsyncActions, useValues } from 'kea'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { List, ListProps } from 'react-virtualized/dist/es/List'
+
+import { ITEM_KEY_PART_SEPARATOR, navigation3000Logic } from '../navigationLogic'
+import { BasicListItem, ExtendedListItem, ExtraListItemContext, SidebarCategory, TentativeListItem } from '../types'
+import { KeyboardShortcut } from './KeyboardShortcut'
 
 export function SidebarList({ category }: { category: SidebarCategory }): JSX.Element {
     const { normalizedActiveListItemKey, sidebarWidth, newItemInlineCategory, savingNewItem } =
@@ -307,7 +308,7 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
                                 navigation3000Logic.actions.focusPreviousItem()
                                 e.preventDefault()
                             } else if (e.key === 'Enter') {
-                                save(newName || '').then(() => {
+                                void save(newName || '').then(() => {
                                     // In the keyboard nav experience, we need to refocus the item once it's a link again
                                     setTimeout(() => ref.current?.focus(), 0)
                                 })
@@ -327,7 +328,7 @@ function SidebarListItem({ item, validateName, active, style }: SidebarListItemP
                         }}
                         onBlur={(e) => {
                             if (e.relatedTarget?.ariaLabel === 'Save name') {
-                                save(newName || '')
+                                void save(newName || '')
                             } else {
                                 cancel()
                             }

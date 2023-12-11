@@ -1,3 +1,6 @@
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { CohortFieldLogicProps } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
+
 import {
     AnyCohortCriteriaType,
     BehavioralCohortType,
@@ -6,8 +9,6 @@ import {
     PropertyFilterValue,
     PropertyOperator,
 } from '~/types'
-import { CohortFieldLogicProps } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export enum FilterType {
     Behavioral = 'behavioral',

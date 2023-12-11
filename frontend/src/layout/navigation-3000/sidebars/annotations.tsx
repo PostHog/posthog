@@ -1,16 +1,18 @@
-import { connect, kea, path, selectors } from 'kea'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { annotationsModel } from '~/models/annotationsModel'
-import { SidebarCategory, ExtendedListItem } from '../types'
-import type { annotationsSidebarLogicType } from './annotationsType'
-import Fuse from 'fuse.js'
-import { subscriptions } from 'kea-subscriptions'
-import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
-import { FuseSearchMatch } from './utils'
-import { AnnotationType } from '~/types'
 import { urls } from '@posthog/apps-common'
+import Fuse from 'fuse.js'
+import { connect, kea, path, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
 import { AnnotationModal } from 'scenes/annotations/AnnotationModal'
 import { annotationModalLogic } from 'scenes/annotations/annotationModalLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
+import { annotationsModel } from '~/models/annotationsModel'
+import { AnnotationType } from '~/types'
+
+import { ExtendedListItem, SidebarCategory } from '../types'
+import type { annotationsSidebarLogicType } from './annotationsType'
+import { FuseSearchMatch } from './utils'
 
 const fuse = new Fuse<AnnotationType>([], {
     keys: [{ name: 'content', weight: 2 }, 'date_marker'],

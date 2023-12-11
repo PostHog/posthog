@@ -1,3 +1,4 @@
+// TODO the rest of the app shouldn't be importing this 🙈
 export function Logo({ style }: React.PropsWithoutRef<JSX.IntrinsicElements['svg']>): JSX.Element {
     return (
         <svg

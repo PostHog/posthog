@@ -1,6 +1,6 @@
-import { InsightQueryNode } from '~/queries/schema'
-
 import { objectCleanWithEmpty, objectsEqual } from 'lib/utils'
+
+import { InsightQueryNode } from '~/queries/schema'
 import {
     filterForQuery,
     filterKeyForQuery,

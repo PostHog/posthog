@@ -1,12 +1,10 @@
+import { IconClock, IconFilter, IconTrending } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
-import { FunnelVizType as VizType, EditorFilterProps } from '~/types'
 import { FunnelsFilter } from '~/queries/schema'
-import { IconFilter, IconClock, IconTrending } from '@posthog/icons'
-
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { EditorFilterProps, FunnelVizType as VizType } from '~/types'
 
 type LabelProps = {
     icon: JSX.Element

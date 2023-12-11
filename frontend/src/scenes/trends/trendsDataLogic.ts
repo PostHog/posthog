@@ -1,12 +1,13 @@
-import { kea, props, key, path, connect, selectors, actions, reducers, listeners } from 'kea'
-import { ChartDisplayType, InsightLogicProps, LifecycleToggle, TrendAPIResponse, TrendResult } from '~/types'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+
+import { ChartDisplayType, InsightLogicProps, LifecycleToggle, TrendAPIResponse, TrendResult } from '~/types'
 
 import type { trendsDataLogicType } from './trendsDataLogicType'
 import { IndexedTrendResult } from './types'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { dayjs } from 'lib/dayjs'
 
 export const trendsDataLogic = kea<trendsDataLogicType>([
     props({} as InsightLogicProps),
@@ -26,6 +27,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'interval',
                 'breakdown',
                 'showValueOnSeries',
+                'showLabelOnSeries',
                 'showPercentStackView',
                 'supportsPercentStackView',
                 'trendsFilter',
@@ -36,9 +38,10 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'isNonTimeSeriesDisplay',
                 'isSingleSeries',
                 'hasLegend',
+                'vizSpecificOptions',
             ],
         ],
-        actions: [insightVizDataLogic(props), ['setInsightData', 'updateInsightFilter']],
+        actions: [insightVizDataLogic(props), ['setInsightData', 'updateInsightFilter', 'updateBreakdown']],
     })),
 
     actions({
@@ -55,7 +58,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         ],
     }),
 
-    selectors({
+    selectors(({ values }) => ({
         results: [
             (s) => [s.insightData],
             (insightData: TrendAPIResponse | null): TrendResult[] => {
@@ -74,6 +77,19 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             },
         ],
 
+        hasBreakdownOther: [
+            (s) => [s.insightData, s.isTrends],
+            (insightData, isTrends) => {
+                if (!isTrends) {
+                    return false
+                }
+                const results = insightData.result ?? insightData.results
+                return !!(
+                    Array.isArray(results) && results.find((r) => r.breakdown_value === '$$_posthog_breakdown_other_$$')
+                )
+            },
+        ],
+
         indexedResults: [
             (s) => [s.results, s.display, s.lifecycleFilter],
             (results, display, lifecycleFilter): IndexedTrendResult[] => {
@@ -87,7 +103,6 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 } else if (lifecycleFilter) {
                     if (lifecycleFilter.toggledLifecycles) {
                         indexedResults = indexedResults.filter((result) =>
-                            // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
                             lifecycleFilter.toggledLifecycles!.includes(String(result.status) as LifecycleToggle)
                         )
                     }
@@ -130,7 +145,12 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 }
             },
         ],
-    }),
+
+        pieChartVizOptions: [
+            () => [() => values.vizSpecificOptions],
+            (vizSpecificOptions) => vizSpecificOptions?.[ChartDisplayType.ActionsPie],
+        ],
+    })),
 
     listeners(({ actions, values }) => ({
         loadMoreBreakdownValues: async () => {

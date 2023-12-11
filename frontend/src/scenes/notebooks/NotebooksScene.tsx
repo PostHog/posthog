@@ -1,9 +1,11 @@
-import { SceneExport } from 'scenes/sceneTypes'
 import './NotebookScene.scss'
-import { NotebooksTable } from './NotebooksTable/NotebooksTable'
+
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { PageHeader } from 'lib/components/PageHeader'
+import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+
+import { NotebooksTable } from './NotebooksTable/NotebooksTable'
 
 export const scene: SceneExport = {
     component: NotebooksScene,

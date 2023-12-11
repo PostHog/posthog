@@ -1,12 +1,14 @@
-import { useEffect } from 'react'
 import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
+import { useEffect } from 'react'
 import { App } from 'scenes/App'
+import { urls } from 'scenes/urls'
+
 import { mswDecorator } from '~/mocks/browser'
-import featureFlags from './__mocks__/feature_flags.json'
 import { useAvailableFeatures } from '~/mocks/features'
 import { AvailableFeature } from '~/types'
+
+import featureFlags from './__mocks__/feature_flags.json'
 
 const meta: Meta = {
     title: 'Scenes-App/Feature Flags',

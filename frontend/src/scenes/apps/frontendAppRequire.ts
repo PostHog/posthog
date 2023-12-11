@@ -1,11 +1,11 @@
-import * as allKea from 'kea'
-import * as allKeaRouter from 'kea-router'
-import * as allKeaLoaders from 'kea-loaders'
-import * as allKeaForms from 'kea-forms'
-import * as allKeaWindowValues from 'kea-window-values'
-import * as allKeaSubscriptions from 'kea-subscriptions'
 import * as appsCommon from '@posthog/apps-common'
 import * as lemonUi from '@posthog/lemon-ui'
+import * as allKea from 'kea'
+import * as allKeaForms from 'kea-forms'
+import * as allKeaLoaders from 'kea-loaders'
+import * as allKeaRouter from 'kea-router'
+import * as allKeaSubscriptions from 'kea-subscriptions'
+import * as allKeaWindowValues from 'kea-window-values'
 import React from 'react'
 
 const packages = {

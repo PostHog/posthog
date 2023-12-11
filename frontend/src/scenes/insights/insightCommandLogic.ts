@@ -1,12 +1,13 @@
+import { connect, events, kea, key, path, props } from 'kea'
 import { Command, commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
-import { kea, props, key, path, connect, events } from 'kea'
-import type { insightCommandLogicType } from './insightCommandLogicType'
-import { compareFilterLogic } from 'lib/components/CompareFilter/compareFilterLogic'
-import { dateMapping } from 'lib/utils'
-import { InsightLogicProps } from '~/types'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { insightVizDataLogic } from './insightVizDataLogic'
 import { IconTrendingUp } from 'lib/lemon-ui/icons'
+import { dateMapping } from 'lib/utils'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+
+import { InsightLogicProps } from '~/types'
+
+import type { insightCommandLogicType } from './insightCommandLogicType'
+import { insightVizDataLogic } from './insightVizDataLogic'
 
 const INSIGHT_COMMAND_SCOPE = 'insights'
 
@@ -15,7 +16,7 @@ export const insightCommandLogic = kea<insightCommandLogicType>([
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'insightCommandLogic', key]),
 
-    connect((props: InsightLogicProps) => [commandPaletteLogic, compareFilterLogic(props), insightVizDataLogic(props)]),
+    connect((props: InsightLogicProps) => [commandPaletteLogic, insightVizDataLogic(props)]),
     events(({ props }) => ({
         afterMount: () => {
             const funnelCommands: Command[] = [
@@ -26,7 +27,8 @@ export const insightCommandLogic = kea<insightCommandLogicType>([
                             icon: IconTrendingUp,
                             display: 'Toggle "Compare Previous" on Graph',
                             executor: () => {
-                                compareFilterLogic(props).actions.toggleCompare()
+                                const compare = insightVizDataLogic(props).values.compare
+                                insightVizDataLogic(props).actions.updateInsightFilter({ compare: !compare })
                             },
                         },
                         ...dateMapping.map(({ key, values }) => ({

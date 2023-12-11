@@ -1,6 +1,7 @@
+import './StickyView.scss'
+
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import React, { useEffect, useRef, useState } from 'react'
-import './StickyView.scss'
 
 export interface StickyViewProps {
     children: React.ReactNode

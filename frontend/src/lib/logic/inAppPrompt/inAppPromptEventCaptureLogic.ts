@@ -1,6 +1,7 @@
-import { kea, path, actions, listeners } from 'kea'
-import type { inAppPromptEventCaptureLogicType } from './inAppPromptEventCaptureLogicType'
+import { actions, kea, listeners, path } from 'kea'
 import posthog from 'posthog-js'
+
+import type { inAppPromptEventCaptureLogicType } from './inAppPromptEventCaptureLogicType'
 import { PromptType } from './inAppPromptLogic'
 
 const inAppPromptEventCaptureLogic = kea<inAppPromptEventCaptureLogicType>([

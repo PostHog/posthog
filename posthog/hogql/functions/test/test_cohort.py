@@ -34,7 +34,7 @@ class TestCohort(BaseTest):
         flush_persons_and_events()
         return random_uuid
 
-    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_in_cohort_dynamic(self):
         random_uuid = self._create_random_events()
         cohort = Cohort.objects.create(
@@ -58,7 +58,7 @@ class TestCohort(BaseTest):
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0][0], random_uuid)
 
-    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_in_cohort_static(self):
         cohort = Cohort.objects.create(
             team=self.team,
@@ -78,7 +78,7 @@ class TestCohort(BaseTest):
             f"SELECT event FROM events WHERE in(person_id, (SELECT person_id FROM static_cohort_people WHERE equals(cohort_id, {cohort.pk}))) LIMIT 100",
         )
 
-    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_in_cohort_strings(self):
         cohort = Cohort.objects.create(
             team=self.team,

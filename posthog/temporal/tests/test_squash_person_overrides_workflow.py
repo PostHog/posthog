@@ -22,7 +22,7 @@ from posthog.models.person_overrides.sql import (
     PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL,
     PERSON_OVERRIDES_CREATE_TABLE_SQL,
 )
-from posthog.temporal.workflows.squash_person_overrides import (
+from posthog.temporal.batch_exports.squash_person_overrides import (
     QueryInputs,
     SerializablePersonOverrideToDelete,
     SquashPersonOverridesInputs,

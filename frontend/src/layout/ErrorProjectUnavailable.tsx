@@ -1,5 +1,6 @@
-import { PageHeader } from 'lib/components/PageHeader'
 import { useValues } from 'kea'
+import { PageHeader } from 'lib/components/PageHeader'
+
 import { organizationLogic } from '../scenes/organizationLogic'
 
 export function ErrorProjectUnavailable(): JSX.Element {

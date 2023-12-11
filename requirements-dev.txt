@@ -34,6 +34,11 @@ certifi==2019.11.28
     # via
     #   -c requirements.txt
     #   requests
+    #   urllib3
+cffi==1.14.5
+    # via
+    #   -c requirements.txt
+    #   cryptography
 chardet==5.1.0
     # via
     #   -c requirements.txt
@@ -56,12 +61,15 @@ coreapi==2.3.3
 coreschema==0.0.4
     # via coreapi
 coverage[toml]==5.5
+    # via pytest-cov
+cryptography==37.0.2
     # via
-    #   coverage
-    #   pytest-cov
+    #   -c requirements.txt
+    #   pyopenssl
+    #   urllib3
 datamodel-code-generator==0.21.5
     # via -r requirements-dev.in
-django==4.2.1
+django==4.2.8
     # via
     #   -c requirements.txt
     #   django-stubs
@@ -87,9 +95,7 @@ exceptiongroup==1.1.2
 faker==17.5.0
     # via -r requirements-dev.in
 fakeredis[lua]==2.11.0
-    # via
-    #   -r requirements-dev.in
-    #   fakeredis
+    # via -r requirements-dev.in
 flaky==3.7.0
     # via -r requirements-dev.in
 freezegun==1.2.2
@@ -103,6 +109,7 @@ idna==2.8
     #   -c requirements.txt
     #   email-validator
     #   requests
+    #   urllib3
 importlib-resources==5.10.2
     # via openapi-spec-validator
 inflect==5.6.2
@@ -172,15 +179,22 @@ prance==0.22.2.22.0
     #   -c requirements.txt
     #   -r requirements-dev.in
     #   datamodel-code-generator
+pycparser==2.20
+    # via
+    #   -c requirements.txt
+    #   cffi
 pydantic[email]==2.3.0
     # via
     #   -c requirements.txt
     #   datamodel-code-generator
-    #   pydantic
 pydantic-core==2.6.3
     # via
     #   -c requirements.txt
     #   pydantic
+pyopenssl==22.0.0
+    # via
+    #   -c requirements.txt
+    #   urllib3
 pyproject-hooks==1.0.0
     # via build
 pyrsistent==0.18.1
@@ -189,6 +203,10 @@ pyrsistent==0.18.1
     #   jsonschema
 pysnooper==1.1.1
     # via datamodel-code-generator
+pysocks==1.7.1
+    # via
+    #   -c requirements.txt
+    #   urllib3
 pytest==7.4.0
     # via
     #   -r requirements-dev.in
@@ -285,7 +303,7 @@ types-markdown==3.3.9
     # via -r requirements-dev.in
 types-python-dateutil==2.8.3
     # via -r requirements-dev.in
-types-pytz==2021.3.2
+types-pytz==2023.3
     # via -r requirements-dev.in
 types-pyyaml==6.0.1
     # via
@@ -312,15 +330,21 @@ uritemplate==4.1.1
     # via
     #   -c requirements.txt
     #   coreapi
-urllib3==1.26.13
+urllib3[secure,socks]==1.26.13
     # via
     #   -c requirements.txt
     #   requests
     #   responses
+urllib3-secure-extra==0.1.0
+    # via
+    #   -c requirements.txt
+    #   urllib3
 watchdog==2.1.8
     # via pytest-watch
-wheel==0.38.1
-    # via pip-tools
+wheel==0.42.0
+    # via
+    #   -c requirements.txt
+    #   pip-tools
 
 # The following packages are considered to be unsafe in a requirements file:
 # pip

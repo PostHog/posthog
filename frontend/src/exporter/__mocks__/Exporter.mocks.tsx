@@ -1,3 +1,5 @@
+import { FunnelLayout, ShownAsValue } from 'lib/constants'
+
 import {
     ChartDisplayType,
     DashboardTile,
@@ -7,7 +9,6 @@ import {
     InsightShortId,
     InsightType,
 } from '~/types'
-import { FunnelLayout, ShownAsValue } from 'lib/constants'
 
 export const dashboard: DashboardType = {
     id: 1,

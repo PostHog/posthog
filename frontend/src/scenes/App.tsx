@@ -1,28 +1,30 @@
-import { kea, useMountedLogic, useValues, BindLogic, path, connect, actions, reducers, selectors, events } from 'kea'
-import { ToastContainer, Slide } from 'react-toastify'
-import { preflightLogic } from './PreflightCheck/preflightLogic'
-import { userLogic } from 'scenes/userLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import type { appLogicType } from './AppType'
-import { teamLogic } from './teamLogic'
-import { LoadedScene } from 'scenes/sceneTypes'
-import { appScenes } from 'scenes/appScenes'
-import { Navigation as NavigationClassic } from '~/layout/navigation/Navigation'
-import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { ToastCloseButton } from 'lib/lemon-ui/lemonToast'
-import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
-import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { actions, BindLogic, connect, events, kea, path, reducers, selectors, useMountedLogic, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { Navigation as Navigation3000 } from '~/layout/navigation-3000/Navigation'
-import { useEffect } from 'react'
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { use3000Body } from 'lib/hooks/use3000Body'
+import { ToastCloseButton } from 'lib/lemon-ui/lemonToast'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
+import { Slide, ToastContainer } from 'react-toastify'
+import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
+import { appScenes } from 'scenes/appScenes'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { LoadedScene } from 'scenes/sceneTypes'
+import { userLogic } from 'scenes/userLogic'
+
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { GlobalModals } from '~/layout/GlobalModals'
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { Navigation as NavigationClassic } from '~/layout/navigation/Navigation'
+import { Navigation as Navigation3000 } from '~/layout/navigation-3000/Navigation'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
+
+import type { appLogicType } from './AppType'
+import { preflightLogic } from './PreflightCheck/preflightLogic'
+import { teamLogic } from './teamLogic'
 
 export const appLogic = kea<appLogicType>([
     path(['scenes', 'App']),
@@ -68,16 +70,8 @@ export const appLogic = kea<appLogicType>([
 
 export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     useMountedLogic(sceneLogic({ scenes: appScenes }))
-
-    useEffect(() => {
-        if (featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
-            document.body.classList.add('posthog-3000')
-        } else {
-            document.body.classList.remove('posthog-3000')
-        }
-    }, [featureFlags])
+    use3000Body()
 
     if (showApp) {
         return (
@@ -161,13 +155,11 @@ function AppScene(): JSX.Element | null {
         ) : null
     }
 
-    const Navigation = featureFlags[FEATURE_FLAGS.POSTHOG_3000] ? Navigation3000 : NavigationClassic
+    const Navigation = featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test' ? Navigation3000 : NavigationClassic
 
     return (
         <>
-            <Navigation scene={activeScene} sceneConfig={sceneConfig}>
-                {wrappedSceneElement}
-            </Navigation>
+            <Navigation sceneConfig={sceneConfig}>{wrappedSceneElement}</Navigation>
             {toastContainer}
             <GlobalModals />
         </>

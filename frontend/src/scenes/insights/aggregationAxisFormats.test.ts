@@ -1,4 +1,5 @@
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+
 import { FilterType } from '~/types'
 
 describe('formatAggregationAxisValue', () => {
@@ -25,7 +26,9 @@ describe('formatAggregationAxisValue', () => {
         },
     ]
     formatTestcases.forEach((testcase) => {
-        it(`correctly formats "${testcase.candidate}" as ${testcase.expected} when filters are ${testcase.filters}`, () => {
+        it(`correctly formats "${testcase.candidate}" as ${testcase.expected} when filters are ${JSON.stringify(
+            testcase.filters
+        )}`, () => {
             expect(formatAggregationAxisValue(testcase.filters as Partial<FilterType>, testcase.candidate)).toEqual(
                 testcase.expected
             )

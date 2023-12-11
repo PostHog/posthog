@@ -1,3 +1,13 @@
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { CohortTypeEnum, PROPERTY_MATCH_TYPE } from 'lib/constants'
+import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
+import {
+    CohortNumberField,
+    CohortPersonPropertiesValuesField,
+    CohortSelectorField,
+    CohortTaxonomicField,
+    CohortTextField,
+} from 'scenes/cohorts/CohortFilters/CohortField'
 import {
     BehavioralFilterKey,
     BehavioralFilterType,
@@ -12,6 +22,7 @@ import {
     FilterType,
     Row,
 } from 'scenes/cohorts/CohortFilters/types'
+
 import {
     ActorGroupType,
     BaseMathType,
@@ -27,16 +38,6 @@ import {
     TimeUnitType,
     ValueOptionType,
 } from '~/types'
-import {
-    CohortNumberField,
-    CohortPersonPropertiesValuesField,
-    CohortSelectorField,
-    CohortTaxonomicField,
-    CohortTextField,
-} from 'scenes/cohorts/CohortFilters/CohortField'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
-import { CohortTypeEnum, PROPERTY_MATCH_TYPE } from 'lib/constants'
 
 /*
  * Cohort filters are broken down into 3 layers of components.

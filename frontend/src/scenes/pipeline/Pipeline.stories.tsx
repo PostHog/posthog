@@ -1,11 +1,15 @@
-import { useEffect } from 'react'
 import { Meta } from '@storybook/react'
-import { App } from 'scenes/App'
 import { router } from 'kea-router'
+import { useEffect } from 'react'
+import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
-import { PipelineTabs } from '~/types'
-import { pipelineLogic } from './pipelineLogic'
+
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import { PipelineAppTabs, PipelineTabs } from '~/types'
+
+import { appMetricsLogic } from './appMetricsLogic'
+import { appsManagementLogic } from './appsManagementLogic'
+import { pipelineLogic } from './pipelineLogic'
 
 export default {
     title: 'Scenes-App/Pipeline',
@@ -14,6 +18,7 @@ export default {
         mswDecorator({
             get: {
                 'api/organizations/@current/pipeline_transformations/': {},
+                'api/organizations/@current/plugins/': {},
                 'api/projects/:team_id/pipeline_transformations_configs/': {},
             },
         }),
@@ -55,6 +60,69 @@ export function PipelineTransformationsPage(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.pipeline(PipelineTabs.Transformations))
         pipelineLogic.mount()
+    }, [])
+    return <App />
+}
+
+export function PipelineAppConfiguration(): JSX.Element {
+    useEffect(() => {
+        router.actions.push(urls.pipelineApp(1, PipelineAppTabs.Configuration))
+    }, [])
+    return <App />
+}
+
+export function PipelineAppMetrics(): JSX.Element {
+    useStorybookMocks({
+        get: {
+            'api/projects/:team_id/app_metrics/4?date_from=-7d': require('./__mocks__/pluginMetrics.json'),
+            'api/projects/:team_id/app_metrics/4/error_details?error_type=Error': require('./__mocks__/pluginErrorDetails.json'),
+        },
+    })
+    useEffect(() => {
+        router.actions.push(urls.pipelineApp(4, PipelineAppTabs.Metrics))
+        appMetricsLogic({ pluginConfigId: 4 }).mount()
+    }, [])
+    return <App />
+}
+
+export function PipelineAppMetricsErrorModal(): JSX.Element {
+    useStorybookMocks({
+        get: {
+            'api/projects/:team_id/app_metrics/4?date_from=-7d': require('./__mocks__/pluginMetrics.json'),
+            'api/projects/:team_id/app_metrics/4/error_details?error_type=Error': require('./__mocks__/pluginErrorDetails.json'),
+        },
+    })
+    useEffect(() => {
+        router.actions.push(urls.pipelineApp(4, PipelineAppTabs.Metrics))
+        const logic = appMetricsLogic({ pluginConfigId: 4 })
+        logic.mount()
+        logic.actions.openErrorDetailsModal('Error')
+    }, [])
+    return <App />
+}
+
+export function PipelineAppLogs(): JSX.Element {
+    useStorybookMocks({
+        get: {
+            'api/projects/:team_id/plugin_configs/1/logs': require('./__mocks__/pluginLogs.json'),
+        },
+    })
+    useEffect(() => {
+        router.actions.push(urls.pipelineApp(1, PipelineAppTabs.Logs))
+    }, [])
+    return <App />
+}
+
+export function PipelineAppsManagementPage(): JSX.Element {
+    useStorybookMocks({
+        get: {
+            'api/organizations/@current/plugins/': require('./__mocks__/plugins.json'),
+        },
+    })
+
+    useEffect(() => {
+        router.actions.push(urls.pipeline(PipelineTabs.AppsManagement))
+        appsManagementLogic.mount()
     }, [])
     return <App />
 }

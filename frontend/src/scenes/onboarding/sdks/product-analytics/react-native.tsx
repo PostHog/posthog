@@ -1,4 +1,5 @@
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+
 import { SDKInstallRNInstructions } from '../sdk-install-instructions'
 
 export function ProductAnalyticsRNInstructions(): JSX.Element {

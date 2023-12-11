@@ -16,7 +16,6 @@ from typing import (
 )
 
 import requests
-from retry import retry
 import structlog
 from dateutil import parser
 from django.conf import settings
@@ -24,6 +23,7 @@ from django.db import connection
 from django.db.models import Count, Q
 from posthoganalytics.client import Client
 from psycopg import sql
+from retry import retry
 from sentry_sdk import capture_exception
 
 from posthog import version_requirement
@@ -110,6 +110,8 @@ class UsageReportCounters:
     # Surveys
     survey_responses_count_in_period: int
     survey_responses_count_in_month: int
+    # Data Warehouse
+    rows_synced_in_period: int
 
 
 # Instance metadata to be included in oveall report
@@ -391,7 +393,7 @@ def get_teams_with_billable_event_count_in_period(
         f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
-        WHERE timestamp between %(begin)s AND %(end)s AND event != '$feature_flag_called'
+        WHERE timestamp between %(begin)s AND %(end)s AND event != '$feature_flag_called' AND event NOT IN ('survey sent', 'survey shown', 'survey dismissed')
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
@@ -584,6 +586,34 @@ def get_teams_with_survey_responses_count_in_period(
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return results
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> List[Tuple[int, int]]:
+    team_to_query = 1 if get_instance_region() == "EU" else 2
+
+    # dedup by job id incase there were duplicates sent
+    results = sync_execute(
+        """
+        SELECT team, sum(rows_synced) FROM (
+            SELECT JSONExtractString(properties, 'job_id') AS job_id, distinct_id AS team, any(JSONExtractInt(properties, 'count')) AS rows_synced
+            FROM events
+            WHERE team_id = %(team_to_query)s AND event = 'external data sync job' AND parseDateTimeBestEffort(JSONExtractString(properties, 'startTime')) BETWEEN %(begin)s AND %(end)s
+            GROUP BY job_id, team
+        )
+        GROUP BY team
+        """,
+        {
+            "begin": begin,
+            "end": end,
+            "team_to_query": team_to_query,
+        },
         workload=Workload.OFFLINE,
         settings=CH_BILLING_SETTINGS,
     )
@@ -784,6 +814,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> Dict[st
         teams_with_survey_responses_count_in_month=get_teams_with_survey_responses_count_in_period(
             period_start.replace(day=1), period_end
         ),
+        teams_with_rows_synced_in_period=get_teams_with_rows_synced_in_period(period_start, period_end),
     )
 
 
@@ -801,9 +832,9 @@ def _get_all_usage_data_as_team_rows(period_start: datetime, period_end: datetim
 
 def _get_teams_for_usage_reports() -> Sequence[Team]:
     return list(
-        Team.objects.select_related("organization").exclude(
-            Q(organization__for_internal_metrics=True) | Q(is_demo=True)
-        )
+        Team.objects.select_related("organization")
+        .exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
+        .only("id", "organization__id", "organization__name", "organization__created_at")
     )
 
 
@@ -854,6 +885,7 @@ def _get_team_report(all_data: Dict[str, Any], team: Team) -> UsageReportCounter
         event_explorer_api_duration_ms=all_data["teams_with_event_explorer_api_duration_ms"].get(team.id, 0),
         survey_responses_count_in_period=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
         survey_responses_count_in_month=all_data["teams_with_survey_responses_count_in_month"].get(team.id, 0),
+        rows_synced_in_period=all_data["teams_with_rows_synced_in_period"].get(team.id, 0),
     )
 
 

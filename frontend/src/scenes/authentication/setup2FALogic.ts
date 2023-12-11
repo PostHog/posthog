@@ -1,10 +1,10 @@
-import { kea, path, connect, afterMount, listeners, actions, reducers, props } from 'kea'
-import { loaders } from 'kea-loaders'
-import { forms } from 'kea-forms'
-import api from 'lib/api'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { lemonToast } from '@posthog/lemon-ui'
+import { actions, afterMount, connect, kea, listeners, path, props, reducers } from 'kea'
+import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import type { setup2FALogicType } from './setup2FALogicType'
 
@@ -42,7 +42,7 @@ export const setup2FALogic = kea<setup2FALogicType>([
             {},
             {
                 setup: async (_, breakpoint) => {
-                    await breakpoint()
+                    breakpoint()
                     await api.get('api/users/@me/start_2fa_setup/')
                     return { status: 'completed' }
                 },
@@ -56,7 +56,7 @@ export const setup2FALogic = kea<setup2FALogicType>([
                 token: !token ? 'Please enter a token to continue' : undefined,
             }),
             submit: async ({ token }, breakpoint) => {
-                await breakpoint()
+                breakpoint()
                 try {
                     return await api.create('api/users/@me/validate_2fa/', { token })
                 } catch (e) {

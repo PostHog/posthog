@@ -1,10 +1,12 @@
-import { InsightTooltip } from './InsightTooltip'
-import { cohortsModel } from '~/models/cohortsModel'
-import { useMountedLogic } from 'kea'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { InsightTooltipProps } from './insightTooltipUtils'
-import { humanFriendlyNumber } from 'lib/utils'
+import { useMountedLogic } from 'kea'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { humanFriendlyNumber } from 'lib/utils'
+
+import { cohortsModel } from '~/models/cohortsModel'
+
+import { InsightTooltip } from './InsightTooltip'
+import { InsightTooltipProps } from './insightTooltipUtils'
 
 const data = {
     date: '2022-08-31',
@@ -130,9 +132,7 @@ const meta: Meta<typeof InsightTooltip> = {
         renderSeries: (value) => value,
         groupTypeLabel: 'people',
     },
-    parameters: {
-        testOptions: { skip: true }, // FIXME: The InWrapper story fails at locator.screenshot() for some reason
-    },
+    tags: ['test-skip'], // FIXME: The InWrapper story fails at locator.screenshot() for some reason
 }
 export default meta
 

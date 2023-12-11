@@ -1,7 +1,8 @@
 import { urls } from 'scenes/urls'
-import { randomString } from '../support/random'
+
 import { decideResponse } from '../fixtures/api/decide'
-import { savedInsights, createInsight, insight } from '../productAnalytics'
+import { createInsight, insight, savedInsights } from '../productAnalytics'
+import { randomString } from '../support/random'
 
 // For tests related to trends please check trendsElements.js
 // insight tests were split up because Cypress was struggling with this many tests in one file🙈
@@ -24,7 +25,7 @@ describe('Insights', () => {
 
         cy.get('[data-attr=breadcrumb-0]').should('contain', 'Hogflix')
         cy.get('[data-attr=breadcrumb-1]').should('contain', 'Hogflix Demo App')
-        cy.get('[data-attr=breadcrumb-2]').should('have.text', 'Insights')
+        cy.get('[data-attr=breadcrumb-2]').should('have.text', 'Product analytics')
         cy.get('[data-attr=breadcrumb-3]').should('have.text', 'insight name')
     })
 

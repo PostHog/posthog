@@ -52,7 +52,7 @@
 # name: TestQuery.test_query_distinct
   '
   
-  SELECT DISTINCT persons.properties___sneaky_mail 
+  SELECT DISTINCT persons.properties___sneaky_mail AS sneaky_mail 
   FROM (
   SELECT person.id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS properties___random_uuid 
   FROM person 
@@ -71,7 +71,7 @@
 # name: TestQuery.test_query_joins_events_e_pdi
   '
   
-  SELECT e.event, toTimeZone(e.timestamp, %(hogql_val_0)s), e__pdi.distinct_id, e__pdi.person_id 
+  SELECT e.event, toTimeZone(e.timestamp, %(hogql_val_0)s) AS timestamp, e__pdi.distinct_id, e__pdi.person_id 
   FROM events AS e INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
@@ -86,7 +86,7 @@
 # name: TestQuery.test_query_joins_events_pdi
   '
   
-  SELECT events.event, toTimeZone(events.timestamp, %(hogql_val_0)s), events__pdi.distinct_id, events__pdi.person_id 
+  SELECT events.event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events__pdi.distinct_id, events__pdi.person_id 
   FROM events INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
@@ -101,7 +101,7 @@
 # name: TestQuery.test_query_joins_events_pdi_e_person_properties
   '
   
-  SELECT e.event, toTimeZone(e.timestamp, %(hogql_val_1)s), e__pdi.distinct_id, e__pdi__person.properties___sneaky_mail 
+  SELECT e.event, toTimeZone(e.timestamp, %(hogql_val_1)s) AS timestamp, e__pdi.distinct_id, e__pdi__person.properties___sneaky_mail AS sneaky_mail 
   FROM events AS e INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
@@ -125,7 +125,7 @@
 # name: TestQuery.test_query_joins_events_pdi_person
   '
   
-  SELECT events.event, toTimeZone(events.timestamp, %(hogql_val_0)s), events__pdi.distinct_id, events__pdi__person.id 
+  SELECT events.event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events__pdi.distinct_id, events__pdi__person.id 
   FROM events INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
@@ -146,7 +146,7 @@
 # name: TestQuery.test_query_joins_events_pdi_person_properties
   '
   
-  SELECT events.event, toTimeZone(events.timestamp, %(hogql_val_1)s), events__pdi.distinct_id, events__pdi__person.properties___sneaky_mail 
+  SELECT events.event, toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp, events__pdi.distinct_id, events__pdi__person.properties___sneaky_mail AS sneaky_mail 
   FROM events INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
@@ -170,7 +170,7 @@
 # name: TestQuery.test_query_joins_events_person_properties
   '
   
-  SELECT e.event, toTimeZone(e.timestamp, %(hogql_val_1)s), e__pdi__person.properties___sneaky_mail 
+  SELECT e.event, toTimeZone(e.timestamp, %(hogql_val_1)s) AS timestamp, e__pdi__person.properties___sneaky_mail AS sneaky_mail 
   FROM events AS e INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
@@ -194,7 +194,7 @@
 # name: TestQuery.test_query_joins_events_person_properties_in_aggregration
   '
   
-  SELECT s__pdi__person.properties___sneaky_mail, count() 
+  SELECT s__pdi__person.properties___sneaky_mail AS sneaky_mail, count() 
   FROM events AS s INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
@@ -219,7 +219,7 @@
 # name: TestQuery.test_query_joins_pdi
   '
   
-  SELECT e.event, toTimeZone(e.timestamp, %(hogql_val_0)s), pdi.person_id 
+  SELECT e.event, toTimeZone(e.timestamp, %(hogql_val_0)s) AS timestamp, pdi.person_id 
   FROM events AS e INNER JOIN (
   SELECT person_distinct_id2.distinct_id, argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id 
   FROM person_distinct_id2 
@@ -234,7 +234,7 @@
 # name: TestQuery.test_query_joins_pdi_person_properties
   '
   
-  SELECT pdi.distinct_id, pdi__person.properties___sneaky_mail 
+  SELECT pdi.distinct_id, pdi__person.properties___sneaky_mail AS sneaky_mail 
   FROM person_distinct_id2 AS pdi INNER JOIN (
   SELECT person.id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS properties___sneaky_mail 
   FROM person 
@@ -253,7 +253,7 @@
 # name: TestQuery.test_query_joins_pdi_persons
   '
   
-  SELECT pdi.distinct_id, toTimeZone(pdi__person.created_at, %(hogql_val_0)s) 
+  SELECT pdi.distinct_id, toTimeZone(pdi__person.created_at, %(hogql_val_0)s) AS created_at 
   FROM person_distinct_id2 AS pdi INNER JOIN (
   SELECT argMax(person.created_at, person.version) AS created_at, person.id AS id 
   FROM person 
@@ -269,7 +269,7 @@
 # name: TestQuery.test_query_joins_simple
   '
   
-  SELECT e.event, toTimeZone(e.timestamp, %(hogql_val_0)s), pdi.distinct_id, p.id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(p.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') 
+  SELECT e.event, toTimeZone(e.timestamp, %(hogql_val_0)s) AS timestamp, pdi.distinct_id, p.id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(p.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS sneaky_mail 
   FROM events AS e LEFT JOIN person_distinct_id2 AS pdi ON equals(pdi.distinct_id, e.distinct_id) LEFT JOIN person AS p ON equals(p.id, pdi.person_id) 
   WHERE and(equals(p.team_id, 420), equals(pdi.team_id, 420), equals(e.team_id, 420)) 
   LIMIT 100 
@@ -293,7 +293,7 @@
 # name: TestQuery.test_query_select_person_with_joins_without_poe
   '
   
-  SELECT events.event, toTimeZone(events.timestamp, %(hogql_val_1)s), events__pdi__person.id, events__pdi__person.properties___sneaky_mail 
+  SELECT events.event, toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp, events__pdi__person.id, events__pdi__person.properties___sneaky_mail AS sneaky_mail 
   FROM events INNER JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id 
   FROM person_distinct_id2 
@@ -317,7 +317,7 @@
 # name: TestQuery.test_query_select_person_with_poe_without_joins
   '
   
-  SELECT events.event, toTimeZone(events.timestamp, %(hogql_val_0)s), events.person_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') 
+  SELECT events.event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.person_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') AS sneaky_mail 
   FROM events 
   WHERE equals(events.team_id, 420) 
   LIMIT 10 
@@ -327,7 +327,7 @@
 # name: TestQuery.test_select_person_on_events
   '
   
-  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(s.person_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), count() 
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(s.person_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS sneaky_mail, count() 
   FROM events AS s 
   WHERE equals(s.team_id, 420) 
   GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(s.person_properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '') 
@@ -366,7 +366,7 @@
 # name: TestQuery.test_tuple_access
   '
   
-  SELECT col_a, arrayZip((sumMap(g.1, g.2) AS x).1, x.2) AS r 
+  SELECT col_a, arrayZip((sumMap((g).1, (g).2) AS x).1, x.2) AS r 
   FROM (
   SELECT col_a, groupArray(tuple(col_b, col_c)) AS g 
   FROM (
@@ -385,7 +385,7 @@
   
   SELECT PIVOT_FUNCTION_2.col_a, PIVOT_FUNCTION_2.r 
   FROM (
-  SELECT PIVOT_FUNCTION_1.col_a, arrayZip((sumMap(PIVOT_FUNCTION_1.g.1, PIVOT_FUNCTION_1.g.2) AS x).1, x.2) AS r 
+  SELECT PIVOT_FUNCTION_1.col_a, arrayZip((sumMap((PIVOT_FUNCTION_1.g).1, (PIVOT_FUNCTION_1.g).2) AS x).1, x.2) AS r 
   FROM (
   SELECT PIVOT_TABLE_COL_ABC.col_a, groupArray(tuple(PIVOT_TABLE_COL_ABC.col_b, PIVOT_TABLE_COL_ABC.col_c)) AS g 
   FROM (
@@ -406,7 +406,7 @@
   FROM (
   SELECT PIVOT_FUNCTION_2.col_a, PIVOT_FUNCTION_2.r 
   FROM (
-  SELECT PIVOT_FUNCTION_1.col_a, arrayZip((sumMap(PIVOT_FUNCTION_1.g.1, PIVOT_FUNCTION_1.g.2) AS x).1, x.2) AS r 
+  SELECT PIVOT_FUNCTION_1.col_a, arrayZip((sumMap((PIVOT_FUNCTION_1.g).1, (PIVOT_FUNCTION_1.g).2) AS x).1, x.2) AS r 
   FROM (
   SELECT PIVOT_TABLE_COL_ABC.col_a, groupArray(tuple(PIVOT_TABLE_COL_ABC.col_b, PIVOT_TABLE_COL_ABC.col_c)) AS g 
   FROM (

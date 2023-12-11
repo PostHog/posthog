@@ -1,15 +1,16 @@
-import { useState } from 'react'
-import { useActions, useValues } from 'kea'
-
-import { LemonButton } from '@posthog/lemon-ui'
 import { IconRewindPlay } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
-// import { TimelineEntry } from '~/queries/schema'
-import { NotebookNodeType } from '~/types'
 import { IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime, humanFriendlyDuration } from 'lib/utils'
-import { SessionEvent } from './SessionEvent'
+import { useState } from 'react'
+
+// import { TimelineEntry } from '~/queries/schema'
+import { NotebookNodeType } from '~/types'
+
 import { notebookNodeLogic } from '../notebookNodeLogic'
+import { SessionEvent } from './SessionEvent'
 
 type SessionProps = {
     session: any // TimelineEntry

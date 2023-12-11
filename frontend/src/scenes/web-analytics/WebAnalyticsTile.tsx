@@ -1,13 +1,14 @@
-import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import { DataTableNode, InsightVizNode, NodeKind, WebStatsBreakdown } from '~/queries/schema'
+import { useActions, useValues } from 'kea'
+import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { UnexpectedNeverError } from 'lib/utils'
-import { useActions } from 'kea'
-import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { useCallback, useMemo } from 'react'
-import { Query } from '~/queries/Query/Query'
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap'
-import { PropertyFilterType } from '~/types'
-import { ChartDisplayType } from '~/types'
+import { DeviceTab, GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+
+import { Query } from '~/queries/Query/Query'
+import { DataTableNode, InsightVizNode, NodeKind, WebStatsBreakdown } from '~/queries/schema'
+import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
+import { ChartDisplayType, GraphPointPayload, PropertyFilterType } from '~/types'
 
 const PercentageCell: QueryContextColumnComponent = ({ value }) => {
     if (typeof value === 'number') {
@@ -172,14 +173,61 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
     },
 }
 
-export const WebStatsTrendTile = ({ query }: { query: InsightVizNode }): JSX.Element => {
-    const { togglePropertyFilter } = useActions(webAnalyticsLogic)
+export const WebStatsTrendTile = ({
+    query,
+    showIntervalTile,
+}: {
+    query: InsightVizNode
+    showIntervalTile?: boolean
+}): JSX.Element => {
+    const { togglePropertyFilter, setGeographyTab, setDeviceTab, setInterval } = useActions(webAnalyticsLogic)
+    const {
+        hasCountryFilter,
+        deviceTab,
+        hasDeviceTypeFilter,
+        hasBrowserFilter,
+        hasOSFilter,
+        dateFilter: { interval },
+    } = useValues(webAnalyticsLogic)
     const { key: worldMapPropertyName } = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)
+    const { key: deviceTypePropertyName } = webStatsBreakdownToPropertyName(WebStatsBreakdown.DeviceType)
+
     const onWorldMapClick = useCallback(
         (breakdownValue: string) => {
             togglePropertyFilter(PropertyFilterType.Event, worldMapPropertyName, breakdownValue)
+            if (!hasCountryFilter) {
+                // if we just added a country filter, switch to the region tab, as the world map will not be useful
+                setGeographyTab(GeographyTab.REGIONS)
+            }
         },
         [togglePropertyFilter, worldMapPropertyName]
+    )
+
+    const onDeviceTilePieChartClick = useCallback(
+        (graphPoint: GraphPointPayload) => {
+            if (graphPoint.seriesId == null) {
+                return
+            }
+            const dataset = graphPoint.crossDataset?.[graphPoint.seriesId]
+            if (!dataset) {
+                return
+            }
+            const breakdownValue = dataset.breakdownValues?.[graphPoint.index]
+            if (!breakdownValue) {
+                return
+            }
+            togglePropertyFilter(PropertyFilterType.Event, deviceTypePropertyName, breakdownValue)
+
+            // switch to a different tab if we can, try them in this order: DeviceType Browser OS
+            if (deviceTab !== DeviceTab.DEVICE_TYPE && !hasDeviceTypeFilter) {
+                setDeviceTab(DeviceTab.DEVICE_TYPE)
+            } else if (deviceTab !== DeviceTab.BROWSER && !hasBrowserFilter) {
+                setDeviceTab(DeviceTab.BROWSER)
+            } else if (deviceTab !== DeviceTab.OS && !hasOSFilter) {
+                setDeviceTab(DeviceTab.OS)
+            }
+        },
+        [togglePropertyFilter, deviceTypePropertyName, deviceTab, hasDeviceTypeFilter, hasBrowserFilter, hasOSFilter]
     )
 
     const context = useMemo((): QueryContext => {
@@ -187,15 +235,44 @@ export const WebStatsTrendTile = ({ query }: { query: InsightVizNode }): JSX.Ele
             ...webAnalyticsDataTableQueryContext,
             chartRenderingMetadata: {
                 [ChartDisplayType.WorldMap]: {
-                    countryProps: (countryCode, values) => ({
-                        onClick: values && values.count > 0 ? () => onWorldMapClick(countryCode) : undefined,
-                    }),
+                    countryProps: (countryCode, values) => {
+                        return {
+                            onClick:
+                                values && (values.count > 0 || values.aggregated_value > 0)
+                                    ? () => onWorldMapClick(countryCode)
+                                    : undefined,
+                        }
+                    },
+                },
+                [ChartDisplayType.ActionsPie]: {
+                    onSegmentClick: onDeviceTilePieChartClick,
                 },
             },
         }
     }, [onWorldMapClick])
 
-    return <Query query={query} readOnly={true} context={context} />
+    return (
+        <div className="border rounded bg-bg-light">
+            {showIntervalTile && (
+                <div className="flex flex-row items-center justify-end m-2 mr-4">
+                    <div className="flex flex-row items-center">
+                        <span className="mr-2">Group by</span>
+                        <IntervalFilterStandalone
+                            interval={interval}
+                            onIntervalChange={setInterval}
+                            options={[
+                                { value: 'hour', label: 'Hour' },
+                                { value: 'day', label: 'Day' },
+                                { value: 'week', label: 'Week' },
+                                { value: 'month', label: 'Month' },
+                            ]}
+                        />
+                    </div>
+                </div>
+            )}
+            <Query query={query} readOnly={true} context={context} />
+        </div>
+    )
 }
 
 export const WebStatsTableTile = ({

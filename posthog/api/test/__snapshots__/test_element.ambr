@@ -18,6 +18,7 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."email_opt_in",
+         "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
@@ -78,7 +79,8 @@
          "posthog_team"."event_properties",
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='element-stats',route='api/element/stats/%3F%24'*/

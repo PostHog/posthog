@@ -1,6 +1,8 @@
-import { ExporterFormat, OnlineExportContext } from '~/types'
 import { LemonButton, LemonButtonProps, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+
+import { ExporterFormat, OnlineExportContext } from '~/types'
+
 import { triggerExport, TriggerExportProps } from './exporter'
 
 export interface ExportButtonItem {
@@ -51,7 +53,7 @@ export function ExportButton({ items, ...buttonProps }: ExportButtonProps): JSX.
                                     key={i}
                                     fullWidth
                                     status="stealth"
-                                    onClick={() => triggerExport(triggerExportProps)}
+                                    onClick={() => void triggerExport(triggerExportProps)}
                                     data-attr={`export-button-${exportFormatExtension}`}
                                     data-ph-capture-attribute-export-target={target}
                                     data-ph-capture-attribute-export-body={
