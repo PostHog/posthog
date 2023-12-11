@@ -34,8 +34,8 @@ export function TopBar(): JSX.Element | null {
             const mainElement = document.getElementsByTagName('main')[0]
             const mainScrollTop = mainElement.scrollTop
             const compactionDistance = Math.min(
-                // This ensure that scrolling to the bottom of the scene will always result in the compact top bar state
-                // even if there's just a few pixels of scroll room. Otherwise the top bar would be halfway-compact then
+                // This ensures that scrolling to the bottom of the scene will always result in the compact top bar state
+                // even if there's just a few pixels of scroll room. Otherwise, the top bar would be halfway-compact then
                 mainElement.scrollHeight - mainElement.clientHeight,
                 BREADCRUMBS_HEIGHT_COMPACT
             )

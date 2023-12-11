@@ -117,37 +117,39 @@ body:not(.posthog-3000) {
 .posthog-3000 {
     .LemonSegmentedButton__option {
         & .LemonButton,
-        & .LemonButton > .LemonButton__chrome {
-            border-radius: 0;
+        & .LemonButton > .LemonButton__chrome::after,
+        & .LemonButton > .LemonButton__chrome::before {
+            border-radius: 0 !important;
         }
 
-        .LemonButton > .LemonButton__chrome {
+        .LemonButton:not(:hover) {
             background: var(--bg-3000);
 
-            .LemonButton__icon,
             .LemonButton__content {
-                opacity: 0.4;
+                opacity: var(--lemon-button-icon-opacity);
             }
         }
 
         .LemonButton.LemonButton--secondary:not([aria-disabled='true']):hover {
-            > .LemonButton__chrome {
+            > .LemonButton__chrome::after {
                 border-color: var(--secondary-3000-button-border);
             }
         }
 
         &:first-child,
         &:first-child .LemonButton,
-        &:first-child .LemonButton > .LemonButton__chrome {
-            border-top-left-radius: var(--radius);
-            border-bottom-left-radius: var(--radius);
+        &:first-child .LemonButton > .LemonButton__chrome::after,
+        &:first-child .LemonButton > .LemonButton__chrome::before {
+            border-top-left-radius: var(--radius) !important;
+            border-bottom-left-radius: var(--radius) !important;
         }
 
         &:last-child,
         &:last-child .LemonButton,
-        &:last-child .LemonButton > .LemonButton__chrome {
-            border-top-right-radius: var(--radius);
-            border-bottom-right-radius: var(--radius);
+        &:last-child .LemonButton > .LemonButton__chrome::after,
+        &:last-child .LemonButton > .LemonButton__chrome::before {
+            border-top-right-radius: var(--radius) !important;
+            border-bottom-right-radius: var(--radius) !important;
         }
 
         &:not(:last-child) {
@@ -158,13 +160,11 @@ body:not(.posthog-3000) {
 
         &.LemonSegmentedButton__option--selected {
             .LemonButton {
-                .LemonButton__icon,
-                .LemonButton__content {
-                    opacity: 1;
-                }
+                --lemon-button-icon-opacity: 1;
+                --lemon-button-profile-picture-opacity: 1;
             }
 
-            .LemonButton__chrome {
+            .LemonButton__chrome::after {
                 background-color: var(--bg-light);
             }
         }

@@ -1,5 +1,4 @@
 import './BoldNumber.scss'
-import './BoldNumber.scss'
 
 import { LemonRow, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'

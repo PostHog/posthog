@@ -150,12 +150,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     # Send all instance usage to the Billing service
     # Sends later on Sunday due to clickhouse things that happen on Sunday at ~00:00 UTC
     sender.add_periodic_task(
-        crontab(hour="2", minute="5", day_of_week="sun"),
+        crontab(hour="2", minute="15", day_of_week="mon"),
         send_org_usage_reports.s(),
         name="send instance usage report",
     )
     sender.add_periodic_task(
-        crontab(hour="0", minute="5", day_of_week="mon,tue,wed,thu,fri,sat"),
+        crontab(hour="0", minute="15", day_of_week="tue,wed,thu,fri,sat,sun"),
         send_org_usage_reports.s(),
         name="send instance usage report",
     )
@@ -402,7 +402,7 @@ def redis_heartbeat():
 
 
 @app.task(ignore_result=True, bind=True)
-def process_query_task(self, team_id, query_id, query_json, in_export_context=False, refresh_requested=False):
+def process_query_task(self, team_id, query_id, query_json, limit_context=None, refresh_requested=False):
     """
     Kick off query
     Once complete save results to redis
@@ -413,7 +413,7 @@ def process_query_task(self, team_id, query_id, query_json, in_export_context=Fa
         team_id=team_id,
         query_id=query_id,
         query_json=query_json,
-        in_export_context=in_export_context,
+        limit_context=limit_context,
         refresh_requested=refresh_requested,
     )
 

@@ -95,7 +95,7 @@ jobs:
                   kubectl -n $NAMESPACE delete -f .github/pr-deploy/hobby.yaml || true
                   kubectl -n $NAMESPACE apply -f .github/pr-deploy/hobby.yaml
 
-                  echo "url=$NAMESPACE-${HOSTNAME}.hedgehog-kitefin.ts.net" >> $GITHUB_OUTPUT
+                  echo "url=$HOSTNAME.dev.posthog.dev" >> $GITHUB_OUTPUT
 
             - name: update deployment status
               uses: bobheadxi/deployments@v1
@@ -104,5 +104,5 @@ jobs:
                   status: ${{ job.status }}
                   env: ${{ steps.deployment.outputs.env }}
                   ref: ${{ github.head_ref }}
-                  env_url: http://${{ steps.deploy_hobby.outputs.url }}
+                  env_url: https://${{ steps.deploy_hobby.outputs.url }}
                   deployment_id: ${{ steps.deployment.outputs.deployment_id }}

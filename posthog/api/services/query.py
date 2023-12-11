@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -18,6 +19,7 @@ logger = structlog.get_logger(__name__)
 
 QUERY_WITH_RUNNER = [
     "LifecycleQuery",
+    "RetentionQuery",
     "TrendsQuery",
     "WebOverviewQuery",
     "WebTopSourcesQuery",
@@ -54,7 +56,7 @@ def _unwrap_pydantic_dict(response: Any) -> Dict:
 def process_query(
     team: Team,
     query_json: Dict,
-    in_export_context: Optional[bool] = False,
+    limit_context: Optional[LimitContext] = None,
     refresh_requested: Optional[bool] = False,
 ) -> Dict:
     # query_json has been parsed by QuerySchemaParser
@@ -63,10 +65,10 @@ def process_query(
     tag_queries(query=query_json)
 
     if query_kind in QUERY_WITH_RUNNER:
-        query_runner = get_query_runner(query_json, team, in_export_context=in_export_context)
+        query_runner = get_query_runner(query_json, team, limit_context=limit_context)
         return _unwrap_pydantic_dict(query_runner.run(refresh_requested=refresh_requested))
     elif query_kind in QUERY_WITH_RUNNER_NO_CACHE:
-        query_runner = get_query_runner(query_json, team, in_export_context=in_export_context)
+        query_runner = get_query_runner(query_json, team, limit_context=limit_context)
         return _unwrap_pydantic_dict(query_runner.calculate())
     elif query_kind == "HogQLMetadata":
         metadata_query = HogQLMetadata.model_validate(query_json)

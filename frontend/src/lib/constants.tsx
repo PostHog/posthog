@@ -1,3 +1,5 @@
+import { LemonSelectOptions } from '@posthog/lemon-ui'
+
 import { AvailableFeature, ChartDisplayType, LicensePlan, Region, SSOProvider } from '../types'
 
 /** Display types which don't allow grouping by unit of time. Sync with backend NON_TIME_SERIES_DISPLAY_TYPES. */
@@ -117,6 +119,9 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
     Teams: 'office.com',
 }
 
+// NOTE: Run `DEBUG=1 python manage.py sync_feature_flags` locally to sync these flags into your local project
+// By default all flags are boolean but you can add `multivariate` to the comment to have it created as multivariate with "test" and "control" values
+
 export const FEATURE_FLAGS = {
     // Cloud-only
     CLOUD_ANNOUNCEMENT: 'cloud-announcement',
@@ -138,12 +143,13 @@ export const FEATURE_FLAGS = {
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
     QUERY_TIMINGS: 'query-timings', // owner: @mariusandra
     QUERY_ASYNC: 'query-async', // owner: @webjunkie
-    POSTHOG_3000: 'posthog-3000', // owner: @Twixes
+    POSTHOG_3000: 'posthog-3000', // owner: @Twixes multivariate
     POSTHOG_3000_NAV: 'posthog-3000-nav', // owner: @Twixes
+    POSTHOG_3000_WELCOME_ANNOUNCEMENT: 'posthog-3000-welcome-announcement', // owner: #posthog-3000
     ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
     FEEDBACK_SCENE: 'feedback-scene', // owner: @lharries
-    NOTEBOOKS: 'notebooks', // owner: #team-monitoring
-    EARLY_ACCESS_FEATURE_SITE_BUTTON: 'early-access-feature-site-button', // owner: @neilkakkar
+    NOTEBOOKS: 'notebooks', // owner: #team-replay
+    HEDGEHOG_MODE: 'hedgehog-mode', // owner: @benjackwhite
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
     GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // experiment, owner: @raquelmsmith
     WEB_ANALYTICS: 'web-analytics', // owner @robbie-c #team-web-analytics
@@ -160,25 +166,30 @@ export const FEATURE_FLAGS = {
     PRODUCT_SPECIFIC_ONBOARDING: 'product-specific-onboarding', // owner: @raquelmsmith
     REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith
     APPS_AND_EXPORTS_UI: 'apps-and-exports-ui', // owner: @benjackwhite
-    SESSION_REPLAY_CORS_PROXY: 'session-replay-cors-proxy', // owner: #team-monitoring
+    SESSION_REPLAY_CORS_PROXY: 'session-replay-cors-proxy', // owner: #team-replay
     HOGQL_INSIGHTS_LIFECYCLE: 'hogql-insights-lifecycle', // owner: @mariusandra
+    HOGQL_INSIGHTS_RETENTION: 'hogql-insights-retention', // owner: @webjunkie
     HOGQL_INSIGHTS_TRENDS: 'hogql-insights-trends', // owner: @Gilbert09
     HOGQL_INSIGHT_LIVE_COMPARE: 'hogql-insight-live-compare', // owner: @mariusandra
     BI_VIZ: 'bi_viz', // owner: @Gilbert09
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
     SURVEYS_RESULTS_VISUALIZATIONS: 'surveys-results-visualizations', // owner: @jurajmajerik
     SURVEYS_PAYGATES: 'surveys-paygates',
-    CONSOLE_RECORDING_SEARCH: 'console-recording-search', // owner: #team-monitoring
+    CONSOLE_RECORDING_SEARCH: 'console-recording-search', // owner: #team-replay
     PERSONS_HOGQL_QUERY: 'persons-hogql-query', // owner: @mariusandra
     PIPELINE_UI: 'pipeline-ui', // owner: #team-pipeline
-    NOTEBOOK_CANVASES: 'notebook-canvases', // owner: #team-monitoring
-    SESSION_RECORDING_SAMPLING: 'session-recording-sampling', // owner: #team-monitoring
+    NOTEBOOK_CANVASES: 'notebook-canvases', // owner: #team-replay
+    SESSION_RECORDING_SAMPLING: 'session-recording-sampling', // owner: #team-replay
     PERSON_FEED_CANVAS: 'person-feed-canvas', // owner: #project-canvas
     MULTI_PROJECT_FEATURE_FLAGS: 'multi-project-feature-flags', // owner: @jurajmajerik #team-feature-success
-    NETWORK_PAYLOAD_CAPTURE: 'network-payload-capture', // owner: #team-monitoring
+    NETWORK_PAYLOAD_CAPTURE: 'network-payload-capture', // owner: #team-replay
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: @neilkakkar #team-feature-success
     INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: @benjackwhite
-    ALWAYS_SHOW_SEEKBAR_PREVIEW: 'always-show-seekbar-preview', // owner: @pauldambra
+    SCHEDULED_CHANGES_FEATURE_FLAGS: 'scheduled-changes-feature-flags', // owner: @jurajmajerik #team-feature-success
+    ALWAYS_SHOW_SEEKBAR_PREVIEW: 'always-show-seekbar-preview', // owner: #team-replay
+    SESSION_REPLAY_MOBILE: 'session-replay-mobile', // owner: #team-replay
+    SESSION_REPLAY_IOS: 'session-replay-ios', // owner: #team-replay
+    YEAR_IN_HOG: 'year-in-hog', // owner: #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
@@ -262,3 +273,30 @@ export const EVENT_DEFINITIONS_PER_PAGE = 50
 export const PROPERTY_DEFINITIONS_PER_EVENT = 5
 export const EVENT_PROPERTY_DEFINITIONS_PER_PAGE = 50
 export const LOGS_PORTION_LIMIT = 50
+
+export const SESSION_REPLAY_MINIMUM_DURATION_OPTIONS: LemonSelectOptions<number | null> = [
+    {
+        label: 'no minimum',
+        value: null,
+    },
+    {
+        label: '1',
+        value: 1000,
+    },
+    {
+        label: '2',
+        value: 2000,
+    },
+    {
+        label: '5',
+        value: 5000,
+    },
+    {
+        label: '10',
+        value: 10000,
+    },
+    {
+        label: '15',
+        value: 15000,
+    },
+]

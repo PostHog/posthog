@@ -73,7 +73,14 @@ export function SDKs({
                                 onClick={selectedSDK?.key !== sdk.key ? () => setSelectedSDK(sdk) : undefined}
                                 fullWidth
                                 icon={
-                                    typeof sdk.image === 'string' ? <img src={sdk.image} className="w-4" /> : sdk.image
+                                    typeof sdk.image === 'string' ? (
+                                        <img src={sdk.image} className="w-4" />
+                                    ) : // storybook handles require() differently and returns an object, from which we can use the url in .default
+                                    typeof sdk.image === 'object' && 'default' in sdk.image ? (
+                                        <img src={sdk.image.default} className="w-4" />
+                                    ) : (
+                                        sdk.image
+                                    )
                                 }
                             >
                                 {sdk.name}

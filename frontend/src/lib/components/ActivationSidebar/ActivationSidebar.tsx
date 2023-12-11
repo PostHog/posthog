@@ -1,6 +1,6 @@
 import './ActivationSidebar.scss'
 
-import { LemonButton, LemonButtonProps, LemonButtonWithSideAction } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonWithSideActionProps } from '@posthog/lemon-ui'
 import { Progress } from 'antd'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -32,7 +32,7 @@ export const ActivationTask = ({
         </div>
     )
 
-    const params: Partial<LemonButtonProps> = {
+    const params: Partial<LemonButtonWithSideActionProps> = {
         id,
         fullWidth: true,
         type: 'secondary',
@@ -52,7 +52,7 @@ export const ActivationTask = ({
     return (
         <li>
             {displaySideAction ? (
-                <LemonButtonWithSideAction
+                <LemonButton
                     {...params}
                     sideAction={{
                         icon: <IconClose />,
@@ -62,7 +62,7 @@ export const ActivationTask = ({
                     }}
                 >
                     {content}
-                </LemonButtonWithSideAction>
+                </LemonButton>
             ) : (
                 <LemonButton {...params}>{content}</LemonButton>
             )}

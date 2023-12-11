@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { LemonButton, LemonButtonProps, LemonButtonWithSideAction, SideAction } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonProps, SideAction } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -39,7 +39,7 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
         <li>
             <SidebarChangeNoticeTooltip identifier={identifier}>
                 {sideAction ? (
-                    <LemonButtonWithSideAction
+                    <LemonButton
                         fullWidth
                         status={buttonStatus}
                         active={isActive}
@@ -54,7 +54,7 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
                         {...buttonProps}
                     >
                         <span className="text-default">{title}</span>
-                    </LemonButtonWithSideAction>
+                    </LemonButton>
                 ) : (
                     <LemonButton
                         fullWidth

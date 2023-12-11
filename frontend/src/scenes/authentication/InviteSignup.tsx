@@ -7,6 +7,7 @@ import PasswordStrength from 'lib/components/PasswordStrength'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { Field, PureField } from 'lib/forms/Field'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -192,6 +193,7 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
 function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): JSX.Element {
     const { signup, isSignupSubmitting } = useValues(inviteSignupLogic)
     const { preflight } = useValues(preflightLogic)
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     return (
         <BridgePage
@@ -269,7 +271,8 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                 </Field>
 
                 <LemonButton
-                    type="onboarding"
+                    type="primary"
+                    status={is3000 ? 'primary-alt' : 'primary'}
                     htmlType="submit"
                     data-attr="password-signup"
                     loading={isSignupSubmitting}

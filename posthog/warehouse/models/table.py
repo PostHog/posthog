@@ -20,8 +20,9 @@ from posthog.models.utils import (
     sane_repr,
 )
 from posthog.warehouse.models.util import remove_named_tuples
-
+from django.db.models import Q
 from .credential import DataWarehouseCredential
+from uuid import UUID
 
 CLICKHOUSE_HOGQL_MAPPING = {
     "UUID": StringDatabaseField,
@@ -81,7 +82,7 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
 
     __repr__ = sane_repr("name")
 
-    def get_columns(self):
+    def get_columns(self, safe_expose_ch_error=True):
         try:
             result = sync_execute(
                 """DESCRIBE TABLE (
@@ -97,7 +98,11 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
                 },
             )
         except Exception as err:
-            self._safe_expose_ch_error(err)
+            if safe_expose_ch_error:
+                self._safe_expose_ch_error(err)
+            else:
+                raise err
+
         return {item[0]: item[1] for item in result}
 
     def hogql_definition(self) -> S3Table:
@@ -135,3 +140,9 @@ class DataWarehouseTable(CreatedMetaFields, UUIDModel, DeletedMetaFields):
             if key in err.message:
                 raise Exception(value)
         raise Exception("Could not get columns")
+
+
+def get_table_by_url_pattern_and_source(url_pattern: str, source_id: UUID, team_id: int) -> DataWarehouseTable:
+    return DataWarehouseTable.objects.filter(Q(deleted=False) | Q(deleted__isnull=True)).get(
+        team_id=team_id, external_data_source_id=source_id, url_pattern=url_pattern
+    )

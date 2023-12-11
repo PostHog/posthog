@@ -26,7 +26,7 @@
         font-family: var(--font-sans);
     }
 
-    > span {
+    .LemonButton__chrome {
         display: flex;
         flex: 1;
         gap: 0.5rem;
@@ -48,19 +48,26 @@
         }
     }
 
+    &.LemonButton--truncate {
+        flex-shrink: 1;
+        min-width: 0; // allows the truncate to happen in a flex parent
+        white-space: nowrap;
+
+        .LemonButton__content {
+            display: initial; // Truncating doesn't work if display is flex
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+    }
+
     &.LemonButton--loading {
         cursor: default;
     }
 
     &.LemonButton--full-width {
         width: 100%;
-        padding-right: 0.5rem;
-        padding-left: 0.5rem;
-
-        > span,
-        .LemonButton__content {
-            overflow: hidden;
-        }
     }
 
     &.LemonButton--centered {
@@ -153,26 +160,6 @@
             color: #fff !important;
         }
     }
-
-    @each $status in ('primary', 'danger', 'primary-alt', 'muted') {
-        &.LemonButton--status-#{$status} {
-            // Primary - blocked color style
-            &.LemonButton--onboarding,
-            &.LemonButton--primary {
-                color: #fff;
-                background: var(--#{$status}-3000, var(--#{$status}));
-
-                &:not([aria-disabled='true']):hover,
-                &.LemonButton--active {
-                    color: #fff;
-                }
-
-                &:not([aria-disabled='true']):active {
-                    color: #fff;
-                }
-            }
-        }
-    }
 }
 
 .LemonButtonWithSideAction {
@@ -194,7 +181,7 @@
     background: none;
     transform: translateY(-50%);
 
-    .LemonButtonWithSideAction--small & {
+    .LemonButton--small & {
         right: 0.375rem;
     }
 }

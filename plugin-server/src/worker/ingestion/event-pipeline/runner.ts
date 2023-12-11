@@ -1,6 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
-import { Counter, Summary } from 'prom-client'
 
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { runInSpan } from '../../../sentry'
@@ -10,32 +9,18 @@ import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'
 import { generateEventDeadLetterQueueMessage } from '../utils'
 import { createEventStep } from './createEventStep'
+import {
+    eventProcessedAndIngestedCounter,
+    pipelineLastStepCounter,
+    pipelineStepDLQCounter,
+    pipelineStepErrorCounter,
+    pipelineStepMsSummary,
+    pipelineStepThrowCounter,
+} from './metrics'
 import { pluginsProcessEventStep } from './pluginsProcessEventStep'
 import { populateTeamDataStep } from './populateTeamDataStep'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
-
-const pipelineStepCompletionCounter = new Counter({
-    name: 'events_pipeline_step_executed_total',
-    help: 'Number of events that have completed the step',
-    labelNames: ['step_name'],
-})
-const pipelineStepDurationSummary = new Summary({
-    name: 'events_pipeline_step_duration_seconds_total',
-    help: 'Duration spent in each step',
-    percentiles: [0.1, 0.5, 0.9, 0.95],
-    labelNames: ['step_name'],
-})
-const pipelineStepThrowCounter = new Counter({
-    name: 'events_pipeline_step_throw_total',
-    help: 'Number of events that have thrown error in the step',
-    labelNames: ['step_name'],
-})
-const pipelineStepDLQCounter = new Counter({
-    name: 'events_pipeline_step_dlq_total',
-    help: 'Number of events that have been sent to DLQ in the step',
-    labelNames: ['step_name'],
-})
 
 export type EventPipelineResult = {
     // Promises that the batch handler should await on before committing offsets,
@@ -90,7 +75,6 @@ export class EventPipelineRunner {
 
     async runEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
         this.originalEvent = event
-        this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'event' })
 
         try {
             if (this.isEventDisallowed(event)) {
@@ -109,7 +93,7 @@ export class EventPipelineRunner {
             } else {
                 result = this.registerLastStep('populateTeamDataStep', null, [event])
             }
-            this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
+            eventProcessedAndIngestedCounter.inc()
             return result
         } catch (error) {
             if (error instanceof StepErrorNoRetry) {
@@ -160,10 +144,7 @@ export class EventPipelineRunner {
         args: any[],
         promises?: Array<Promise<void>>
     ): EventPipelineResult {
-        this.hub.statsd?.increment('kafka_queue.event_pipeline.step.last', {
-            step: stepName,
-            team_id: String(teamId), // NOTE: potentially high cardinality
-        })
+        pipelineLastStepCounter.labels(stepName).inc()
         return { promises: promises, lastStep: stepName, args }
     }
 
@@ -174,7 +155,6 @@ export class EventPipelineRunner {
         sentToDql = true
     ): ReturnType<Step> {
         const timer = new Date()
-        const stepTimer = pipelineStepDurationSummary.labels(step.name).startTimer()
         return runInSpan(
             {
                 op: 'runStep',
@@ -190,10 +170,7 @@ export class EventPipelineRunner {
                 )
                 try {
                     const result = await step(...args)
-                    pipelineStepCompletionCounter.labels(step.name).inc()
-                    stepTimer()
-                    this.hub.statsd?.increment('kafka_queue.event_pipeline.step', { step: step.name })
-                    this.hub.statsd?.timing('kafka_queue.event_pipeline.step.timing', timer, { step: step.name })
+                    pipelineStepMsSummary.labels(step.name).observe(Date.now() - timer.getTime())
                     return result
                 } catch (err) {
                     await this.handleError(err, step.name, args, teamId, sentToDql)
@@ -222,7 +199,7 @@ export class EventPipelineRunner {
             extra: { currentArgs, originalEvent: this.originalEvent },
         })
 
-        this.hub.statsd?.increment('kafka_queue.event_pipeline.step.error', { step: currentStepName })
+        pipelineStepErrorCounter.labels(currentStepName).inc()
 
         // Should we throw or should we drop and send the event to DLQ.
         if (this.shouldRetry(err)) {
@@ -240,7 +217,6 @@ export class EventPipelineRunner {
                     `plugin_server_ingest_event:${currentStepName}`
                 )
                 await this.hub.db.kafkaProducer!.queueMessage(message)
-                this.hub.statsd?.increment('events_added_to_dead_letter_queue')
             } catch (dlqError) {
                 status.info('🔔', `Errored trying to add event to dead letter queue. Error: ${dlqError}`)
                 Sentry.captureException(dlqError, {

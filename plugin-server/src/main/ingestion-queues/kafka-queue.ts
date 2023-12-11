@@ -1,5 +1,4 @@
 import * as Sentry from '@sentry/node'
-import { StatsD } from 'hot-shots'
 import { Consumer, EachBatchPayload, Kafka } from 'kafkajs'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
@@ -11,7 +10,7 @@ import { KafkaConfig } from '../../utils/db/hub'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { killGracefully } from '../../utils/utils'
-import { addMetricsEventListeners, emitConsumerGroupMetrics } from './kafka-metrics'
+import { addMetricsEventListeners } from './kafka-metrics'
 
 type ConsumerManagementPayload = {
     topic: string
@@ -29,7 +28,6 @@ export class KafkaJSIngestionConsumer {
     public consumer: Consumer
     public sessionTimeout: number
     private kafka: Kafka
-    private consumerGroupMemberId: string | null
     private wasConsumerRan: boolean
 
     constructor(pluginsServer: Hub, topic: string, consumerGroupId: string, batchHandler: KafkaJSBatchFunction) {
@@ -46,7 +44,6 @@ export class KafkaJSIngestionConsumer {
         )
         this.wasConsumerRan = false
 
-        this.consumerGroupMemberId = null
         this.consumerReady = false
 
         this.eachBatch = batchHandler
@@ -62,12 +59,11 @@ export class KafkaJSIngestionConsumer {
         )
 
         const startPromise = new Promise<void>(async (resolve, reject) => {
-            addMetricsEventListeners(this.consumer, this.pluginsServer.statsd)
+            addMetricsEventListeners(this.consumer)
 
             this.consumer.on(this.consumer.events.GROUP_JOIN, ({ payload }) => {
                 status.info('ℹ️', 'Kafka joined consumer group', JSON.stringify(payload))
                 this.consumerReady = true
-                this.consumerGroupMemberId = payload.memberId
                 clearTimeout(timeout)
                 resolve()
             })
@@ -93,12 +89,7 @@ export class KafkaJSIngestionConsumer {
 
     async eachBatchConsumer(payload: EachBatchPayload): Promise<void> {
         const topic = payload.batch.topic
-        await instrumentEachBatchKafkaJS(
-            topic,
-            (payload) => this.eachBatch(payload, this),
-            payload,
-            this.pluginsServer.statsd
-        )
+        await instrumentEachBatchKafkaJS(topic, (payload) => this.eachBatch(payload, this), payload)
     }
 
     async pause(targetTopic: string, partition?: number): Promise<void> {
@@ -151,10 +142,6 @@ export class KafkaJSIngestionConsumer {
         } catch {}
 
         this.consumerReady = false
-    }
-
-    emitConsumerGroupMetrics(): Promise<void> {
-        return emitConsumerGroupMetrics(this.consumer, this.consumerGroupMemberId, this.pluginsServer)
     }
 
     private static buildConsumer(
@@ -217,12 +204,7 @@ export class IngestionConsumer {
     }
 
     async eachBatchConsumer(messages: Message[]): Promise<void> {
-        await instrumentEachBatch(
-            this.topic,
-            (messages) => this.eachBatch(messages, this),
-            messages,
-            this.pluginsServer.statsd
-        )
+        await instrumentEachBatch(this.topic, (messages) => this.eachBatch(messages, this), messages)
     }
 
     async stop(): Promise<void> {
@@ -286,8 +268,7 @@ type EachBatchHandler = (messages: Message[]) => Promise<void>
 export const instrumentEachBatch = async (
     topic: string,
     eachBatch: EachBatchHandler,
-    messages: Message[],
-    statsd?: StatsD
+    messages: Message[]
 ): Promise<void> => {
     try {
         kafkaConsumerMessagesReadCounter.labels({ topic_name: topic }).inc(messages.length)
@@ -295,9 +276,7 @@ export const instrumentEachBatch = async (
         kafkaConsumerMessagesProcessedCounter.labels({ topic_name: topic }).inc(messages.length)
     } catch (error) {
         const eventCount = messages.length
-        statsd?.increment('kafka_queue_each_batch_failed_events', eventCount, {
-            topic: topic,
-        })
+        kafkaConsumerEachBatchFailedCounter.labels({ topic_name: topic }).inc(eventCount)
         status.warn('💀', `Kafka batch of ${eventCount} events for topic ${topic} failed!`)
         throw error
     }
@@ -306,8 +285,7 @@ export const instrumentEachBatch = async (
 export const instrumentEachBatchKafkaJS = async (
     topic: string,
     eachBatch: (payload: EachBatchPayload) => Promise<void>,
-    payload: EachBatchPayload,
-    statsd?: StatsD
+    payload: EachBatchPayload
 ): Promise<void> => {
     try {
         kafkaConsumerMessagesReadCounter.labels({ topic_name: topic }).inc(payload.batch.messages.length)
@@ -315,9 +293,7 @@ export const instrumentEachBatchKafkaJS = async (
         kafkaConsumerMessagesProcessedCounter.labels({ topic_name: topic }).inc(payload.batch.messages.length)
     } catch (error) {
         const eventCount = payload.batch.messages.length
-        statsd?.increment('kafka_queue_each_batch_failed_events', eventCount, {
-            topic: topic,
-        })
+        kafkaConsumerEachBatchFailedCounter.labels({ topic_name: topic }).inc(eventCount)
         status.warn('💀', `Kafka batch of ${eventCount} events for topic ${topic} failed!`, {
             stack: error.stack,
             error: error,
@@ -333,9 +309,8 @@ export const instrumentEachBatchKafkaJS = async (
                 'Could not find person with distinct id': 'person_not_found',
                 'The coordinator is not aware of this member': 'not_aware_of_member',
             }
-            for (const [msg, metricSuffix] of Object.entries(messagesToIgnore)) {
+            for (const [msg, _] of Object.entries(messagesToIgnore)) {
                 if (error.message.includes(msg)) {
-                    statsd?.increment('each_batch_error_' + metricSuffix)
                     logToSentry = false
                 }
             }
@@ -358,5 +333,11 @@ export const kafkaConsumerMessagesReadCounter = new Counter({
 export const kafkaConsumerMessagesProcessedCounter = new Counter({
     name: 'kafka_consumer_messages_processed_total',
     help: 'Count of messages successfully processed by Kafka consumer, by source topic.',
+    labelNames: ['topic_name'],
+})
+
+export const kafkaConsumerEachBatchFailedCounter = new Counter({
+    name: 'kafka_consumer_each_batch_failed_total',
+    help: 'Count of each batch failures by source topic.',
     labelNames: ['topic_name'],
 })

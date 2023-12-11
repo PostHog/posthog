@@ -10,6 +10,10 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from unittest.mock import patch
 
 import freezegun
+
+# we have to import pendulum for the side effect of importing it
+# freezegun.FakeDateTime and pendulum don't play nicely otherwise
+import pendulum  # noqa F401
 import pytest
 import sqlparse
 from django.apps import apps

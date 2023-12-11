@@ -127,6 +127,7 @@ export const MOCK_DEFAULT_USER: UserType = {
     is_email_verified: true,
     is_2fa_enabled: false,
     has_social_auth: false,
+    theme_mode: null,
     team: MOCK_DEFAULT_TEAM,
     organization: MOCK_DEFAULT_ORGANIZATION,
     organizations: [MOCK_DEFAULT_ORGANIZATION].map(({ id, name, slug, membership_level }) => ({
