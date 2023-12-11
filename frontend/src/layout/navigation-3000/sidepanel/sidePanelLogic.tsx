@@ -99,10 +99,14 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         ],
 
         visibleTabs: [
-            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.isReady, s.hasCompletedAllTasks],
-            (enabledTabs, selectedTab, sidePanelOpen): SidePanelTab[] => {
+            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.unreadCount],
+            (enabledTabs, selectedTab, sidePanelOpen, unreadCount): SidePanelTab[] => {
                 return enabledTabs.filter((tab: any) => {
                     if (tab === selectedTab && sidePanelOpen) {
+                        return true
+                    }
+
+                    if (tab === SidePanelTab.Activation && unreadCount) {
                         return true
                     }
 
