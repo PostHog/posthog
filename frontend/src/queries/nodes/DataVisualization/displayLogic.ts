@@ -33,34 +33,40 @@ export const displayLogic = kea<displayLogicType>([
         goalLines: [
             [] as GoalLine[],
             {
-                addGoalLine: (prev, { yData }) => {
+                addGoalLine: (state, { yData }) => {
                     const yDataFlat = yData?.flatMap((n) => n.data) ?? []
                     const yDataAvg = Math.round(d3.mean(yDataFlat) ?? 0)
 
-                    prev.push({
-                        label: 'Q4 Goal',
-                        value: yDataAvg ?? 0,
-                    })
-                    return [...prev]
+                    return [
+                        ...state,
+                        {
+                            label: 'Q4 Goal',
+                            value: yDataAvg ?? 0,
+                        },
+                    ]
                 },
-                removeGoalLine: (prev, { goalLineIndex }) => {
-                    prev.splice(goalLineIndex, 1)
-                    return [...prev]
+                removeGoalLine: (state, { goalLineIndex }) => {
+                    const goalLines = [...state]
+
+                    goalLines.splice(goalLineIndex, 1)
+                    return goalLines
                 },
-                updateGoalLine: (prev, { goalLineIndex, key, value }) => {
+                updateGoalLine: (state, { goalLineIndex, key, value }) => {
+                    const goalLines = [...state]
+
                     if (key === 'value') {
                         if (Number.isNaN(value)) {
-                            prev[goalLineIndex][key] = 0
+                            goalLines[goalLineIndex][key] = 0
                         } else {
-                            prev[goalLineIndex][key] = parseInt(value.toString())
+                            goalLines[goalLineIndex][key] = parseInt(value.toString())
                         }
                     } else {
-                        prev[goalLineIndex][key] = value
+                        goalLines[goalLineIndex][key] = value
                     }
 
-                    return [...prev]
+                    return goalLines
                 },
-                setGoalLines: (_prev, { goalLines }) => {
+                setGoalLines: (_state, { goalLines }) => {
                     return goalLines
                 },
             },

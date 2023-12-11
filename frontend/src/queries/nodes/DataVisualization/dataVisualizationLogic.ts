@@ -92,45 +92,48 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             null as (number | null)[] | null,
             {
                 clearAxis: () => null,
-                addYSeries: (prev, { columnIndex }) => {
-                    if (!prev && columnIndex !== undefined) {
+                addYSeries: (state, { columnIndex }) => {
+                    if (!state && columnIndex !== undefined) {
                         return [columnIndex]
                     }
 
-                    if (!prev) {
+                    if (!state) {
                         return [null]
                     }
 
-                    prev.push(columnIndex === undefined ? null : columnIndex)
-                    return [...prev]
+                    return [...state, columnIndex === undefined ? null : columnIndex]
                 },
-                updateYSeries: (prev, { seriesIndex, selectedYSeriesColumnIndex }) => {
-                    if (!prev) {
+                updateYSeries: (state, { seriesIndex, selectedYSeriesColumnIndex }) => {
+                    if (!state) {
                         return null
                     }
 
-                    prev[seriesIndex] = selectedYSeriesColumnIndex
-                    return [...prev]
+                    const yIndexes = [...state]
+
+                    yIndexes[seriesIndex] = selectedYSeriesColumnIndex
+                    return yIndexes
                 },
-                deletedYSeries: (prev, { seriesIndex }) => {
-                    if (!prev) {
+                deletedYSeries: (state, { seriesIndex }) => {
+                    if (!state) {
                         return null
                     }
 
-                    if (prev.length <= 1) {
+                    if (state.length <= 1) {
                         return [null]
                     }
 
-                    prev.splice(seriesIndex, 1)
+                    const yIndexes = [...state]
 
-                    return [...prev]
+                    yIndexes.splice(seriesIndex, 1)
+
+                    return yIndexes
                 },
             },
         ],
         activeSideBarTab: [
             SideBarTab.Series as SideBarTab,
             {
-                setSideBarTab: (_prev, { tab }) => tab,
+                setSideBarTab: (_state, { tab }) => tab,
             },
         ],
     }),
