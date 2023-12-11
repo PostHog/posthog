@@ -15,6 +15,7 @@ import {
     wireframeDiv,
     wireframeImage,
     wireframeInputComponent,
+    wireframePlaceholder,
     wireframeProgress,
     wireframeRadioGroup,
     wireframeRectangle,
@@ -30,6 +31,9 @@ import {
     makeMinimalStyles,
     makeStylesString,
 } from './wireframeStyle'
+
+const BACKGROUND = '#f3f4ef'
+const FOREGROUND = '#35373e'
 
 /**
  * generates a sequence of ids
@@ -119,7 +123,12 @@ function makeTextElement(wireframe: wireframeText, children: serializedNodeWithI
 }
 
 function makeWebViewElement(wireframe: wireframe, children: serializedNodeWithId[]): serializedNodeWithId | null {
-    return makePlaceholderElement(wireframe, children)
+    const labelledWireframe: wireframePlaceholder = { ...wireframe } as wireframePlaceholder
+    if ('url' in wireframe) {
+        labelledWireframe.label = wireframe.url
+    }
+
+    return makePlaceholderElement(labelledWireframe, children)
 }
 
 function makePlaceholderElement(wireframe: wireframe, children: serializedNodeWithId[]): serializedNodeWithId | null {
@@ -128,7 +137,12 @@ function makePlaceholderElement(wireframe: wireframe, children: serializedNodeWi
         type: NodeType.Element,
         tagName: 'div',
         attributes: {
-            style: makeStylesString(wireframe, { verticalAlign: 'center', horizontalAlign: 'center' }),
+            style: makeStylesString(wireframe, {
+                verticalAlign: 'center',
+                horizontalAlign: 'center',
+                backgroundColor: wireframe.style?.backgroundColor || BACKGROUND,
+                color: wireframe.style?.color || FOREGROUND,
+            }),
         },
         id: wireframe.id,
         childNodes: [
@@ -314,6 +328,33 @@ function makeProgressElement(
             value = null
         }
 
+        const styleOverride = {
+            color: wireframe.style?.color || FOREGROUND,
+            backgroundColor: wireframe.style?.backgroundColor || BACKGROUND,
+        }
+
+        // if not _isPositiveInteger(value) then we render a spinner,
+        // so we need to add a style element with the spin keyframe
+        const stylingChildren: serializedNodeWithId[] = _isPositiveInteger(value)
+            ? []
+            : [
+                  {
+                      type: NodeType.Element,
+                      tagName: 'style',
+                      attributes: {
+                          type: 'text/css',
+                      },
+                      id: idSequence.next().value,
+                      childNodes: [
+                          {
+                              type: NodeType.Text,
+                              textContent: `@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`,
+                              id: idSequence.next().value,
+                          },
+                      ],
+                  },
+              ]
+
         return {
             type: NodeType.Element,
             tagName: 'div',
@@ -328,11 +369,11 @@ function makeProgressElement(
                     attributes: {
                         // with no provided value we render a spinner
                         style: _isPositiveInteger(value)
-                            ? makeDeterminateProgressStyles(wireframe)
-                            : makeIndeterminateProgressStyles(wireframe),
+                            ? makeDeterminateProgressStyles(wireframe, styleOverride)
+                            : makeIndeterminateProgressStyles(wireframe, styleOverride),
                     },
                     id: idSequence.next().value,
-                    childNodes: [],
+                    childNodes: stylingChildren,
                 },
                 ...children,
             ],

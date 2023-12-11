@@ -235,6 +235,7 @@ export type wireframeRectangle = wireframeBase & {
 
 export type wireframeWebView = wireframeBase & {
     type: 'web_view'
+    url?: string
 }
 
 export type wireframePlaceholder = wireframeBase & {

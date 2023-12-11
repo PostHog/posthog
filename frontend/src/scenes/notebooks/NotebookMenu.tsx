@@ -31,7 +31,7 @@ export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
                             icon: <IconNotification />,
                             onClick: () => setShowHistory(!showHistory),
                         },
-                        !isLocalOnly && {
+                        {
                             label: 'Share',
                             icon: <IconShare />,
                             onClick: () => openNotebookShareDialog({ shortId }),
