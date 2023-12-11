@@ -13,7 +13,7 @@ from posthog.hogql.constants import LimitContext, get_max_limit_for_context, get
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.retention_query_runner import RetentionQueryRunner
+from posthog.hogql_queries.insights.retention_query_runner import RetentionQueryRunner, DEFAULT_TOTAL_INTERVALS
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
 from posthog.models import Team
 from posthog.queries.actor_base_query import get_groups, get_people, SerializedGroup, SerializedPerson
@@ -39,7 +39,10 @@ class HogQlHasMorePaginator:
         return len(results) > self.limit
 
     def trim_results(self, results: List[Any]) -> List[Any]:
-        return results[:-1]
+        if self.has_more(results):
+            return results[:-1]
+
+        return results
 
 
 class RetentionAppearanceQueryRunner(QueryRunner):
@@ -140,14 +143,13 @@ class RetentionAppearanceQueryRunner(QueryRunner):
 
         actors_lookup = {str(actor["id"]): actor for actor in serialized_actors}
 
+        total_intervals = self.query.source.retentionFilter.total_intervals or DEFAULT_TOTAL_INTERVALS
         actors = [
             [
                 actors_lookup[actor["actor_id"]],
                 [
                     1 if interval_number in actor["appearances"] else 0
-                    for interval_number in range(
-                        self.query.source.retentionFilter.total_intervals - (self.query.selectedInterval or 0)
-                    )
+                    for interval_number in range(total_intervals - (self.query.selectedInterval or 0))
                 ],
             ]
             for actor in actor_appearances
