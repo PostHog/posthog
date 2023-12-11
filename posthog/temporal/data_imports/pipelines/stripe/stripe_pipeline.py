@@ -102,7 +102,7 @@ async def run_stripe_pipeline(inputs: StripeJobInputs) -> None:
         pipeline = create_pipeline(inputs)
         try:
             source = stripe_source(inputs.stripe_secret_key, endpoint, starting_after=starting_after)
-            pipeline.run(source)
+            pipeline.run(source, table_name=endpoint.lower(), loader_file_format="parquet")
         except PipelineStepFailed:
             logger.error(f"Data import failed for endpoint {endpoint} with cursor {cursor}")
             raise
