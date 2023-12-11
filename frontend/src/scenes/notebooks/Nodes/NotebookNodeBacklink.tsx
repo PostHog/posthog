@@ -3,7 +3,6 @@ import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import { InsightModel, NotebookNodeType, NotebookTarget } from '~/types'
 import { Link } from '@posthog/lemon-ui'
 import { IconBarChart, IconFlag, IconExperiment, IconLive, IconPerson, IconCohort } from 'lib/lemon-ui/icons'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { urls } from 'scenes/urls'
 import clsx from 'clsx'
 import { router } from 'kea-router'
@@ -15,65 +14,136 @@ import { notebookLogic } from '../Notebook/notebookLogic'
 import { openNotebook } from '~/models/notebooksModel'
 import { IconNotebook } from '../IconNotebook'
 import { IconDashboard, IconLogomark } from '@posthog/icons'
+import { useEffect } from 'react'
 
-const ICON_MAP = {
-    dashboards: <IconDashboard />,
-    insights: <IconBarChart />,
-    feature_flags: <IconFlag />,
-    experiments: <IconExperiment />,
-    events: <IconLive width="1em" height="1em" />,
-    persons: <IconPerson />,
-    cohorts: <IconCohort />,
-    notebooks: <IconNotebook />,
+type BackLinkMapper = {
+    regex: string
+    type: string
+    icon: JSX.Element
+    getTitle: (match: string) => Promise<string>
 }
+
+const BACKLINK_MAP: BackLinkMapper[] = [
+    {
+        type: 'dashboards',
+        regex: urls.dashboard('(.+)'),
+        icon: <IconDashboard />,
+        getTitle: async (path: string) => {
+            const id = path.split('/')[2]
+            const dashboard = await api.dashboards.get(Number(id))
+            return dashboard.name ?? ''
+        },
+    },
+    {
+        type: 'insights',
+        regex: urls.insightView('(.+)' as InsightModel['short_id']),
+        icon: <IconBarChart />,
+        getTitle: async (path: string) => {
+            const id = path.split('/')[2]
+            const insight = await api.insights.loadInsight(id as InsightModel['short_id'])
+            return insight.results[0]?.name ?? ''
+        },
+    },
+    {
+        type: 'feature_flags',
+        regex: urls.featureFlag('(.+)'),
+        icon: <IconFlag />,
+        getTitle: async (path: string) => {
+            const id = path.split('/')[2]
+            const flag = await api.featureFlags.get(Number(id))
+            return flag.name ?? ''
+        },
+    },
+    {
+        type: 'experiments',
+        regex: urls.experiment('(.+)'),
+        icon: <IconExperiment />,
+        getTitle: async (path: string) => {
+            const id = path.split('/')[2]
+            const experiment = await api.experiments.get(Number(id))
+            return experiment.name ?? ''
+        },
+    },
+    {
+        type: 'events',
+        regex: urls.eventDefinition('(.+)'),
+        icon: <IconLive />,
+        getTitle: async (path: string) => {
+            const id = path.split('/')[3]
+            const event = await api.eventDefinitions.get({ eventDefinitionId: id })
+            return event.name ?? ''
+        },
+    },
+    {
+        type: 'persons',
+        regex: urls.personByDistinctId('(.+)'),
+        icon: <IconPerson />,
+        getTitle: async (path: string) => {
+            const id = path.split('/')[2]
+            const response = await api.persons.list({ distinct_id: id })
+            return response.results[0]?.name ?? ''
+        },
+    },
+    {
+        type: 'cohorts',
+        regex: urls.cohort('(.+)'),
+        icon: <IconCohort />,
+        getTitle: async (path: string) => {
+            const id = path.split('/')[2]
+            const cohort = await api.cohorts.get(Number(id))
+            return cohort.name ?? ''
+        },
+    },
+    {
+        type: 'notebooks',
+        regex: urls.notebook('(.+)'),
+        icon: <IconNotebook />,
+        getTitle: async (path: string) => {
+            const id = path.split('/')[2]
+            const notebook = await api.notebooks.get(id)
+            return notebook.title ?? ''
+        },
+    },
+]
 
 const Component = (props: NodeViewProps): JSX.Element => {
     const { shortId } = useValues(notebookLogic)
+    const { location } = useValues(router)
 
-    const type: TaxonomicFilterGroupType = props.node.attrs.type
-    const title: string = props.node.attrs.title || props.node.attrs.href
-    const id: string = props.node.attrs.id
-    const href = backlinkHref(id, type)
+    const href: string = props.node.attrs.href ?? ''
 
-    const isViewing = router.values.location.pathname === href
+    const backLinkConfig = BACKLINK_MAP.find((config) => href.match(config.regex))
+    const derivedText: string = props.node.attrs.title || props.node.attrs.href
+    const isViewing = location.pathname === href
+
+    useEffect(() => {
+        if (props.node.attrs.title || !backLinkConfig) {
+            return
+        }
+
+        void backLinkConfig
+            .getTitle(href)
+            .then((title) => {
+                props.updateAttributes({
+                    title,
+                })
+            })
+            .catch((e) => {
+                console.error(e)
+            })
+    }, [props.node.attrs.title])
 
     return (
         <NodeViewWrapper
             as="span"
             className={clsx('Backlink', isViewing && 'Backlink--active', props.selected && 'Backlink--selected')}
         >
-            <Link
-                to={href}
-                onClick={() => void openNotebook(shortId, NotebookTarget.Popover)}
-                target={undefined}
-                className="space-x-1"
-            >
-                <span>{ICON_MAP[type] || <IconLogomark />}</span>
-                <span className="Backlink__label">{title}</span>
+            <Link to={href} onClick={() => void openNotebook(shortId, NotebookTarget.Popover)} className="space-x-1">
+                <span>{backLinkConfig?.icon || <IconLogomark />}</span>
+                <span className="Backlink__label">{derivedText}</span>
             </Link>
         </NodeViewWrapper>
     )
-}
-
-function backlinkHref(id: string, type: TaxonomicFilterGroupType): string {
-    if (type === TaxonomicFilterGroupType.Events) {
-        return urls.eventDefinition(id)
-    } else if (type === TaxonomicFilterGroupType.Cohorts) {
-        return urls.cohort(id)
-    } else if (type === TaxonomicFilterGroupType.Persons) {
-        return urls.personByDistinctId(id)
-    } else if (type === TaxonomicFilterGroupType.Insights) {
-        return urls.insightView(id as InsightModel['short_id'])
-    } else if (type === TaxonomicFilterGroupType.FeatureFlags) {
-        return urls.featureFlag(id)
-    } else if (type === TaxonomicFilterGroupType.Experiments) {
-        return urls.experiment(id)
-    } else if (type === TaxonomicFilterGroupType.Dashboards) {
-        return urls.dashboard(id)
-    } else if (type === TaxonomicFilterGroupType.Notebooks) {
-        return urls.notebook(id)
-    }
-    return ''
 }
 
 export const NotebookNodeBacklink = Node.create({
@@ -84,10 +154,9 @@ export const NotebookNodeBacklink = Node.create({
 
     addAttributes() {
         return {
-            id: { default: '' },
             href: { default: '' },
-            type: { default: '' },
-            title: { default: '' },
+            type: {},
+            title: {},
         }
     },
 
@@ -106,58 +175,11 @@ export const NotebookNodeBacklink = Node.create({
     addPasteRules() {
         return [
             posthogNodePasteRule({
-                find: urls.eventDefinition('(.+)'),
+                find: '(.+)',
                 editor: this.editor,
                 type: this.type,
                 getAttributes: async (match) => {
-                    const id = match[1]
-                    const event = await api.eventDefinitions.get({ eventDefinitionId: id })
-                    return { id: id, type: TaxonomicFilterGroupType.Events, title: event.name, href: match[0] }
-                },
-            }),
-            posthogNodePasteRule({
-                find: urls.cohort('(.+)'),
-                editor: this.editor,
-                type: this.type,
-                getAttributes: async (match) => {
-                    const id = match[1]
-                    const event = await api.cohorts.get(Number(id))
-                    return { id: id, type: TaxonomicFilterGroupType.Cohorts, title: event.name, href: match[0] }
-                },
-            }),
-            posthogNodePasteRule({
-                find: urls.experiment('(.+)'),
-                editor: this.editor,
-                type: this.type,
-                getAttributes: async (match) => {
-                    const id = match[1]
-                    const experiment = await api.experiments.get(Number(id))
-                    return {
-                        id: id,
-                        type: TaxonomicFilterGroupType.Experiments,
-                        title: experiment.name,
-                        href: match[0],
-                    }
-                },
-            }),
-            posthogNodePasteRule({
-                find: urls.dashboard('(.+)'),
-                editor: this.editor,
-                type: this.type,
-                getAttributes: async (match) => {
-                    const id = match[1]
-                    const dashboard = await api.dashboards.get(Number(id))
-                    return { id: id, type: TaxonomicFilterGroupType.Dashboards, title: dashboard.name, href: match[0] }
-                },
-            }),
-            posthogNodePasteRule({
-                find: urls.notebook('(.+)'),
-                editor: this.editor,
-                type: this.type,
-                getAttributes: async (match) => {
-                    const id = match[1]
-                    const notebook = await api.notebooks.get(id)
-                    return { id: id, type: TaxonomicFilterGroupType.Notebooks, title: notebook.title, href: match[0] }
+                    return { href: match[1] }
                 },
             }),
         ]
