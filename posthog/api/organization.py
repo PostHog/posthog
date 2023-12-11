@@ -115,7 +115,7 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
 
     def get_teams(self, instance: Organization) -> List[Dict[str, Any]]:
         visible_teams = instance.teams.filter(id__in=self.user_permissions.team_ids_visible_for_user)
-        return TeamBasicSerializer(visible_teams, context=self.context, many=True).data
+        return TeamBasicSerializer(visible_teams, context=self.context, many=True).data  # type: ignore
 
     def get_metadata(self, instance: Organization) -> Dict[str, Union[str, int, object]]:
         return {
