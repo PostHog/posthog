@@ -3,8 +3,6 @@ import { actions, afterMount, connect, kea, listeners, path, props, reducers, se
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { fromParamsGivenUrl, isGroupType } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
@@ -70,7 +68,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
         loadNextActors: true,
     }),
     connect({
-        values: [groupsModel, ['groupTypes', 'aggregationLabel'], featureFlagLogic, ['featureFlags']],
+        values: [groupsModel, ['groupTypes', 'aggregationLabel']],
         actions: [eventUsageLogic, ['reportCohortCreatedFromPersonsModal', 'reportPersonsModalViewed']],
     }),
 
@@ -274,9 +272,9 @@ export const personsModalLogic = kea<personsModalLogicType>([
             },
         ],
         exploreUrl: [
-            (s) => [s.personsQuery, s.featureFlags],
-            (personsQuery, featureFlags): string | null => {
-                if (!personsQuery || !featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_PERSONS_EXPLORE]) {
+            (s) => [s.personsQuery],
+            (personsQuery): string | null => {
+                if (!personsQuery) {
                     return null
                 }
                 const { select: _select, ...source } = personsQuery
