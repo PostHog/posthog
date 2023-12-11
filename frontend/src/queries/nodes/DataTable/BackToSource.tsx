@@ -35,7 +35,7 @@ export function BackToSource(): JSX.Element | null {
                 router.actions.push(urls.insightNew(undefined, undefined, JSON.stringify(backToSourceQuery)))
             }
         >
-            &laquo; Back to {backToSourceQuery.source.kind ?? 'Insight'}
+            &laquo; Back to {backToSourceQuery.source.kind?.replace('Query', '') ?? 'Insight'}
         </LemonButton>
     )
 }

@@ -64,6 +64,7 @@ export interface DataNodeLogicProps {
 }
 
 const AUTOLOAD_INTERVAL = 30000
+const LOAD_MORE_ROWS_LIMIT = 10000
 
 const queryEqual = (a: DataNode, b: DataNode): boolean => {
     if (isInsightQueryNode(a) && isInsightQueryNode(b)) {
@@ -409,7 +410,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                     const newQuery: EventsQuery = {
                                         ...query,
                                         before: lastTimestamp,
-                                        limit: Math.max(100, Math.min(2 * (typedResults?.length || 100), 10000)),
+                                        limit: Math.max(
+                                            100,
+                                            Math.min(2 * (typedResults?.length || 100), LOAD_MORE_ROWS_LIMIT)
+                                        ),
                                     }
                                     return newQuery
                                 }
@@ -418,7 +422,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             return {
                                 ...query,
                                 offset: typedResults?.length || 0,
-                                limit: Math.max(100, Math.min(2 * (typedResults?.length || 100), 10000)),
+                                limit: Math.max(100, Math.min(2 * (typedResults?.length || 100), LOAD_MORE_ROWS_LIMIT)),
                             } as EventsQuery | PersonsQuery
                         }
                     }
