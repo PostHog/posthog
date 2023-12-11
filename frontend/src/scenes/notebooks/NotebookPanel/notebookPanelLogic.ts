@@ -29,7 +29,10 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
         ],
     }),
     actions({
-        selectNotebook: (id: string, autofocus: EditorFocusPosition | undefined = undefined) => ({ id, autofocus }),
+        selectNotebook: (id: string, options: { autofocus?: EditorFocusPosition; silent?: boolean } = {}) => ({
+            id,
+            ...options,
+        }),
         startDropMode: true,
         endDropMode: true,
         setDroppedResource: (resource: NotebookNodeResource | string | null) => ({ resource }),
@@ -108,6 +111,9 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
 
     listeners(({ cache, actions, values }) => ({
         selectNotebook: (options) => {
+            if (options.silent) {
+                return
+            }
             if (!values.is3000) {
                 actions.setPopoverVisibility('visible')
                 notebookPopoverLogic.actions.selectNotebook(options.id, options.autofocus)
