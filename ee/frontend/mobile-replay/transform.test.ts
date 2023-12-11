@@ -432,6 +432,27 @@ describe('replay/transform', () => {
                     })
                 ).toMatchSnapshot()
             })
+
+            test('web_view with URL', () => {
+                expect(
+                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                        type: 2,
+                        data: {
+                            wireframes: [
+                                {
+                                    id: 12365,
+                                    width: 100,
+                                    height: 30,
+                                    type: 'web_view',
+                                    url: 'https://example.com',
+                                },
+                            ],
+                        },
+                        timestamp: 1,
+                    })
+                ).toMatchSnapshot()
+            })
+
             test('radio_group', () => {
                 expect(
                     posthogEEModule.mobileReplay?.transformEventToWeb({
@@ -741,14 +762,7 @@ describe('replay/transform', () => {
                     id: 12365,
                     width: 100,
                     height: 30,
-                    type: 'webview',
-                },
-                {
-                    id: 12365,
-                    width: 100,
-                    height: 30,
-                    type: 'webview',
-                    url: 'https://example.com',
+                    type: 'web_view',
                 },
             ])('$type - $inputType - $value', (testCase) => {
                 expect(
