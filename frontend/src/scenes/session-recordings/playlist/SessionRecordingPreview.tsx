@@ -6,6 +6,7 @@ import { IconAutocapture, IconKeyboard, IconPinFilled, IconSchedule } from 'lib/
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { colonDelimitedDuration } from 'lib/utils'
+import { Fragment } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
@@ -119,9 +120,8 @@ export function PropertyIcons({
             ) : (
                 recordingProperties.map(({ property, value, tooltipValue, label }) => {
                     return (
-                        <>
+                        <Fragment key={property}>
                             <PropertyIcon
-                                key={property}
                                 onClick={(e) => {
                                     if (e.altKey) {
                                         e.stopPropagation()
@@ -141,7 +141,7 @@ export function PropertyIcons({
                                 )}
                             />
                             {showLabel?.(property) && <span className="text-xs text-muted-alt">{label || value}</span>}
-                        </>
+                        </Fragment>
                     )
                 })
             )}
