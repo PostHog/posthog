@@ -1254,6 +1254,7 @@ test('snapshot event stored as session_recording_event', () => {
 })
 const sessionReplayEventTestCases: {
     snapshotData: { events_summary: RRWebEvent[] }
+    snapshotSource?: string
     expected: Pick<
         SummarizedSessionRecordingEvent,
         | 'click_count'
@@ -1269,6 +1270,7 @@ const sessionReplayEventTestCases: {
         | 'size'
         | 'event_count'
         | 'message_count'
+        | 'snapshot_source'
     >
 }[] = [
     {
@@ -1287,6 +1289,7 @@ const sessionReplayEventTestCases: {
             size: 73,
             event_count: 1,
             message_count: 1,
+            snapshot_source: 'web',
         },
     },
     {
@@ -1305,6 +1308,7 @@ const sessionReplayEventTestCases: {
             size: 73,
             event_count: 1,
             message_count: 1,
+            snapshot_source: 'web',
         },
     },
     {
@@ -1363,6 +1367,7 @@ const sessionReplayEventTestCases: {
             size: 762,
             event_count: 7,
             message_count: 1,
+            snapshot_source: 'web',
         },
     },
     {
@@ -1403,6 +1408,7 @@ const sessionReplayEventTestCases: {
             size: 213,
             event_count: 2,
             message_count: 1,
+            snapshot_source: 'web',
         },
     },
     {
@@ -1428,6 +1434,7 @@ const sessionReplayEventTestCases: {
             size: 217,
             event_count: 3,
             message_count: 1,
+            snapshot_source: 'web',
         },
     },
     {
@@ -1457,17 +1464,41 @@ const sessionReplayEventTestCases: {
             size: 433,
             event_count: 6,
             message_count: 1,
+            snapshot_source: 'web',
+        },
+    },
+    {
+        snapshotData: {
+            events_summary: [{ timestamp: 1682449093000, type: 3, data: { source: 2 }, windowId: '1' }],
+        },
+        snapshotSource: 'mobile',
+        expected: {
+            click_count: 6,
+            keypress_count: 0,
+            mouse_activity_count: 6,
+            first_url: null,
+            first_timestamp: '2023-04-25 18:58:13.000',
+            last_timestamp: '2023-04-25 18:58:19.000',
+            active_milliseconds: 6000, // can sum up the activity across windows
+            console_log_count: 0,
+            console_warn_count: 0,
+            console_error_count: 0,
+            size: 433,
+            event_count: 6,
+            message_count: 1,
+            snapshot_source: 'web',
         },
     },
 ]
-sessionReplayEventTestCases.forEach(({ snapshotData, expected }) => {
+sessionReplayEventTestCases.forEach(({ snapshotData, snapshotSource, expected }) => {
     test(`snapshot event ${JSON.stringify(snapshotData)} can be stored as session_replay_event`, () => {
         const data = createSessionReplayEvent(
             'some-id',
             team.id,
             '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
             'abcf-efg',
-            snapshotData.events_summary
+            snapshotData.events_summary,
+            snapshotSource
         )
 
         const expectedEvent: SummarizedSessionRecordingEvent = {
