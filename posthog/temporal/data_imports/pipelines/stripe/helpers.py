@@ -64,7 +64,7 @@ def stripe_pagination(
             api_key=api_key,
             created={"gte": start_date, "lt": end_date},
             limit=100,
-            **kwargs,  # type: ignore
+            **kwargs,
         )
         response = dict(resource_dict)
 
