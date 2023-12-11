@@ -64,6 +64,8 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         setMessageListeners: (listeners: NotebookNodeMessagesListeners) => ({ listeners }),
         setTitlePlaceholder: (titlePlaceholder: string) => ({ titlePlaceholder }),
         setRef: (ref: HTMLElement | null) => ({ ref }),
+        toggleEditingTitle: (editing?: boolean) => ({ editing }),
+        copyToClipboard: true,
     }),
 
     connect((props: NotebookNodeLogicProps) => ({
@@ -119,6 +121,12 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             props.titlePlaceholder,
             {
                 setTitlePlaceholder: (_, { titlePlaceholder }) => titlePlaceholder,
+            },
+        ],
+        isEditingTitle: [
+            false,
+            {
+                toggleEditingTitle: (state, { editing }) => (typeof editing === 'boolean' ? editing : !state),
             },
         ],
     })),
@@ -271,6 +279,33 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 }
                 props.updateAttributes({ __init: null })
             }
+        },
+
+        copyToClipboard: async () => {
+            const { nodeAttributes } = values
+
+            const htmlAttributesString = Object.entries(nodeAttributes)
+                .map(([key, value]) => {
+                    if (key === 'nodeId' || key.startsWith('__')) {
+                        return ''
+                    }
+
+                    if (value === null || value === undefined) {
+                        return ''
+                    }
+
+                    return `${key}='${JSON.stringify(value)}'`
+                })
+                .filter((x) => !!x)
+                .join(' ')
+
+            const html = `<${props.nodeType} ${htmlAttributesString} data-pm-slice="0 0 []"></${props.nodeType}>`
+
+            const type = 'text/html'
+            const blob = new Blob([html], { type })
+            const data = [new ClipboardItem({ [type]: blob })]
+
+            await window.navigator.clipboard.write(data)
         },
     })),
 
