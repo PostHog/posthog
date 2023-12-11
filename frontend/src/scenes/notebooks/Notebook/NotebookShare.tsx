@@ -6,7 +6,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { base64Encode } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import posthog from 'posthog-js'
-import { Fragment, ReactNode, useState } from 'react'
+import { useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { notebookLogic } from './notebookLogic'
@@ -27,27 +27,34 @@ export function NotebookShare({ shortId }: NotebookShareProps): JSX.Element {
         posthog.capture('pressed interested in notebook sharing', { url })
     }
 
-    const options: ReactNode[] = [
-        !isLocalOnly ? (
-            <>
-                <h3>Internal Link</h3>
-                <p>
-                    <b>Click the button below</b> to copy a direct link to this Notebook. Make sure the person you share
-                    it with has access to this PostHog project.
-                </p>
-                <LemonButton
-                    type="secondary"
-                    fullWidth
-                    center
-                    sideIcon={<IconCopy />}
-                    onClick={() => void copyToClipboard(url, 'notebook link')}
-                    title={url}
-                >
-                    <span className="truncate">{url}</span>
-                </LemonButton>
-            </>
-        ) : null,
-        <>
+    return (
+        <div className="space-y-2">
+            <h3>Internal Link</h3>
+            {!isLocalOnly ? (
+                <>
+                    <p>
+                        <b>Click the button below</b> to copy a direct link to this Notebook. Make sure the person you
+                        share it with has access to this PostHog project.
+                    </p>
+                    <LemonButton
+                        type="secondary"
+                        fullWidth
+                        center
+                        sideIcon={<IconCopy />}
+                        onClick={() => void copyToClipboard(url, 'notebook link')}
+                        title={url}
+                    >
+                        <span className="truncate">{url}</span>
+                    </LemonButton>
+
+                    <LemonDivider className="my-4" />
+                </>
+            ) : (
+                <LemonBanner type="info">
+                    <p>This Notebook cannot be shared directly with others as it is only visible to you.</p>
+                </LemonBanner>
+            )}
+
             <h3>Template Link</h3>
             <p>
                 The link below will open a Canvas with the contents of this Notebook, allowing the receiver to view it,
@@ -63,38 +70,25 @@ export function NotebookShare({ shortId }: NotebookShareProps): JSX.Element {
             >
                 <span className="truncate">{canvasUrl}</span>
             </LemonButton>
-        </>,
 
-        !isLocalOnly ? (
-            <>
-                <h3>External Sharing</h3>
+            <LemonDivider className="my-4" />
 
-                <LemonBanner
-                    type="warning"
-                    action={{
-                        children: !interestTracked ? 'I would like this!' : 'Thanks!',
-                        onClick: () => {
-                            if (!interestTracked) {
-                                trackInterest()
-                                setInterestTracked(true)
-                            }
-                        },
-                    }}
-                >
-                    We don’t currently support sharing notebooks externally, but it’s on our roadmap!
-                </LemonBanner>
-            </>
-        ) : null,
-    ].filter(Boolean)
+            <h3>External Sharing</h3>
 
-    return (
-        <div className="space-y-2">
-            {options.map((option, index) => (
-                <Fragment key={index}>
-                    {option}
-                    {index < options.length - 1 && <LemonDivider className="my-4" />}
-                </Fragment>
-            ))}
+            <LemonBanner
+                type="warning"
+                action={{
+                    children: !interestTracked ? 'I would like this!' : 'Thanks!',
+                    onClick: () => {
+                        if (!interestTracked) {
+                            trackInterest()
+                            setInterestTracked(true)
+                        }
+                    },
+                }}
+            >
+                We don’t currently support sharing notebooks externally, but it’s on our roadmap!
+            </LemonBanner>
         </div>
     )
 }
