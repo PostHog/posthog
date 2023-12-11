@@ -110,9 +110,7 @@ class TestDatabase(BaseTest):
             == "SELECT double FROM (SELECT multiply(numbers.number, 2) AS double FROM numbers(2) AS numbers) LIMIT 10000"
         ), query
 
-        sql = "select double from (select * from numbers(2))"
+        # expression fields are not included in select *
+        sql = "select * from (select * from numbers(2))"
         query = print_ast(parse_select(sql), context, dialect="clickhouse")
-        assert (
-            query
-            == "SELECT double FROM (SELECT numbers.number, plus(1, 1) AS expression, multiply(numbers.number, 2) AS double FROM numbers(2) AS numbers) LIMIT 10000"
-        ), query
+        assert query == "SELECT number FROM (SELECT numbers.number FROM numbers(2) AS numbers) LIMIT 10000", query
