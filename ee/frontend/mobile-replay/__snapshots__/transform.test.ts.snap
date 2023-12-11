@@ -1341,10 +1341,26 @@ exports[`replay/transform transform inputs input - progress - $value 1`] = `
                       "childNodes": [
                         {
                           "attributes": {
-                            "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;border: 4px solid transparent;border-radius: 50%;border-top: 4px solid #fff;animation: spin 2s linear infinite;",
+                            "style": "background-color: #f3f4ef;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;border: 4px solid transparent;border-radius: 50%;border-top: 4px solid #fff;animation: spin 2s linear infinite;",
                           },
-                          "childNodes": [],
-                          "id": 160,
+                          "childNodes": [
+                            {
+                              "attributes": {
+                                "type": "text/css",
+                              },
+                              "childNodes": [
+                                {
+                                  "id": 161,
+                                  "textContent": "@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }",
+                                  "type": 3,
+                                },
+                              ],
+                              "id": 160,
+                              "tagName": "style",
+                              "type": 2,
+                            },
+                          ],
+                          "id": 162,
                           "tagName": "div",
                           "type": 2,
                         },
@@ -1427,7 +1443,7 @@ exports[`replay/transform transform inputs input - progress - $value 2`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 161,
+                  "id": 163,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -1500,7 +1516,7 @@ exports[`replay/transform transform inputs input - progress - 0.75 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 162,
+                  "id": 164,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -1573,7 +1589,7 @@ exports[`replay/transform transform inputs input - progress - 0.75 2`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 163,
+                  "id": 165,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -2578,7 +2594,7 @@ exports[`replay/transform transform inputs placeholder - $inputType - $value 1`]
                       },
                       "childNodes": [
                         {
-                          "id": 165,
+                          "id": 167,
                           "textContent": "hello",
                           "type": 3,
                         },
@@ -2588,7 +2604,7 @@ exports[`replay/transform transform inputs placeholder - $inputType - $value 1`]
                       "type": 2,
                     },
                   ],
-                  "id": 164,
+                  "id": 166,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -2848,7 +2864,7 @@ exports[`replay/transform transform inputs webview - $inputType - $value 1`] = `
                 {
                   "attributes": {},
                   "childNodes": [],
-                  "id": 166,
+                  "id": 168,
                   "tagName": "div",
                   "type": 2,
                 },
