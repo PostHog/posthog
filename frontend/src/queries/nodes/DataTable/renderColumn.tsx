@@ -206,7 +206,6 @@ export function renderColumn(
         return <Property value={eventRecord.person?.properties?.[propertyKey]} />
     } else if (key === 'person') {
         const personRecord = record as PersonType
-
         const displayProps: PersonDisplayProps = {
             withIcon: true,
             person: record as PersonType,
