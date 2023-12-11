@@ -77,7 +77,7 @@ const BACKLINK_MAP: BackLinkMapper[] = [
     {
         type: 'events',
         regex: urls.eventDefinition('(.+)'),
-        icon: <IconLive />,
+        icon: <IconLive width="1em" height="1em" />,
         getTitle: async (path: string) => {
             const id = path.split('/')[3]
             const event = await api.eventDefinitions.get({ eventDefinitionId: id })
