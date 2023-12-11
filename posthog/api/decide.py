@@ -230,7 +230,14 @@ def get_decide(request: HttpRequest):
                     if random() < settings.NEW_ANALYTICS_CAPTURE_SAMPLING_RATE:
                         response["analytics"] = {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT}
 
-            if settings.ELEMENT_CHAIN_AS_STRING_TEAMS and str(team.id) in settings.ELEMENT_CHAIN_AS_STRING_TEAMS:
+            if (
+                settings.ELEMENT_CHAIN_AS_STRING_TEAMS
+                and str(team.id) in settings.ELEMENT_CHAIN_AS_STRING_TEAMS
+                and (
+                    settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS is None
+                    or str(team.id) not in settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS
+                )
+            ):
                 response["elementsChainAsString"] = True
 
             if team.session_recording_opt_in and (

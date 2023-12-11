@@ -87,14 +87,6 @@ class CountPerActorMathType(str, Enum):
     p99_count_per_actor = "p99_count_per_actor"
 
 
-class ChartSettings(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    xAxisIndex: Optional[List[float]] = None
-    yAxisIndex: Optional[List[float]] = None
-
-
 class DatabaseSchemaQueryResponseField(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -247,6 +239,14 @@ class FunnelVizType(str, Enum):
     steps = "steps"
     time_to_convert = "time_to_convert"
     trends = "trends"
+
+
+class GoalLine(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    value: float
 
 
 class HogQLNotice(BaseModel):
@@ -748,6 +748,7 @@ class BreakdownFilter(BaseModel):
     breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
     breakdown_group_type_index: Optional[float] = None
     breakdown_histogram_bin_count: Optional[float] = None
+    breakdown_limit: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
     breakdowns: Optional[List[Breakdown]] = None
@@ -759,6 +760,15 @@ class DataNode(BaseModel):
     )
     kind: NodeKind
     response: Optional[Dict[str, Any]] = Field(default=None, description="Cached query response")
+
+
+class ChartSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    goalLines: Optional[List[GoalLine]] = None
+    xAxisIndex: Optional[List[float]] = None
+    yAxisIndex: Optional[List[float]] = None
 
 
 class ElementPropertyFilter(BaseModel):
