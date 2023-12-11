@@ -196,10 +196,13 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                             <ErrorBoundary>
                                 {!inView ? (
                                     <>
-                                        <div className="h-10" /> {/* Placeholder for the drag handle */}
+                                        <div className="h-10 p-2 flex justify-between">
+                                            <LemonSkeleton className="w-1/4" />
+                                            <LemonSkeleton className="w-20" />
+                                        </div>
                                         {/* eslint-disable-next-line react/forbid-dom-props */}
-                                        <div style={{ height: heightEstimate }}>
-                                            <LemonSkeleton className="h-full" />
+                                        <div className="flex items-center p-2" style={{ height: heightEstimate }}>
+                                            <LemonSkeleton className="w-full h-full" />
                                         </div>
                                     </>
                                 ) : (

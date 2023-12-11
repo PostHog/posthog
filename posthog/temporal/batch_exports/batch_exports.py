@@ -513,7 +513,7 @@ async def create_export_run(inputs: CreateBatchExportRunInputs) -> str:
     # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
     # But one of our dependencies is pinned to asgiref==3.3.2.
     # Remove these comments once we upgrade.
-    run = await sync_to_async(create_batch_export_run)(  # type: ignore
+    run = await sync_to_async(create_batch_export_run)(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
@@ -542,7 +542,7 @@ async def update_export_run_status(inputs: UpdateBatchExportRunStatusInputs):
         run_id=uuid.UUID(inputs.id),
         status=inputs.status,
         latest_error=inputs.latest_error,
-    )  # type: ignore
+    )
 
     if batch_export_run.status == "Failed":
         logger.error("BatchExport failed with error: %s", batch_export_run.latest_error)
@@ -583,7 +583,7 @@ async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillIn
     # 'sync_to_async' type hints are fixed in asgiref>=3.4.1
     # But one of our dependencies is pinned to asgiref==3.3.2.
     # Remove these comments once we upgrade.
-    run = await sync_to_async(create_batch_export_backfill)(  # type: ignore
+    run = await sync_to_async(create_batch_export_backfill)(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         start_at=inputs.start_at,
         end_at=inputs.end_at,
@@ -607,7 +607,7 @@ async def update_batch_export_backfill_model_status(inputs: UpdateBatchExportBac
     """Activity that updates the status of an BatchExportRun."""
     backfill = await sync_to_async(update_batch_export_backfill_status)(
         backfill_id=uuid.UUID(inputs.id), status=inputs.status
-    )  # type: ignore
+    )
     logger = await bind_temporal_worker_logger(team_id=backfill.team_id)
 
     if backfill.status == "Failed":

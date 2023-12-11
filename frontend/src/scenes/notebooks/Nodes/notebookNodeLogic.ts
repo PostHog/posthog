@@ -326,7 +326,11 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
     afterMount((logic) => {
         const { props, actions, values } = logic
-        props.notebookLogic.actions.registerNodeLogic(values.nodeId, logic as any)
+
+        // The node logic is mounted after the editor is mounted, so we need to wait a tick before we can register it
+        queueMicrotask(() => {
+            props.notebookLogic.actions.registerNodeLogic(values.nodeId, logic as any)
+        })
 
         const isResizeable =
             typeof props.resizeable === 'function' ? props.resizeable(props.attributes) : props.resizeable ?? true

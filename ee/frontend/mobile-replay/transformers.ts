@@ -15,6 +15,7 @@ import {
     wireframeDiv,
     wireframeImage,
     wireframeInputComponent,
+    wireframePlaceholder,
     wireframeProgress,
     wireframeRadioGroup,
     wireframeRectangle,
@@ -28,10 +29,11 @@ import {
     makeHTMLStyles,
     makeIndeterminateProgressStyles,
     makeMinimalStyles,
-    makePositionStyles,
     makeStylesString,
-    makeSvgBorder,
 } from './wireframeStyle'
+
+const BACKGROUND = '#f3f4ef'
+const FOREGROUND = '#35373e'
 
 /**
  * generates a sequence of ids
@@ -121,57 +123,33 @@ function makeTextElement(wireframe: wireframeText, children: serializedNodeWithI
 }
 
 function makeWebViewElement(wireframe: wireframe, children: serializedNodeWithId[]): serializedNodeWithId | null {
-    return makePlaceholderElement(wireframe, children)
+    const labelledWireframe: wireframePlaceholder = { ...wireframe } as wireframePlaceholder
+    if ('url' in wireframe) {
+        labelledWireframe.label = wireframe.url
+    }
+
+    return makePlaceholderElement(labelledWireframe, children)
 }
 
 function makePlaceholderElement(wireframe: wireframe, children: serializedNodeWithId[]): serializedNodeWithId | null {
-    // <svg width="200" height="200">
-    //  <rect width="100%" height="100%" fill="grey"/>
-    //  <text fill="white" font-size="30" x="50%" y="50%" dominant-baseline="middle" text-anchor="middle">
-    // Keyboard
-    //  </text>
-    // </svg>
     const txt = 'label' in wireframe && wireframe.label ? wireframe.label : wireframe.type || 'PLACEHOLDER'
     return {
         type: NodeType.Element,
-        tagName: 'svg',
+        tagName: 'div',
         attributes: {
-            width: wireframe.width,
-            height: wireframe.height,
-            style: makeStylesString(wireframe),
+            style: makeStylesString(wireframe, {
+                verticalAlign: 'center',
+                horizontalAlign: 'center',
+                backgroundColor: wireframe.style?.backgroundColor || BACKGROUND,
+                color: wireframe.style?.color || FOREGROUND,
+            }),
         },
         id: wireframe.id,
         childNodes: [
             {
-                type: NodeType.Element,
-                tagName: 'rect',
-                attributes: {
-                    width: '100%',
-                    height: '100%',
-                    fill: wireframe.style?.backgroundColor || 'grey',
-                },
+                type: NodeType.Text,
                 id: idSequence.next().value,
-                childNodes: [],
-            },
-            {
-                type: NodeType.Element,
-                tagName: 'text',
-                attributes: {
-                    fill: 'white',
-                    'font-size': '30',
-                    x: '50%',
-                    y: '50%',
-                    'dominant-baseline': 'middle',
-                    'text-anchor': 'middle',
-                },
-                id: idSequence.next().value,
-                childNodes: [
-                    {
-                        type: NodeType.Text,
-                        textContent: txt,
-                        id: idSequence.next().value,
-                    },
-                ],
+                textContent: txt,
             },
             ...children,
         ],
@@ -350,6 +328,33 @@ function makeProgressElement(
             value = null
         }
 
+        const styleOverride = {
+            color: wireframe.style?.color || FOREGROUND,
+            backgroundColor: wireframe.style?.backgroundColor || BACKGROUND,
+        }
+
+        // if not _isPositiveInteger(value) then we render a spinner,
+        // so we need to add a style element with the spin keyframe
+        const stylingChildren: serializedNodeWithId[] = _isPositiveInteger(value)
+            ? []
+            : [
+                  {
+                      type: NodeType.Element,
+                      tagName: 'style',
+                      attributes: {
+                          type: 'text/css',
+                      },
+                      id: idSequence.next().value,
+                      childNodes: [
+                          {
+                              type: NodeType.Text,
+                              textContent: `@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`,
+                              id: idSequence.next().value,
+                          },
+                      ],
+                  },
+              ]
+
         return {
             type: NodeType.Element,
             tagName: 'div',
@@ -364,11 +369,11 @@ function makeProgressElement(
                     attributes: {
                         // with no provided value we render a spinner
                         style: _isPositiveInteger(value)
-                            ? makeDeterminateProgressStyles(wireframe)
-                            : makeIndeterminateProgressStyles(wireframe),
+                            ? makeDeterminateProgressStyles(wireframe, styleOverride)
+                            : makeIndeterminateProgressStyles(wireframe, styleOverride),
                     },
                     id: idSequence.next().value,
-                    childNodes: [],
+                    childNodes: stylingChildren,
                 },
                 ...children,
             ],
@@ -470,28 +475,12 @@ function makeRectangleElement(
 ): serializedNodeWithId | null {
     return {
         type: NodeType.Element,
-        tagName: 'svg',
+        tagName: 'div',
         attributes: {
-            style: makePositionStyles(wireframe),
-            viewBox: `0 0 ${wireframe.width} ${wireframe.height}`,
+            style: makeStylesString(wireframe),
         },
         id: wireframe.id,
-        childNodes: [
-            {
-                type: NodeType.Element,
-                tagName: 'rect',
-                attributes: {
-                    x: 0,
-                    y: 0,
-                    width: wireframe.width,
-                    height: wireframe.height,
-                    fill: wireframe.style?.backgroundColor || 'transparent',
-                    ...makeSvgBorder(wireframe.style),
-                },
-                id: idSequence.next().value,
-                childNodes: children,
-            },
-        ],
+        childNodes: children,
     }
 }
 

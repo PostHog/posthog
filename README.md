@@ -22,15 +22,21 @@
 - Gather insights by capturing session replays, console logs, and network monitoring
 - Improve your product with A/B testing that automatically analyzes performance
 - Safely roll out features to select users or cohorts with feature flags
+- Send out fully customizable surveys to specific cohorts of users
 - Connect to external services and manage data flows with PostHog CDP
 
-PostHog is available with hosting in the EU or US and is fully SOC 2 compliant. It's free to get started and your first 1 million events (and 15k replays) are free every month. We're constantly adding new features, such as user surveys!
+PostHog is available with hosting in the EU or US and is fully SOC 2 compliant. It's free to get started and comes with a generous monthly free tier:
+- 1 million product analytics events
+- 15k session replays
+- 1 million feature flag requests
+- 250 survey responses
+
+We're constantly adding new features, with web analytics and data warehouse now in beta!
 
 ## Table of Contents
 
 - [Get started for free](#get-started-for-free)
-- [Features](#features)
-- [Docs and support](#docs-and-support)
+- [Docs](#docs)
 - [Contributing](#contributing)
 - [Philosophy](#philosophy)
 - [Open-source vs paid](#open-source-vs-paid)
@@ -49,11 +55,9 @@ You can deploy a hobby instance in one line on Linux with Docker (recommended 4G
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/posthog/posthog/HEAD/bin/deploy-hobby)" 
  ``` 
 
-Open source deployments should scale to approximately 100k events per month, after which we recommend migrating to a PostHog Cloud instance. See our [docs for more info and limitations](https://posthog.com/docs/self-host/open-source/deployment).
+Open source deployments should scale to approximately 100k events per month, after which we recommend migrating to a PostHog Cloud instance. See our [docs for more info and limitations](https://posthog.com/docs/self-host/open-source/deployment). Please note that we do not provide customer support for open source deployments. 
 
-PostHog has [sunset support for self-hosted K8s deployments](https://posthog.com/blog/sunsetting-helm-support-posthog).
-
-## Features
+## Docs
 ![ui-demo](https://user-images.githubusercontent.com/85295485/144591577-fe97e4a5-5631-4a60-a684-45caf421507f.gif)
 <p align="center">Want to find out more? <a href="https://posthog.com/book-a-demo">Request a demo!</a>
 
@@ -64,12 +68,13 @@ PostHog brings all the tools and data you need to build better products.
 - **Event-based analytics:** Capture your product's usage [automatically](https://posthog.com/docs/integrate/client/js#autocapture), or [customize](https://posthog.com/docs/integrate) it to your needs
 - **User and group tracking:** Understand the [people](https://posthog.com/manual/persons) and [groups](https://posthog.com/manual/group-analytics) behind the events and track properties about them
 - **Data visualizations:** Create and share [graphs](https://posthog.com/docs/features/trends), [funnels](https://posthog.com/docs/features/funnels), [paths](https://posthog.com/docs/features/paths), [retention](https://posthog.com/docs/features/retention), and [dashboards](https://posthog.com/docs/features/dashboards)
-- **SQL access:** Use SQL to get a deeper understanding of your users, breakdown information and create completely tailored visualizations
+- **SQL access:** Use [SQL](https://posthog.com/docs/product-analytics/sql) to get a deeper understanding of your users, breakdown information and create completely tailored visualizations
 - **Session replays:** [Watch videos](https://posthog.com/docs/features/session-recording) of your users' behavior, with fine-grained filters and privacy controls, as well as network monitoring and captured console logs
 - **Heatmaps:** See where users click and get a visual representation of their behaviour with the [PostHog Toolbar](https://posthog.com/docs/features/toolbar)
-- **Feature flags:** Test and manage the rollout of new features to specific users and groups, or deploy flags as kill-switches
+- **Feature flags:** Test and manage the rollout of [new features](https://posthog.com/docs/feature-flags/installation) to specific users and groups, or deploy flags as kill-switches
 - **A/B and multivariate experimentation:** run simple or complex changes as [experiments](https://posthog.com/manual/experimentation) and get automatic significance calculations
 - **Correlation analysis:** Discover what events and properties [correlate](https://posthog.com/manual/correlation) with success and failure
+- **Surveys:** Collect qualitative feedback from your users using fully customizable [surveys](https://posthog.com/docs/surveys/installation)
 
 ### Data and infrastructure tools
 
@@ -78,16 +83,6 @@ PostHog brings all the tools and data you need to build better products.
 - **Plays nicely with data warehouses:** import events or user data from your warehouse by writing a simple transformation plugin, and export data with pre-built apps - such as [BigQuery](https://posthog.com/apps/bigquery-export), [Redshift](https://posthog.com/apps/redshift-export), [Snowflake](https://posthog.com/apps/snowflake-export), and [S3](https://posthog.com/apps/s3-expo)
 
 [Read a full list of PostHog features](https://posthog.com/product).
-
-## Docs and support
-
-Read how to [integrate](https://posthog.com/docs/integrate), and [extend](https://posthog.com/docs/apps) an open-source 'Hobby' deployment of PostHog in our [documentation](https://posthog.com/docs).
-
-Check out our [tutorials](https://posthog.com/docs/apps) for step-by-step guides, how-to's, and best practices.
-
-Learn more about getting the most out of PostHog's features in [our product manual](https://posthog.com/using-posthog).
-
-[Ask a question](https://posthog.com/questions) to get support.
 
 ## Contributing
 

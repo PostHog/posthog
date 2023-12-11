@@ -65,14 +65,7 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = clear_locations(query)
         expected = ast.SelectQuery(
             select=[
-                ast.Tuple(
-                    exprs=[
-                        ast.Field(chain=["id"]),
-                        ast.Field(chain=["properties"]),
-                        ast.Field(chain=["created_at"]),
-                        ast.Field(chain=["is_identified"]),
-                    ]
-                ),
+                ast.Field(chain=["id"]),
                 ast.Field(chain=["id"]),
                 ast.Field(chain=["created_at"]),
                 ast.Constant(value=1),
@@ -83,9 +76,13 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             offset=ast.Constant(value=0),
             order_by=[ast.OrderExpr(expr=ast.Field(chain=["created_at"]), order="DESC")],
         )
-        self.assertEqual(clear_locations(query), expected)
+        assert clear_locations(query) == expected
         response = runner.calculate()
-        self.assertEqual(len(response.results), 10)
+        assert len(response.results) == 10
+
+        assert set(response.results[0][0].keys()) == {"id", "created_at", "distinct_ids", "properties", "is_identified"}
+        assert response.results[0][0].get("properties").get("random_uuid") == self.random_uuid
+        assert len(response.results[0][0].get("distinct_ids")) > 0
 
     def test_persons_query_properties(self):
         self.random_uuid = self._create_random_persons()

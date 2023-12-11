@@ -20,6 +20,7 @@ import Fuse from 'fuse.js'
 import { useValues } from 'kea'
 import { IconBold, IconItalic } from 'lib/lemon-ui/icons'
 import { Popover } from 'lib/lemon-ui/Popover'
+import { selectFiles } from 'lib/utils/file-utils'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -29,7 +30,6 @@ import { BaseMathType, ChartDisplayType, FunnelVizType, NotebookNodeType, PathTy
 
 import { buildNodeEmbed } from '../Nodes/NotebookNodeEmbed'
 import { buildInsightVizQueryContent, buildNodeQueryContent } from '../Nodes/NotebookNodeQuery'
-import { selectFile } from '../Nodes/utils'
 import NotebookIconHeading from './NotebookIconHeading'
 import { notebookLogic } from './notebookLogic'
 import { EditorCommands, EditorRange } from './utils'
@@ -313,7 +313,7 @@ order by count() desc
         command: async (chain, pos) => {
             // Trigger upload followed by insert
             try {
-                const files = await selectFile({ contentType: 'image/*', multiple: false })
+                const files = await selectFiles({ contentType: 'image/*', multiple: false })
 
                 if (files.length) {
                     return chain.insertContentAt(pos, { type: NotebookNodeType.Image, attrs: { file: files[0] } })

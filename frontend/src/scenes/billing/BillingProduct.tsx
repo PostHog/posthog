@@ -1,6 +1,7 @@
 import { LemonButton, LemonSelectOptions, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import {
     IconArticle,
@@ -21,7 +22,7 @@ import { getProductIcon } from 'scenes/products/Products'
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
 
 import { convertLargeNumberToWords, getUpgradeProductLink, summarizeUsage } from './billing-utils'
-import { BillingGauge } from './BillingGauge'
+import { BillingGauge, BillingGauge3000 } from './BillingGauge'
 import { BillingLimitInput } from './BillingLimitInput'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
@@ -150,6 +151,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         customLimitUsd,
         showTierBreakdown,
         billingGaugeItems,
+        billingGaugeItems3000,
         isPricingModalOpen,
         isPlanComparisonModalOpen,
         currentAndUpgradePlans,
@@ -164,6 +166,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         setSurveyResponse,
     } = useActions(billingProductLogic({ product }))
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     const showUpgradeCTA = !product.subscribed && !product.contact_support && product.plans?.length
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
@@ -419,7 +422,11 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 />
                                             )}
                                             <div className="grow">
-                                                <BillingGauge items={billingGaugeItems} />
+                                                {is3000 ? (
+                                                    <BillingGauge3000 items={billingGaugeItems3000} product={product} />
+                                                ) : (
+                                                    <BillingGauge items={billingGaugeItems} product={product} />
+                                                )}
                                             </div>
                                             {product.current_amount_usd ? (
                                                 <div className="flex justify-end gap-8 flex-wrap items-end">
