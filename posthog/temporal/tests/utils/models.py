@@ -29,7 +29,7 @@ def create_batch_export(team_id: int, interval: str, name: str, destination_data
 
 async def acreate_batch_export(team_id: int, interval: str, name: str, destination_data: dict) -> BatchExport:
     """Async create a BatchExport and its underlying Schedule."""
-    return await sync_to_async(create_batch_export)(team_id, interval, name, destination_data)  # type: ignore
+    return await sync_to_async(create_batch_export)(team_id, interval, name, destination_data)
 
 
 async def adelete_batch_export(batch_export: BatchExport, temporal_client: temporalio.client.Client) -> None:
@@ -42,7 +42,7 @@ async def adelete_batch_export(batch_export: BatchExport, temporal_client: tempo
         # This means the schedule was already deleted, so we can continue
         pass
 
-    await sync_to_async(batch_export.delete)()  # type: ignore
+    await sync_to_async(batch_export.delete)()
 
 
 def fetch_batch_export_runs(batch_export_id: uuid.UUID, limit: int = 100) -> list[BatchExportRun]:
@@ -52,7 +52,7 @@ def fetch_batch_export_runs(batch_export_id: uuid.UUID, limit: int = 100) -> lis
 
 async def afetch_batch_export_runs(batch_export_id: uuid.UUID, limit: int = 100) -> list[BatchExportRun]:
     """Async fetch the BatchExportRuns for a given BatchExport."""
-    return await sync_to_async(fetch_batch_export_runs)(batch_export_id, limit)  # type: ignore
+    return await sync_to_async(fetch_batch_export_runs)(batch_export_id, limit)
 
 
 def fetch_batch_export_backfills(batch_export_id: uuid.UUID, limit: int = 100) -> list[BatchExportBackfill]:
@@ -62,4 +62,4 @@ def fetch_batch_export_backfills(batch_export_id: uuid.UUID, limit: int = 100) -
 
 async def afetch_batch_export_backfills(batch_export_id: uuid.UUID, limit: int = 100) -> list[BatchExportBackfill]:
     """Fetch the BatchExportBackfills for a given BatchExport."""
-    return await sync_to_async(fetch_batch_export_backfills)(batch_export_id, limit)  # type: ignore
+    return await sync_to_async(fetch_batch_export_backfills)(batch_export_id, limit)

@@ -28,9 +28,7 @@ import {
     makeHTMLStyles,
     makeIndeterminateProgressStyles,
     makeMinimalStyles,
-    makePositionStyles,
     makeStylesString,
-    makeSvgBorder,
 } from './wireframeStyle'
 
 /**
@@ -125,54 +123,19 @@ function makeWebViewElement(wireframe: wireframe, children: serializedNodeWithId
 }
 
 function makePlaceholderElement(wireframe: wireframe, children: serializedNodeWithId[]): serializedNodeWithId | null {
-    // <svg width="200" height="200">
-    //  <rect width="100%" height="100%" fill="grey"/>
-    //  <text fill="white" font-size="30" x="50%" y="50%" dominant-baseline="middle" text-anchor="middle">
-    // Keyboard
-    //  </text>
-    // </svg>
     const txt = 'label' in wireframe && wireframe.label ? wireframe.label : wireframe.type || 'PLACEHOLDER'
     return {
         type: NodeType.Element,
-        tagName: 'svg',
+        tagName: 'div',
         attributes: {
-            width: wireframe.width,
-            height: wireframe.height,
-            style: makeStylesString(wireframe),
+            style: makeStylesString(wireframe, { verticalAlign: 'center', horizontalAlign: 'center' }),
         },
         id: wireframe.id,
         childNodes: [
             {
-                type: NodeType.Element,
-                tagName: 'rect',
-                attributes: {
-                    width: wireframe.width,
-                    height: wireframe.height,
-                    style: makeStylesString(wireframe),
-                    fill: wireframe.style?.backgroundColor || 'grey',
-                },
+                type: NodeType.Text,
                 id: idSequence.next().value,
-                childNodes: [],
-            },
-            {
-                type: NodeType.Element,
-                tagName: 'text',
-                attributes: {
-                    fill: wireframe.style?.color || 'white',
-                    'font-size': '30',
-                    x: '50%',
-                    y: '50%',
-                    'dominant-baseline': 'middle',
-                    'text-anchor': 'middle',
-                },
-                id: idSequence.next().value,
-                childNodes: [
-                    {
-                        type: NodeType.Text,
-                        textContent: txt,
-                        id: idSequence.next().value,
-                    },
-                ],
+                textContent: txt,
             },
             ...children,
         ],
@@ -471,28 +434,12 @@ function makeRectangleElement(
 ): serializedNodeWithId | null {
     return {
         type: NodeType.Element,
-        tagName: 'svg',
+        tagName: 'div',
         attributes: {
-            style: makePositionStyles(wireframe),
-            viewBox: `0 0 ${wireframe.width} ${wireframe.height}`,
+            style: makeStylesString(wireframe),
         },
         id: wireframe.id,
-        childNodes: [
-            {
-                type: NodeType.Element,
-                tagName: 'rect',
-                attributes: {
-                    x: 0,
-                    y: 0,
-                    width: wireframe.width,
-                    height: wireframe.height,
-                    fill: wireframe.style?.backgroundColor || 'transparent',
-                    ...makeSvgBorder(wireframe.style),
-                },
-                id: idSequence.next().value,
-                childNodes: children,
-            },
-        ],
+        childNodes: children,
     }
 }
 
