@@ -183,43 +183,47 @@ export function PersonsModal({
                     </div>
                 </div>
                 <LemonModal.Footer>
-                    <LemonButton
-                        type="secondary"
-                        onClick={() => {
-                            void triggerExport({
-                                export_format: ExporterFormat.CSV,
-                                export_context: query
-                                    ? { source: personsQuery as Record<string, any> }
-                                    : { path: originalUrl },
-                            })
-                        }}
-                        data-attr="person-modal-download-csv"
-                        disabled={!actors.length}
-                    >
-                        Download CSV
-                    </LemonButton>
-                    {actors && actors.length > 0 && !isGroupType(actors[0]) && (
-                        <LemonButton
-                            onClick={() => setIsCohortModalOpen(true)}
-                            type="secondary"
-                            data-attr="person-modal-save-as-cohort"
-                            disabled={!actors.length}
-                        >
-                            Save as cohort
-                        </LemonButton>
-                    )}
-                    {exploreUrl && (
-                        <LemonButton
-                            type="primary"
-                            to={exploreUrl}
-                            data-attr="person-modal-new-insight"
-                            onClick={() => {
-                                closeModal()
-                            }}
-                        >
-                            Explore
-                        </LemonButton>
-                    )}
+                    <div className="flex justify-between gap-2 w-full">
+                        <div className="flex gap-2">
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => {
+                                    void triggerExport({
+                                        export_format: ExporterFormat.CSV,
+                                        export_context: query
+                                            ? { source: personsQuery as Record<string, any> }
+                                            : { path: originalUrl },
+                                    })
+                                }}
+                                data-attr="person-modal-download-csv"
+                                disabled={!actors.length}
+                            >
+                                Download CSV
+                            </LemonButton>
+                            {actors && actors.length > 0 && !isGroupType(actors[0]) && (
+                                <LemonButton
+                                    onClick={() => setIsCohortModalOpen(true)}
+                                    type="secondary"
+                                    data-attr="person-modal-save-as-cohort"
+                                    disabled={!actors.length}
+                                >
+                                    Save as cohort
+                                </LemonButton>
+                            )}
+                        </div>
+                        {exploreUrl && (
+                            <LemonButton
+                                type="primary"
+                                to={exploreUrl}
+                                data-attr="person-modal-new-insight"
+                                onClick={() => {
+                                    closeModal()
+                                }}
+                            >
+                                Explore
+                            </LemonButton>
+                        )}
+                    </div>
                 </LemonModal.Footer>
             </LemonModal>
             <SaveCohortModal
