@@ -221,9 +221,11 @@ export function renderColumn(
             displayProps.href = urls.personByDistinctId(personRecord.distinct_ids[0])
         }
 
-        if (isPersonsQuery(query.source)) {
+        if (isPersonsQuery(query.source) && value) {
             displayProps.person = value
-            displayProps.href = urls.personByUUID(value.id ?? '-') || urls.personByDistinctId(value.distinct_ids[0])
+            displayProps.href = value.id
+                ? urls.personByUUID(value.id)
+                : urls.personByDistinctId(value.distinct_ids?.[0] ?? '-')
         }
 
         return <PersonDisplay {...displayProps} />

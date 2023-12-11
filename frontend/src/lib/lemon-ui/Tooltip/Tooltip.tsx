@@ -1,5 +1,6 @@
 import { Tooltip as AntdTooltip } from 'antd'
 import { TooltipProps as AntdTooltipProps } from 'antd/lib/tooltip'
+import { useFloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import React, { useState } from 'react'
 import { useDebounce } from 'use-debounce'
 
@@ -19,6 +20,8 @@ export function Tooltip({ children, visible, delayMs = DEFAULT_DELAY_MS, ...prop
     const [localVisible, setVisible] = useState(false)
     const [debouncedLocalVisible] = useDebounce(visible ?? localVisible, delayMs)
 
+    const floatingContainer = useFloatingContainerContext()?.current
+
     if (!('mouseEnterDelay' in props)) {
         // If not preserving default behavior and mouseEnterDelay is not already provided, we use a custom default here
         props.mouseEnterDelay = delayMs
@@ -31,7 +34,11 @@ export function Tooltip({ children, visible, delayMs = DEFAULT_DELAY_MS, ...prop
     const derivedVisible = typeof visible === 'undefined' ? localVisible && debouncedLocalVisible : visible
 
     return props.title ? (
-        <AntdTooltip {...props} visible={derivedVisible}>
+        <AntdTooltip
+            {...props}
+            getPopupContainer={floatingContainer ? () => floatingContainer : undefined}
+            visible={derivedVisible}
+        >
             {React.cloneElement(child, {
                 onMouseEnter: () => {
                     child.props.onMouseEnter?.()

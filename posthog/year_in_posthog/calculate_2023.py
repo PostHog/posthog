@@ -5,7 +5,6 @@ from django.conf import settings
 from django.db import connection
 
 from posthog.cache_utils import cache_for
-from posthog.logging.timing import timed
 
 query = """
 with insight_stats AS (
@@ -33,12 +32,16 @@ flag_stats AS (
         created_by_id AS user_id,
         count(*) AS flag_created_count,
         CASE
-            WHEN count(*) >= 10 THEN 'flag_raiser'
+            WHEN count(*) >= 5 THEN 'flag_raiser'
         END AS badge
     FROM
         posthog_featureflag
     WHERE
-        date_part('year', created_at) = 2023
+        -- only having a single percentage symbol here gives very misleading Python errors :/
+        key not ilike 'survey-targeting%%'
+        AND key not ilike 'prompt-%%'
+        AND key not ilike 'interview-%%'
+        AND date_part('year', created_at) = 2023
         AND created_by_id = (select id from posthog_user where uuid = %(user_uuid)s)
     GROUP BY
         created_by_id
@@ -48,7 +51,7 @@ recording_viewed_stats AS (
         user_id,
         count(*) AS viewed_recording_count,
         CASE
-            WHEN count(*) >= 50 THEN 'popcorn_muncher'
+            WHEN count(*) >= 59 THEN 'popcorn_muncher'
         END AS badge
     FROM
         posthog_sessionrecordingviewed
@@ -63,7 +66,7 @@ experiments_stats AS (
         created_by_id AS user_id,
         count(*) AS experiments_created_count,
         CASE
-            WHEN count(*) >= 4 THEN 'scientist'
+            WHEN count(*) >= 3 THEN 'scientist'
         END AS badge
     FROM
         posthog_experiment
@@ -78,7 +81,7 @@ dashboards_created_stats AS (
         created_by_id AS user_id,
         count(*) AS dashboards_created_count,
         CASE
-            WHEN count(*) >= 10 THEN 'curator'
+            WHEN count(*) >= 4 THEN 'curator'
         END AS badge
     FROM
         posthog_dashboard
@@ -114,12 +117,7 @@ SELECT
         recording_viewed_stats.badge,
         experiments_stats.badge,
         dashboards_created_stats.badge,
-        survey_stats.badge,
-        case when
-            recording_viewed_stats.badge is not null
-                and flag_stats.badge is not null
-                and insight_stats.badge is not null
-            then 'champion' end
+        survey_stats.badge
     ],
         NULL
     ) AS badges,
@@ -148,7 +146,6 @@ def dictfetchall(cursor):
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
-@timed("year_in_posthog_2023_calculation")
 @cache_for(timedelta(seconds=0 if settings.DEBUG else 30))
 def calculate_year_in_posthog_2023(user_uuid: str) -> Optional[Dict]:
     with connection.cursor() as cursor:

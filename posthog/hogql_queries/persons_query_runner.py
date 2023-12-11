@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import List, cast, Literal
+from typing import List, cast, Literal, Dict, Any
 from django.db.models.query import Prefetch
 
 from posthog.hogql import ast
@@ -27,7 +27,6 @@ class PersonsQueryRunner(QueryRunner):
         input_columns = self.input_columns()
         if "person" in input_columns:
             person_column_index = input_columns.index("person")
-
             person_ids = [str(result[person_column_index]) for result in response.results]
             pg_persons = {
                 str(p.uuid): p
@@ -39,7 +38,7 @@ class PersonsQueryRunner(QueryRunner):
             for index, result in enumerate(response.results):
                 response.results[index] = list(result)
                 person_id = str(result[person_column_index])
-                new_result = {"id": person_id}
+                new_result: Dict[str, Any] = {"id": person_id}
                 person = pg_persons.get(person_id)
                 if person:
                     new_result["distinct_ids"] = person.distinct_ids
