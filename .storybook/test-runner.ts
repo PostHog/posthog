@@ -81,6 +81,7 @@ module.exports = {
         browserContext.setDefaultTimeout(PLAYWRIGHT_TIMEOUT_MS)
         const currentBrowser = browserContext.browser()!.browserType().name() as SupportedBrowserName
         if (snapshotBrowsers.includes(currentBrowser)) {
+            await page.waitForTimeout(1000)
             await expectStoryToMatchSnapshot(page, context, storyContext, currentBrowser)
         }
     },
