@@ -141,9 +141,15 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
     [NodeKind.RetentionQuery]: {
         name: 'Retention',
-        description: 'See how many users return on subsequent days after an intial action',
+        description: 'See how many users return on subsequent days after an initial action',
         icon: IconRetention,
         inMenu: true,
+    },
+    [NodeKind.RetentionAppearanceQuery]: {
+        name: 'Retention Appearance',
+        description: 'See the users and when they returned on subsequent intervals after an initial action',
+        icon: IconRetention,
+        inMenu: false,
     },
     [NodeKind.PathsQuery]: {
         name: 'Paths',

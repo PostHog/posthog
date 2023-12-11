@@ -741,7 +741,6 @@ export type InsightQueryNode =
     | TrendsQuery
     | FunnelsQuery
     | RetentionQuery
-    | RetentionAppearanceQuery
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
@@ -763,7 +762,7 @@ export type InsightFilter =
 
 export interface InsightPersonsQuery {
     kind: NodeKind.InsightPersonsQuery
-    source: InsightQueryNode
+    source: InsightQueryNode | RetentionAppearanceQuery
     day?: string
     status?: string
     // TODO: add breakdowns
