@@ -390,17 +390,37 @@ function makeProgressElement(
     }
 }
 
-function makeToggleElement(
-    wireframe: wireframeToggle,
-    children: serializedNodeWithId[]
-): (elementNode & { id: number }) | null {
-    /**
-     * <button id="btn-switch" type="button" role="switch">
-     *     <div class="slider"></div>
-     *     <div class="handle"></div>
-     * </button>
-     */
+function makeToggleParts(wireframe: wireframeToggle): serializedNodeWithId[] {
+    const togglePosition = wireframe.checked ? 'right' : 'left'
+    const defaultColor = wireframe.checked ? '#1d4aff' : BACKGROUND
+    return [
+        {
+            type: NodeType.Element,
+            tagName: 'div',
+            attributes: {
+                id: 'slider',
+                style: `position:absolute;top:35%;left:0;display:inline-block;width:100%;height:33%;background-color:${
+                    wireframe.style?.backgroundColor || defaultColor
+                };opacity: 0.2;border-radius:7.5%;`,
+            },
+            id: idSequence.next().value,
+            childNodes: [],
+        },
+        {
+            type: NodeType.Element,
+            tagName: 'div',
+            attributes: {
+                style: `position:absolute;top:1.5%;${togglePosition}:0;display:flex;align-items:center;justify-content:center;width:45%;height:85%;cursor:inherit;background-color:${
+                    wireframe.style?.backgroundColor || defaultColor
+                };border:2px solid ${wireframe.style?.backgroundColor || defaultColor};border-radius:50%;`,
+            },
+            id: idSequence.next().value,
+            childNodes: [],
+        },
+    ]
+}
 
+function makeToggleElement(wireframe: wireframeToggle): (elementNode & { id: number }) | null {
     return {
         type: NodeType.Element,
         tagName: 'div',
@@ -417,30 +437,7 @@ function makeToggleElement(
                     style: 'position:relative;width:100%;height:100%;',
                 },
                 id: idSequence.next().value,
-                childNodes: [
-                    {
-                        type: NodeType.Element,
-                        tagName: 'div',
-                        attributes: {
-                            id: 'slider',
-                            style: `position:absolute;top:5px;left:0;display:inline-block;width:100%;height:10%;background-color:${
-                                wireframe.style?.backgroundColor || BACKGROUND
-                            };border-radius:0.625rem;transition:background-color .1s ease;`,
-                        },
-                        id: idSequence.next().value,
-                        childNodes: [],
-                    },
-                    {
-                        type: NodeType.Element,
-                        tagName: 'div',
-                        attributes: {
-                            id: 'handle',
-                        },
-                        id: idSequence.next().value,
-                        childNodes: [],
-                    },
-                    ...children,
-                ],
+                childNodes: makeToggleParts(wireframe),
             },
         ],
     }
@@ -468,7 +465,7 @@ function makeInputElement(
 
     const theInputElement: (elementNode & { id: number }) | null =
         wireframe.inputType === 'toggle'
-            ? makeToggleElement(wireframe, children)
+            ? makeToggleElement(wireframe)
             : {
                   type: NodeType.Element,
                   tagName: 'input',
