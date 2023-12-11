@@ -32,6 +32,9 @@ import {
     makeStylesString,
 } from './wireframeStyle'
 
+const BACKGROUND = '#f3f4ef'
+const FOREGROUND = '#35373e'
+
 /**
  * generates a sequence of ids
  * from 100 to 9,999,999
@@ -134,7 +137,12 @@ function makePlaceholderElement(wireframe: wireframe, children: serializedNodeWi
         type: NodeType.Element,
         tagName: 'div',
         attributes: {
-            style: makeStylesString(wireframe, { verticalAlign: 'center', horizontalAlign: 'center' }),
+            style: makeStylesString(wireframe, {
+                verticalAlign: 'center',
+                horizontalAlign: 'center',
+                backgroundColor: wireframe.style?.backgroundColor || BACKGROUND,
+                color: wireframe.style?.color || FOREGROUND,
+            }),
         },
         id: wireframe.id,
         childNodes: [
