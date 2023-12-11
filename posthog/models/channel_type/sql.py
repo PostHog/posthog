@@ -39,8 +39,7 @@ INSERT INTO channel_definition (domain, kind, domain_type, type_if_paid, type_if
 ;
 """
 
-# Use COMPLEX_KEY_HASHED, even though we only have one key, because it's the only way to get a dictionary to work with
-# a primary key that's a string
+# Use COMPLEX_KEY_HASHED, as we have a composite key
 CHANNEL_DEFINITION_DICTIONARY_SQL = """
 CREATE DICTIONARY IF NOT EXISTS channel_definition_dict (
     domain String,
