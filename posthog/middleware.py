@@ -374,7 +374,7 @@ class CaptureMiddleware:
             # as this connection is created on import
             from django_statsd.middleware import StatsdMiddlewareTimer
 
-            self.CAPTURE_MIDDLEWARE.append(StatsdMiddlewareTimer())
+            self.CAPTURE_MIDDLEWARE.append(StatsdMiddlewareTimer(get_response=get_response))
 
     def __call__(self, request: HttpRequest):
         if request.path in (
