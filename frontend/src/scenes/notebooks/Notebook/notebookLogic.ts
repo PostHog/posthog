@@ -582,6 +582,9 @@ export const notebookLogic = kea<notebookLogicType>([
         },
 
         scheduleNotebookRefresh: () => {
+            if (values.mode !== 'notebook') {
+                return
+            }
             clearTimeout(cache.refreshTimeout)
             cache.refreshTimeout = setTimeout(() => {
                 actions.loadNotebook()
