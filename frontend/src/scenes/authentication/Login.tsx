@@ -88,7 +88,7 @@ export function Login(): JSX.Element {
             }
             footer={<SupportModalButton />}
         >
-            <div className="space-y-2">
+            <div className="space-y-4">
                 <h2>Log in</h2>
                 {generalError && (
                     <LemonBanner type="error">

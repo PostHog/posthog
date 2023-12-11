@@ -77,7 +77,7 @@ export function CodeLanguageSelect({
     return (
         <LemonSelect
             size="small"
-            className="min-w-30"
+            className="min-w-[7.5rem]"
             onSelect={selectOption}
             value={selectedOptionValue}
             options={OPTIONS.map(({ value, Icon }) => ({
@@ -117,7 +117,7 @@ export function ExperimentImplementationDetails({ experiment }: ExperimentImplem
                         <span className="mr-2">Variant group</span>
                         <LemonSelect
                             size="small"
-                            className="min-w-20"
+                            className="min-w-[5rem]"
                             onSelect={setCurrentVariant}
                             value={currentVariant}
                             options={(experiment?.parameters?.feature_flag_variants || []).map(

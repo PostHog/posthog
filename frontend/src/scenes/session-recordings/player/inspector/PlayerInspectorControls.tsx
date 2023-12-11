@@ -85,7 +85,7 @@ export function PlayerInspectorControls(): JSX.Element {
 
                 <div className="flex items-center gap-2 flex-1">
                     <LemonInput
-                        className="min-w-40"
+                        className="min-w-[10rem]"
                         size="small"
                         onChange={(e) => setSearchQuery(e)}
                         placeholder="Search..."

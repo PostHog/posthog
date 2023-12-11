@@ -92,7 +92,7 @@ export function ProjectVariables(): JSX.Element {
     return (
         <div className="flex items-start gap-4 flex-wrap">
             <div className="flex-1">
-                <h3 id="project-api-key" className="min-w-100">
+                <h3 id="project-api-key" className="min-w-[25rem]">
                     Project API Key
                 </h3>
                 <p>
@@ -132,7 +132,7 @@ export function ProjectVariables(): JSX.Element {
                 </p>
             </div>
             <div className="flex-1">
-                <h3 id="project-id" className="min-w-100">
+                <h3 id="project-id" className="min-w-[25rem]">
                     Project ID
                 </h3>
                 <p>

@@ -8,7 +8,39 @@ const config = {
             // CSS vars in lots of stylesheets
         },
         fontFamily: {
-            // TODO
+            sans: [
+                '-apple-system',
+                'BlinkMacSystemFont',
+                'Inter',
+                'Segoe UI',
+                'Roboto',
+                'Helvetica Neue',
+                'Helvetica',
+                'Arial',
+                'sans-serif',
+                'Apple Color Emoji',
+                'Segoe UI Emoji',
+                'Segoe UI Symbol',
+            ],
+            title: [
+                'MatterSQ',
+                '-apple-system',
+                'BlinkMacSystemFont',
+                'Inter',
+                'Segoe UI',
+                'Roboto',
+                'Helvetica Neue',
+                'Helvetica',
+                'Arial',
+                'sans-serif',
+                'Apple Color Emoji',
+                'Segoe UI Emoji',
+                'Segoe UI Symbol',
+            ],
+            mono: ['ui-monospace', 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', 'monospace'],
+        },
+        fontSize: {
+            xxs: ['0.625rem', '0.75rem'], // 10px (12px of line height)
         },
         extend: {
             screens: {
@@ -25,6 +57,8 @@ const config = {
                 18: '4.5rem',
                 30: '7.5rem',
                 50: '12.5rem',
+                60: '15rem',
+                80: '20rem',
                 100: '25rem',
                 120: '30rem',
                 140: '35rem',
@@ -35,12 +69,21 @@ const config = {
                 248: '62rem',
                 300: '75rem',
             },
+            boxShadow: {
+                DEFAULT: 'var(--shadow-elevation)',
+            },
+            flex: {
+                2: '2 2 0%',
+                3: '3 3 0%',
+            },
+            rotate: {
+                270: '270deg',
+            },
         },
     },
     plugins: [require('@tailwindcss/container-queries')],
 }
 config.theme.extend.maxWidth = { ...config.theme.extend.width, '1/2': '50%' }
-config.theme.extend.minWidth = config.theme.extend.width
 config.theme.extend.height = config.theme.extend.width
 config.theme.extend.maxHeight = config.theme.extend.width
 config.theme.extend.minHeight = config.theme.extend.width
