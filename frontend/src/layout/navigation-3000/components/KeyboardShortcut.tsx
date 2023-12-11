@@ -1,7 +1,7 @@
 import './KeyboardShortcut.scss'
 
 import clsx from 'clsx'
-import { isMac } from 'lib/utils'
+import { isMac, isMobile } from 'lib/utils'
 
 import { HotKeyOrModifier } from '~/types'
 
@@ -28,7 +28,13 @@ export interface KeyboardShortcutProps extends Partial<Record<HotKeyOrModifier, 
     muted?: boolean
 }
 
-export function KeyboardShortcut({ muted, ...keys }: KeyboardShortcutProps): JSX.Element {
+export function KeyboardShortcut({ muted, ...keys }: KeyboardShortcutProps): JSX.Element | null {
+    if (isMobile()) {
+        // If the user agent says we're on mobile, then it's unlikely - though not impossible - that there's
+        // a physical keyboard
+        return null
+    }
+
     const sortedKeys = Object.keys(keys).sort(
         (a, b) =>
             (-MODIFIER_PRIORITY.indexOf(a as HotKeyOrModifier) || 0) -
