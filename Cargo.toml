@@ -6,6 +6,9 @@ members = [
   "capture-server"
 ]
 
+[profile.release]
+debug = 2  # https://www.polarsignals.com/docs/rust
+
 [workspace.dependencies]
 assert-json-diff = "2.0.2"
 axum = "0.6.15"
