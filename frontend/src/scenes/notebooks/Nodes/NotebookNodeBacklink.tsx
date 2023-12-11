@@ -13,7 +13,7 @@ import { notebookLogic } from '../Notebook/notebookLogic'
 
 import { openNotebook } from '~/models/notebooksModel'
 import { IconNotebook } from '../IconNotebook'
-import { IconDashboard, IconLogomark } from '@posthog/icons'
+import { IconChat, IconDashboard, IconLogomark, IconRewindPlay } from '@posthog/icons'
 import { useEffect } from 'react'
 
 type BackLinkMapper = {
@@ -65,6 +65,16 @@ const BACKLINK_MAP: BackLinkMapper[] = [
         },
     },
     {
+        type: 'surveys',
+        regex: urls.survey('(.+)'),
+        icon: <IconChat />,
+        getTitle: async (path: string) => {
+            const id = path.split('/')[2]
+            const survey = await api.surveys.get(id)
+            return survey.name ?? ''
+        },
+    },
+    {
         type: 'events',
         regex: urls.eventDefinition('(.+)'),
         icon: <IconLive />,
@@ -92,6 +102,15 @@ const BACKLINK_MAP: BackLinkMapper[] = [
             const id = path.split('/')[2]
             const cohort = await api.cohorts.get(Number(id))
             return cohort.name ?? ''
+        },
+    },
+    {
+        type: 'replay',
+        regex: urls.replaySingle('(.+)'),
+        icon: <IconRewindPlay />,
+        getTitle: async (path: string) => {
+            const id = path.split('/')[2]
+            return id
         },
     },
     {
