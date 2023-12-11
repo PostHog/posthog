@@ -10,6 +10,7 @@ import { Person, PropertyUpdateOperation, TimestampFormat } from '../../types'
 import { DB } from '../../utils/db/db'
 import { PostgresRouter, PostgresUse, TransactionClient } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
+import { PeriodicTask } from '../../utils/periodic-task'
 import { promiseRetry } from '../../utils/retries'
 import { status } from '../../utils/status'
 import { castTimestampOrNow, UUIDT } from '../../utils/utils'
@@ -707,12 +708,13 @@ export class PersonOverrideWriter {
     }
 }
 
+const deferredPersonOverridesWrittenCounter = new Counter({
+    name: 'deferred_person_overrides_written',
+    help: 'Number of person overrides that have been written as pending',
+})
+
 export class DeferredPersonOverrideWriter {
-    /**
-     * @param lockId the lock identifier/key used to ensure that only one
-     *               process is updating the overrides at a time
-     */
-    constructor(private postgres: PostgresRouter, private lockId: number) {}
+    constructor(private postgres: PostgresRouter) {}
 
     /**
      * Enqueue an override for deferred processing.
@@ -738,8 +740,29 @@ export class DeferredPersonOverrideWriter {
             undefined,
             'pendingPersonOverride'
         )
-
+        deferredPersonOverridesWrittenCounter.inc()
         return []
+    }
+}
+
+const deferredPersonOverridesProcessedCounter = new Counter({
+    name: 'deferred_person_overrides_processed',
+    help: 'Number of pending person overrides that have been successfully processed',
+})
+
+export class DeferredPersonOverrideWorker {
+    // This lock ID is used as an advisory lock identifier/key for a lock that
+    // ensures only one worker is able to update the overrides table at a time.
+    // (We do this to make it simpler to ensure that we maintain the consistency
+    // of transitive updates.) There isn't any special significance to this
+    // particular value (other than Postgres requires it to be a numeric one),
+    // it just needs to be consistent across all processes.
+    public readonly lockId = 567
+
+    private writer: PersonOverrideWriter
+
+    constructor(private postgres: PostgresRouter, private kafkaProducer: KafkaProducerWrapper) {
+        this.writer = new PersonOverrideWriter(this.postgres)
     }
 
     /**
@@ -751,56 +774,77 @@ export class DeferredPersonOverrideWriter {
      *
      * @returns the number of overrides processed
      */
-    public async processPendingOverrides(kafkaProducer: KafkaProducerWrapper, limit?: number): Promise<number> {
-        const writer = new PersonOverrideWriter(this.postgres)
-
-        return await this.postgres.transaction(PostgresUse.COMMON_WRITE, 'processPendingOverrides', async (tx) => {
-            const {
-                rows: [{ acquired }],
-            } = await this.postgres.query(
-                tx,
-                SQL`SELECT pg_try_advisory_xact_lock(${this.lockId}) as acquired`,
-                undefined,
-                'processPendingOverrides'
-            )
-            if (!acquired) {
-                throw new Error('could not acquire lock')
-            }
-
-            // n.b.: Ordering by id ensures we are processing in (roughly) FIFO order
-            const { rows } = await this.postgres.query(
-                tx,
-                `SELECT * FROM posthog_pendingpersonoverride ORDER BY id` +
-                    (limit !== undefined ? ` LIMIT ${limit}` : ''),
-                undefined,
-                'processPendingOverrides'
-            )
-
-            const messages: ProducerRecord[] = []
-            for (const { id, ...mergeOperation } of rows) {
-                messages.push(...(await writer.addPersonOverride(tx, mergeOperation)))
-                await this.postgres.query(
+    public async processPendingOverrides(limit?: number): Promise<number> {
+        const overridesCount = await this.postgres.transaction(
+            PostgresUse.COMMON_WRITE,
+            'processPendingOverrides',
+            async (tx) => {
+                const {
+                    rows: [{ acquired }],
+                } = await this.postgres.query(
                     tx,
-                    SQL`DELETE FROM posthog_pendingpersonoverride WHERE id = ${id}`,
+                    SQL`SELECT pg_try_advisory_xact_lock(${this.lockId}) as acquired`,
                     undefined,
                     'processPendingOverrides'
                 )
+                if (!acquired) {
+                    throw new Error('could not acquire lock')
+                }
+
+                // n.b.: Ordering by id ensures we are processing in (roughly) FIFO order
+                const { rows } = await this.postgres.query(
+                    tx,
+                    `SELECT * FROM posthog_pendingpersonoverride ORDER BY id` +
+                        (limit !== undefined ? ` LIMIT ${limit}` : ''),
+                    undefined,
+                    'processPendingOverrides'
+                )
+
+                const messages: ProducerRecord[] = []
+                for (const { id, ...mergeOperation } of rows) {
+                    messages.push(...(await this.writer.addPersonOverride(tx, mergeOperation)))
+                    await this.postgres.query(
+                        tx,
+                        SQL`DELETE FROM posthog_pendingpersonoverride WHERE id = ${id}`,
+                        undefined,
+                        'processPendingOverrides'
+                    )
+                }
+
+                // n.b.: We publish the messages here (and wait for acks) to ensure
+                // that all of our override updates are sent to Kafka prior to
+                // committing the transaction. If we're unable to publish, we should
+                // discard updates and try again later when it's available -- not
+                // doing so would cause the copy of this data in ClickHouse to
+                // slowly drift out of sync with the copy in Postgres. This write is
+                // safe to retry if we write to Kafka but then fail to commit to
+                // Postgres for some reason -- the same row state should be
+                // generated each call, and the receiving ReplacingMergeTree will
+                // ensure we keep only the latest version after all writes settle.)
+                await this.kafkaProducer.queueMessages(messages, true)
+
+                return rows.length
             }
+        )
 
-            // n.b.: We publish the messages here (and wait for acks) to ensure
-            // that all of our override updates are sent to Kafka prior to
-            // committing the transaction. If we're unable to publish, we should
-            // discard updates and try again later when it's available -- not
-            // doing so would cause the copy of this data in ClickHouse to
-            // slowly drift out of sync with the copy in Postgres. This write is
-            // safe to retry if we write to Kafka but then fail to commit to
-            // Postgres for some reason -- the same row state should be
-            // generated each call, and the receiving ReplacingMergeTree will
-            // ensure we keep only the latest version after all writes settle.)
-            await kafkaProducer.queueMessages(messages, true)
+        deferredPersonOverridesProcessedCounter.inc(overridesCount)
 
-            return rows.length
-        })
+        return overridesCount
+    }
+
+    public runTask(intervalMs: number): PeriodicTask {
+        return new PeriodicTask(
+            'processPendingOverrides',
+            async () => {
+                status.debug('👥', 'Processing pending overrides...')
+                const overridesCount = await this.processPendingOverrides()
+                ;(overridesCount > 0 ? status.info : status.debug)(
+                    '👥',
+                    `Processed ${overridesCount} pending overrides.`
+                )
+            },
+            intervalMs
+        )
     }
 }
 

@@ -7,6 +7,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useEffect } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { NotebookTarget } from '~/types'
@@ -34,6 +35,7 @@ export const scene: SceneExport = {
 
 export function NotebookScene(): JSX.Element {
     const { notebookId, loading } = useValues(notebookSceneLogic)
+    const { createNotebook } = useActions(notebookSceneLogic)
     const { notebook, conflictWarningVisible } = useValues(
         notebookLogic({ shortId: notebookId, target: NotebookTarget.Scene })
     )
@@ -42,6 +44,13 @@ export function NotebookScene(): JSX.Element {
 
     const { featureFlags } = useValues(featureFlagLogic)
     const buttonSize = featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test' ? 'small' : 'medium'
+
+    useEffect(() => {
+        if (notebookId === 'new') {
+            // NOTE: We don't do this in the logic afterMount as the logic can get cached by the router
+            createNotebook(NotebookTarget.Scene)
+        }
+    }, [notebookId])
 
     if (!notebook && !loading && !conflictWarningVisible) {
         return <NotFound object="notebook" />
