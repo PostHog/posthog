@@ -25,23 +25,11 @@
     }
 
     &.BillingGaugeItem--free_tier {
-        // :TRICKY: We want "--border-light" as background color here.
-        // Since this color has an alpha-component, it "stacks" with
-        // other colors. Therefore we're using the effective color
-        // without alpha component as replacement.
-        background-color: #dedede;
-
-        [theme='dark'] & {
-            background-color: #1b1d24;
-        }
+        background-color: var(--border-light-opaque);
     }
 
     &.BillingGaugeItem--billing_limit {
-        background-color: #dedede;
-
-        [theme='dark'] & {
-            background-color: #1b1d24;
-        }
+        background-color: var(--border-light-opaque);
     }
 
     &.BillingGaugeItem--current_usage {
