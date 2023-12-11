@@ -29,7 +29,7 @@ export function ProjectDisplayName(): JSX.Element {
     }
 
     return (
-        <div className="space-y-4" style={{ maxWidth: '40rem' }}>
+        <div className="space-y-4 max-w-160">
             <LemonInput value={name} onChange={setName} disabled={currentTeamLoading} />
             <LemonButton
                 type="primary"
