@@ -29,7 +29,6 @@ django-loginas==0.3.11
 django-picklefield==3.0.1
 django-prometheus==2.2.0
 django-redis==5.2.0
-django-statsd==2.5.2
 django-structlog==2.1.3
 django-revproxy==0.12.0
 djangorestframework==3.14.0
