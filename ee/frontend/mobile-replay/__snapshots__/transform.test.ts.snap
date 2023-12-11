@@ -326,7 +326,7 @@ exports[`replay/transform transform can process unknown types without error 1`] 
                     "childNodes": [
                       {
                         "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 25px;top: 42px;align-items: center;justify-content: center;display: flex;",
+                          "style": "color: #35373e;background-color: #f3f4ef;width: 100px;height: 30px;position: fixed;left: 25px;top: 42px;align-items: center;justify-content: center;display: flex;",
                         },
                         "childNodes": [
                           {
@@ -2574,7 +2574,7 @@ exports[`replay/transform transform inputs placeholder - $inputType - $value 1`]
                   "childNodes": [
                     {
                       "attributes": {
-                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
+                        "style": "color: #35373e;background-color: #f3f4ef;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
                       },
                       "childNodes": [
                         {
@@ -3057,7 +3057,7 @@ exports[`replay/transform transform omitting x and y is equivalent to setting th
                     "childNodes": [
                       {
                         "attributes": {
-                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
+                          "style": "color: #35373e;background-color: #f3f4ef;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
                         },
                         "childNodes": [
                           {
