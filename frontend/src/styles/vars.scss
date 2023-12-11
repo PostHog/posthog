@@ -334,14 +334,15 @@ $_lifecycle_dormant: $_danger;
     --toastify-color-success: var(--success);
     --toastify-color-warning: var(--warning);
     --toastify-color-error: var(--danger);
+    --toastify-color-progress-info: var(--toastify-color-info);
+    --toastify-color-progress-success: var(--toastify-color-success);
+    --toastify-color-progress-warning: var(--toastify-color-warning);
+    --toastify-color-progress-error: var(--toastify-color-error);
     --toastify-toast-background: var(--bg-light);
     --toastify-toast-width: 26rem;
     --toastify-toast-min-height: 3.5rem;
     --toastify-toast-max-height: 16rem;
     --toastify-text-color-light: #757575;
-    --toastify-color-progress-success: var(--toastify-color-success);
-    --toastify-color-progress-warning: var(--toastify-color-warning);
-    --toastify-color-progress-error: var(--toastify-color-error);
 
     // In-app prompts
     --in-app-prompts-width: 26rem;

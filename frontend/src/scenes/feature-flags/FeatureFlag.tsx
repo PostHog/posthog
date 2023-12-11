@@ -323,9 +323,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 autoCorrect="off"
                                                 spellCheck={false}
                                             />
-                                            <span style={{ fontSize: 13 }} className="text-muted">
-                                                Feature flag keys must be unique
-                                            </span>
+                                            <span className="text-muted text-sm">Feature flag keys must be unique</span>
                                         </>
                                     )}
                                 </Field>
@@ -1017,7 +1015,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     />
                                                     {filterGroups.filter((group) => group.variant === variant.key)
                                                         .length > 0 && (
-                                                        <span style={{ fontSize: 11 }} className="text-muted">
+                                                        <span className="text-muted text-xs">
                                                             Overridden by{' '}
                                                             <strong>
                                                                 {variantConcatWithPunctuation(
