@@ -240,6 +240,7 @@ describe('dataNodeLogic', () => {
                 kind: NodeKind.EventsQuery,
                 select: ['*', 'event', 'timestamp'],
                 before: '2022-12-24T17:00:41.165000Z',
+                limit: 100,
             },
             response: partial({ results }),
         })
@@ -268,6 +269,7 @@ describe('dataNodeLogic', () => {
                     kind: NodeKind.EventsQuery,
                     select: ['*', 'event', 'timestamp'],
                     before: '2022-12-24T17:00:41.165000Z',
+                    limit: 100,
                 },
                 response: partial({ results }),
             })
@@ -280,6 +282,7 @@ describe('dataNodeLogic', () => {
                 kind: NodeKind.EventsQuery,
                 select: ['*', 'event', 'timestamp'],
                 before: '2022-12-23T17:00:41.165000Z',
+                limit: 100,
             },
             response: partial({ results: [...results, ...results2] }),
         })
