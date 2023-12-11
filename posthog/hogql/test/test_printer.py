@@ -1359,7 +1359,7 @@ class TestPrinter(BaseTest):
         )
 
     def test_lookup_domain_type(self):
-        query = parse_select("select lookupDomainType('www.google.com') from events")
+        query = parse_select("select hogql_lookupDomainType('www.google.com') from events")
         printed = print_ast(
             query,
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),

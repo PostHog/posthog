@@ -24,7 +24,7 @@ def create_initial_domain_type(name: str):
 if(
     properties.$initial_referring_domain = '$direct',
     '$direct',
-    lookupDomainType(properties.$initial_referring_domain)
+    hogql_lookupDomainType(properties.$initial_referring_domain)
 )
 """
         ),
@@ -46,14 +46,14 @@ multiIf(
         properties.$initial_gad_source IS NOT NULL
     ),
     coalesce(
-        lookupPaidSourceType(properties.$initial_utm_source),
-        lookupPaidDomainType(properties.$initial_referring_domain),
+        hogql_lookupPaidSourceType(properties.$initial_utm_source),
+        hogql_lookupPaidDomainType(properties.$initial_referring_domain),
         if(
             match(properties.$initial_utm_campaign, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
             'Paid Shopping',
             NULL
         ),
-        lookupPaidMediumType(properties.$initial_utm_medium),
+        hogql_lookupPaidMediumType(properties.$initial_utm_medium),
         multiIf (
             properties.$initial_gad_source = '1',
             'Paid Search',
@@ -73,14 +73,14 @@ multiIf(
     'Direct',
 
     coalesce(
-        lookupOrganicSourceType(properties.$initial_utm_source),
-        lookupOrganicDomainType(properties.$initial_referring_domain),
+        hogql_lookupOrganicSourceType(properties.$initial_utm_source),
+        hogql_lookupOrganicDomainType(properties.$initial_referring_domain),
         if(
             match(properties.$initial_utm_campaign, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
             'Organic Shopping',
             NULL
         ),
-        lookupOrganicMediumType(properties.$initial_utm_medium),
+        hogql_lookupOrganicMediumType(properties.$initial_utm_medium),
         multiIf(
             match(properties.$initial_utm_campaign, '^(.*video.*)$'),
             'Organic Video',

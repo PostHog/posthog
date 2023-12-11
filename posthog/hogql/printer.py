@@ -843,23 +843,23 @@ class _Printer(Visitor):
             args = [self.visit(arg) for arg in node.args]
 
             if self.dialect == "clickhouse":
-                if node.name == "lookupDomainType":
+                if node.name == "hogql_lookupDomainType":
                     return f"dictGetOrNull('channel_definition_dict', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source'))"
-                elif node.name == "lookupPaidDomainType":
+                elif node.name == "hogql_lookupPaidDomainType":
                     return f"dictGetOrNull('channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source'))"
-                elif node.name == "lookupPaidSourceType":
+                elif node.name == "hogql_lookupPaidSourceType":
                     return (
                         f"dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce({args[0]}, ''), 'source'))"
                     )
-                elif node.name == "lookupPaidMediumType":
+                elif node.name == "hogql_lookupPaidMediumType":
                     return (
                         f"dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce({args[0]}, ''), 'medium'))"
                     )
-                elif node.name == "lookupOrganicDomainType":
+                elif node.name == "hogql_lookupOrganicDomainType":
                     return f"dictGetOrNull('channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source'))"
-                elif node.name == "lookupOrganicSourceType":
+                elif node.name == "hogql_lookupOrganicSourceType":
                     return f"dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'source'))"
-                elif node.name == "lookupOrganicMediumType":
+                elif node.name == "hogql_lookupOrganicMediumType":
                     return f"dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
             raise HogQLException(f"Unexpected unresolved HogQL function '{node.name}(...)'")
         else:
