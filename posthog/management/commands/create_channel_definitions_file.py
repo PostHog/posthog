@@ -1,6 +1,7 @@
 import json
 import re
 import subprocess
+from collections import OrderedDict
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional, Tuple
@@ -56,7 +57,7 @@ class Command(BaseCommand):
             base_type, type_if_paid, type_if_organic = types[raw_type]
             return (domain, EntryKind.source), SourceEntry(base_type, type_if_paid, type_if_organic)
 
-        entries: dict[Tuple[str, str], SourceEntry] = dict(map(handle_entry, split_items))
+        entries: OrderedDict[Tuple[str, str], SourceEntry] = OrderedDict(map(handle_entry, split_items))
 
         # add google domains to this, from https://www.google.com/supported_domains
         for google_domain in (
@@ -98,6 +99,9 @@ class Command(BaseCommand):
         for bing_domain in ("bing.com", "bing.com.cn", "bing.net", "bingworld.com"):
             entries[(bing_domain, EntryKind.source)] = SourceEntry("Search", "Paid Search", "Organic Search")
 
+        # misc other domains that GA4 misses
+        entries["duckduckgo.com", EntryKind.source] = SourceEntry("Search", "Paid Search", "Organic Search")
+
         # add other sources
         for email_spelling in ("email", "e-mail", "e_mail", "e mail"):
             entries[email_spelling, EntryKind.source] = SourceEntry(None, None, "Email")
@@ -121,14 +125,25 @@ class Command(BaseCommand):
         for push_medium in ("push", "mobile", "notification"):
             entries[push_medium, EntryKind.medium] = SourceEntry(None, None, "Push")
 
+        rows = [
+            [hostname, kind, entry.hostname_type, entry.type_if_paid, entry.type_if_organic]
+            for (hostname, kind), entry in entries.items()
+        ]
+
+        # sort entries by fld where possible
+        from tld import get_fld
+        from tld.utils import update_tld_names
+
+        update_tld_names()
+
+        def sort_key(row):
+            name, kind, hostname_type, type_if_paid, type_if_organic = row
+            source_fld = get_fld(name, fail_silently=True, fix_protocol=True)
+            return [kind, source_fld or name, name]
+
+        rows = sorted(rows, key=sort_key)
+
         # write a pretty JSON file out
         with open(OUTPUT_FILE, "w") as output_file:
-            output_file.write(
-                json.dumps(
-                    [
-                        [hostname, kind, entry.hostname_type, entry.type_if_paid, entry.type_if_organic]
-                        for (hostname, kind), entry in entries.items()
-                    ]
-                )
-            )
+            output_file.write(json.dumps(rows))
         subprocess.run(["pnpm", "run", "prettier:file", OUTPUT_FILE])
