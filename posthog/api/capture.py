@@ -181,8 +181,8 @@ def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
     if len(timestamp) > 11:  # assuming milliseconds / update "11" to "12" if year > 5138 (set a reminder!)
         timestamp_number = float(timestamp) / 1000
     else:
-        KLUDGES_COUNTER.labels(kludge="sent_at_seconds_timestamp").inc()
         timestamp_number = int(timestamp)
+        KLUDGES_COUNTER.labels(kludge="sent_at_seconds_timestamp").inc()
 
     return datetime.fromtimestamp(timestamp_number, timezone.utc)
 
@@ -194,8 +194,9 @@ def _get_sent_at(data, request) -> Tuple[Optional[datetime], Any]:
         elif isinstance(data, dict) and data.get("sent_at"):  # posthog-android, posthog-ios
             sent_at = data["sent_at"]
         elif request.POST.get("sent_at"):  # when urlencoded body and not JSON (in some test)
-            KLUDGES_COUNTER.labels(kludge="sent_at_post_field").inc()
             sent_at = request.POST["sent_at"]
+            if sent_at:
+                KLUDGES_COUNTER.labels(kludge="sent_at_post_field").inc()
         else:
             return None, None
 
