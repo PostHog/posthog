@@ -252,13 +252,7 @@ export const WebStatsTrendTile = ({
     }, [onWorldMapClick])
 
     return (
-        <div
-            className={'border'}
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                borderRadius: 'var(--radius)',
-            }}
-        >
+        <div className="border rounded bg-bg-light">
             {showIntervalTile && (
                 <div className="flex flex-row items-center justify-end m-2 mr-4">
                     <div className="flex flex-row items-center">

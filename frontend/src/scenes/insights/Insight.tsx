@@ -32,7 +32,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
     const { reportInsightViewedForRecentInsights } = useActions(logic)
 
     // insightDataLogic
-    const { query, isQueryBasedInsight, showQueryEditor } = useValues(insightDataLogic(insightProps))
+    const { query, showQueryEditor } = useValues(insightDataLogic(insightProps))
     const { setQuery: setInsightQuery } = useActions(insightDataLogic(insightProps))
 
     // other logics
@@ -48,9 +48,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
         return <InsightSkeleton />
     }
 
-    const actuallyShowQueryEditor =
-        insightMode === ItemMode.Edit &&
-        ((isQueryBasedInsight && !containsHogQLQuery(query)) || (!isQueryBasedInsight && showQueryEditor))
+    const actuallyShowQueryEditor = insightMode === ItemMode.Edit && showQueryEditor
 
     const setQuery = (query: Node): void => {
         if (!isInsightVizNode(query)) {
