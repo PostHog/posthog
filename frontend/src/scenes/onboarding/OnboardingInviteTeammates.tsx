@@ -2,47 +2,71 @@ import { useValues } from 'kea'
 import { PhonePairHogs } from 'lib/components/hedgehogs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { InviteTeamMatesComponent } from 'scenes/settings/organization/InviteModal'
-import { teamLogic } from 'scenes/teamLogic'
 
-import { OnboardingStepKey } from './onboardingLogic'
+import { ProductKey } from '~/types'
+
+import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
 import { OnboardingStep } from './OnboardingStep'
 
 export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element => {
     const { preflight } = useValues(preflightLogic)
+    const { product } = useValues(onboardingLogic)
 
-    const { currentTeam } = useValues(teamLogic)
-    const completed_onboarding_products = Object.keys(currentTeam?.has_completed_onboarding_for || {})
-    const productAnalyticsOnboarded = completed_onboarding_products.includes('product_analytics')
-    const surveysOnboarded = completed_onboarding_products.includes('surveys')
-    const sessionReplayOnboarded = completed_onboarding_products.includes('session_replay')
+    const titlePrefix = (): string => {
+        switch (product?.type) {
+            case ProductKey.PRODUCT_ANALYTICS:
+                return 'Analytics are'
+            case ProductKey.SESSION_REPLAY:
+                return 'Replays are'
+            case ProductKey.FEATURE_FLAGS:
+                return 'Feature flags are'
+            case ProductKey.SURVEYS:
+                return 'Surveys are'
+            default:
+                return 'PostHog is'
+        }
+    }
+
+    const likeTo = (): string => {
+        switch (product?.type) {
+            case ProductKey.PRODUCT_ANALYTICS:
+                return 'dig into the data'
+            case ProductKey.SESSION_REPLAY:
+                return 'see how people use your product'
+            case ProductKey.FEATURE_FLAGS:
+                return 'customize user experiences'
+            case ProductKey.SURVEYS:
+                return 'ask all the questions'
+            default:
+                return 'dig into the data'
+        }
+    }
 
     return (
-        <OnboardingStep title={`PostHog is better with teammates`} stepKey={stepKey}>
-            <div className="flex items-center py-8 gap-8 mx-16">
-                <span>
-                    Invite your teammates so you can {productAnalyticsOnboarded && 'share your dashboard insights'}
-                    {surveysOnboarded &&
-                        `${productAnalyticsOnboarded ? ' and ' : ''}review your survey results together`}
-                    {sessionReplayOnboarded &&
-                        `${
-                            surveysOnboarded || productAnalyticsOnboarded ? 'and' : ''
-                        } have a session replay watch party`}
-                    {!(productAnalyticsOnboarded || surveysOnboarded || sessionReplayOnboarded) &&
-                        'supercharge your analytics experience'}
-                    !
-                </span>
-                <PhonePairHogs height={120} width={288} />
-            </div>
-            {preflight?.email_service_available ? (
-                <p>Enter their email below and we'll send them a custom invite link. Invites expire after 3 days.</p>
-            ) : (
+        <OnboardingStep
+            title={`${titlePrefix()} better with friends.`}
+            stepKey={stepKey}
+            hedgehog={<PhonePairHogs height={120} width={288} />}
+        >
+            <div className="mb-6">
                 <p>
-                    This PostHog instance isn't configured to send emails. In the meantime, enter your teammates' emails
-                    below to generate their custom invite links.{' '}
-                    <strong>You'll need to share the links with your project members manually</strong>. You can invite
-                    more people later.
+                    ...or maybe even just coworkers. Ya know the ones who like to {likeTo()}?{' '}
+                    {preflight?.email_service_available && (
+                        <span>
+                            Enter their email below and we'll send them a custom invite link. Invites expire after 3
+                            days.
+                        </span>
+                    )}
                 </p>
-            )}
+                {!preflight?.email_service_available && (
+                    <p>
+                        This PostHog instance isn't configured to send emails. In the meantime, enter your teammates'
+                        emails below to generate their custom invite links.{' '}
+                        <strong>You'll need to share the links with your project members manually</strong>. You can
+                        invite more people later.
+                    </p>
+                )}
+            </div>
             <InviteTeamMatesComponent />
         </OnboardingStep>
     )
