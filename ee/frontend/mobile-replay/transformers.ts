@@ -15,6 +15,7 @@ import {
     wireframeDiv,
     wireframeImage,
     wireframeInputComponent,
+    wireframePlaceholder,
     wireframeProgress,
     wireframeRadioGroup,
     wireframeRectangle,
@@ -31,6 +32,9 @@ import {
     makePositionStyles,
     makeStylesString,
 } from './wireframeStyle'
+
+const BACKGROUND = '#f3f4ef'
+const FOREGROUND = '#35373e'
 
 /**
  * generates a sequence of ids
@@ -120,7 +124,12 @@ function makeTextElement(wireframe: wireframeText, children: serializedNodeWithI
 }
 
 function makeWebViewElement(wireframe: wireframe, children: serializedNodeWithId[]): serializedNodeWithId | null {
-    return makePlaceholderElement(wireframe, children)
+    const labelledWireframe: wireframePlaceholder = { ...wireframe } as wireframePlaceholder
+    if ('url' in wireframe) {
+        labelledWireframe.label = wireframe.url
+    }
+
+    return makePlaceholderElement(labelledWireframe, children)
 }
 
 function makePlaceholderElement(wireframe: wireframe, children: serializedNodeWithId[]): serializedNodeWithId | null {
@@ -129,7 +138,12 @@ function makePlaceholderElement(wireframe: wireframe, children: serializedNodeWi
         type: NodeType.Element,
         tagName: 'div',
         attributes: {
-            style: makeStylesString(wireframe, { verticalAlign: 'center', horizontalAlign: 'center' }),
+            style: makeStylesString(wireframe, {
+                verticalAlign: 'center',
+                horizontalAlign: 'center',
+                backgroundColor: wireframe.style?.backgroundColor || BACKGROUND,
+                color: wireframe.style?.color || FOREGROUND,
+            }),
         },
         id: wireframe.id,
         childNodes: [
@@ -316,8 +330,8 @@ function makeProgressElement(
         }
 
         const styleOverride = {
-            color: wireframe.style?.color || '#35373e',
-            backgroundColor: wireframe.style?.backgroundColor || '#f3f4ef',
+            color: wireframe.style?.color || FOREGROUND,
+            backgroundColor: wireframe.style?.backgroundColor || BACKGROUND,
         }
 
         // if not _isPositiveInteger(value) then we render a spinner,
