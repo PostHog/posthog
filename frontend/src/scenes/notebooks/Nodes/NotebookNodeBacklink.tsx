@@ -2,7 +2,7 @@ import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import { InsightModel, NotebookNodeType, NotebookTarget } from '~/types'
 import { Link } from '@posthog/lemon-ui'
-import { IconGauge, IconBarChart, IconFlag, IconExperiment, IconLive, IconPerson, IconCohort } from 'lib/lemon-ui/icons'
+import { IconBarChart, IconFlag, IconExperiment, IconLive, IconPerson, IconCohort } from 'lib/lemon-ui/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { urls } from 'scenes/urls'
 import clsx from 'clsx'
@@ -14,9 +14,10 @@ import { notebookLogic } from '../Notebook/notebookLogic'
 
 import { openNotebook } from '~/models/notebooksModel'
 import { IconNotebook } from '../IconNotebook'
+import { IconDashboard, IconLogomark } from '@posthog/icons'
 
 const ICON_MAP = {
-    dashboards: <IconGauge />,
+    dashboards: <IconDashboard />,
     insights: <IconBarChart />,
     feature_flags: <IconFlag />,
     experiments: <IconExperiment />,
@@ -30,7 +31,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
     const { shortId } = useValues(notebookLogic)
 
     const type: TaxonomicFilterGroupType = props.node.attrs.type
-    const title: string = props.node.attrs.title
+    const title: string = props.node.attrs.title || props.node.attrs.href
     const id: string = props.node.attrs.id
     const href = backlinkHref(id, type)
 
@@ -47,7 +48,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
                 target={undefined}
                 className="space-x-1"
             >
-                <span>{ICON_MAP[type]}</span>
+                <span>{ICON_MAP[type] || <IconLogomark />}</span>
                 <span className="Backlink__label">{title}</span>
             </Link>
         </NodeViewWrapper>
@@ -84,6 +85,7 @@ export const NotebookNodeBacklink = Node.create({
     addAttributes() {
         return {
             id: { default: '' },
+            href: { default: '' },
             type: { default: '' },
             title: { default: '' },
         }
@@ -110,7 +112,7 @@ export const NotebookNodeBacklink = Node.create({
                 getAttributes: async (match) => {
                     const id = match[1]
                     const event = await api.eventDefinitions.get({ eventDefinitionId: id })
-                    return { id: id, type: TaxonomicFilterGroupType.Events, title: event.name }
+                    return { id: id, type: TaxonomicFilterGroupType.Events, title: event.name, href: match[0] }
                 },
             }),
             posthogNodePasteRule({
@@ -120,7 +122,7 @@ export const NotebookNodeBacklink = Node.create({
                 getAttributes: async (match) => {
                     const id = match[1]
                     const event = await api.cohorts.get(Number(id))
-                    return { id: id, type: TaxonomicFilterGroupType.Cohorts, title: event.name }
+                    return { id: id, type: TaxonomicFilterGroupType.Cohorts, title: event.name, href: match[0] }
                 },
             }),
             posthogNodePasteRule({
@@ -130,7 +132,12 @@ export const NotebookNodeBacklink = Node.create({
                 getAttributes: async (match) => {
                     const id = match[1]
                     const experiment = await api.experiments.get(Number(id))
-                    return { id: id, type: TaxonomicFilterGroupType.Experiments, title: experiment.name }
+                    return {
+                        id: id,
+                        type: TaxonomicFilterGroupType.Experiments,
+                        title: experiment.name,
+                        href: match[0],
+                    }
                 },
             }),
             posthogNodePasteRule({
@@ -140,7 +147,7 @@ export const NotebookNodeBacklink = Node.create({
                 getAttributes: async (match) => {
                     const id = match[1]
                     const dashboard = await api.dashboards.get(Number(id))
-                    return { id: id, type: TaxonomicFilterGroupType.Dashboards, title: dashboard.name }
+                    return { id: id, type: TaxonomicFilterGroupType.Dashboards, title: dashboard.name, href: match[0] }
                 },
             }),
             posthogNodePasteRule({
@@ -150,7 +157,7 @@ export const NotebookNodeBacklink = Node.create({
                 getAttributes: async (match) => {
                     const id = match[1]
                     const notebook = await api.notebooks.get(id)
-                    return { id: id, type: TaxonomicFilterGroupType.Notebooks, title: notebook.title }
+                    return { id: id, type: TaxonomicFilterGroupType.Notebooks, title: notebook.title, href: match[0] }
                 },
             }),
         ]

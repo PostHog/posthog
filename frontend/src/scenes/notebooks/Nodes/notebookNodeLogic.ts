@@ -66,6 +66,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         setRef: (ref: HTMLElement | null) => ({ ref }),
         toggleEditingTitle: (editing?: boolean) => ({ editing }),
         copyToClipboard: true,
+        convertToBacklink: (href: string) => ({ href }),
     }),
 
     connect((props: NotebookNodeLogicProps) => ({
@@ -306,6 +307,20 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             const data = [new ClipboardItem({ [type]: blob })]
 
             await window.navigator.clipboard.write(data)
+        },
+        convertToBacklink: ({ href }) => {
+            const editor = values.notebookLogic.values.editor
+            if (!props.getPos || !editor) {
+                return
+            }
+
+            editor.insertContentAfterNode(props.getPos(), {
+                type: NotebookNodeType.Backlink,
+                attrs: {
+                    href,
+                },
+            })
+            actions.deleteNode()
         },
     })),
 

@@ -83,6 +83,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         insertOrSelectNextLine,
         toggleEditingTitle,
         copyToClipboard,
+        convertToBacklink,
     } = useActions(nodeLogic)
 
     const { ref: inViewRef, inView } = useInView({ triggerOnce: true })
@@ -164,6 +165,14 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                   },
               }
             : null,
+        isEditable && parsedHref
+            ? {
+                  label: 'Convert to inline link',
+                  onClick: () => convertToBacklink(parsedHref),
+                  sideIcon: <IconLink />,
+              }
+            : null,
+
         isEditable ? { label: 'Edit title', onClick: () => toggleEditingTitle(true) } : null,
         isEditable ? { label: 'Remove', onClick: () => deleteNode(), sideIcon: <IconClose />, status: 'danger' } : null,
     ]
