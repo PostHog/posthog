@@ -50,6 +50,10 @@ const parseEncodedSnapshots = async (
         postHogEEModule = await posthogEE()
     }
     return items.flatMap((l) => {
+        if (!l) {
+            // blob files have an empty line at the end
+            return []
+        }
         try {
             const snapshotLine = typeof l === 'string' ? (JSON.parse(l) as EncodedRecordingSnapshot) : l
             const snapshotData = snapshotLine['data']
