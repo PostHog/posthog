@@ -1,7 +1,11 @@
 import http.client
 import json
 import time
+import logging
 from prometheus_client import CollectorRegistry, Gauge, multiprocess, generate_latest
+
+
+logger = logging.getLogger(__name__)
 
 UNIT_CONNECTIONS_ACCEPTED_TOTAL = Gauge(
     "unit_connections_accepted_total",
@@ -50,7 +54,6 @@ def application(environ, start_response):
         response = connection.getresponse()
 
         statj = json.loads(response.read())
-        connection.close()
     except Exception as e:
         if retries > 0:
             retries -= 1
@@ -58,6 +61,11 @@ def application(environ, start_response):
             return application(environ, start_response)
         else:
             raise e
+    finally:
+        try:
+            connection.close()
+        except Exception as e:
+            logger.error("Failed to close connection to unit: ", e)
 
     UNIT_CONNECTIONS_ACCEPTED_TOTAL.set(statj["connections"]["accepted"])
     UNIT_CONNECTIONS_ACTIVE.set(statj["connections"]["active"])
