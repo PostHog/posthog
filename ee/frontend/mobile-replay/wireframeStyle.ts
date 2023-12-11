@@ -115,29 +115,38 @@ function makeFontStyles(wireframe: wireframe, styleOverride?: MobileStyles): str
     return styles
 }
 
-export function makeIndeterminateProgressStyles(wireframe: wireframeProgress): string {
+export function makeIndeterminateProgressStyles(wireframe: wireframeProgress, styleOverride?: MobileStyles): string {
     let styles = ''
-    if (wireframe.style?.backgroundColor) {
-        styles += `background-color: ${wireframe.style.backgroundColor};`
+    const combinedStyles = {
+        ...wireframe.style,
+        ...styleOverride,
+    }
+    if (combinedStyles.backgroundColor) {
+        styles += `background-color: ${combinedStyles.backgroundColor};`
     }
     styles += makePositionStyles(wireframe)
-    styles += `border: 4px solid ${wireframe.style?.borderColor || 'transparent'};`
+    styles += `border: 4px solid ${combinedStyles.borderColor || 'transparent'};`
     styles += `border-radius: 50%;border-top: 4px solid #fff;`
     styles += `animation: spin 2s linear infinite;`
 
     return styles
 }
 
-export function makeDeterminateProgressStyles(wireframe: wireframeProgress): string {
+export function makeDeterminateProgressStyles(wireframe: wireframeProgress, styleOverride?: MobileStyles): string {
     let styles = ''
-    if (wireframe.style?.backgroundColor) {
-        styles += `background-color: ${wireframe.style.backgroundColor};`
+    const combinedStyles = {
+        ...wireframe.style,
+        ...styleOverride,
+    }
+
+    if (combinedStyles.backgroundColor) {
+        styles += `background-color: ${combinedStyles.backgroundColor};`
     }
     styles += makePositionStyles(wireframe)
     styles += 'border-radius: 50%;'
     const radialGradient = `radial-gradient(closest-side, white 80%, transparent 0 99.9%, white 0)`
-    const conicGradient = `conic-gradient(${wireframe.style?.color || 'black'} calc(${wireframe.value} * 1%), ${
-        wireframe.style?.backgroundColor
+    const conicGradient = `conic-gradient(${combinedStyles.color || 'black'} calc(${wireframe.value} * 1%), ${
+        combinedStyles.backgroundColor
     } 0)`
     styles += `background: ${radialGradient}, ${conicGradient};`
 

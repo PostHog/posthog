@@ -328,6 +328,33 @@ function makeProgressElement(
             value = null
         }
 
+        const styleOverride = {
+            color: wireframe.style?.color || '#35373e',
+            backgroundColor: wireframe.style?.backgroundColor || '#f3f4ef',
+        }
+
+        // if not _isPositiveInteger(value) then we render a spinner,
+        // so we need to add a style element with the spin keyframe
+        const stylingChildren: serializedNodeWithId[] = _isPositiveInteger(value)
+            ? []
+            : [
+                  {
+                      type: NodeType.Element,
+                      tagName: 'style',
+                      attributes: {
+                          type: 'text/css',
+                      },
+                      id: idSequence.next().value,
+                      childNodes: [
+                          {
+                              type: NodeType.Text,
+                              textContent: `@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`,
+                              id: idSequence.next().value,
+                          },
+                      ],
+                  },
+              ]
+
         return {
             type: NodeType.Element,
             tagName: 'div',
@@ -342,11 +369,11 @@ function makeProgressElement(
                     attributes: {
                         // with no provided value we render a spinner
                         style: _isPositiveInteger(value)
-                            ? makeDeterminateProgressStyles(wireframe)
-                            : makeIndeterminateProgressStyles(wireframe),
+                            ? makeDeterminateProgressStyles(wireframe, styleOverride)
+                            : makeIndeterminateProgressStyles(wireframe, styleOverride),
                     },
                     id: idSequence.next().value,
-                    childNodes: [],
+                    childNodes: stylingChildren,
                 },
                 ...children,
             ],

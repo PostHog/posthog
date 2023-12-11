@@ -326,7 +326,7 @@ exports[`replay/transform transform can process unknown types without error 1`] 
                     "childNodes": [
                       {
                         "attributes": {
-                          "style": "color: #35373e;background-color: #f3f4ef;width: 100px;height: 30px;position: fixed;left: 25px;top: 42px;align-items: center;justify-content: center;display: flex;",
+                          "style": "width: 100px;height: 30px;position: fixed;left: 25px;top: 42px;align-items: center;justify-content: center;display: flex;",
                         },
                         "childNodes": [
                           {
@@ -648,7 +648,7 @@ exports[`replay/transform transform inputs input - $inputType - hello 1`] = `
                 {
                   "attributes": {},
                   "childNodes": [],
-                  "id": 160,
+                  "id": 158,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -715,7 +715,7 @@ exports[`replay/transform transform inputs input - button - click me 1`] = `
                       },
                       "childNodes": [
                         {
-                          "id": 152,
+                          "id": 150,
                           "textContent": "click me",
                           "type": 3,
                         },
@@ -725,7 +725,7 @@ exports[`replay/transform transform inputs input - button - click me 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 151,
+                  "id": 149,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -802,17 +802,17 @@ exports[`replay/transform transform inputs input - checkbox - $value 1`] = `
                           "type": 2,
                         },
                         {
-                          "id": 133,
+                          "id": 131,
                           "textContent": "first",
                           "type": 3,
                         },
                       ],
-                      "id": 132,
+                      "id": 130,
                       "tagName": "label",
                       "type": 2,
                     },
                   ],
-                  "id": 131,
+                  "id": 129,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -888,17 +888,17 @@ exports[`replay/transform transform inputs input - checkbox - $value 2`] = `
                           "type": 2,
                         },
                         {
-                          "id": 136,
+                          "id": 134,
                           "textContent": "second",
                           "type": 3,
                         },
                       ],
-                      "id": 135,
+                      "id": 133,
                       "tagName": "label",
                       "type": 2,
                     },
                   ],
-                  "id": 134,
+                  "id": 132,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -976,17 +976,17 @@ exports[`replay/transform transform inputs input - checkbox - $value 3`] = `
                           "type": 2,
                         },
                         {
-                          "id": 139,
+                          "id": 137,
                           "textContent": "third",
                           "type": 3,
                         },
                       ],
-                      "id": 138,
+                      "id": 136,
                       "tagName": "label",
                       "type": 2,
                     },
                   ],
-                  "id": 137,
+                  "id": 135,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -1058,7 +1058,7 @@ exports[`replay/transform transform inputs input - checkbox - $value 4`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 140,
+                  "id": 138,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -1130,7 +1130,7 @@ exports[`replay/transform transform inputs input - email - $value 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 124,
+                  "id": 122,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -1202,7 +1202,7 @@ exports[`replay/transform transform inputs input - number - $value 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 125,
+                  "id": 123,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -1274,7 +1274,7 @@ exports[`replay/transform transform inputs input - password - $value 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 123,
+                  "id": 121,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -1341,9 +1341,25 @@ exports[`replay/transform transform inputs input - progress - $value 1`] = `
                       "childNodes": [
                         {
                           "attributes": {
-                            "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;border: 4px solid transparent;border-radius: 50%;border-top: 4px solid #fff;animation: spin 2s linear infinite;",
+                            "style": "background-color: #f3f4ef;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;border: 4px solid transparent;border-radius: 50%;border-top: 4px solid #fff;animation: spin 2s linear infinite;",
                           },
-                          "childNodes": [],
+                          "childNodes": [
+                            {
+                              "attributes": {
+                                "type": "text/css",
+                              },
+                              "childNodes": [
+                                {
+                                  "id": 161,
+                                  "textContent": "@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }",
+                                  "type": 3,
+                                },
+                              ],
+                              "id": 160,
+                              "tagName": "style",
+                              "type": 2,
+                            },
+                          ],
                           "id": 162,
                           "tagName": "div",
                           "type": 2,
@@ -1354,7 +1370,7 @@ exports[`replay/transform transform inputs input - progress - $value 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 161,
+                  "id": 159,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -1645,7 +1661,7 @@ exports[`replay/transform transform inputs input - search - $value 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 126,
+                  "id": 124,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -1718,12 +1734,12 @@ exports[`replay/transform transform inputs input - select - hello 1`] = `
                           },
                           "childNodes": [
                             {
-                              "id": 157,
+                              "id": 155,
                               "textContent": "hello",
                               "type": 3,
                             },
                           ],
-                          "id": 156,
+                          "id": 154,
                           "tagName": "option",
                           "type": 2,
                         },
@@ -1731,12 +1747,12 @@ exports[`replay/transform transform inputs input - select - hello 1`] = `
                           "attributes": {},
                           "childNodes": [
                             {
-                              "id": 159,
+                              "id": 157,
                               "textContent": "world",
                               "type": 3,
                             },
                           ],
-                          "id": 158,
+                          "id": 156,
                           "tagName": "option",
                           "type": 2,
                         },
@@ -1746,7 +1762,7 @@ exports[`replay/transform transform inputs input - select - hello 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 155,
+                  "id": 153,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -1819,7 +1835,7 @@ exports[`replay/transform transform inputs input - tel - $value 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 127,
+                  "id": 125,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -1891,7 +1907,7 @@ exports[`replay/transform transform inputs input - text - $value 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 122,
+                  "id": 120,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -1963,7 +1979,7 @@ exports[`replay/transform transform inputs input - text - hello 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 121,
+                  "id": 119,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -2035,7 +2051,7 @@ exports[`replay/transform transform inputs input - textArea - $value 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 154,
+                  "id": 152,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -2107,7 +2123,7 @@ exports[`replay/transform transform inputs input - textArea - hello 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 153,
+                  "id": 151,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -2184,17 +2200,17 @@ exports[`replay/transform transform inputs input - toggle - $value 1`] = `
                           "type": 2,
                         },
                         {
-                          "id": 143,
+                          "id": 141,
                           "textContent": "first",
                           "type": 3,
                         },
                       ],
-                      "id": 142,
+                      "id": 140,
                       "tagName": "label",
                       "type": 2,
                     },
                   ],
-                  "id": 141,
+                  "id": 139,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -2270,17 +2286,17 @@ exports[`replay/transform transform inputs input - toggle - $value 2`] = `
                           "type": 2,
                         },
                         {
-                          "id": 146,
+                          "id": 144,
                           "textContent": "second",
                           "type": 3,
                         },
                       ],
-                      "id": 145,
+                      "id": 143,
                       "tagName": "label",
                       "type": 2,
                     },
                   ],
-                  "id": 144,
+                  "id": 142,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -2358,17 +2374,17 @@ exports[`replay/transform transform inputs input - toggle - $value 3`] = `
                           "type": 2,
                         },
                         {
-                          "id": 149,
+                          "id": 147,
                           "textContent": "third",
                           "type": 3,
                         },
                       ],
-                      "id": 148,
+                      "id": 146,
                       "tagName": "label",
                       "type": 2,
                     },
                   ],
-                  "id": 147,
+                  "id": 145,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -2440,7 +2456,7 @@ exports[`replay/transform transform inputs input - toggle - $value 4`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 150,
+                  "id": 148,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -2512,7 +2528,7 @@ exports[`replay/transform transform inputs input - url - https://example.io 1`] 
                       "type": 2,
                     },
                   ],
-                  "id": 128,
+                  "id": 126,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -2574,7 +2590,7 @@ exports[`replay/transform transform inputs placeholder - $inputType - $value 1`]
                   "childNodes": [
                     {
                       "attributes": {
-                        "style": "color: #35373e;background-color: #f3f4ef;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
+                        "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
                       },
                       "childNodes": [
                         {
@@ -2648,7 +2664,7 @@ exports[`replay/transform transform inputs radio group - $inputType - $value 1`]
                 {
                   "attributes": {},
                   "childNodes": [],
-                  "id": 130,
+                  "id": 128,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -2718,7 +2734,7 @@ exports[`replay/transform transform inputs radio_group - $inputType - $value 1`]
                       "type": 2,
                     },
                   ],
-                  "id": 129,
+                  "id": 127,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -2788,159 +2804,67 @@ exports[`replay/transform transform inputs radio_group 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 120,
-                  "tagName": "div",
-                  "type": 2,
-                },
-              ],
-              "id": 5,
-              "tagName": "body",
-              "type": 2,
-            },
-          ],
-          "id": 3,
-          "tagName": "html",
-          "type": 2,
-        },
-      ],
-      "id": 1,
-      "type": 0,
-    },
-  },
-  "timestamp": 1,
-  "type": 2,
-}
-`;
-
-exports[`replay/transform transform inputs web_view - $inputType - $value 1`] = `
-{
-  "data": {
-    "initialOffset": {
-      "left": 0,
-      "top": 0,
-    },
-    "node": {
-      "childNodes": [
-        {
-          "id": 2,
-          "name": "html",
-          "publicId": "",
-          "systemId": "",
-          "type": 1,
-        },
-        {
-          "attributes": {
-            "style": "height: 100vh; width: 100vw;",
-          },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [],
-              "id": 4,
-              "tagName": "head",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "style": "height: 100vh; width: 100vw;",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "attributes": {
-                        "style": "color: #35373e;background-color: #f3f4ef;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
-                      },
-                      "childNodes": [
-                        {
-                          "id": 169,
-                          "textContent": "web_view",
-                          "type": 3,
-                        },
-                      ],
-                      "id": 12365,
-                      "tagName": "div",
-                      "type": 2,
-                    },
-                  ],
-                  "id": 168,
-                  "tagName": "div",
-                  "type": 2,
-                },
-              ],
-              "id": 5,
-              "tagName": "body",
-              "type": 2,
-            },
-          ],
-          "id": 3,
-          "tagName": "html",
-          "type": 2,
-        },
-      ],
-      "id": 1,
-      "type": 0,
-    },
-  },
-  "timestamp": 1,
-  "type": 2,
-}
-`;
-
-exports[`replay/transform transform inputs web_view with URL 1`] = `
-{
-  "data": {
-    "initialOffset": {
-      "left": 0,
-      "top": 0,
-    },
-    "node": {
-      "childNodes": [
-        {
-          "id": 2,
-          "name": "html",
-          "publicId": "",
-          "systemId": "",
-          "type": 1,
-        },
-        {
-          "attributes": {
-            "style": "height: 100vh; width: 100vw;",
-          },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [],
-              "id": 4,
-              "tagName": "head",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "style": "height: 100vh; width: 100vw;",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "attributes": {
-                        "style": "color: #35373e;background-color: #f3f4ef;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
-                      },
-                      "childNodes": [
-                        {
-                          "id": 119,
-                          "textContent": "https://example.com",
-                          "type": 3,
-                        },
-                      ],
-                      "id": 12365,
-                      "tagName": "div",
-                      "type": 2,
-                    },
-                  ],
                   "id": 118,
+                  "tagName": "div",
+                  "type": 2,
+                },
+              ],
+              "id": 5,
+              "tagName": "body",
+              "type": 2,
+            },
+          ],
+          "id": 3,
+          "tagName": "html",
+          "type": 2,
+        },
+      ],
+      "id": 1,
+      "type": 0,
+    },
+  },
+  "timestamp": 1,
+  "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs webview - $inputType - $value 1`] = `
+{
+  "data": {
+    "initialOffset": {
+      "left": 0,
+      "top": 0,
+    },
+    "node": {
+      "childNodes": [
+        {
+          "id": 2,
+          "name": "html",
+          "publicId": "",
+          "systemId": "",
+          "type": 1,
+        },
+        {
+          "attributes": {
+            "style": "height: 100vh; width: 100vw;",
+          },
+          "childNodes": [
+            {
+              "attributes": {},
+              "childNodes": [],
+              "id": 4,
+              "tagName": "head",
+              "type": 2,
+            },
+            {
+              "attributes": {
+                "style": "height: 100vh; width: 100vw;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {},
+                  "childNodes": [],
+                  "id": 168,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -3089,7 +3013,7 @@ exports[`replay/transform transform omitting x and y is equivalent to setting th
                     "childNodes": [
                       {
                         "attributes": {
-                          "style": "color: #35373e;background-color: #f3f4ef;width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
+                          "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
                         },
                         "childNodes": [
                           {
