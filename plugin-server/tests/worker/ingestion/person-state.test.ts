@@ -9,6 +9,7 @@ import { PostgresUse } from '../../../src/utils/db/postgres'
 import { defaultRetryConfig } from '../../../src/utils/retries'
 import { UUIDT } from '../../../src/utils/utils'
 import {
+    DeferredPersonOverrideWorker,
     DeferredPersonOverrideWriter,
     PersonOverrideWriter,
     PersonState,
@@ -70,11 +71,9 @@ const PersonOverridesModes: Record<string, PersonOverridesMode | undefined> = {
         fetchPostgresPersonIdOverrides: (hub, teamId) => fetchPostgresPersonIdOverrides(hub, teamId),
     },
     deferred: {
-        // XXX: This is kind of a mess -- ideally it'd be preferable to just
-        // instantiate the writer once and share it
-        getWriter: (hub) => new DeferredPersonOverrideWriter(hub.db.postgres, 456),
+        getWriter: (hub) => new DeferredPersonOverrideWriter(hub.db.postgres),
         fetchPostgresPersonIdOverrides: async (hub, teamId) => {
-            await new DeferredPersonOverrideWriter(hub.db.postgres, 456).processPendingOverrides(hub.db.kafkaProducer)
+            await new DeferredPersonOverrideWorker(hub.db.postgres, hub.db.kafkaProducer).processPendingOverrides()
             return await fetchPostgresPersonIdOverrides(hub, teamId)
         },
     },
@@ -2096,7 +2095,7 @@ describe('PersonState.update()', () => {
     })
 })
 
-describe('DeferredPersonOverrideWriter', () => {
+describe('deferred person overrides', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
 
@@ -2104,13 +2103,14 @@ describe('DeferredPersonOverrideWriter', () => {
     let organizationId: string
     let teamId: number
 
-    const lockId = 456
     let writer: DeferredPersonOverrideWriter
+    let worker: DeferredPersonOverrideWorker
 
     beforeAll(async () => {
         ;[hub, closeHub] = await createHub({})
         organizationId = await createOrganization(hub.db.postgres)
-        writer = new DeferredPersonOverrideWriter(hub.db.postgres, lockId)
+        writer = new DeferredPersonOverrideWriter(hub.db.postgres)
+        worker = new DeferredPersonOverrideWorker(hub.db.postgres, hub.db.kafkaProducer)
     })
 
     beforeEach(async () => {
@@ -2144,7 +2144,7 @@ describe('DeferredPersonOverrideWriter', () => {
     }
 
     it('moves overrides from the pending table to the overrides table', async () => {
-        const { postgres, kafkaProducer } = hub.db
+        const { postgres } = hub.db
 
         const override = {
             old_person_id: new UUIDT().toString(),
@@ -2157,7 +2157,7 @@ describe('DeferredPersonOverrideWriter', () => {
 
         expect(await getPendingPersonOverrides()).toEqual([override])
 
-        expect(await writer.processPendingOverrides(kafkaProducer)).toEqual(1)
+        expect(await worker.processPendingOverrides()).toEqual(1)
 
         expect(await getPendingPersonOverrides()).toMatchObject([])
 
@@ -2181,7 +2181,7 @@ describe('DeferredPersonOverrideWriter', () => {
     })
 
     it('rolls back on kafka producer error', async () => {
-        const { postgres, kafkaProducer } = hub.db
+        const { postgres } = hub.db
 
         const override = {
             old_person_id: new UUIDT().toString(),
@@ -2194,17 +2194,17 @@ describe('DeferredPersonOverrideWriter', () => {
 
         expect(await getPendingPersonOverrides()).toEqual([override])
 
-        jest.spyOn(kafkaProducer, 'queueMessages').mockImplementation(() => {
+        jest.spyOn(hub.db.kafkaProducer, 'queueMessages').mockImplementation(() => {
             throw new Error('something bad happened')
         })
 
-        await expect(writer.processPendingOverrides(kafkaProducer)).rejects.toThrow()
+        await expect(worker.processPendingOverrides()).rejects.toThrow()
 
         expect(await getPendingPersonOverrides()).toEqual([override])
     })
 
     it('ensures advisory lock is held before processing', async () => {
-        const { postgres, kafkaProducer } = hub.db
+        const { postgres } = hub.db
 
         let acquiredLock: boolean
         const tryLockComplete = new WaitEvent()
@@ -2214,7 +2214,7 @@ describe('DeferredPersonOverrideWriter', () => {
             .transaction(PostgresUse.COMMON_WRITE, '', async (tx) => {
                 const { rows } = await postgres.query(
                     tx,
-                    `SELECT pg_try_advisory_lock(${lockId}) as acquired, pg_backend_pid()`,
+                    `SELECT pg_try_advisory_lock(${worker.lockId}) as acquired, pg_backend_pid()`,
                     undefined,
                     ''
                 )
@@ -2229,18 +2229,18 @@ describe('DeferredPersonOverrideWriter', () => {
         try {
             await tryLockComplete.wait()
             expect(acquiredLock!).toBe(true)
-            await expect(writer.processPendingOverrides(kafkaProducer)).rejects.toThrow(Error('could not acquire lock'))
+            await expect(worker.processPendingOverrides()).rejects.toThrow(Error('could not acquire lock'))
         } finally {
             readyToReleaseLock.set()
             await transactionHolder
         }
 
         expect(acquiredLock!).toBe(false)
-        await expect(writer.processPendingOverrides(kafkaProducer)).resolves.toEqual(0)
+        await expect(worker.processPendingOverrides()).resolves.toEqual(0)
     })
 
     it('respects limit if provided', async () => {
-        const { postgres, kafkaProducer } = hub.db
+        const { postgres } = hub.db
 
         const overrides = [...Array(3)].map(() => ({
             old_person_id: new UUIDT().toString(),
@@ -2262,10 +2262,10 @@ describe('DeferredPersonOverrideWriter', () => {
 
         expect(await getPendingPersonOverrides()).toEqual(overrides)
 
-        expect(await writer.processPendingOverrides(kafkaProducer, 2)).toEqual(2)
+        expect(await worker.processPendingOverrides(2)).toEqual(2)
         expect(await getPendingPersonOverrides()).toMatchObject(overrides.slice(-1))
 
-        expect(await writer.processPendingOverrides(kafkaProducer, 2)).toEqual(1)
+        expect(await worker.processPendingOverrides(2)).toEqual(1)
         expect(await getPendingPersonOverrides()).toEqual([])
     })
 })
