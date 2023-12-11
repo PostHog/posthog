@@ -126,7 +126,7 @@ class RetentionAppearanceQueryRunner(QueryRunner):
         return PersonsQueryResponse(
             results=actors,
             timings=response.timings,
-            types=[t for _, t in response.types],
+            types=[t for _, t in response.types] if response.types else None,
             columns=["person", "appearances"],
             hogql=response.hogql,
             **self.paginator.response_kwargs(),

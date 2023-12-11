@@ -1,4 +1,4 @@
-from typing import List, Any
+from typing import List, Any, Optional, cast
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -12,8 +12,8 @@ class HogQlHasMorePaginator:
     """
 
     def __init__(self, limit: int, offset: int):
-        self.response = None
-        self.results = None
+        self.response: Optional[HogQLQueryResponse] = None
+        self.results: List[Any] = []
         self.limit = limit
         self.offset = offset
 
@@ -23,9 +23,15 @@ class HogQlHasMorePaginator:
         return query
 
     def has_more(self) -> bool:
+        if not self.response or not self.response.results:
+            return False
+
         return len(self.response.results) > self.limit
 
     def trim_results(self) -> List[Any]:
+        if not self.response or not self.response.results:
+            return []
+
         if self.has_more():
             return self.response.results[:-1]
 
@@ -37,10 +43,13 @@ class HogQlHasMorePaginator:
         query: ast.SelectQuery,
         **kwargs,
     ) -> HogQLQueryResponse:
-        self.response = execute_hogql_query(
-            query=self.paginate(query),
-            query_type=query_type,
-            **kwargs,
+        self.response = cast(
+            HogQLQueryResponse,
+            execute_hogql_query(
+                query=self.paginate(query),
+                query_type=query_type,
+                **kwargs,
+            ),
         )
         self.results = self.trim_results()
         return self.response
