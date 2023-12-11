@@ -201,6 +201,8 @@ export interface PluginsServerConfig {
     POE_EMBRACE_JOIN_FOR_TEAMS: string
     POE_DEFERRED_WRITES_ENABLED: boolean
     RELOAD_PLUGIN_JITTER_MAX_MS: number
+    RUSTY_HOOK_FOR_TEAMS: string
+    RUSTY_HOOK_URL: string
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
 
     // dump profiles to disk, covering the first N seconds of runtime
@@ -276,6 +278,7 @@ export interface Hub extends PluginsServerConfig {
     // ValueMatchers used for various opt-in/out features
     pluginConfigsToSkipElementsParsing: ValueMatcher<number>
     poeEmbraceJoinForTeams: ValueMatcher<number>
+    rustyHookForTeams: ValueMatcher<number>
     // lookups
     eventsToDropByToken: Map<string, string[]>
 }
