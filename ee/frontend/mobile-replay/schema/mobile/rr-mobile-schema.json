@@ -874,6 +874,9 @@
                 "type": {
                     "$ref": "#/definitions/MobileNodeType"
                 },
+                "url": {
+                    "type": "string"
+                },
                 "width": {
                     "type": "number"
                 },

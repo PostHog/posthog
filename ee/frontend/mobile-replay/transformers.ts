@@ -15,6 +15,7 @@ import {
     wireframeDiv,
     wireframeImage,
     wireframeInputComponent,
+    wireframePlaceholder,
     wireframeProgress,
     wireframeRadioGroup,
     wireframeRectangle,
@@ -119,7 +120,12 @@ function makeTextElement(wireframe: wireframeText, children: serializedNodeWithI
 }
 
 function makeWebViewElement(wireframe: wireframe, children: serializedNodeWithId[]): serializedNodeWithId | null {
-    return makePlaceholderElement(wireframe, children)
+    const labelledWireframe: wireframePlaceholder = { ...wireframe } as wireframePlaceholder
+    if ('url' in wireframe) {
+        labelledWireframe.label = wireframe.url
+    }
+
+    return makePlaceholderElement(labelledWireframe, children)
 }
 
 function makePlaceholderElement(wireframe: wireframe, children: serializedNodeWithId[]): serializedNodeWithId | null {

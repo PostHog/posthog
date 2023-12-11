@@ -743,6 +743,13 @@ describe('replay/transform', () => {
                     height: 30,
                     type: 'webview',
                 },
+                {
+                    id: 12365,
+                    width: 100,
+                    height: 30,
+                    type: 'webview',
+                    url: 'https://example.com',
+                },
             ])('$type - $inputType - $value', (testCase) => {
                 expect(
                     posthogEEModule.mobileReplay?.transformEventToWeb({
