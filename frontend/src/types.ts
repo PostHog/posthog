@@ -3311,6 +3311,20 @@ export interface ExternalDataStripeSource {
     source_type: string
     prefix: string
     last_run_at?: Dayjs
+    schemas: ExternalDataSourceSchema[]
+}
+
+export interface ExternalDataSourceSchema {
+    id: string
+    name: string
+    should_sync: boolean
+    table?: SimpleDataWarehouseTable
+}
+
+export interface SimpleDataWarehouseTable {
+    id: string
+    name: string
+    columns: DatabaseSchemaQueryResponseField[]
 }
 
 export type BatchExportDestinationS3 = {
