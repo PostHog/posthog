@@ -26,7 +26,6 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
             "team_id",
             "record_id",
             "model_name",
-            "operation",
             "payload",
             "scheduled_at",
             "executed_at",
@@ -36,12 +35,12 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
-    def create(self, data: Dict, *args: Any, **kwargs: Any) -> ScheduledChange:
+    def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> ScheduledChange:
         request = self.context["request"]
-        data["created_by"] = request.user
-        data["team_id"] = self.context["team_id"]
+        validated_data["created_by"] = request.user
+        validated_data["team_id"] = self.context["team_id"]
 
-        return super().create(data)
+        return super().create(validated_data)
 
 
 class ScheduledChangeViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):

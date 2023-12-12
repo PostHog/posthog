@@ -7,7 +7,7 @@ from posthog.models import ScheduledChange
 
 class TestScheduledChange(APIBaseTest):
     def test_can_create_flag_change(self):
-        changeJSON = {"operation": "change_status", "payload": {"field": "is_active", "value": "false"}}
+        payload = {"field": "active", "value": "false"}
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/scheduled_changes/",
@@ -15,7 +15,7 @@ class TestScheduledChange(APIBaseTest):
                 "id": 6,
                 "record_id": 119,
                 "model_name": "FeatureFlag",
-                "change": changeJSON,
+                "payload": payload,
                 "scheduled_at": "2023-12-08T12:00:00Z",
                 "executed_at": None,
                 "failure_reason": "",
@@ -28,5 +28,5 @@ class TestScheduledChange(APIBaseTest):
         assert ScheduledChange.objects.filter(id=response_data["id"]).exists()
         assert response_data["model_name"] == "FeatureFlag"
         assert response_data["record_id"] == 119
-        assert response_data["change"] == changeJSON
+        assert response_data["payload"] == payload
         assert response_data["created_by"]["id"] == self.user.id

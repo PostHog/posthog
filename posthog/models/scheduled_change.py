@@ -6,13 +6,9 @@ class ScheduledChange(models.Model):
     class AllowedModels(models.TextChoices):
         FEATURE_FLAG = "FeatureFlag", "feature flag"
 
-    class AllowedOperations(models.TextChoices):
-        CHANGE_STATUS = "change_status", "change status"
-        ADD_RELEASE_CONDITIONS = "add_release_conditions", "add release conditions"
-
+    id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
     record_id = models.IntegerField()
     model_name: models.CharField = models.CharField(max_length=100, choices=AllowedModels.choices)
-    operation: models.CharField = models.CharField(max_length=100, choices=AllowedOperations.choices)
     payload: models.JSONField = models.JSONField(default=dict)
     scheduled_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
     executed_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
