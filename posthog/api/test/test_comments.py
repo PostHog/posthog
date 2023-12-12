@@ -6,13 +6,17 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest
 
 
 class TestComments(APIBaseTest, QueryMatchingTest):
-    def _create_comment(self, content: str, scope: str = "Notebook") -> None:
+    def _create_comment(self, data={}) -> None:
+        payload = {
+            "content": "my content",
+            "scope": "Notebook",
+        }
+
+        payload.update(data)
+
         return self.client.post(
             f"/api/projects/{self.team.id}/comments",
-            {
-                "content": content,
-                "scope": scope,
-            },
+            payload,
         ).json()
 
     def test_creates_comment_with_validation_errors(self) -> None:
@@ -91,10 +95,39 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         }
 
     def test_lists_comments(self) -> None:
-        self._create_comment("comment 1")
-        self._create_comment("comment 2")
+        self._create_comment({"content": "comment 1"})
+        self._create_comment({"content": "comment 2"})
         response = self.client.get(f"/api/projects/{self.team.id}/comments")
         assert len(response.json()["results"]) == 2
 
         assert response.json()["results"][0]["content"] == "comment 2"
         assert response.json()["results"][1]["content"] == "comment 1"
+
+    def test_lists_comments_filtering(self) -> None:
+        self._create_comment({"content": "comment notebook-1", "scope": "Notebook", "item_id": "1"})
+        self._create_comment({"content": "comment notebook-2", "scope": "Notebook", "item_id": "2"})
+        self._create_comment({"content": "comment dashboard-1", "scope": "Dashboard", "item_id": "1"})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/comments?scope=Notebook")
+        assert len(response.json()["results"]) == 2
+        assert response.json()["results"][0]["content"] == "comment notebook-2"
+        assert response.json()["results"][1]["content"] == "comment notebook-1"
+
+        response = self.client.get(f"/api/projects/{self.team.id}/comments?scope=Notebook&item_id=2")
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["content"] == "comment notebook-2"
+
+    def test_lists_comments_thread(self) -> None:
+        initial_comment = self._create_comment({"content": "comment notebook-1", "scope": "Notebook", "item_id": "1"})
+        self._create_comment({"content": "comment reply", "source_comment_id": initial_comment["id"]})
+        self._create_comment({"content": "comment other reply", "source_comment_id": initial_comment["id"]})
+        self._create_comment({"content": "comment elsewhere"})
+
+        for url in [
+            f"/api/projects/{self.team.id}/comments/{initial_comment['id']}/thread",
+            f"/api/projects/{self.team.id}/comments/?source_comment_id={initial_comment['id']}",
+        ]:
+            response = self.client.get(url)
+            assert len(response.json()["results"]) == 2
+            assert response.json()["results"][0]["content"] == "comment other reply"
+            assert response.json()["results"][1]["content"] == "comment reply"
