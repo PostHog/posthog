@@ -26,6 +26,12 @@ const replayEventsCounter = new Counter({
     help: 'Number of Replay events successfully ingested',
 })
 
+const invalidSchemaCounter = new Counter({
+    name: 'replay_ingestion_invalid_schema',
+    help: 'Number of Replay events with invalid schema',
+    labelNames: ['type'],
+})
+
 export class ReplayEventsIngester {
     producer?: RdKafkaProducer
     private schemaValidate: ValidateFunction<unknown>
@@ -134,7 +140,9 @@ export class ReplayEventsIngester {
 
                 // if this hits kafka and blocks CH ingestion we'd only drop it anyway
                 // so, let's drop it once we know its invalid
-                return drop('invalid_schema')
+                // TODO actually drop this once we have some confidence the schema is correct
+                // return drop('invalid_schema')
+                invalidSchemaCounter.inc({ type: 'replay_summary' })
             }
 
             try {
