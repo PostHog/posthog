@@ -49,6 +49,12 @@ where
             config.burst_limit,
             config.overflow_forced_keys,
         );
+        if config.export_prometheus {
+            let partition = partition.clone();
+            tokio::spawn(async move {
+                partition.report_metrics().await;
+            });
+        }
         let sink = sink::KafkaSink::new(config.kafka, sink_liveness, partition)
             .expect("failed to start Kafka sink");
 

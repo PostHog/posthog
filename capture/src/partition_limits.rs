@@ -11,6 +11,7 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 
 use governor::{clock, state::keyed::DefaultKeyedStateStore, Quota, RateLimiter};
+use metrics::gauge;
 
 // See: https://docs.rs/governor/latest/governor/_guide/index.html#usage-in-multiple-threads
 #[derive(Clone)]
@@ -37,6 +38,16 @@ impl PartitionLimiter {
 
     pub fn is_limited(&self, key: &String) -> bool {
         self.forced_keys.contains(key) || self.limiter.check_key(key).is_err()
+    }
+
+    /// Reports the number of tracked keys to prometheus every 10 seconds,
+    /// needs to be spawned in a separate task.
+    pub async fn report_metrics(&self) {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(10));
+        loop {
+            interval.tick().await;
+            gauge!("partition_limits_key_count", self.limiter.len() as f64);
+        }
     }
 }
 
