@@ -32,6 +32,10 @@ class Comment(UUIDModel):
 @mutable_receiver(models.signals.post_save, sender=Comment)
 def log_comment_activity(sender, instance: Comment, created: bool, **kwargs):
     if created:
+        # TODO: Ensure we got this right, people should get notified when
+        # 1. A comment is placed on something they are interested in
+        # 2. A comment is in reply to a thread they started (for now)
+        # 3. A comment includes a @mention of them
         log_activity(
             organization_id=None,
             team_id=instance.team_id,

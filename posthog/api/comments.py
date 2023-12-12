@@ -1,7 +1,8 @@
-from typing import Any
+from typing import Any, Dict
+from django.db import transaction
 from django.db.models import QuerySet
 
-from rest_framework import serializers, viewsets, pagination
+from rest_framework import exceptions, serializers, viewsets, pagination
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -9,14 +10,48 @@ from rest_framework.response import Response
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.shared import UserBasicSerializer
 from posthog.models.comment import Comment
 
 
 class CommentSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+
     class Meta:
         model = Comment
         exclude = []
-        read_only_fields = ["id", "created_by"]
+        read_only_fields = ["id", "created_by", "version"]
+
+    def validate(self, data):
+        request = self.context["request"]
+
+        if self.instance:
+            if self.instance.created_by != request.user:
+                raise exceptions.PermissionDenied("You can only modify your own comments")
+        # TODO: Ensure created_by is set
+        # And only allow updates to own comment
+
+        data["created_by"] = request.user
+
+        return data
+
+    def update(self, instance: Comment, validated_data: Dict, **kwargs) -> Comment:
+        request = self.context["request"]
+
+        with transaction.atomic():
+            # select_for_update locks the database row so we ensure version updates are atomic
+            locked_instance = Comment.objects.select_for_update().get(pk=instance.pk)
+
+            if locked_instance.created_by != request.user:
+                raise
+
+            if validated_data.keys():
+                if validated_data.get("content"):
+                    validated_data["version"] = locked_instance.version + 1
+
+                updated_instance = super().update(locked_instance, validated_data)
+
+        return updated_instance
 
 
 class CommentPagination(pagination.CursorPagination):
