@@ -181,13 +181,13 @@
            CROSS JOIN
              (SELECT breakdown_value
               FROM
-                (SELECT ['', 'https://example.com'] as breakdown_value) ARRAY
+                (SELECT ['', 'https://example.com/', 'https://example.com'] as breakdown_value) ARRAY
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            transform(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), (['', 'https://example.com']), (['', 'https://example.com']), '$$_posthog_breakdown_other_$$') as breakdown_value
+                            transform(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), (['', 'https://example.com/', 'https://example.com']), (['', 'https://example.com/', 'https://example.com']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            INNER JOIN
              (SELECT "$session_id",
