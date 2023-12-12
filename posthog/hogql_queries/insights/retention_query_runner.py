@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from math import ceil
-from typing import Any, Dict
+from typing import Any, Dict, List
 from typing import Optional
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
@@ -353,3 +353,19 @@ class RetentionQueryRunner(QueryRunner):
                 timings=self.timings,
             )
         return retention_query
+
+    def to_persons_fields(self) -> List[List[str]]:
+        return [
+            ["appearances"],
+        ]
+
+    def turn_appearances_to_1_0(self, appearances: List[int]) -> List[int]:
+        return [
+            1 if interval_number in appearances else 0
+            for interval_number in range(
+                self.query.retentionFilter.total_intervals - (self.query.retentionFilter.selected_interval or 0)
+            )
+        ]
+
+    def to_persons_post_process(self, result_row: List) -> List:
+        return [self.turn_appearances_to_1_0(result_row[0])]

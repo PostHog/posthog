@@ -48,12 +48,20 @@ class PersonsQueryRunner(QueryRunner):
                 response.results[index][person_column_index] = new_result
 
         has_more = len(response.results) > self.query_limit()
+        columns = self.input_columns()
+        # we added +1 before for pagination, remove the last element if there's more
+        results = response.results[:-1] if has_more else response.results
+        if self.query.source:
+            source_query_runner = get_query_runner(self.query.source, self.team, self.timings)
+            offset = len(columns)
+            results = [row[:offset] + source_query_runner.to_persons_post_process(row[offset:]) for row in results]
+            columns += [chain[-1] for chain in source_query_runner.to_persons_fields()]
+
         return PersonsQueryResponse(
-            # we added +1 before for pagination, remove the last element if there's more
-            results=response.results[:-1] if has_more else response.results,
+            results=results,
             timings=response.timings,
             types=[type for _, type in response.types],
-            columns=self.input_columns(),
+            columns=columns,
             hogql=response.hogql,
             hasMore=has_more,
             limit=self.query_limit(),
@@ -182,21 +190,25 @@ class PersonsQueryRunner(QueryRunner):
             if self.query.source:
                 source_query_runner = get_query_runner(self.query.source, self.team, self.timings)
                 source_query = source_query_runner.to_persons_query()
+                source_alias = "source"
                 join_expr = ast.JoinExpr(
                     table=ast.Field(chain=["persons"]),
                     next_join=ast.JoinExpr(
                         table=source_query,
                         join_type="INNER JOIN",
-                        alias="source",
+                        alias=source_alias,
                         constraint=ast.JoinConstraint(
                             expr=ast.CompareOperation(
                                 op=ast.CompareOperationOp.Eq,
                                 left=ast.Field(chain=["persons", "id"]),
-                                right=ast.Field(chain=["source", "actor_id"]),
+                                right=ast.Field(chain=[source_alias, "actor_id"]),
                             )
                         ),
                     ),
                 )
+                columns += [
+                    ast.Field(chain=[source_alias, *chain]) for chain in source_query_runner.to_persons_fields()
+                ]
             else:
                 join_expr = ast.JoinExpr(table=ast.Field(chain=["persons"]))
 
