@@ -27,6 +27,9 @@ from rest_framework.throttling import UserRateThrottle
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
+import time
+import jwt
+from datetime import datetime, timedelta
 from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
@@ -466,11 +469,17 @@ def redirect_to_website(request):
 
     if not team or not urllib.parse.urlparse(app_url).hostname in ['localhost', 'posthog.com']:
         return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
-    params = { "jwt": "random_auth_token" }
+
+    token = jwt.encode({
+        "id": request.user.strapi_id,
+        "iat": int(time.time()),
+        "exp": int((datetime.now() + timedelta(days=30)).timestamp())
+    }, "123", algorithm='HS256')
+    print(token)
 
     # pass the empty string as the safe param so that `//` is encoded correctly.
     # see https://github.com/PostHog/posthog/issues/9671
-    userData = urllib.parse.quote(json.dumps(params), safe="")
+    userData = urllib.parse.quote(json.dumps({ "jwt": token }), safe="")
 
     return redirect("{}?userData={}&redirect={}".format('http://localhost:8001/auth', userData, app_url))
 

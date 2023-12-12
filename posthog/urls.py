@@ -150,7 +150,6 @@ def link_and_redirect(request: HttpRequest) -> HttpResponse:
     referer_url = urlparse(request.META["HTTP_REFERER"])
     redirect_url = urlparse(request.GET["redirect"])
 
-    print(redirect_url.hostname)
     if not current_team or not redirect_url.hostname in ['localhost', 'posthog.com']:
         return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
 
