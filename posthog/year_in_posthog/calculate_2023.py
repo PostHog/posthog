@@ -32,7 +32,7 @@ flag_stats AS (
         created_by_id AS user_id,
         count(*) AS flag_created_count,
         CASE
-            WHEN count(*) >= 10 THEN 'flag_raiser'
+            WHEN count(*) >= 5 THEN 'flag_raiser'
         END AS badge
     FROM
         posthog_featureflag
@@ -51,7 +51,7 @@ recording_viewed_stats AS (
         user_id,
         count(*) AS viewed_recording_count,
         CASE
-            WHEN count(*) >= 50 THEN 'popcorn_muncher'
+            WHEN count(*) >= 59 THEN 'popcorn_muncher'
         END AS badge
     FROM
         posthog_sessionrecordingviewed
@@ -66,7 +66,7 @@ experiments_stats AS (
         created_by_id AS user_id,
         count(*) AS experiments_created_count,
         CASE
-            WHEN count(*) >= 4 THEN 'scientist'
+            WHEN count(*) >= 3 THEN 'scientist'
         END AS badge
     FROM
         posthog_experiment
@@ -81,7 +81,7 @@ dashboards_created_stats AS (
         created_by_id AS user_id,
         count(*) AS dashboards_created_count,
         CASE
-            WHEN count(*) >= 10 THEN 'curator'
+            WHEN count(*) >= 4 THEN 'curator'
         END AS badge
     FROM
         posthog_dashboard
@@ -117,12 +117,7 @@ SELECT
         recording_viewed_stats.badge,
         experiments_stats.badge,
         dashboards_created_stats.badge,
-        survey_stats.badge,
-        case when
-            recording_viewed_stats.badge is not null
-                and flag_stats.badge is not null
-                and insight_stats.badge is not null
-            then 'champion' end
+        survey_stats.badge
     ],
         NULL
     ) AS badges,

@@ -19,6 +19,7 @@ import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadNext } from '~/queries/nodes/DataNode/LoadNext'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
+import { BackToSource } from '~/queries/nodes/DataTable/BackToSource'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
 import { dataTableLogic, DataTableLogicProps, DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
@@ -97,11 +98,11 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         responseLoading,
         responseError,
         queryCancelled,
-        canLoadNextData,
         canLoadNewData,
         nextDataLoading,
         newDataLoading,
         highlightedRows,
+        backToSourceQuery,
     } = useValues(builtDataNodeLogic)
 
     const dataTableLogicProps: DataTableLogicProps = { query, vizKey: vizKey, dataKey: dataKey, context }
@@ -375,6 +376,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     )
 
     const firstRowLeft = [
+        backToSourceQuery ? <BackToSource key="return-to-source" /> : null,
         showDateRange && sourceFeatures.has(QueryFeature.dateRangePicker) ? (
             <DateRange key="date-range" query={query.source} setQuery={setQuerySource} />
         ) : null,
@@ -553,12 +555,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                         result && result[0] && result[0]['event'] === '$exception',
                                 })
                             }
-                            footer={
-                                canLoadNextData &&
-                                ((response as any).results.length > 0 ||
-                                    (response as any).result.length > 0 ||
-                                    !responseLoading) && <LoadNext query={query.source} />
-                            }
+                            footer={(dataTableRows ?? []).length > 0 ? <LoadNext query={query.source} /> : null}
                             onRow={context?.rowProps}
                         />
                     )}

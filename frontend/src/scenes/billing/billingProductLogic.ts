@@ -7,6 +7,7 @@ import { BillingProductV2AddonType, BillingProductV2Type, BillingV2PlanType, Bil
 import { convertAmountToUsage } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import type { billingProductLogicType } from './billingProductLogicType'
+import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
 const DEFAULT_BILLING_LIMIT = 500
 
@@ -163,42 +164,75 @@ export const billingProductLogic = kea<billingProductLogicType>([
         ],
         billingGaugeItems: [
             (s, p) => [p.product, s.freeTier, s.billingLimitAsUsage],
-            (product, freeTier, billingLimitAsUsage) => {
+            (product, freeTier, billingLimitAsUsage): BillingGaugeItemType[] => {
                 return [
                     freeTier
                         ? {
+                              type: BillingGaugeItemKind.FreeTier,
                               text: 'Free tier limit',
-                              color: 'success-light',
                               value: freeTier,
                               top: true,
                           }
                         : undefined,
                     {
+                        type: BillingGaugeItemKind.CurrentUsage,
                         text: 'Current',
-                        color: product.percentage_usage
-                            ? product.percentage_usage <= 1
-                                ? 'success'
-                                : 'danger'
-                            : 'success',
                         value: product.current_usage || 0,
                         top: false,
                     },
                     product.projected_usage && product.projected_usage > (product.current_usage || 0)
                         ? {
+                              type: BillingGaugeItemKind.ProjectedUsage,
                               text: 'Projected',
-                              color: 'border',
                               value: product.projected_usage || 0,
                               top: false,
                           }
                         : undefined,
                     billingLimitAsUsage
                         ? {
+                              type: BillingGaugeItemKind.BillingLimit,
                               text: 'Billing limit',
-                              color: 'primary-alt-light',
                               top: true,
                               value: billingLimitAsUsage || 0,
                           }
                         : (undefined as any),
+                ].filter(Boolean)
+            },
+        ],
+        billingGaugeItems3000: [
+            (s, p) => [p.product, s.freeTier, s.billingLimitAsUsage],
+            (product, freeTier, billingLimitAsUsage): BillingGaugeItemType[] => {
+                return [
+                    billingLimitAsUsage
+                        ? {
+                              type: BillingGaugeItemKind.BillingLimit,
+                              text: 'Billing limit',
+                              top: true,
+                              value: billingLimitAsUsage || 0,
+                          }
+                        : (undefined as any),
+                    freeTier
+                        ? {
+                              type: BillingGaugeItemKind.FreeTier,
+                              text: 'Free tier limit',
+                              value: freeTier,
+                              top: true,
+                          }
+                        : undefined,
+                    product.projected_usage && product.projected_usage > (product.current_usage || 0)
+                        ? {
+                              type: BillingGaugeItemKind.ProjectedUsage,
+                              text: 'Projected',
+                              value: product.projected_usage || 0,
+                              top: false,
+                          }
+                        : undefined,
+                    {
+                        type: BillingGaugeItemKind.CurrentUsage,
+                        text: 'Current',
+                        value: product.current_usage || 0,
+                        top: false,
+                    },
                 ].filter(Boolean)
             },
         ],

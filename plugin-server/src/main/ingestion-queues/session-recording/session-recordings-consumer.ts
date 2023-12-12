@@ -128,6 +128,9 @@ export class SessionRecordingIngester {
         private objectStorage: ObjectStorage
     ) {
         this.debugPartition = globalServerConfig.SESSION_RECORDING_DEBUG_PARTITION
+            ? parseInt(globalServerConfig.SESSION_RECORDING_DEBUG_PARTITION)
+            : undefined
+
         // NOTE: globalServerConfig contains the default pluginServer values, typically not pointing at dedicated resources like kafka or redis
         // We still connect to some of the non-dedicated resources such as postgres or the Replay events kafka.
         this.config = sessionRecordingConsumerConfig(globalServerConfig)

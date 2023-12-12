@@ -19,7 +19,6 @@ export function YearInHogButton({ url }: { url: string | null }): JSX.Element | 
                     isHovering === false && 'CheekyHog--hide'
                 )}
             />
-            {/*need to sync background color with button*/}
             <div className={'absolute top-0 left-0 w-full h-full YearInHog__mask'} />
             <LemonButton
                 icon={<XmasTree />}
@@ -30,7 +29,7 @@ export function YearInHogButton({ url }: { url: string | null }): JSX.Element | 
                 onMouseEnter={() => setIsHovering(true)}
                 onMouseLeave={() => setIsHovering(false)}
             >
-                Year in PostHog
+                PostHog unwrapped
             </LemonButton>
         </div>
     ) : null

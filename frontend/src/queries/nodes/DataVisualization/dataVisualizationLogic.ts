@@ -3,7 +3,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { AnyResponseType, DataVisualizationNode } from '~/queries/schema'
+import { AnyResponseType, ChartAxis, DataVisualizationNode } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, InsightLogicProps, ItemMode } from '~/types'
 
@@ -11,8 +11,20 @@ import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { getQueryFeatures, QueryFeature } from '../DataTable/queryFeatures'
 import type { dataVisualizationLogicType } from './dataVisualizationLogicType'
 
-export interface AxisSeries<T> {
+export enum SideBarTab {
+    Series = 'series',
+    Display = 'display',
+}
+
+export interface Column {
     name: string
+    type: string
+    label: string
+    dataIndex: number
+}
+
+export interface AxisSeries<T> {
+    column: Column
     data: T[]
 }
 
@@ -35,21 +47,22 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
     props({ query: {} } as DataVisualizationLogicProps),
     actions({
         setVisualizationType: (visualizationType: ChartDisplayType) => ({ visualizationType }),
-        updateXSeries: (columnIndex: number) => ({
-            selectedXSeriesColumnIndex: columnIndex,
+        updateXSeries: (columnName: string) => ({
+            columnName,
         }),
-        updateYSeries: (seriesIndex: number, columnIndex: number) => ({
+        updateYSeries: (seriesIndex: number, columnName: string) => ({
             seriesIndex,
-            selectedYSeriesColumnIndex: columnIndex,
+            columnName,
         }),
-        addYSeries: (columnIndex?: number) => ({ columnIndex }),
-        deletedYSeries: (seriesIndex: number) => ({ seriesIndex }),
+        addYSeries: (columnName?: string) => ({ columnName }),
+        deleteYSeries: (seriesIndex: number) => ({ seriesIndex }),
         clearAxis: true,
         setQuery: (node: DataVisualizationNode) => ({ node }),
+        setSideBarTab: (tab: SideBarTab) => ({ tab }),
     }),
     reducers({
         columns: [
-            [] as { name: string; type: string }[],
+            [] as Column[],
             {
                 loadDataSuccess: (_state, { response }) => {
                     if (!response) {
@@ -64,6 +77,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                         return {
                             name: column,
                             type,
+                            label: `${column} - ${type}`,
+                            dataIndex: index,
                         }
                     })
                 },
@@ -75,50 +90,59 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 setVisualizationType: (_, { visualizationType }) => visualizationType,
             },
         ],
-        selectedXIndex: [
-            null as number | null,
+        selectedXAxis: [
+            null as string | null,
             {
                 clearAxis: () => null,
-                updateXSeries: (_, { selectedXSeriesColumnIndex }) => selectedXSeriesColumnIndex,
+                updateXSeries: (_, { columnName }) => columnName,
             },
         ],
-        selectedYIndexes: [
-            null as (number | null)[] | null,
+        selectedYAxis: [
+            null as (string | null)[] | null,
             {
                 clearAxis: () => null,
-                addYSeries: (prev, { columnIndex }) => {
-                    if (!prev && columnIndex !== undefined) {
-                        return [columnIndex]
+                addYSeries: (state, { columnName }) => {
+                    if (!state && columnName !== undefined) {
+                        return [columnName]
                     }
 
-                    if (!prev) {
+                    if (!state) {
                         return [null]
                     }
 
-                    prev.push(columnIndex === undefined ? null : columnIndex)
-                    return [...prev]
+                    return [...state, columnName === undefined ? null : columnName]
                 },
-                updateYSeries: (prev, { seriesIndex, selectedYSeriesColumnIndex }) => {
-                    if (!prev) {
+                updateYSeries: (state, { seriesIndex, columnName }) => {
+                    if (!state) {
                         return null
                     }
 
-                    prev[seriesIndex] = selectedYSeriesColumnIndex
-                    return [...prev]
+                    const ySeries = [...state]
+
+                    ySeries[seriesIndex] = columnName
+                    return ySeries
                 },
-                deletedYSeries: (prev, { seriesIndex }) => {
-                    if (!prev) {
+                deleteYSeries: (state, { seriesIndex }) => {
+                    if (!state) {
                         return null
                     }
 
-                    if (prev.length <= 1) {
+                    if (state.length <= 1) {
                         return [null]
                     }
 
-                    prev.splice(seriesIndex, 1)
+                    const ySeries = [...state]
 
-                    return [...prev]
+                    ySeries.splice(seriesIndex, 1)
+
+                    return ySeries
                 },
+            },
+        ],
+        activeSideBarTab: [
+            SideBarTab.Series as SideBarTab,
+            {
+                setSideBarTab: (_state, { tab }) => tab,
             },
         ],
     }),
@@ -156,40 +180,73 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             (cachedResults: AnyResponseType | null): boolean => !!cachedResults,
         ],
         yData: [
-            (state) => [state.selectedYIndexes, state.response],
-            (yIndexes, response): null | AxisSeries<number>[] => {
-                if (!response || yIndexes === null || yIndexes.length === 0) {
+            (state) => [state.selectedYAxis, state.response, state.columns],
+            (ySeries, response, columns): null | AxisSeries<number>[] => {
+                if (!response || ySeries === null || ySeries.length === 0) {
                     return null
                 }
 
                 const data: any[] = response?.['results'] ?? []
-                const columns: string[] = response['columns']
 
-                return yIndexes
-                    .filter((n): n is number => Boolean(n))
-                    .map((index): AxisSeries<number> => {
+                return ySeries
+                    .map((name): AxisSeries<number> | null => {
+                        if (!name) {
+                            return {
+                                column: {
+                                    name: 'None',
+                                    type: 'None',
+                                    label: 'None',
+                                    dataIndex: -1,
+                                },
+                                data: [],
+                            }
+                        }
+
+                        const column = columns.find((n) => n.name === name)
+                        if (!column) {
+                            return null
+                        }
+
                         return {
-                            name: columns[index],
+                            column,
                             data: data.map((n) => {
                                 try {
-                                    return parseInt(n[index], 10)
+                                    return parseInt(n[column.dataIndex], 10)
                                 } catch {
                                     return 0
                                 }
                             }),
                         }
                     })
+                    .filter((series): series is AxisSeries<number> => Boolean(series))
             },
         ],
         xData: [
-            (state) => [state.selectedXIndex, state.response],
-            (xIndex, response): null | string[] => {
-                if (!response || xIndex === null) {
-                    return null
+            (state) => [state.selectedXAxis, state.response, state.columns],
+            (xSeries, response, columns): AxisSeries<string> | null => {
+                if (!response || xSeries === null) {
+                    return {
+                        column: {
+                            name: 'None',
+                            type: 'None',
+                            label: 'None',
+                            dataIndex: -1,
+                        },
+                        data: [],
+                    }
                 }
 
                 const data: any[] = response?.['results'] ?? []
-                return data.map((n) => n[xIndex])
+
+                const column = columns.find((n) => n.name === xSeries)
+                if (!column) {
+                    return null
+                }
+
+                return {
+                    column,
+                    data: data.map((n) => n[column.dataIndex]),
+                }
             },
         ],
     }),
@@ -214,15 +271,15 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         }
 
         if (props.query.chartSettings) {
-            const { xAxisIndex, yAxisIndex } = props.query.chartSettings
+            const { xAxis, yAxis } = props.query.chartSettings
 
-            if (xAxisIndex && xAxisIndex.length) {
-                actions.updateXSeries(xAxisIndex[0])
+            if (xAxis) {
+                actions.updateXSeries(xAxis.column)
             }
 
-            if (yAxisIndex && yAxisIndex.length) {
-                yAxisIndex.forEach((index) => {
-                    actions.addYSeries(index)
+            if (yAxis && yAxis.length) {
+                yAxis.forEach((axis) => {
+                    actions.addYSeries(axis.column)
                 })
             }
         }
@@ -236,40 +293,47 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             }
 
             // Set default axis values
-            if (values.response && values.selectedXIndex === null && values.selectedYIndexes === null) {
+            if (values.response && values.selectedXAxis === null && values.selectedYAxis === null) {
                 const types: string[][] = values.response['types']
-                const yAxisIndex = types.findIndex((n) => n[1].indexOf('Int') !== -1 || n[1].indexOf('Float') !== -1)
-                const xAxisIndex = types.findIndex((n) => n[1].indexOf('Date') !== -1)
+                const yAxisTypes = types.find((n) => n[1].indexOf('Int') !== -1 || n[1].indexOf('Float') !== -1)
+                const xAxisTypes = types.find((n) => n[1].indexOf('Date') !== -1)
 
-                if (yAxisIndex >= 0) {
-                    actions.addYSeries(yAxisIndex)
+                if (yAxisTypes) {
+                    actions.addYSeries(yAxisTypes[0])
                 }
 
-                if (xAxisIndex >= 0) {
-                    actions.updateXSeries(xAxisIndex)
+                if (xAxisTypes) {
+                    actions.updateXSeries(xAxisTypes[0])
                 }
             }
         },
-        selectedXIndex: (value: number | null) => {
+        selectedXAxis: (value: string | null) => {
             if (props.setQuery) {
+                const yColumns = values.selectedYAxis?.filter((n: string | null): n is string => Boolean(n)) ?? []
+                const xColumn: ChartAxis | undefined = value !== null ? { column: value } : undefined
+
                 props.setQuery({
                     ...props.query,
                     chartSettings: {
                         ...(props.query.chartSettings ?? {}),
-                        yAxisIndex: values.selectedYIndexes?.filter((n: number | null): n is number => Boolean(n)),
-                        xAxisIndex: value !== null ? [value] : undefined,
+                        yAxis: yColumns.map((n) => ({ column: n })),
+                        xAxis: xColumn,
                     },
                 })
             }
         },
-        selectedYIndexes: (value: (number | null)[] | null) => {
+        selectedYAxis: (value: (string | null)[] | null) => {
             if (props.setQuery) {
+                const yColumns = value?.filter((n: string | null): n is string => Boolean(n)) ?? []
+                const xColumn: ChartAxis | undefined =
+                    values.selectedXAxis !== null ? { column: values.selectedXAxis } : undefined
+
                 props.setQuery({
                     ...props.query,
                     chartSettings: {
                         ...(props.query.chartSettings ?? {}),
-                        yAxisIndex: value?.filter((n: number | null): n is number => Boolean(n)),
-                        xAxisIndex: values.selectedXIndex !== null ? [values.selectedXIndex] : undefined,
+                        yAxis: yColumns.map((n) => ({ column: n })),
+                        xAxis: xColumn,
                     },
                 })
             }
