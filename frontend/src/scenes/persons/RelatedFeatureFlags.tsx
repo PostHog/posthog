@@ -131,7 +131,7 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
 
     return (
         <>
-            <div className="flex justify-between mb-4">
+            <div className="flex justify-between mb-4 gap-2 flex-wrap">
                 <LemonInput
                     type="search"
                     placeholder="Search for feature flags"

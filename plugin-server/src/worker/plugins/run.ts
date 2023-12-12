@@ -76,16 +76,29 @@ export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise
 const RUSTY_HOOK_BASE_DELAY_MS = 100
 const MAX_RUSTY_HOOK_DELAY_MS = 30_000
 
-async function enqueueInRustyHook(hub: Hub, webhook: Webhook, pluginIdStr: string) {
+interface RustyWebhookPayload extends Webhook {
+    team_id: number
+    plugin_id: number
+    plugin_config_id: number
+}
+
+async function enqueueInRustyHook(hub: Hub, webhook: Webhook, pluginConfig: PluginConfig) {
     webhook.method ??= 'POST'
     webhook.headers ??= {}
-    const body = JSON.stringify(webhook, undefined, 4)
-    let attempt = 0
+
+    const rustyWebhookPayload: RustyWebhookPayload = {
+        ...webhook,
+        team_id: pluginConfig.team_id,
+        plugin_id: pluginConfig.plugin_id,
+        plugin_config_id: pluginConfig.id,
+    }
+    const body = JSON.stringify(rustyWebhookPayload, undefined, 4)
 
     // We attempt to enqueue into the rusty-hook service until we succeed. This is deliberatly
     // designed to block up the consumer if rusty-hook is down or if we deploy code that
     // sends malformed requests. The entire purpose of rusty-hook is to reliably deliver webhooks,
     // so we'd rather leave items in the Kafka topic until we manage to get them into rusty-hook.
+    let attempt = 0
     while (true) {
         const timer = new Date()
         try {
@@ -103,7 +116,7 @@ async function enqueueInRustyHook(hub: Hub, webhook: Webhook, pluginIdStr: strin
             if (response.ok) {
                 // Success, exit the loop.
                 pluginActionMsSummary
-                    .labels(pluginIdStr, 'enqueueRustyHook', 'success')
+                    .labels(pluginConfig.plugin_id.toString(), 'enqueueRustyHook', 'success')
                     .observe(new Date().getTime() - timer.getTime())
 
                 break
@@ -113,10 +126,10 @@ async function enqueueInRustyHook(hub: Hub, webhook: Webhook, pluginIdStr: strin
             throw new Error(`rusty-hook returned ${response.status} ${response.statusText}: ${await response.text()}`)
         } catch (error) {
             pluginActionMsSummary
-                .labels(pluginIdStr, 'enqueueRustyHook', 'error')
+                .labels(pluginConfig.plugin_id.toString(), 'enqueueRustyHook', 'error')
                 .observe(new Date().getTime() - timer.getTime())
 
-            const redactedWebhook = { ...webhook, body: '<redacted>' }
+            const redactedWebhook = { ...rustyWebhookPayload, body: '<redacted>' }
             status.error('🔴', 'Webhook enqueue to rusty-hook failed', { error, redactedWebhook, attempt })
             Sentry.captureException(error, { extra: { redactedWebhook } })
         }
@@ -155,7 +168,7 @@ async function runSingleTeamPluginComposeWebhook(
             }
 
             if (hub.rustyHookForTeams?.(event.team_id)) {
-                return await enqueueInRustyHook(hub, webhook, pluginConfig.plugin?.id.toString() ?? '?')
+                return await enqueueInRustyHook(hub, webhook, pluginConfig)
             }
 
             const request = await trackedFetch(webhook.url, {

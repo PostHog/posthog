@@ -71,7 +71,7 @@ def validate_schema_and_update_table(run_id: str, team_id: int, schemas: list[st
         except ServerException as err:
             if err.code == 636:
                 logger.exception(
-                    f"Data Warehouse: No data for schema for external data job {job.pk}",
+                    f"Data Warehouse: No data for schema {_schema_name} for external data job {job.pk}",
                     exc_info=err,
                 )
             continue

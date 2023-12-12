@@ -321,7 +321,7 @@ const HogQLForDataVisualization: HogQLQuery = {
     kind: NodeKind.HogQLQuery,
     query: `select toDate(timestamp) as timestamp, count()
 from events
-where {filters}
+where {filters} and timestamp <= now()
 group by timestamp
 order by timestamp asc
 limit 100`,
