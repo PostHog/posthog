@@ -39,7 +39,8 @@ export function Experiments(): JSX.Element {
         shouldShowEmptyState,
         shouldShowProductIntroduction,
     } = useValues(experimentsLogic)
-    const { setExperimentsTab, deleteExperiment, setSearchStatus, setSearchTerm } = useActions(experimentsLogic)
+    const { setExperimentsTab, deleteExperiment, archiveExperiment, setSearchStatus, setSearchTerm } =
+        useActions(experimentsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
 
     const EXPERIMENTS_PRODUCT_DESCRIPTION =
@@ -126,6 +127,18 @@ export function Experiments(): JSX.Element {
                                 >
                                     View
                                 </LemonButton>
+                                {!experiment.archived &&
+                                    experiment?.end_date &&
+                                    dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') && (
+                                        <LemonButton
+                                            status="stealth"
+                                            onClick={() => archiveExperiment(experiment.id as number)}
+                                            data-attr={`experiment-${experiment.id}-dropdown-archive`}
+                                            fullWidth
+                                        >
+                                            Archive experiment
+                                        </LemonButton>
+                                    )}
                                 <LemonDivider />
                                 <LemonButton
                                     status="danger"
