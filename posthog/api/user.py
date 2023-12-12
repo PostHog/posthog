@@ -474,8 +474,7 @@ def redirect_to_website(request):
         "id": request.user.strapi_id,
         "iat": int(time.time()),
         "exp": int((datetime.now() + timedelta(days=30)).timestamp())
-    }, "123", algorithm='HS256')
-    print(token)
+    }, os.environ.get("JWT_SECRET_STRAPI"), algorithm='HS256')
 
     # pass the empty string as the safe param so that `//` is encoded correctly.
     # see https://github.com/PostHog/posthog/issues/9671
