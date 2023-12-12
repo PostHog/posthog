@@ -67,6 +67,10 @@ export const parseEncodedSnapshots = async (
                     ? postHogEEModule?.mobileReplay?.transformEventToWeb(d) || (d as eventWithTime)
                     : (d as eventWithTime)
                 return {
+                    // this handles parsing data that was loaded from blob storage "window_id"
+                    // and data that was exported from the front-end "windowId"
+                    // we have more than one format of data that we store/pass around
+                    // but only one that we playback
                     windowId: snapshotLine['window_id'] || snapshotLine['windowId'],
                     ...(snap || (d as eventWithTime)),
                 }
