@@ -192,7 +192,7 @@ class MinimalPersonSerializer(PersonSerializer):
     distinct_ids = serializers.SerializerMethodField()
 
     def get_distinct_ids(self, person):
-        return person.distinct_ids[:10]
+        return sorted(person.distinct_ids)[:10]
 
 
 def get_funnel_actor_class(filter: Filter) -> Callable:
