@@ -1,3 +1,5 @@
+import './AggregationColumn.scss'
+
 import { LemonMenu, LemonMenuItem } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconArrowDropDown } from 'lib/lemon-ui/icons'
@@ -47,7 +49,7 @@ export function AggregationColumnTitle({
     return (
         <LemonMenu items={items}>
             <span
-                className="flex cursor-pointer whitespace-nowrap"
+                className="AggregationColumn__title LemonTable__header--no-hover flex cursor-pointer whitespace-nowrap"
                 onClick={(e) => {
                     e.stopPropagation()
                 }}

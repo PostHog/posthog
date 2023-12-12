@@ -293,8 +293,10 @@
 
         .posthog-3000 & {
             &:hover {
-                .LemonTable__header-content {
-                    color: var(--default);
+                &:not(:has(.LemonTable__header--no-hover:hover)) {
+                    .LemonTable__header-content {
+                        color: var(--default);
+                    }
                 }
             }
 
