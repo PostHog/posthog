@@ -49,7 +49,6 @@
         "editor:update-tsd": "pnpm packages:build && node frontend/editor-update-tsd.mjs",
         "prettier": "prettier --write \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
         "prettier:check": "prettier --check \"frontend/**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\"",
-        "prettier:file": "prettier --write",
         "typescript:check": "tsc --noEmit && echo \"No errors reported by tsc.\"",
         "lint:js": "eslint frontend/src",
         "lint:css": "stylelint \"frontend/**/*.{css,scss}\"",

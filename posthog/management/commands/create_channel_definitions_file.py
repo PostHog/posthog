@@ -146,4 +146,4 @@ class Command(BaseCommand):
         # write a pretty JSON file out
         with open(OUTPUT_FILE, "w") as output_file:
             output_file.write(json.dumps(rows))
-        subprocess.run(["pnpm", "run", "prettier:file", OUTPUT_FILE])
+        subprocess.run(["npx", "--no-install", "prettier", "--write", OUTPUT_FILE])
