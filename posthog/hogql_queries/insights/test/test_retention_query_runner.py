@@ -10,8 +10,8 @@ from posthog.constants import (
     TREND_FILTER_TYPE_ACTIONS,
     TREND_FILTER_TYPE_EVENTS,
 )
-from posthog.hogql_queries.insights.retention_appearance_query_runner import RetentionAppearanceQueryRunner
 from posthog.hogql_queries.insights.retention_query_runner import RetentionQueryRunner
+from posthog.hogql_queries.persons_query_runner import PersonsQueryRunner
 from posthog.models import Action, ActionStep
 from posthog.test.base import (
     APIBaseTest,
@@ -70,10 +70,18 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         runner = RetentionQueryRunner(team=self.team, query=query)
         return runner.calculate().model_dump()["results"]
 
-    def run_appearance_query(self, query):
-        if not query["source"].get("retentionFilter"):
-            query["source"]["retentionFilter"] = {}
-        runner = RetentionAppearanceQueryRunner(team=self.team, query=query)
+    def run_actors_query(self, query):
+        query["kind"] = "RetentionQuery"
+        runner = PersonsQueryRunner(
+            team=self.team,
+            query={
+                "select": ["person"],
+                "source": {
+                    "kind": "InsightPersonsQuery",
+                    "source": query,
+                },
+            },
+        )
         return runner.calculate().model_dump()["results"]
 
     def test_retention_default(self):
@@ -731,48 +739,44 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         )
 
         # even if set to hour 6 it should default to beginning of day and include all pageviews above
-        result = self.run_appearance_query(
+        result = self.run_actors_query(
             query={
-                "selectedInterval": 0,
-                "source": {
-                    "dateRange": {"date_to": _date(10, hour=6)},
+                "dateRange": {"date_to": _date(10, hour=6)},
+                "retentionFilter": {
+                    "selected_interval": 0,
                 },
             }
         )
         self.assertEqual(len(result), 1, result)
-        self.assertTrue(result[0][0]["id"] == person1.uuid, person1.uuid)
+        self.assertEqual(result[0][0]["id"], str(person1.uuid), person1.uuid)
 
     def test_retention_people_first_time(self):
         _, _, p3, _ = self._create_first_time_retention_events()
         # even if set to hour 6 it should default to beginning of day and include all pageviews above
 
-        result = self.run_appearance_query(
+        result = self.run_actors_query(
             query={
-                "selectedInterval": 0,
-                "source": {
-                    "dateRange": {"date_to": _date(10, hour=6)},
-                    "retentionFilter": {
-                        "target_entity": {"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS},
-                        "returning_entity": {"id": "$pageview", "type": "events"},
-                        "retention_type": RETENTION_FIRST_TIME,
-                    },
+                "dateRange": {"date_to": _date(10, hour=6)},
+                "retentionFilter": {
+                    "target_entity": {"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS},
+                    "returning_entity": {"id": "$pageview", "type": "events"},
+                    "retention_type": RETENTION_FIRST_TIME,
+                    "selected_interval": 0,
                 },
             }
         )
 
         self.assertEqual(len(result), 1)
-        self.assertIn(result[0][0]["id"], [p3.uuid, p3.pk])
+        self.assertIn(result[0][0]["id"], [str(p3.uuid), str(p3.pk)])
 
-        result = self.run_appearance_query(
+        result = self.run_actors_query(
             query={
-                "selectedInterval": 0,
-                "source": {
-                    "dateRange": {"date_to": _date(14, hour=6)},
-                    "retentionFilter": {
-                        "target_entity": {"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS},
-                        "returning_entity": {"id": "$pageview", "type": "events"},
-                        "retention_type": RETENTION_FIRST_TIME,
-                    },
+                "dateRange": {"date_to": _date(14, hour=6)},
+                "retentionFilter": {
+                    "target_entity": {"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS},
+                    "returning_entity": {"id": "$pageview", "type": "events"},
+                    "retention_type": RETENTION_FIRST_TIME,
+                    "selected_interval": 0,
                 },
             }
         )
@@ -835,40 +839,38 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         )
 
         # even if set to hour 6 it should default to beginning of day and include all pageviews above
-        result = self.run_appearance_query(
+        result = self.run_actors_query(
             query={
-                "selectedInterval": 2,
-                "source": {
-                    "dateRange": {"date_to": _date(10, hour=6)},
+                "dateRange": {"date_to": _date(10, hour=6)},
+                "retentionFilter": {
+                    "selected_interval": 2,
                 },
-            }
+            },
         )
 
         # should be descending order on number of appearances
-        self.assertIn(result[0][0]["id"], [person2.pk, person2.uuid])
+        self.assertIn(result[0][0]["id"], [str(person2.pk), str(person2.uuid)])
         self.assertEqual(result[0][1], [1, 1, 0, 0, 1, 1, 0, 0, 0])
 
-        self.assertIn(result[1][0]["id"], [person1.pk, person1.uuid])
+        self.assertIn(result[1][0]["id"], [str(person1.pk), str(person1.uuid)])
         self.assertEqual(result[1][1], [1, 0, 0, 1, 1, 0, 0, 0, 0])
 
-    def test_retention_people_in_perieod_first_time(self):
+    def test_retention_people_in_period_first_time(self):
         p1, p2, p3, p4 = self._create_first_time_retention_events()
         # even if set to hour 6 it should default to beginning of day and include all pageviews above
-        result = self.run_appearance_query(
+        result = self.run_actors_query(
             query={
-                "selectedInterval": 0,
-                "source": {
-                    "dateRange": {"date_to": _date(10, hour=6)},
-                    "retentionFilter": {
-                        "target_entity": {"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS},
-                        "returning_entity": {"id": "$pageview", "type": "events"},
-                        "retention_type": RETENTION_FIRST_TIME,
-                    },
+                "dateRange": {"date_to": _date(10, hour=6)},
+                "retentionFilter": {
+                    "target_entity": {"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS},
+                    "returning_entity": {"id": "$pageview", "type": "events"},
+                    "retention_type": RETENTION_FIRST_TIME,
+                    "selected_interval": 0,
                 },
             }
         )
         self.assertEqual(len(result), 1)
-        self.assertTrue(result[0][0]["id"] == p3.pk or result[0][0]["id"] == p3.uuid)
+        self.assertTrue(result[0][0]["id"] == str(p3.pk) or result[0][0]["id"] == str(p3.uuid))
         self.assertEqual(result[0][1], [1, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0])
 
     def test_retention_multiple_events(self):
