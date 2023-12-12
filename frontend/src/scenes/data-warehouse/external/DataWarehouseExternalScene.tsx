@@ -1,18 +1,20 @@
-import { LemonTag, Link, LemonButtonWithSideAction, LemonButton } from '@posthog/lemon-ui'
-import { PageHeader } from 'lib/components/PageHeader'
-import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { ProductKey } from '~/types'
-import { DataWarehouseTablesContainer } from './DataWarehouseTables'
-import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
-import { DataWarehousePageTabs, DataWarehouseTab } from '../DataWarehousePageTabs'
-import SourceModal from './SourceModal'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconSettings } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { ProductKey } from '~/types'
+
+import { DataWarehousePageTabs, DataWarehouseTab } from '../DataWarehousePageTabs'
+import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { DataWarehouseTablesContainer } from './DataWarehouseTables'
+import SourceModal from './SourceModal'
 
 export const scene: SceneExport = {
     component: DataWarehouseExternalScene,
@@ -38,7 +40,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                 }
                 buttons={
                     featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_EXTERNAL_LINK] ? (
-                        <LemonButtonWithSideAction
+                        <LemonButton
                             type="primary"
                             sideAction={{
                                 icon: <IconSettings />,
@@ -50,10 +52,10 @@ export function DataWarehouseExternalScene(): JSX.Element {
                             onClick={() => toggleSourceModal()}
                         >
                             Link Source
-                        </LemonButtonWithSideAction>
+                        </LemonButton>
                     ) : !(shouldShowProductIntroduction || shouldShowEmptyState) ? (
                         <LemonButton type="primary" to={urls.dataWarehouseTable()} data-attr="new-data-warehouse-table">
-                            New Table
+                            New table
                         </LemonButton>
                     ) : undefined
                 }
@@ -63,7 +65,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                         <Link to="https://posthog.com/manual/hogql" target="_blank">
                             HogQL
                         </Link>
-                        . Connect your own tables from S3 to query data from outside posthog.{' '}
+                        . Connect your own tables from S3 to query data from outside PostHog.{' '}
                         <Link to="https://posthog.com/docs/data/data-warehouse">Learn more</Link>
                     </div>
                 }
@@ -72,7 +74,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
             {(shouldShowProductIntroduction || shouldShowEmptyState) && (
                 <ProductIntroduction
                     productName={'Data Warehouse'}
-                    thingName={'data warehouse table'}
+                    thingName={'table'}
                     description={
                         'Bring your production database, revenue data, CRM contacts or any other data into PostHog.'
                     }
@@ -87,7 +89,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                 />
             )}
             {!shouldShowEmptyState && <DataWarehouseTablesContainer />}
-            <SourceModal isOpen={isSourceModalOpen} onClose={toggleSourceModal} />
+            <SourceModal isOpen={isSourceModalOpen} onClose={() => toggleSourceModal(false)} />
         </div>
     )
 }

@@ -1,15 +1,16 @@
-import { windowValues } from 'kea-window-values'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { kea, path, connect, actions, reducers, selectors, listeners } from 'kea'
+import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
+
 import type { navigationLogicType } from './navigationLogicType'
-import { membersLogic } from 'scenes/organization/membersLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export type ProjectNoticeVariant =
     | 'demo_project'

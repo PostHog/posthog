@@ -1,15 +1,35 @@
-import posthog from 'posthog-js'
-import { actions, connect, kea, key, listeners, path, props, selectors, reducers } from 'kea'
+import { lemonToast } from '@posthog/lemon-ui'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { DISPLAY_TYPES_WITHOUT_LEGEND } from 'lib/components/InsightLegend/utils'
+import { Intervals, intervals } from 'lib/components/IntervalFilter/intervals'
+import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import {
-    BaseMathType,
-    ChartDisplayType,
-    FilterType,
-    FunnelExclusion,
-    InsightLogicProps,
-    IntervalType,
-    TrendsFilterType,
-} from '~/types'
+    NON_TIME_SERIES_DISPLAY_TYPES,
+    NON_VALUES_ON_SERIES_DISPLAY_TYPES,
+    PERCENT_STACK_VIEW_DISPLAY_TYPE,
+} from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { dateMapping } from 'lib/utils'
+import posthog from 'posthog-js'
+import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
+import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
+
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import {
+    getBreakdown,
+    getCompare,
+    getDisplay,
+    getFormula,
+    getInterval,
+    getSeries,
+    getShowLabelsOnSeries,
+    getShowLegend,
+    getShowPercentStackView,
+    getShowValueOnSeries,
+} from '~/queries/nodes/InsightViz/utils'
 import {
     BreakdownFilter,
     DateRange,
@@ -21,9 +41,6 @@ import {
     TrendsFilter,
     TrendsQuery,
 } from '~/queries/schema'
-
-import { insightLogic } from './insightLogic'
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import {
     filterForQuery,
     filterKeyForQuery,
@@ -39,34 +56,17 @@ import {
     nodeKindToFilterProperty,
 } from '~/queries/utils'
 import {
-    NON_TIME_SERIES_DISPLAY_TYPES,
-    NON_VALUES_ON_SERIES_DISPLAY_TYPES,
-    PERCENT_STACK_VIEW_DISPLAY_TYPE,
-} from 'lib/constants'
-import {
-    getBreakdown,
-    getCompare,
-    getDisplay,
-    getFormula,
-    getInterval,
-    getSeries,
-    getShowLegend,
-    getShowPercentStackView,
-    getShowValueOnSeries,
-} from '~/queries/nodes/InsightViz/utils'
-import { DISPLAY_TYPES_WITHOUT_LEGEND } from 'lib/components/InsightLegend/utils'
-import { Intervals, intervals } from 'lib/components/IntervalFilter/intervals'
-import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
+    BaseMathType,
+    ChartDisplayType,
+    FilterType,
+    FunnelExclusion,
+    InsightLogicProps,
+    IntervalType,
+    TrendsFilterType,
+} from '~/types'
 
-import { sceneLogic } from 'scenes/sceneLogic'
-
+import { insightLogic } from './insightLogic'
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
-import { parseProperties } from 'lib/components/PropertyFilters/utils'
-import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
-import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
-import { lemonToast } from '@posthog/lemon-ui'
-import { dayjs } from 'lib/dayjs'
-import { dateMapping } from 'lib/utils'
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
 
@@ -167,9 +167,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         samplingFactor: [(s) => [s.querySource], (q) => (q ? q.samplingFactor : null)],
         showLegend: [(s) => [s.querySource], (q) => (q ? getShowLegend(q) : null)],
         showValueOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValueOnSeries(q) : null)],
+        showLabelOnSeries: [(s) => [s.querySource], (q) => (q ? getShowLabelsOnSeries(q) : null)],
         showPercentStackView: [(s) => [s.querySource], (q) => (q ? getShowPercentStackView(q) : null)],
         vizSpecificOptions: [(s) => [s.query], (q: Node) => (isInsightVizNode(q) ? q.vizSpecificOptions : null)],
-
         insightFilter: [(s) => [s.querySource], (q) => (q ? filterForQuery(q) : null)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],
         funnelsFilter: [(s) => [s.querySource], (q) => (isFunnelsQuery(q) ? q.funnelsFilter : null)],

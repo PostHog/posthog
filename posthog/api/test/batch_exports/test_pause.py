@@ -17,8 +17,9 @@ from posthog.api.test.batch_exports.operations import (
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.batch_exports.service import delete_schedule, describe_schedule
-from posthog.temporal.client import sync_connect
+from posthog.batch_exports.service import batch_export_delete_schedule
+from posthog.temporal.common.schedule import describe_schedule
+from posthog.temporal.common.client import sync_connect
 
 pytestmark = [
     pytest.mark.django_db,
@@ -344,7 +345,7 @@ def test_pause_non_existent_batch_export(client: HttpClient):
         schedule_desc = describe_schedule(temporal, batch_export["id"])
         assert schedule_desc.schedule.state.paused is False
 
-        resp = delete_schedule(temporal, batch_export["id"])
+        resp = batch_export_delete_schedule(temporal, batch_export["id"])
 
         batch_export_id = batch_export["id"]
         resp = pause_batch_export(client, team.pk, batch_export_id)

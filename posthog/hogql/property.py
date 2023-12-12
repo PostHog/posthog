@@ -3,7 +3,13 @@ from typing import List, Optional, Union, cast, Literal
 
 from pydantic import BaseModel
 
-from posthog.constants import AUTOCAPTURE_EVENT, PropertyOperatorType
+from posthog.constants import (
+    AUTOCAPTURE_EVENT,
+    PropertyOperatorType,
+    TREND_FILTER_TYPE_ACTIONS,
+    TREND_FILTER_TYPE_EVENTS,
+    PAGEVIEW_EVENT,
+)
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.functions import HOGQL_AGGREGATIONS
@@ -27,6 +33,7 @@ from posthog.schema import (
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     FilterLogicalOperator,
+    RetentionEntity,
 )
 
 
@@ -113,51 +120,52 @@ def property_to_expr(
 
     if property.type == "hogql":
         return parse_expr(property.key)
-    elif property.type == "event" or property.type == "feature" or property.type == "person":
+    elif (
+        property.type == "event" or property.type == "feature" or property.type == "person" or property.type == "group"
+    ):
         if scope == "person" and property.type != "person":
             raise NotImplementedException(
                 f"The '{property.type}' property filter only works in 'event' scope, not in '{scope}' scope"
             )
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.exact
         value = property.value
+
+        if property.type == "person" and scope != "person":
+            chain = ["person", "properties"]
+        elif property.type == "group":
+            chain = [f"group_{property.group_type_index}", "properties"]
+        else:
+            chain = ["properties"]
+        field = ast.Field(chain=chain + [property.key])
+
         if isinstance(value, list):
             if len(value) == 0:
                 return ast.Constant(value=True)
             elif len(value) == 1:
                 value = value[0]
             else:
-                if operator in [PropertyOperator.exact, PropertyOperator.is_not]:
-                    op = (
-                        ast.CompareOperationOp.In
-                        if operator == PropertyOperator.exact
-                        else ast.CompareOperationOp.NotIn
+                # Using an AND here instead of `in()` or `notIn()`, due to Clickhouses poor handling of `null` values
+                exprs = [
+                    property_to_expr(
+                        Property(
+                            type=property.type,
+                            key=property.key,
+                            operator=property.operator,
+                            value=v,
+                        ),
+                        team,
+                        scope,
                     )
+                    for v in value
+                ]
+                if (
+                    operator == PropertyOperator.not_icontains
+                    or operator == PropertyOperator.not_regex
+                    or operator == PropertyOperator.is_not
+                ):
+                    return ast.And(exprs=exprs)
+                return ast.Or(exprs=exprs)
 
-                    return ast.CompareOperation(
-                        op=op,
-                        left=ast.Field(chain=["properties", property.key]),
-                        right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value]),
-                    )
-                else:
-                    exprs = [
-                        property_to_expr(
-                            Property(
-                                type=property.type,
-                                key=property.key,
-                                operator=property.operator,
-                                value=v,
-                            ),
-                            team,
-                            scope,
-                        )
-                        for v in value
-                    ]
-                    if operator == PropertyOperator.not_icontains or operator == PropertyOperator.not_regex:
-                        return ast.And(exprs=exprs)
-                    return ast.Or(exprs=exprs)
-
-        chain = ["person", "properties"] if property.type == "person" and scope != "person" else ["properties"]
-        field = ast.Field(chain=chain + [property.key])
         properties_field = ast.Field(chain=chain)
 
         if operator == PropertyOperator.is_set:
@@ -297,9 +305,11 @@ def property_to_expr(
             right=ast.Constant(value=cohort.pk),
         )
 
-    # TODO: Add support for these types "group", "recording", "behavioral", and "session" types
+    # TODO: Add support for these types "recording", "behavioral", and "session" types
 
-    raise NotImplementedException(f"property_to_expr not implemented for filter type {type(property).__name__}")
+    raise NotImplementedException(
+        f"property_to_expr not implemented for filter type {type(property).__name__} and {property.type}"
+    )
 
 
 def action_to_expr(action: Action) -> ast.Expr:
@@ -368,6 +378,27 @@ def action_to_expr(action: Action) -> ast.Expr:
         return or_queries[0]
     else:
         return ast.Or(exprs=or_queries)
+
+
+def entity_to_expr(entity: RetentionEntity, default_event=PAGEVIEW_EVENT) -> ast.Expr:
+    if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
+        action = Action.objects.get(pk=entity.id)
+        return action_to_expr(action)
+    elif entity.type == TREND_FILTER_TYPE_EVENTS:
+        if entity.id is None:
+            return ast.Constant(value=True)
+
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["events", "event"]),
+            right=ast.Constant(value=entity.id),
+        )
+
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.Eq,
+        left=ast.Field(chain=["events", "event"]),
+        right=ast.Constant(value=default_event),
+    )
 
 
 def element_chain_key_filter(key: str, text: str, operator: PropertyOperator):

@@ -1,30 +1,32 @@
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { kea, props, key, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
-import { decodeParams, router, actionToUrl, urlToAction } from 'kea-router'
+import { actionToUrl, decodeParams, router, urlToAction } from 'kea-router'
 import api, { CountedPaginatedResponse } from 'lib/api'
-import type { personsLogicType } from './personsLogicType'
+import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
+import { convertPropertyGroupToProperties, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { toParams } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { hogqlQuery } from '~/queries/query'
 import {
-    PersonPropertyFilter,
+    AnyPropertyFilter,
     Breadcrumb,
     CohortType,
     ExporterFormat,
     PersonListParams,
+    PersonPropertyFilter,
     PersonsTabType,
     PersonType,
-    AnyPropertyFilter,
 } from '~/types'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { urls } from 'scenes/urls'
-import { teamLogic } from 'scenes/teamLogic'
-import { toParams } from 'lib/utils'
-import { convertPropertyGroupToProperties, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+
 import { asDisplay } from './person-utils'
-import { hogqlQuery } from '~/queries/query'
-import { Scene } from 'scenes/sceneTypes'
+import type { personsLogicType } from './personsLogicType'
 
 export interface PersonsLogicProps {
     cohort?: number | 'new'
@@ -77,7 +79,7 @@ export const personsLogic = kea<personsLogicType>([
                             ...(values.listFilters.properties || []),
                             ...values.hiddenListProperties,
                         ]
-                        if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
+                        if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test') {
                             newFilters.include_total = true // The total count is slow, but needed for infinite loading
                         }
                         if (props.cohort) {

@@ -1,11 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
-import { sceneDashboardChoiceModalLogic } from './sceneDashboardChoiceModalLogic'
 import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 'lib/api.mock'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
+
 import { useMocks } from '~/mocks/jest'
-import { Scene } from 'scenes/sceneTypes'
+import { initKeaTests } from '~/test/init'
+
+import { sceneDashboardChoiceModalLogic } from './sceneDashboardChoiceModalLogic'
 
 describe('sceneDashboardChoiceModalLogic', () => {
     let logic: ReturnType<typeof sceneDashboardChoiceModalLogic.build>

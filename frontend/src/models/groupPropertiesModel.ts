@@ -1,10 +1,12 @@
+import { connect, events, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { kea, path, connect, selectors, events } from 'kea'
-import type { groupPropertiesModelType } from './groupPropertiesModelType'
 import api from 'lib/api'
-import { GroupTypeProperties, PersonProperty } from '~/types'
-import { teamLogic } from 'scenes/teamLogic'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { GroupTypeProperties, PersonProperty } from '~/types'
+
+import type { groupPropertiesModelType } from './groupPropertiesModelType'
 
 export const groupPropertiesModel = kea<groupPropertiesModelType>([
     path(['models', 'groupPropertiesModel']),

@@ -1,2 +1,2 @@
-export { LemonTag } from './LemonTag'
 export type { LemonTagProps, LemonTagType } from './LemonTag'
+export { LemonTag } from './LemonTag'

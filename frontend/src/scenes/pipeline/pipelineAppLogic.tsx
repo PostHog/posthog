@@ -1,10 +1,11 @@
-import { kea, reducers, path, props, key, actions, selectors } from 'kea'
-
-import type { pipelineAppLogicType } from './pipelineAppLogicType'
-import { Breadcrumb, PipelineAppTabs } from '~/types'
-import { urls } from 'scenes/urls'
+import { actions, kea, key, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { Breadcrumb, PipelineAppTabs } from '~/types'
+
+import type { pipelineAppLogicType } from './pipelineAppLogicType'
 
 export interface PipelineAppLogicProps {
     id: number

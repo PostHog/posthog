@@ -1,21 +1,27 @@
 .LemonTable {
-    position: relative;
-    width: 100%;
-    background: var(--bg-table);
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
-    overflow: hidden;
-    flex: 1;
-
     --row-base-height: 3rem;
+    --row-horizontal-padding: 1rem;
+    --lemon-table-background-color: var(--bg-table);
+
+    position: relative;
+    flex: 1;
+    width: 100%;
+    overflow: hidden;
+    background: var(--lemon-table-background-color);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+
+    .WebAnalyticsDashboard &,
+    .Insight & {
+        // Special override for scenes where the table is primarily next to insights
+        --lemon-table-background-color: var(--bg-light);
+    }
 
     .posthog-3000 & {
         --row-base-height: auto;
 
         font-size: 13px;
     }
-
-    --row-horizontal-padding: 1rem;
 
     &.LemonTable--with-ribbon {
         --row-ribbon-width: 0.25rem;
@@ -24,12 +30,12 @@
             position: relative;
 
             &::after {
-                content: '';
                 position: absolute;
                 top: 0;
                 left: 0;
                 width: var(--row-ribbon-width);
                 height: 100%;
+                content: '';
                 background: var(--row-ribbon-color);
             }
         }
@@ -49,25 +55,40 @@
     }
 
     &--embedded {
+        background: none;
         border: none;
         border-radius: 0;
-        background: none;
-    }
-
-    &--borderless-rows {
-        tr {
-            border: none !important;
-        }
     }
 
     &--stealth {
-        border: none;
-        border-radius: 0;
         background: none;
 
-        .LemonTable__content > table > thead {
-            background: none;
-            border: none;
+        .LemonTable__content > table {
+            > thead {
+                border-bottom: none;
+
+                .posthog-3000 & {
+                    background: none;
+                }
+            }
+
+            > thead,
+            > tbody {
+                > tr {
+                    &:not(:first-child) {
+                        border-top: none;
+                    }
+                }
+            }
+        }
+    }
+
+    &--lowercase-header {
+        .LemonTable__content > table {
+            > thead {
+                text-transform: none;
+                letter-spacing: normal;
+            }
         }
     }
 
@@ -111,25 +132,28 @@
 
 .LemonTable__content > table {
     width: 100%;
-    border-collapse: collapse;
     border-spacing: 0;
+    border-collapse: collapse;
 
     > thead {
         position: relative;
-        border-bottom: 1px solid var(--border);
-        background: var(--mid);
         font-size: 0.75rem;
-        letter-spacing: 0.03125rem;
         text-transform: uppercase;
+        letter-spacing: 0.03125rem;
+        background: var(--mid);
 
         .posthog-3000 & {
-            background: none;
+            background: var(--lemon-table-background-color);
         }
 
         > tr {
             > th {
                 font-weight: 700;
                 text-align: left;
+
+                // box shadow as a border supports sticky headers
+                // Also it needs to be on the th - any higher and safari will not render the shadow
+                box-shadow: inset 0 -1px var(--border);
 
                 .posthog-3000 & {
                     padding-top: 0.5rem;
@@ -151,6 +175,10 @@
 
     > tbody {
         > tr {
+            &:not(:first-child) {
+                border-top: 1px solid var(--border);
+            }
+
             &.LemonTable__expansion {
                 position: relative;
                 background: var(--side);
@@ -162,25 +190,25 @@
             }
 
             &.LemonTable__row--status-highlighted {
-                background: var(--primary-bg-hover);
-                color: var(--default);
                 font-weight: 600;
+                color: var(--default);
+                background: var(--primary-bg-hover);
             }
 
             > td {
-                color: var(--text-secondary);
                 padding-top: 0.5rem;
                 padding-bottom: 0.5rem;
+                color: var(--text-secondary);
 
                 .posthog-3000 & {
-                    padding-top: 0.3rem;
-                    padding-bottom: 0.3rem;
+                    padding-top: 0.3125rem;
+                    padding-bottom: 0.3125rem;
                 }
 
                 .LemonButton {
                     .posthog-3000 & {
-                        margin-top: -0.2rem;
-                        margin-bottom: -0.2rem;
+                        margin-top: -0.25rem;
+                        margin-bottom: -0.25rem;
                     }
                 }
             }
@@ -191,10 +219,6 @@
     > tbody {
         > tr {
             height: var(--row-base-height);
-
-            &:not(:first-child) {
-                border-top: 1px solid var(--border);
-            }
 
             > th,
             > td {
@@ -223,9 +247,10 @@
                 }
 
                 &[colspan='0'] {
+                    padding-right: 0 !important;
+
                     // Hidden cells should not affect the width of the table
                     padding-left: 0 !important;
-                    padding-right: 0 !important;
                 }
             }
         }
@@ -237,20 +262,20 @@
 }
 
 .LemonTable__overlay {
-    transition: opacity 200ms ease;
     position: absolute;
     top: 0;
     left: 0;
+    z-index: 2;
     width: 100%;
     height: 100%;
-    background: var(--bg-light);
-    opacity: 0;
     pointer-events: none;
-    z-index: 2;
+    background: var(--lemon-table-background-color);
+    opacity: 0;
+    transition: opacity 200ms ease;
 
     .LemonTable--loading & {
-        opacity: 0.5;
         pointer-events: auto;
+        opacity: 0.5;
     }
 }
 
@@ -258,7 +283,9 @@
     cursor: default;
 
     .posthog-3000 & {
-        opacity: 0.4;
+        .LemonTable__header-content {
+            color: var(--text-secondary);
+        }
     }
 
     &.LemonTable__header--actionable {
@@ -266,11 +293,15 @@
 
         .posthog-3000 & {
             &:hover {
-                opacity: 0.7;
+                .LemonTable__header-content {
+                    color: var(--default);
+                }
             }
 
             &:active {
-                opacity: 0.9;
+                .LemonTable__header-content {
+                    color: var(--default);
+                }
             }
         }
     }
@@ -290,8 +321,21 @@
 }
 
 .LemonTable__footer {
-    border-top: 1px solid var(--border);
     cursor: default;
+    border-top: 1px solid var(--border);
+}
+
+// NOTE: this is outside of the storybook check for 3000 selective styling
+.LemonTable__cell--sticky::before {
+    background: var(--lemon-table-background-color);
+}
+
+.LemonTable__header--sticky::before {
+    background: var(--mid);
+
+    .posthog-3000 & {
+        background: var(--lemon-table-background-color);
+    }
 }
 
 // Stickiness is disabled in snapshots due to flakiness
@@ -305,29 +349,21 @@ body:not(.storybook-test-runner) {
 
         // Replicate .scrollable style for sticky cells
         &::before {
-            transition: box-shadow 200ms ease;
-            content: '';
             position: absolute;
             top: 0;
+            bottom: 1px; // Leave room for box shadow border
             left: 0;
-            width: 100%;
-            height: 100%;
             z-index: -1; // Place below cell content
+            width: 100%;
             clip-path: inset(0 -16px 0 0);
+            content: '';
             box-shadow: -16px 0 16px 16px transparent;
+            transition: box-shadow 200ms ease;
         }
-    }
-
-    .LemonTable__cell--sticky::before {
-        background: var(--bg-light);
     }
 
     tr.LemonTable__row--status-highlighted .LemonTable__cell--sticky::before {
         background: #e8ecff; // TRICKY: This is a one-off opaque form of --primary-bg-hover, keep in sync with source
-    }
-
-    .LemonTable__header--sticky::before {
-        background: var(--mid);
     }
 
     .scrollable--left {

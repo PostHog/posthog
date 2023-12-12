@@ -1,11 +1,13 @@
-.project-homepage {
-    .HomepageDashboardHeader {
-        margin-top: 1rem;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
+.ProjectHomepage {
+    container-type: inline-size;
 
-        .HomepageDashboardHeader__title {
+    .ProjectHomepage__dashboardheader {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 1rem;
+
+        .ProjectHomepage__dashboardheader__title {
             display: flex;
             flex-direction: row;
             align-items: center;
@@ -30,39 +32,22 @@
         }
     }
 
-    .top-list-container-horizontal {
+    .ProjectHomepage__lists {
         display: flex;
+        gap: 1rem;
 
-        .top-list {
-            margin-bottom: 1.5rem;
-
-            .posthog-3000 & {
-                margin-bottom: 0;
-            }
-
-            width: 33%;
-        }
-
-        .spacer {
-            width: 1rem;
-        }
-    }
-
-    .top-list-container-vertical {
-        margin-bottom: 1.5rem;
-
-        .spacer {
-            height: 1rem;
+        @container (max-width: 800px) {
+            flex-direction: column;
         }
     }
 
     .empty-state-container {
-        background-color: var(--side);
-        width: 100%;
-        justify-content: center;
-        align-items: center;
-        padding: 4rem;
         display: flex;
         flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        padding: 4rem;
+        background-color: var(--side);
     }
 }

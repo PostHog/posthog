@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
-import { capitalizeFirstLetter, percentage } from 'lib/utils'
-import { LEGACY_InsightTooltip } from 'scenes/insights/InsightTooltip/LEGACY_InsightTooltip'
-import { getSeriesPositionName } from '../funnelUtils'
-import { getSeriesColor } from 'lib/colors'
-import { Noun } from '~/models/groupsModel'
-import { MetricRow } from './MetricRow'
 import { LemonDropdown } from '@posthog/lemon-ui'
+import { getSeriesColor } from 'lib/colors'
+import { capitalizeFirstLetter, percentage } from 'lib/utils'
+import { useEffect, useRef, useState } from 'react'
+import { LEGACY_InsightTooltip } from 'scenes/insights/InsightTooltip/LEGACY_InsightTooltip'
+
+import { Noun } from '~/models/groupsModel'
+
+import { getSeriesPositionName } from '../funnelUtils'
+import { MetricRow } from './MetricRow'
 
 interface BarProps {
     percentage: number
@@ -23,6 +25,7 @@ interface BarProps {
     wrapperWidth: number
 }
 type LabelPosition = 'inside' | 'outside'
+
 export function Bar({
     percentage: conversionPercentage,
     name,

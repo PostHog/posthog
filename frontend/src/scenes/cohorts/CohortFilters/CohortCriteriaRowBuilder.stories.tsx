@@ -1,17 +1,18 @@
-import { useState } from 'react'
 import { Meta } from '@storybook/react'
+import { useMountedLogic } from 'kea'
+import { Form } from 'kea-forms'
+import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
+import { useState } from 'react'
+import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import {
     CohortCriteriaRowBuilder,
     CohortCriteriaRowBuilderProps,
 } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
-import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
-import { useMountedLogic } from 'kea'
+import { BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
+
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
-import { BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BehavioralEventType } from '~/types'
-import { Form } from 'kea-forms'
-import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 
 const meta: Meta<typeof CohortCriteriaRowBuilder> = {
     title: 'Filters/Cohort Filters/Row Builder',

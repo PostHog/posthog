@@ -10,15 +10,10 @@
 }
 
 .masonry-item {
-    margin: 0;
+    box-sizing: border-box;
     display: grid;
     grid-template-rows: 1fr auto;
+    margin: 0;
     margin-bottom: 10px;
     break-inside: avoid;
-    box-sizing: border-box;
-}
-
-.masonry-item-text {
-    max-height: 305px;
-    overflow-y: scroll;
 }

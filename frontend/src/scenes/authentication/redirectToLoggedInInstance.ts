@@ -22,8 +22,8 @@
  */
 
 import { lemonToast } from '@posthog/lemon-ui'
-import { getCookie } from 'lib/api'
 import { captureException } from '@sentry/react'
+import { getCookie } from 'lib/api'
 
 // cookie values
 const PH_CURRENT_INSTANCE = 'ph_current_instance'

@@ -1,10 +1,13 @@
-import { useActions, useValues } from 'kea'
 import './prompt.scss'
-import { promptLogic } from './promptLogic'
-import clsx from 'clsx'
+
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
-import { PromptButtonType, PromptFlag, PromptPayload } from '~/types'
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
 import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
+
+import { PromptButtonType, PromptFlag, PromptPayload } from '~/types'
+
+import { promptLogic } from './promptLogic'
 
 export function ModalPrompt({
     payload,

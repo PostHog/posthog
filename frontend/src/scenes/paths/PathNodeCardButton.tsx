@@ -1,15 +1,14 @@
+import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
+import { captureException } from '@sentry/react'
 import { useValues } from 'kea'
-
+import { IconEllipsis } from 'lib/lemon-ui/icons'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, PathsFilterType } from '~/types'
-import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
-import { IconEllipsis } from 'lib/lemon-ui/icons'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import { pageUrl, PathNodeData } from './pathUtils'
 import { pathsDataLogicType } from './pathsDataLogicType'
-import { captureException } from '@sentry/react'
+import { pageUrl, PathNodeData } from './pathUtils'
 
 type PathNodeCardButton = {
     name: string

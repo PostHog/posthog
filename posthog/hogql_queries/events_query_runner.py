@@ -10,6 +10,7 @@ from posthog.api.element import ElementSerializer
 from posthog.api.utils import get_pk_or_uuid
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
+from posthog.hogql.constants import get_max_limit_for_context, get_default_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import action_to_expr, has_aggregation, property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -187,7 +188,7 @@ class EventsQueryRunner(QueryRunner):
             query_type="EventsQuery",
             timings=self.timings,
             modifiers=self.modifiers,
-            in_export_context=self.in_export_context,
+            limit_context=self.limit_context,
         )
 
         # Convert star field from tuple to dict in each result
@@ -255,22 +256,10 @@ class EventsQueryRunner(QueryRunner):
         return ["*"] if len(self.query.select) == 0 else self.query.select
 
     def limit(self) -> int:
-        # importing locally so we could override in a test
-        from posthog.hogql.constants import (
-            DEFAULT_RETURNED_ROWS,
-            MAX_SELECT_RETURNED_ROWS,
-        )
-
         # adding +1 to the limit to check if there's a "next page" after the requested results
-        return (
-            min(
-                MAX_SELECT_RETURNED_ROWS,
-                (MAX_SELECT_RETURNED_ROWS if self.in_export_context else DEFAULT_RETURNED_ROWS)
-                if self.query.limit is None
-                else self.query.limit,
-            )
-            + 1
-        )
+        max_rows = get_max_limit_for_context(self.limit_context)
+        default_rows = get_default_limit_for_context(self.limit_context)
+        return min(max_rows, default_rows if self.query.limit is None else self.query.limit) + 1
 
     def _is_stale(self, cached_result_package):
         return True

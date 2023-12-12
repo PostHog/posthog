@@ -1,8 +1,12 @@
+import './SideBar.scss'
+
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { Link } from 'lib/lemon-ui/Link'
-import { useState } from 'react'
-import { ProjectName, ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
+import { ActivationSidebar } from 'lib/components/ActivationSidebar/ActivationSidebar'
+import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { DebugNotice } from 'lib/components/DebugNotice'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 import {
     IconApps,
     IconBarChart,
@@ -25,8 +29,22 @@ import {
     IconUnverifiedEvent,
     IconWeb,
 } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
+import { Link } from 'lib/lemon-ui/Link'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useState } from 'react'
+import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
+import { IconNotebook } from 'scenes/notebooks/IconNotebook'
+import { NotebookPopover } from 'scenes/notebooks/NotebookPanel/NotebookPopover'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { ProjectName, ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
+import { PageButton } from '~/layout/navigation/SideBar/PageButton'
+import { SideBarApps } from '~/layout/navigation/SideBar/SideBarApps'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { organizationLogic } from '~/scenes/organizationLogic'
 import { canViewPlugins } from '~/scenes/plugins/access'
@@ -34,23 +52,8 @@ import { Scene } from '~/scenes/sceneTypes'
 import { isAuthenticatedTeam, teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
 import { AvailableFeature } from '~/types'
-import './SideBar.scss'
+
 import { navigationLogic } from '../navigationLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { userLogic } from 'scenes/userLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { SideBarApps } from '~/layout/navigation/SideBar/SideBarApps'
-import { PageButton } from '~/layout/navigation/SideBar/PageButton'
-import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
-import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { DebugNotice } from 'lib/components/DebugNotice'
-import { NotebookPopover } from 'scenes/notebooks/NotebookPanel/NotebookPopover'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { IconNotebook } from 'scenes/notebooks/IconNotebook'
-import { ActivationSidebar } from 'lib/components/ActivationSidebar/ActivationSidebar'
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)

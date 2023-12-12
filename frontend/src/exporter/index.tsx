@@ -1,10 +1,13 @@
 import '~/styles'
 import './Exporter.scss'
+
 import { createRoot } from 'react-dom/client'
-import { loadPostHogJS } from '~/loadPostHogJS'
-import { initKea } from '~/initKea'
+
 import { Exporter } from '~/exporter/Exporter'
 import { ExportedData } from '~/exporter/types'
+import { initKea } from '~/initKea'
+import { loadPostHogJS } from '~/loadPostHogJS'
+
 import { ErrorBoundary } from '../layout/ErrorBoundary'
 
 // Disable tracking for all exports and embeds.

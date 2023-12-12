@@ -1,38 +1,44 @@
+import './FeatureFlag.scss'
+
+import { LemonSelect, Link } from '@posthog/lemon-ui'
 import { InputNumber, Select } from 'antd'
 import { useActions, useValues } from 'kea'
-import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { featureFlagLogic } from './featureFlagLogic'
-import './FeatureFlag.scss'
-import { IconCopy, IconDelete, IconPlus, IconSubArrowRight, IconErrorOutline } from 'lib/lemon-ui/icons'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { groupsModel } from '~/models/groupsModel'
-import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
-import { AnyPropertyFilter, FeatureFlagGroupType } from '~/types'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { urls } from 'scenes/urls'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { router } from 'kea-router'
-import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
-import { cohortsModel } from '~/models/cohortsModel'
-import { LemonSelect, Link } from '@posthog/lemon-ui'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
-import clsx from 'clsx'
+import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
+import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
+import { IconCopy, IconDelete, IconErrorOutline, IconOpenInNew, IconPlus, IconSubArrowRight } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
+import { urls } from 'scenes/urls'
+
+import { cohortsModel } from '~/models/cohortsModel'
+import { groupsModel } from '~/models/groupsModel'
+import { AnyPropertyFilter, FeatureFlagGroupType } from '~/types'
+
+import { featureFlagLogic } from './featureFlagLogic'
 
 interface FeatureFlagReadOnlyProps {
     readOnly?: boolean
     isSuper?: boolean
     excludeTitle?: boolean
+    usageContext?: string
 }
 
 export function FeatureFlagReleaseConditions({
     readOnly,
     isSuper,
     excludeTitle,
+    usageContext,
 }: FeatureFlagReadOnlyProps): JSX.Element {
+    const logic = usageContext === 'schedule' ? featureFlagLogic({ id: 'schedule' }) : featureFlagLogic
+
     const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
     const {
         aggregationTargetName,
@@ -44,14 +50,14 @@ export function FeatureFlagReleaseConditions({
         computeBlastRadiusPercentage,
         affectedUsers,
         totalUsers,
-    } = useValues(featureFlagLogic)
+    } = useValues(logic)
     const {
         setAggregationGroupTypeIndex,
         updateConditionSet,
         duplicateConditionSet,
         removeConditionSet,
         addConditionSet,
-    } = useActions(featureFlagLogic)
+    } = useActions(logic)
     const { cohortsById } = useValues(cohortsModel)
 
     const filterGroups: FeatureFlagGroupType[] = isSuper
@@ -77,7 +83,7 @@ export function FeatureFlagReleaseConditions({
         return (
             <div className="w-full" key={`${index}-${filterGroups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
-                <div className={clsx('mb-4', 'border', 'rounded', 'p-4')}>
+                <div className="mb-4 border rounded p-4 bg-bg-light">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center">
                             <span className="simple-tag tag-light-blue font-medium mr-2">Set {index + 1}</span>
@@ -159,14 +165,16 @@ export function FeatureFlagReleaseConditions({
                                         ) : null}
 
                                         {property.type === 'cohort' ? (
-                                            <Link
+                                            <LemonButton
+                                                type="secondary"
+                                                size="xsmall"
                                                 to={urls.cohort(property.value)}
-                                                target="_blank"
-                                                className="simple-tag tag-light-blue text-primary-alt display-value"
+                                                sideIcon={<IconOpenInNew />}
+                                                targetBlank
                                             >
                                                 {(property.value && cohortsById[property.value]?.name) ||
                                                     `ID ${property.value}`}
-                                            </Link>
+                                            </LemonButton>
                                         ) : (
                                             [
                                                 ...(Array.isArray(property.value) ? property.value : [property.value]),
@@ -329,7 +337,7 @@ export function FeatureFlagReleaseConditions({
         return (
             <div className="w-full" key={`${index}-${filterGroups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
-                <div className={clsx('mb-4', 'border', 'rounded', 'p-4', 'FeatureConditionCard--border--highlight')}>
+                <div className="mb-4 rounded p-4 bg-bg-light">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center">
                             <div>

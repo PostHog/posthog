@@ -30,29 +30,25 @@ body strong {
 
 // Disable default styling for ul
 ul {
+    padding-left: 0;
     margin-bottom: 0;
     list-style: none;
-    padding-left: 0;
 }
 
 // This may look odd but sets up our utility classes
 * {
+    border-color: var(--border);
     border-style: solid;
     border-width: 0;
-    border-color: var(--border);
 }
 
 .page-title-row {
     display: flex;
     flex-wrap: wrap;
+    gap: 0.5rem 1rem;
     align-items: center;
     min-height: 2.5rem;
-    gap: 0.5rem 1rem;
     margin: 1.25rem 0 0.25rem;
-
-    @include screen($md) {
-        flex-wrap: nowrap;
-    }
 
     .ant-form-item {
         margin-bottom: 0 !important;
@@ -61,57 +57,56 @@ ul {
     .posthog-3000 & {
         margin-top: 1rem;
     }
+
+    @include screen($md) {
+        flex-wrap: nowrap;
+    }
 }
 
 .page-title {
     min-width: 0;
-    font-size: 28px;
-    line-height: 34px;
     margin: 0;
+    font-size: 28px;
     font-weight: 600;
+    line-height: 34px;
 }
 
 .page-caption {
-    @extend .text-sm;
-
     max-width: 48rem;
     margin-bottom: 1rem;
 
     &.tabbed {
         margin-bottom: 0.5rem;
     }
-}
 
-.page-description {
-    font-style: italic;
-    color: var(--muted);
+    @extend .text-sm;
 }
 
 .page-buttons {
-    flex-shrink: 0;
-    flex-grow: 1;
     display: flex;
+    flex-grow: 1;
+    flex-shrink: 0;
+    gap: 0.5rem;
     align-items: center;
     justify-content: right;
-    gap: 0.5rem;
 }
 
 .secondary {
     font-size: 0.9em;
-    letter-spacing: 1px;
-    color: var(--primary-alt);
     font-weight: var(--font-medium);
+    color: var(--primary-alt);
     text-transform: uppercase;
-    border: 0;
+    letter-spacing: 1px;
     background: none;
+    border: 0;
 }
 
 .card-secondary {
     font-size: 11px;
-    color: var(--muted);
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
     font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 mark {
@@ -121,14 +116,14 @@ mark {
 
 // Supplement text, such as email under user name
 .supplement {
-    text-overflow: ellipsis;
     overflow: hidden;
-    color: var(--muted-alt);
     font-size: 0.8125rem;
+    color: var(--muted-alt);
+    text-overflow: ellipsis;
 
     &--danger {
-        color: var(--danger);
         font-weight: 600;
+        color: var(--danger);
     }
 }
 
@@ -172,15 +167,19 @@ input::-ms-clear {
 
 .Toastify__toast {
     align-items: center;
-    opacity: 1 !important;
     padding: 0.75rem;
     margin-bottom: 0.5rem;
-    border-radius: var(--radius);
     font-family: var(--font-sans);
-    border: 1px solid var(--border);
-    box-shadow: var(--shadow-elevation);
     font-size: 1rem;
     cursor: unset;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-elevation);
+    opacity: 1 !important;
+
+    .posthog-3000 & {
+        border-color: var(--secondary-3000-button-border);
+    }
 }
 
 .Toastify__toast-container {
@@ -188,11 +187,8 @@ input::-ms-clear {
 }
 
 .Toastify__toast-body {
-    @extend .text-sm;
-    @extend .text-default;
-
-    font-weight: 500;
     padding: 0;
+    font-weight: 500;
 
     b,
     strong {
@@ -202,14 +198,17 @@ input::-ms-clear {
     button {
         margin: 0 0.75rem;
     }
+
+    @extend .text-sm;
+    @extend .text-default;
 }
 
 .Toastify__toast-icon {
-    color: var(--muted-alt);
     width: 1.5rem;
     height: 1.5rem;
     margin-right: 0.75rem;
     font-size: 1.5rem;
+    color: var(--muted-alt);
 
     .Toastify__toast--success & {
         color: var(--toastify-color-success);
@@ -233,16 +232,16 @@ input::-ms-clear {
 .scrollable {
     &::before,
     &::after {
-        z-index: 1;
-        transition: opacity 200ms ease;
-        opacity: 0;
-        content: '';
         position: absolute;
         top: 0;
         left: 0;
+        z-index: 1;
         width: 100%;
         height: 100%;
         pointer-events: none;
+        content: '';
+        opacity: 0;
+        transition: opacity 200ms ease;
     }
 
     &::before {
@@ -314,13 +313,13 @@ input::-ms-clear {
 }
 
 .info-indicator {
+    margin-left: 4px;
     color: var(--primary-alt) !important;
     cursor: pointer;
-    margin-left: 4px;
 
     &.left {
-        margin-left: 0;
         margin-right: 4px;
+        margin-left: 0;
     }
 }
 
@@ -343,47 +342,47 @@ input::-ms-clear {
 // Graph series glyph
 
 .graph-series-glyph {
-    border-radius: 50%;
-    border: 2px solid var(--default);
-    font-weight: bold;
-    font-size: 12px;
-    height: 22px;
-    width: 22px;
     display: flex;
+    flex-shrink: 0;
     align-items: center;
     justify-content: center;
+    width: 22px;
+    height: 22px;
+    font-size: 12px;
+    font-weight: bold;
     pointer-events: none;
-    flex-shrink: 0;
+    border: 2px solid var(--default);
+    border-radius: 50%;
 
     // variants
     &.funnel-step-glyph {
-        border-color: var(--border);
-        background-color: white;
-        color: var(--primary-alt);
-        height: 23px;
         width: 23px;
+        height: 23px;
         font-size: unset;
+        color: var(--primary-alt);
+        background-color: var(--bg-light);
+        border-color: var(--border);
     }
 }
 
 // Bottom notice (DEBUG=1 mode)
 
 #bottom-notice {
+    position: fixed;
+    bottom: 0;
+    left: 0;
     z-index: var(--z-bottom-notice);
     display: flex !important;
     flex-direction: row;
-    position: fixed;
     width: 100%;
-    bottom: 0;
-    left: 0;
-    background: #000;
-    color: #fff;
     font-size: 0.75rem;
     line-height: 1.5rem;
+    color: #fff;
+    background: #000;
 
     code {
-        color: inherit;
         font-size: inherit;
+        color: inherit;
     }
 
     &.warning div {
@@ -399,7 +398,7 @@ input::-ms-clear {
         }
 
         div:nth-child(2) {
-            background: var(--danger);
+            background: var(--brand-blue);
         }
 
         div:nth-child(3) {
@@ -423,15 +422,15 @@ input::-ms-clear {
     }
 
     button {
-        border: none;
-        background: transparent;
-        color: inherit;
         width: 1.5rem;
         height: 1.5rem;
         padding: 0;
         font-size: 1rem;
         font-weight: bold;
+        color: inherit;
         cursor: pointer;
+        background: transparent;
+        border: none;
     }
 
     @media screen and (min-width: 750px) {
@@ -461,12 +460,12 @@ input::-ms-clear {
 }
 
 .overlay__child {
-    transition: opacity 0.25s ease;
     position: absolute;
-    width: 100%;
-    height: 100%;
     top: 0;
     left: 0;
+    width: 100%;
+    height: 100%;
+    transition: opacity 0.25s ease;
 
     .overlay--danger & {
         background: repeating-linear-gradient(
@@ -482,27 +481,30 @@ input::-ms-clear {
 // Tags
 
 .simple-tag {
-    border-radius: var(--radius);
     padding: 2px 6px;
+    border-radius: var(--radius);
 
     &.tag-light-blue {
         background-color: var(--primary-highlight);
     }
 }
 
-// Main app/body styles
-
-.fullscreen-scroll {
-    overflow-y: auto;
-}
-
 .main-app-content {
     position: relative; // So that scene-level <SpinnerOverlay /> is positioned correctly.
-    min-width: 0;
-    width: 100%;
-    padding: 0 1rem 1rem;
     flex: 1;
+    width: 100%;
+    min-width: 0;
+    padding: 0 1rem 1rem;
     background-color: var(--bg-light);
+
+    &.main-app-content--plain {
+        padding: 0;
+    }
+
+    &.main-app-content--container {
+        align-self: center;
+        max-width: 72rem;
+    }
 
     @include screen($sm) {
         padding: 0 1rem 2rem;
@@ -510,15 +512,6 @@ input::-ms-clear {
 
     @include screen($lg) {
         padding: 0 2rem 4rem;
-    }
-
-    &.main-app-content--plain {
-        padding: 0;
-    }
-
-    &.main-app-content--container {
-        max-width: 72rem;
-        align-self: center;
     }
 }
 
@@ -544,100 +537,31 @@ body {
     --bg-light: #fff;
     --bg-table: var(--bg-light);
     --link: var(--primary-3000);
+    --tooltip-bg: var(--bg-charcoal);
+    --data-color-1-hover: #1d4affe5;
 
     touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
 
     &.posthog-3000[theme='light'] {
-        --text-3000: var(--text-3000-light);
-        --text-secondary-3000: var(--text-secondary-3000-light);
-        --muted-3000: var(--muted-3000-light);
-        --trace-3000: var(--trace-3000-light);
-        --primary-3000: var(--primary-3000-light);
-        --primary-3000-highlight: var(--primary-3000-highlight-light);
-        --primary-3000-hover: var(--primary-3000-hover-light);
-        --primary-3000-active: var(--primary-3000-active-light);
-        --secondary-3000: var(--secondary-3000-light);
-        --secondary-3000-hover: var(--secondary-3000-hover-light);
-        --accent-3000: var(--accent-3000-light);
-        --bg-3000: var(--bg-3000-light);
-        --border-3000: var(--border-3000-light);
-        --border-bold-3000: var(--border-bold-3000-light);
-        --glass-bg-3000: var(--glass-bg-3000-light);
-        --glass-border-3000: var(--glass-border-3000-light);
-        --bg-light: #fff;
-        --bg-table: #f9faf7;
-        --link: var(--link-3000-light);
-        --shadow-elevation-3000: var(--shadow-elevation-3000-light);
-        --primary-3000-frame-bg: var(--primary-3000-frame-bg-light);
-        --primary-3000-frame-border: var(--primary-3000-frame-border-light);
-        --primary-3000-button-bg: var(--primary-3000-button-bg-light);
-        --primary-3000-button-border: var(--primary-3000-button-border-light);
-        --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-light);
-        --primary-alt-highlight-3000: var(--primary-alt-highlight-3000-light);
-        --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-light);
-        --secondary-3000-frame-border: var(--secondary-3000-frame-border-light);
-        --secondary-3000-button-bg: var(--secondary-3000-button-bg-light);
-        --secondary-3000-button-border: var(--secondary-3000-button-border-light);
-        --secondary-3000-button-border-hover: var(--secondary-3000-button-border-hover-light);
+        @include light-mode-3000-variables;
     }
 
     &.posthog-3000[theme='dark'] {
-        --text-3000: var(--text-3000-dark);
-        --text-secondary-3000: var(--text-secondary-3000-dark);
-        --muted-3000: var(--muted-3000-dark);
-        --trace-3000: var(--trace-3000-dark);
-        --primary-3000: var(--primary-3000-dark);
-        --primary-3000-highlight: var(--primary-3000-highlight-dark);
-        --primary-3000-hover: var(--primary-3000-hover-dark);
-        --primary-3000-active: var(--primary-3000-active-dark);
-        --secondary-3000: var(--secondary-3000-dark);
-        --secondary-3000-hover: var(--secondary-3000-hover-dark);
-        --accent-3000: var(--accent-3000-dark);
-        --bg-3000: var(--bg-3000-dark);
-        --border-3000: var(--border-3000-dark);
-        --border-bold-3000: var(--border-bold-3000-dark);
-        --glass-bg-3000: var(--glass-bg-3000-dark);
-        --glass-border-3000: var(--glass-border-3000-dark);
-        --bg-light: var(--accent-3000);
-        --bg-table: #232429;
-        --brand-key: #fff; // In dark mode the black in PostHog's logo is replaced with white for proper contrast
-        --link: var(--link-3000-dark);
-        --shadow-elevation-3000: var(--shadow-elevation-3000-dark);
-        --primary-3000-frame-bg: var(--primary-3000-frame-bg-dark);
-        --primary-3000-frame-border: var(--primary-3000-frame-border-dark);
-        --primary-3000-button-bg: var(--primary-3000-button-bg-dark);
-        --primary-3000-button-border: var(--primary-3000-button-border-dark);
-        --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-dark);
-        --primary-alt-highlight-3000: var(--primary-alt-highlight-3000-dark);
-        --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-dark);
-        --secondary-3000-frame-border: var(--secondary-3000-frame-border-dark);
-        --secondary-3000-button-bg: var(--secondary-3000-button-bg-dark);
-        --secondary-3000-button-border: var(--secondary-3000-button-border-dark);
-        --secondary-3000-button-border-hover: var(--secondary-3000-button-border-hover-dark);
-        --data-color-2: #7f26d9;
-        --data-color-3: #3e7a76;
-        --data-color-4: #bf0d6c;
-        --data-color-5: #f0474f;
-        --data-color-6: #b36114;
-        --data-color-10: #6576b3;
+        @include dark-mode-3000-variables;
     }
 
     &.posthog-3000 {
-        --default: var(--text-3000);
-        --text-secondary: var(--text-secondary-3000);
-        --muted: var(--muted-3000);
-        --muted-alt: var(--muted-3000);
-        --primary-alt: var(--text-3000);
-        --border: var(--border-3000);
-        --border-bold: var(--border-bold-3000);
-        --mid: var(--bg-3000);
-        --side: var(--bg-3000);
-        --primary-alt-highlight: var(--primary-alt-highlight-3000);
-        --data-color-1: #1d4aff;
-        --data-color-10: #35416b;
+        --shadow-elevation: var(--shadow-elevation-3000);
+        --primary: var(--primary-3000);
+        --primary-highlight: var(--primary-3000-highlight);
 
-        background: var(--bg-3000);
         overflow: hidden; // Each area handles scrolling individually (e.g. navbar, scene, side panel)
+        background: var(--bg-3000);
+
+        .non-3000 {
+            // Helper to hide non-3000 elements without JS
+            display: none;
+        }
 
         .LemonButton,
         .Link {
@@ -652,8 +576,6 @@ body {
             }
         }
 
-        --shadow-elevation: var(--shadow-elevation-3000);
-
         * > {
             ::-webkit-scrollbar {
                 width: 0.5rem;
@@ -665,14 +587,24 @@ body {
             }
 
             ::-webkit-scrollbar-thumb {
-                border-radius: 0.25rem;
                 background: var(--trace-3000);
+                border-radius: var(--radius);
 
                 &:hover {
                     background: var(--muted-3000);
                 }
             }
         }
+
+        h1,
+        h2,
+        h3,
+        h4,
+        h5 {
+            font-family: var(--font-title);
+        }
+
+        @include posthog-3000-variables;
     }
 
     h1,
@@ -683,13 +615,13 @@ body {
     }
 
     h5 {
+        margin-bottom: 0.25rem;
         font-size: 0.6875rem;
         font-weight: 600;
+        line-height: 1.5rem;
         color: var(--muted-alt);
         text-transform: uppercase;
-        letter-spacing: 0.5px;
-        margin-bottom: 0.25rem;
-        line-height: 1.5rem;
+        letter-spacing: 0.075em;
     }
 
     pre,
@@ -715,8 +647,8 @@ body {
     }
 
     .ant-dropdown {
-        border-radius: var(--radius);
         color: var(--default);
+        border-radius: var(--radius);
     }
 
     .ant-dropdown-menu {
@@ -750,6 +682,11 @@ body {
                 background-color: var(--border-3000);
             }
         }
+    }
+
+    .ant-input-number:hover,
+    .ant-input-number-focused {
+        border-color: var(--border-bold);
     }
 
     .ant-input-number-group-addon {
@@ -793,7 +730,11 @@ body {
 
     // Tooltip styles
     .ant-tooltip-inner {
-        background-color: var(--bg-charcoal);
+        background-color: var(--tooltip-bg);
+    }
+
+    .ant-tooltip-arrow-content {
+        background-color: var(--tooltip-bg);
     }
 
     .ant-tooltip {
@@ -826,7 +767,7 @@ body {
     }
 
     // Hide some parts of the UI that were causing flakiness
-    ::-webkit-scrollbar, // Scrollbar in WebKit/Blink browsers 
+    ::-webkit-scrollbar, // Scrollbar in WebKit/Blink browsers
     .LemonTabs__bar::after, // Active tab slider
     .scrollable::after, // Scrollability indicators
     .scrollable::before {

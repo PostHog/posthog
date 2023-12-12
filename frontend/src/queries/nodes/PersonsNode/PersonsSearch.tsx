@@ -1,8 +1,9 @@
-import { PersonsNode, PersonsQuery } from '~/queries/schema'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { IconInfo } from 'lib/lemon-ui/icons'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+
 import { useDebouncedQuery } from '~/queries/hooks/useDebouncedQuery'
+import { PersonsNode, PersonsQuery } from '~/queries/schema'
 
 interface PersonSearchProps {
     query: PersonsNode | PersonsQuery

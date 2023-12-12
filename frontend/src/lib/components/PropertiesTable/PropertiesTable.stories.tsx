@@ -1,6 +1,8 @@
 import { Meta, StoryFn } from '@storybook/react'
-import { PropertiesTable as PropertiesTableComponent } from '.'
+
 import { PropertyDefinitionType } from '~/types'
+
+import { PropertiesTable as PropertiesTableComponent } from '.'
 
 const meta: Meta<typeof PropertiesTableComponent> = {
     title: 'Components/Properties Table',

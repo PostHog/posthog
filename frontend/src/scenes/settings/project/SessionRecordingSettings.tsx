@@ -1,14 +1,14 @@
-import { useActions, useValues } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
 import { LemonBanner, LemonButton, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
+import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { IconCancel } from 'lib/lemon-ui/icons'
 import { FlagSelector } from 'lib/components/FlagSelector'
+import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
+import { IconCancel } from 'lib/lemon-ui/icons'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 export function ReplayGeneral(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -305,32 +305,7 @@ export function ReplayCostControl(): JSX.Element {
                         onChange={(v) => {
                             updateCurrentTeam({ session_recording_minimum_duration_milliseconds: v })
                         }}
-                        options={[
-                            {
-                                label: 'no minimum',
-                                value: null,
-                            },
-                            {
-                                label: '1',
-                                value: 1000,
-                            },
-                            {
-                                label: '2',
-                                value: 2000,
-                            },
-                            {
-                                label: '5',
-                                value: 5000,
-                            },
-                            {
-                                label: '10',
-                                value: 10000,
-                            },
-                            {
-                                label: '15',
-                                value: 15000,
-                            },
-                        ]}
+                        options={SESSION_REPLAY_MINIMUM_DURATION_OPTIONS}
                         value={currentTeam?.session_recording_minimum_duration_milliseconds}
                     />
                 </div>

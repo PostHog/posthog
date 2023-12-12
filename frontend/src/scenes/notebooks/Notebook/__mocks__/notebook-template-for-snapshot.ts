@@ -1,6 +1,7 @@
-import { NotebookType } from '~/types'
 import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
+
+import { NotebookType } from '~/types'
 
 export const notebookTestTemplate = (
     title: string = 'Notebook for snapshots',

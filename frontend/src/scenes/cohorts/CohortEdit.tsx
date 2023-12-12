@@ -1,32 +1,32 @@
-import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
-import { useActions, useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
-import { PageHeader } from 'lib/components/PageHeader'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { Divider } from 'antd'
-import { Field } from 'lib/forms/Field'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
-import { CohortTypeEnum } from 'lib/constants'
-import { AvailableFeature, NotebookNodeType } from '~/types'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import Dragger from 'antd/lib/upload/Dragger'
-import { UploadFile } from 'antd/es/upload/interface'
-import { IconUploadFile } from 'lib/lemon-ui/icons'
-import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { Form } from 'kea-forms'
-import { NotFound } from 'lib/components/NotFound'
-import { Query } from '~/queries/Query/Query'
-import { pluralize } from 'lib/utils'
 import { LemonDivider } from '@posthog/lemon-ui'
-import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
+import { UploadFile } from 'antd/es/upload/interface'
+import Dragger from 'antd/lib/upload/Dragger'
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+import { router } from 'kea-router'
+import { NotFound } from 'lib/components/NotFound'
+import { PageHeader } from 'lib/components/PageHeader'
+import { CohortTypeEnum } from 'lib/constants'
+import { Field } from 'lib/forms/Field'
+import { IconUploadFile } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { pluralize } from 'lib/utils'
+import { cohortEditLogic, CohortLogicProps } from 'scenes/cohorts/cohortEditLogic'
+import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
+import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
+import { Query } from '~/queries/Query/Query'
+import { AvailableFeature, NotebookNodeType } from '~/types'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
@@ -94,9 +94,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                                 data-attr="delete-cohort"
                                                 fullWidth
                                                 status="danger"
-                                                onClick={() => {
-                                                    deleteCohort()
-                                                }}
+                                                onClick={deleteCohort}
                                             >
                                                 Delete cohort
                                             </LemonButton>
@@ -126,8 +124,8 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         </div>
                     }
                 />
-                <Divider />
-                <div className="space-y-2" style={{ maxWidth: 640 }}>
+                <LemonDivider className="my-2 non-3000" />
+                <div className="space-y-2 max-w-160">
                     <div className="flex gap-4 flex-wrap">
                         <div className="flex-1">
                             <Field name="name" label="Name">
@@ -211,7 +209,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                     </div>
                 ) : (
                     <>
-                        <Divider />
+                        <LemonDivider className="my-6" />
                         <div className="flex items-center justify-between my-4">
                             <div className="flex flex-col">
                                 <LemonLabel htmlFor="groups">Matching criteria</LemonLabel>
@@ -236,7 +234,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                 {/* The typeof here is needed to pass the cohort id to the query below. Using `isNewCohort` won't work */}
                 {typeof cohort.id === 'number' && (
                     <>
-                        <Divider />
+                        <LemonDivider className="my-6" />
                         <div>
                             <h3 className="l3 mb-4">
                                 Persons in this cohort

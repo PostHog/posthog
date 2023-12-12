@@ -1,12 +1,15 @@
-import React, { useEffect } from 'react'
-import { useValues, BindLogic, useActions } from 'kea'
-import { propertyFilterLogic } from './propertyFilterLogic'
-import { FilterRow } from './components/FilterRow'
-import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import './PropertyFilters.scss'
+
+import { BindLogic, useActions, useValues } from 'kea'
+import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import React, { useEffect } from 'react'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
+
+import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
+
+import { FilterRow } from './components/FilterRow'
+import { propertyFilterLogic } from './propertyFilterLogic'
 
 interface PropertyFiltersProps {
     endpoint?: string | null

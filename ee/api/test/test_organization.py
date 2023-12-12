@@ -1,6 +1,7 @@
 import datetime as dt
 import random
-from unittest.mock import ANY, patch
+from unittest import mock
+from unittest.mock import ANY, call, patch
 
 from freezegun.api import freeze_time
 from rest_framework import status
@@ -104,11 +105,21 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             "Did not return a 404 on trying to delete a nonexistent org",
         )
 
-        mock_capture.assert_called_once_with(
-            self.user.distinct_id,
-            "organization deleted",
-            organization_props,
-            groups={"instance": ANY, "organization": str(org_id)},
+        mock_capture.assert_has_calls(
+            [
+                call(
+                    self.user.distinct_id,
+                    "membership level changed",
+                    properties={"new_level": 15, "previous_level": 1, "$set": mock.ANY},
+                    groups=mock.ANY,
+                ),
+                call(
+                    self.user.distinct_id,
+                    "organization deleted",
+                    organization_props,
+                    groups={"instance": mock.ANY, "organization": str(org_id)},
+                ),
+            ]
         )
 
     def test_no_delete_organization_not_owning(self):
@@ -263,3 +274,20 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             self.organization.refresh_from_db()
             self.assertFalse(self.organization.is_feature_available("whatever"))
         License.PLANS = current_plans
+
+    def test_get_organization_restricted_teams_hidden(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        Team.objects.create(
+            organization=self.organization,
+            name="FORBIDDEN",
+            access_control=True,
+        )
+
+        response = self.client.get(f"/api/organizations/{self.organization.id}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertListEqual(
+            [team["name"] for team in response.json()["teams"]],
+            [self.team.name],  # "FORBIDDEN" excluded
+        )

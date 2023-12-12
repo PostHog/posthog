@@ -1,7 +1,14 @@
+import Fuse from 'fuse.js'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { kea, path, connect, actions, reducers, selectors, listeners, beforeUnmount, afterMount } from 'kea'
 import api from 'lib/api'
-import type { cohortsModelType } from './cohortsModelType'
+import { triggerExport } from 'lib/components/ExportButton/exporter'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
+import { personsLogic } from 'scenes/persons/personsLogic'
+import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
+
 import {
     AnyCohortCriteriaType,
     BehavioralCohortType,
@@ -10,13 +17,8 @@ import {
     CohortType,
     ExporterFormat,
 } from '~/types'
-import { personsLogic } from 'scenes/persons/personsLogic'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { triggerExport } from 'lib/components/ExportButton/exporter'
-import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
-import Fuse from 'fuse.js'
-import { permanentlyMount } from 'lib/utils/kea-logic-builders'
-import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
+
+import type { cohortsModelType } from './cohortsModelType'
 
 const POLL_TIMEOUT = 5000
 

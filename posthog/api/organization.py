@@ -114,12 +114,8 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
         return membership.level if membership is not None else None
 
     def get_teams(self, instance: Organization) -> List[Dict[str, Any]]:
-        teams = cast(
-            List[Dict[str, Any]],
-            TeamBasicSerializer(instance.teams.all(), context=self.context, many=True).data,
-        )
-        visible_team_ids = set(self.user_permissions.team_ids_visible_for_user)
-        return [team for team in teams if team["id"] in visible_team_ids]
+        visible_teams = instance.teams.filter(id__in=self.user_permissions.team_ids_visible_for_user)
+        return TeamBasicSerializer(visible_teams, context=self.context, many=True).data  # type: ignore
 
     def get_metadata(self, instance: Organization) -> Dict[str, Union[str, int, object]]:
         return {

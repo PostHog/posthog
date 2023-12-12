@@ -55,6 +55,13 @@ class BreakdownType(str, Enum):
     hogql = "hogql"
 
 
+class ChartAxis(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: str
+
+
 class ChartDisplayType(str, Enum):
     ActionsLineGraph = "ActionsLineGraph"
     ActionsLineGraphCumulative = "ActionsLineGraphCumulative"
@@ -241,6 +248,14 @@ class FunnelVizType(str, Enum):
     trends = "trends"
 
 
+class GoalLine(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    value: float
+
+
 class HogQLNotice(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -339,6 +354,7 @@ class NodeKind(str, Enum):
     PersonsQuery = "PersonsQuery"
     SessionsTimelineQuery = "SessionsTimelineQuery"
     DataTableNode = "DataTableNode"
+    DataVisualizationNode = "DataVisualizationNode"
     SavedInsightNode = "SavedInsightNode"
     InsightVizNode = "InsightVizNode"
     TrendsQuery = "TrendsQuery"
@@ -476,6 +492,24 @@ class RecordingDurationFilter(BaseModel):
     value: float
 
 
+class Kind(str, Enum):
+    ActionsNode = "ActionsNode"
+    EventsNode = "EventsNode"
+
+
+class RetentionEntity(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: Optional[str] = None
+    id: Optional[Union[str, float]] = None
+    kind: Optional[Kind] = None
+    name: Optional[str] = None
+    order: Optional[float] = None
+    type: Optional[EntityType] = None
+    uuid: Optional[str] = None
+
+
 class RetentionReference(str, Enum):
     total = "total"
     previous = "previous"
@@ -491,6 +525,13 @@ class RetentionPeriod(str, Enum):
 class RetentionType(str, Enum):
     retention_recurring = "retention_recurring"
     retention_first_time = "retention_first_time"
+
+
+class RetentionValue(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: int
 
 
 class SessionPropertyFilter(BaseModel):
@@ -571,6 +612,7 @@ class TrendsFilter(BaseModel):
     display: Optional[ChartDisplayType] = None
     formula: Optional[str] = None
     hidden_legend_indexes: Optional[List[float]] = None
+    show_labels_on_series: Optional[bool] = None
     show_legend: Optional[bool] = None
     show_percent_stack_view: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
@@ -589,6 +631,14 @@ class TrendsQueryResponse(BaseModel):
     timings: Optional[List[QueryTiming]] = None
 
 
+class ActionsPie(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    disableHoverOffset: Optional[bool] = None
+    hideAggregation: Optional[bool] = None
+
+
 class RETENTION(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -602,10 +652,11 @@ class VizSpecificOptions(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    ActionsPie: Optional[ActionsPie] = None
     RETENTION: Optional[RETENTION] = None
 
 
-class Kind(str, Enum):
+class Kind1(str, Enum):
     unit = "unit"
     duration_s = "duration_s"
     percentage = "percentage"
@@ -618,7 +669,7 @@ class WebOverviewItem(BaseModel):
     changeFromPreviousPct: Optional[float] = None
     isIncreaseBad: Optional[bool] = None
     key: str
-    kind: Kind
+    kind: Kind1
     previous: Optional[float] = None
     value: Optional[float] = None
 
@@ -704,6 +755,7 @@ class BreakdownFilter(BaseModel):
     breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
     breakdown_group_type_index: Optional[float] = None
     breakdown_histogram_bin_count: Optional[float] = None
+    breakdown_limit: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
     breakdowns: Optional[List[Breakdown]] = None
@@ -715,6 +767,15 @@ class DataNode(BaseModel):
     )
     kind: NodeKind
     response: Optional[Dict[str, Any]] = Field(default=None, description="Cached query response")
+
+
+class ChartSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    goalLines: Optional[List[GoalLine]] = None
+    xAxis: Optional[ChartAxis] = None
+    yAxis: Optional[List[ChartAxis]] = None
 
 
 class ElementPropertyFilter(BaseModel):
@@ -908,9 +969,18 @@ class RetentionFilter(BaseModel):
     period: Optional[RetentionPeriod] = None
     retention_reference: Optional[RetentionReference] = None
     retention_type: Optional[RetentionType] = None
-    returning_entity: Optional[Dict[str, Any]] = None
-    target_entity: Optional[Dict[str, Any]] = None
-    total_intervals: Optional[float] = None
+    returning_entity: Optional[RetentionEntity] = None
+    target_entity: Optional[RetentionEntity] = None
+    total_intervals: Optional[int] = None
+
+
+class RetentionResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    date: datetime
+    label: str
+    values: List[RetentionValue]
 
 
 class SavedInsightNode(BaseModel):
@@ -1364,6 +1434,18 @@ class PropertyGroupFilterValue(BaseModel):
     ]
 
 
+class RetentionQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List[RetentionResult]
+    timings: Optional[List[QueryTiming]] = None
+
+
 class SessionsTimelineQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1431,6 +1513,16 @@ class ActionsNode(BaseModel):
     response: Optional[Dict[str, Any]] = Field(default=None, description="Cached query response")
 
 
+class DataVisualizationNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    chartSettings: Optional[ChartSettings] = None
+    display: Optional[ChartDisplayType] = None
+    kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
+    source: HogQLQuery
+
+
 class HasPropertiesNode(RootModel):
     root: Union[EventsNode, EventsQuery, PersonsNode]
 
@@ -1472,9 +1564,8 @@ class RetentionQuery(BaseModel):
             PropertyGroupFilter,
         ]
     ] = Field(default=None, description="Property filters for all series")
-    retentionFilter: Optional[RetentionFilter] = Field(
-        default=None, description="Properties specific to the retention insight"
-    )
+    response: Optional[RetentionQueryResponse] = None
+    retentionFilter: RetentionFilter = Field(..., description="Properties specific to the retention insight")
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 
@@ -1891,6 +1982,7 @@ class DataTableNode(BaseModel):
 
 class QuerySchema(RootModel):
     root: Union[
+        DataVisualizationNode,
         DataTableNode,
         SavedInsightNode,
         InsightVizNode,

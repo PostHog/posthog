@@ -1,93 +1,34 @@
 import './EditSurvey.scss'
-import { SurveyEditSection, surveyLogic } from './surveyLogic'
-import { BindLogic, useActions, useValues } from 'kea'
-import { Group } from 'kea-forms'
+
+import { DndContext } from '@dnd-kit/core'
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import {
-    LemonBanner,
     LemonButton,
     LemonCheckbox,
     LemonCollapse,
     LemonDivider,
     LemonInput,
     LemonSelect,
-    LemonTabs,
     LemonTextArea,
     Link,
 } from '@posthog/lemon-ui'
-import { Field, PureField } from 'lib/forms/Field'
-import {
-    SurveyQuestion,
-    SurveyQuestionType,
-    SurveyType,
-    LinkSurveyQuestion,
-    RatingSurveyQuestion,
-    SurveyUrlMatchType,
-    AvailableFeature,
-} from '~/types'
-import { IconCancel, IconDelete, IconLock, IconPlus, IconPlusMini } from 'lib/lemon-ui/icons'
-import {
-    BaseAppearance,
-    Customization,
-    SurveyAppearance,
-    SurveyMultipleChoiceAppearance,
-    SurveyRatingAppearance,
-} from './SurveyAppearance'
-import { SurveyAPIEditor } from './SurveyAPIEditor'
-import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import {
-    defaultSurveyFieldValues,
-    defaultSurveyAppearance,
-    SurveyQuestionLabel,
-    SurveyUrlMatchTypeLabels,
-} from './constants'
-import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
-import React from 'react'
-import { CodeEditor } from 'lib/components/CodeEditors'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { SurveyFormAppearance } from './SurveyFormAppearance'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { surveysLogic } from './surveysLogic'
+import { BindLogic, useActions, useValues } from 'kea'
 import { FlagSelector } from 'lib/components/FlagSelector'
-import clsx from 'clsx'
+import { Field, PureField } from 'lib/forms/Field'
+import { IconCancel, IconDelete, IconLock, IconPlus } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 
-function PresentationTypeCard({
-    title,
-    description,
-    children,
-    onClick,
-    value,
-    active,
-}: {
-    title: string
-    description?: string
-    children: React.ReactNode
-    onClick: () => void
-    value: any
-    active: boolean
-}): JSX.Element {
-    return (
-        <div
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{ height: 230, width: 260 }}
-            className={clsx(
-                'border rounded-md relative px-4 py-2 overflow-hidden',
-                active ? 'border-primary' : 'border-border'
-            )}
-        >
-            <p className="font-semibold m-0">{title}</p>
-            {description && <p className="m-0 text-xs">{description}</p>}
-            <div className="relative mt-2 presentation-preview">{children}</div>
-            <input
-                onClick={onClick}
-                className="opacity-0 absolute inset-0 h-full w-full cursor-pointer"
-                name="type"
-                value={value}
-                type="radio"
-            />
-        </div>
-    )
-}
+import { LinkSurveyQuestion, RatingSurveyQuestion, SurveyQuestion, SurveyType, SurveyUrlMatchType } from '~/types'
+
+import { defaultSurveyAppearance, defaultSurveyFieldValues, SurveyUrlMatchTypeLabels } from './constants'
+import { SurveyAPIEditor } from './SurveyAPIEditor'
+import { Customization, SurveyAppearance } from './SurveyAppearance'
+import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
+import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
+import { SurveyFormAppearance } from './SurveyFormAppearance'
+import { SurveyEditSection, surveyLogic } from './surveyLogic'
+import { surveysLogic } from './surveysLogic'
 
 export default function SurveyEdit(): JSX.Element {
     const {
@@ -99,16 +40,23 @@ export default function SurveyEdit(): JSX.Element {
         selectedQuestion,
         selectedSection,
     } = useValues(surveyLogic)
-    const {
-        setSurveyValue,
-        setDefaultForQuestionType,
-        setWritingHTMLDescription,
-        resetTargeting,
-        setSelectedQuestion,
-        setSelectedSection,
-    } = useActions(surveyLogic)
+    const { setSurveyValue, setWritingHTMLDescription, resetTargeting, setSelectedQuestion, setSelectedSection } =
+        useActions(surveyLogic)
     const { surveysMultipleQuestionsAvailable } = useValues(surveysLogic)
-    const { featureFlags } = useValues(enabledFeaturesLogic)
+    const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
+
+    function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
+        function move(arr: SurveyQuestion[], from: number, to: number): SurveyQuestion[] {
+            const clone = [...arr]
+            // Remove the element from the array
+            const [element] = clone.splice(from, 1)
+            // Insert the element at the new position
+            clone.splice(to, 0, element)
+            return clone.map((child) => ({ ...child }))
+        }
+        setSurveyValue('questions', move(survey.questions, oldIndex, newIndex))
+        setSelectedQuestion(newIndex)
+    }
 
     return (
         <div className="flex flex-row gap-4">
@@ -130,539 +78,175 @@ export default function SurveyEdit(): JSX.Element {
                             header: 'Steps',
                             content: (
                                 <>
-                                    <LemonCollapse
-                                        activeKey={selectedQuestion === null ? undefined : selectedQuestion}
-                                        onChange={(index) => {
-                                            setSelectedQuestion(index)
-                                        }}
-                                        panels={[
-                                            ...survey.questions.map(
-                                                (
-                                                    question:
-                                                        | LinkSurveyQuestion
-                                                        | SurveyQuestion
-                                                        | RatingSurveyQuestion,
-                                                    index: number
-                                                ) => ({
-                                                    key: index,
-                                                    header: (
-                                                        <div className="flex flex-row w-full items-center justify-between">
-                                                            <b>
-                                                                Question {index + 1}. {question.question}
-                                                            </b>
-                                                            {survey.questions.length > 1 && (
-                                                                <LemonButton
-                                                                    icon={<IconDelete />}
-                                                                    status="primary-alt"
-                                                                    data-attr={`delete-survey-question-${index}`}
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation()
-                                                                        setSelectedQuestion(index <= 0 ? 0 : index - 1)
-                                                                        setSurveyValue(
-                                                                            'questions',
-                                                                            survey.questions.filter(
-                                                                                (_, i) => i !== index
-                                                                            )
-                                                                        )
-                                                                    }}
-                                                                    tooltipPlacement="topRight"
-                                                                />
-                                                            )}
-                                                        </div>
-                                                    ),
-                                                    content: (
-                                                        <Group name={`questions.${index}`} key={index}>
-                                                            <div className="flex flex-col gap-2">
-                                                                <Field
-                                                                    name="type"
-                                                                    label="Question type"
-                                                                    className="max-w-60"
-                                                                >
-                                                                    <LemonSelect
-                                                                        data-attr={`survey-question-type-${index}`}
-                                                                        onSelect={(newType) => {
-                                                                            const isEditingQuestion =
-                                                                                defaultSurveyFieldValues[question.type]
-                                                                                    .questions[0].question !==
-                                                                                question.question
-                                                                            const isEditingDescription =
-                                                                                defaultSurveyFieldValues[question.type]
-                                                                                    .questions[0].description !==
-                                                                                question.description
-                                                                            const isEditingThankYouMessage =
-                                                                                defaultSurveyFieldValues[question.type]
-                                                                                    .appearance
-                                                                                    .thankYouMessageHeader !==
-                                                                                survey.appearance.thankYouMessageHeader
-                                                                            setDefaultForQuestionType(
-                                                                                index,
-                                                                                newType,
-                                                                                isEditingQuestion,
-                                                                                isEditingDescription,
-                                                                                isEditingThankYouMessage
-                                                                            )
-                                                                        }}
-                                                                        options={[
-                                                                            {
-                                                                                label: SurveyQuestionLabel[
-                                                                                    SurveyQuestionType.Open
-                                                                                ],
-                                                                                value: SurveyQuestionType.Open,
-                                                                                tooltip: () => (
-                                                                                    <BaseAppearance
-                                                                                        preview
-                                                                                        onSubmit={() => undefined}
-                                                                                        appearance={{
-                                                                                            ...survey.appearance,
-                                                                                            whiteLabel: true,
-                                                                                        }}
-                                                                                        question={{
-                                                                                            type: SurveyQuestionType.Open,
-                                                                                            question:
-                                                                                                'Share your thoughts',
-                                                                                            description:
-                                                                                                'Optional form description',
-                                                                                        }}
-                                                                                    />
-                                                                                ),
-                                                                            },
-                                                                            {
-                                                                                label: 'Link',
-                                                                                value: SurveyQuestionType.Link,
-                                                                                tooltip: () => (
-                                                                                    <BaseAppearance
-                                                                                        preview
-                                                                                        onSubmit={() => undefined}
-                                                                                        appearance={{
-                                                                                            ...survey.appearance,
-                                                                                            whiteLabel: true,
-                                                                                        }}
-                                                                                        question={{
-                                                                                            type: SurveyQuestionType.Link,
-                                                                                            question:
-                                                                                                'Do you want to join our upcoming webinar?',
-                                                                                            buttonText: 'Register',
-                                                                                            link: '',
-                                                                                        }}
-                                                                                    />
-                                                                                ),
-                                                                            },
-                                                                            {
-                                                                                label: 'Rating',
-                                                                                value: SurveyQuestionType.Rating,
-                                                                                tooltip: () => (
-                                                                                    <SurveyRatingAppearance
-                                                                                        preview
-                                                                                        onSubmit={() => undefined}
-                                                                                        appearance={{
-                                                                                            ...survey.appearance,
-                                                                                            whiteLabel: true,
-                                                                                        }}
-                                                                                        ratingSurveyQuestion={{
-                                                                                            question:
-                                                                                                'How satisfied are you with our product?',
-                                                                                            description:
-                                                                                                'Optional form description.',
-                                                                                            display: 'number',
-                                                                                            lowerBoundLabel:
-                                                                                                'Not great',
-                                                                                            upperBoundLabel:
-                                                                                                'Fantastic',
-                                                                                            scale: 5,
-                                                                                            type: SurveyQuestionType.Rating,
-                                                                                        }}
-                                                                                    />
-                                                                                ),
-                                                                            },
-                                                                            ...[
-                                                                                {
-                                                                                    label: 'Single choice select',
-                                                                                    value: SurveyQuestionType.SingleChoice,
-                                                                                    tooltip: () => (
-                                                                                        <SurveyMultipleChoiceAppearance
-                                                                                            initialChecked={[0]}
-                                                                                            preview
-                                                                                            onSubmit={() => undefined}
-                                                                                            appearance={{
-                                                                                                ...survey.appearance,
-                                                                                                whiteLabel: true,
-                                                                                            }}
-                                                                                            multipleChoiceQuestion={{
-                                                                                                type: SurveyQuestionType.SingleChoice,
-                                                                                                choices: ['Yes', 'No'],
-                                                                                                question:
-                                                                                                    'Have you found this tutorial useful?',
-                                                                                            }}
-                                                                                        />
-                                                                                    ),
-                                                                                },
-                                                                                {
-                                                                                    label: 'Multiple choice select',
-                                                                                    value: SurveyQuestionType.MultipleChoice,
-                                                                                    tooltip: () => (
-                                                                                        <SurveyMultipleChoiceAppearance
-                                                                                            initialChecked={[0, 1]}
-                                                                                            preview
-                                                                                            onSubmit={() => undefined}
-                                                                                            appearance={{
-                                                                                                ...survey.appearance,
-                                                                                                whiteLabel: true,
-                                                                                            }}
-                                                                                            multipleChoiceQuestion={{
-                                                                                                type: SurveyQuestionType.MultipleChoice,
-                                                                                                choices: [
-                                                                                                    'Tutorials',
-                                                                                                    'Customer case studies',
-                                                                                                    'Product announcements',
-                                                                                                ],
-                                                                                                question:
-                                                                                                    'Which types of content would you like to see more of?',
-                                                                                            }}
-                                                                                        />
-                                                                                    ),
-                                                                                },
-                                                                            ],
-                                                                        ]}
-                                                                    />
-                                                                </Field>
-                                                                <Field name="question" label="Label">
-                                                                    <LemonInput value={question.question} />
-                                                                </Field>
-
-                                                                <Field
-                                                                    name="description"
-                                                                    label="Description (optional)"
-                                                                >
-                                                                    {({ value, onChange }) => (
-                                                                        <HTMLEditor
-                                                                            value={value}
-                                                                            onChange={onChange}
-                                                                            writingHTMLDescription={
-                                                                                writingHTMLDescription
-                                                                            }
-                                                                            setWritingHTMLDescription={
-                                                                                setWritingHTMLDescription
-                                                                            }
-                                                                        />
-                                                                    )}
-                                                                </Field>
-                                                                {survey.questions.length > 1 && (
-                                                                    <Field name="optional" className="my-2">
-                                                                        <LemonCheckbox
-                                                                            label="Optional"
-                                                                            checked={!!question.optional}
-                                                                        />
-                                                                    </Field>
-                                                                )}
-                                                                {question.type === SurveyQuestionType.Link && (
-                                                                    <Field
-                                                                        name="link"
-                                                                        label="Link"
-                                                                        info="Make sure to include https:// in the url."
-                                                                    >
-                                                                        <LemonInput
-                                                                            value={question.link || ''}
-                                                                            placeholder="https://posthog.com"
-                                                                        />
-                                                                    </Field>
-                                                                )}
-                                                                {question.type === SurveyQuestionType.Rating && (
-                                                                    <div className="flex flex-col gap-2">
-                                                                        <div className="flex flex-row gap-4">
-                                                                            <Field
-                                                                                name="display"
-                                                                                label="Display type"
-                                                                                className="w-1/2"
-                                                                            >
-                                                                                <LemonSelect
-                                                                                    options={[
-                                                                                        {
-                                                                                            label: 'Number',
-                                                                                            value: 'number',
-                                                                                        },
-                                                                                        {
-                                                                                            label: 'Emoji',
-                                                                                            value: 'emoji',
-                                                                                        },
-                                                                                    ]}
-                                                                                />
-                                                                            </Field>
-                                                                            <Field
-                                                                                name="scale"
-                                                                                label="Scale"
-                                                                                className="w-1/2"
-                                                                            >
-                                                                                <LemonSelect
-                                                                                    options={[
-                                                                                        ...(question.display === 'emoji'
-                                                                                            ? [
-                                                                                                  {
-                                                                                                      label: '1 - 3',
-                                                                                                      value: 3,
-                                                                                                  },
-                                                                                              ]
-                                                                                            : []),
-                                                                                        {
-                                                                                            label: '1 - 5',
-                                                                                            value: 5,
-                                                                                        },
-                                                                                        ...(question.display ===
-                                                                                        'number'
-                                                                                            ? [
-                                                                                                  {
-                                                                                                      label: '0 - 10',
-                                                                                                      value: 10,
-                                                                                                  },
-                                                                                              ]
-                                                                                            : []),
-                                                                                    ]}
-                                                                                />
-                                                                            </Field>
-                                                                        </div>
-                                                                        <div className="flex flex-row gap-4">
-                                                                            <Field
-                                                                                name="lowerBoundLabel"
-                                                                                label="Lower bound label"
-                                                                                className="w-1/2"
-                                                                            >
-                                                                                <LemonInput
-                                                                                    value={
-                                                                                        question.lowerBoundLabel || ''
-                                                                                    }
-                                                                                />
-                                                                            </Field>
-                                                                            <Field
-                                                                                name="upperBoundLabel"
-                                                                                label="Upper bound label"
-                                                                                className="w-1/2"
-                                                                            >
-                                                                                <LemonInput
-                                                                                    value={
-                                                                                        question.upperBoundLabel || ''
-                                                                                    }
-                                                                                />
-                                                                            </Field>
-                                                                        </div>
-                                                                    </div>
-                                                                )}
-                                                                {(question.type === SurveyQuestionType.SingleChoice ||
-                                                                    question.type ===
-                                                                        SurveyQuestionType.MultipleChoice) && (
-                                                                    <div className="flex flex-col gap-2">
-                                                                        <Field name="choices" label="Choices">
-                                                                            {({
-                                                                                value,
-                                                                                onChange,
-                                                                            }: {
-                                                                                value: string[]
-                                                                                onChange: (newValue: string[]) => void
-                                                                            }) => (
-                                                                                <div className="flex flex-col gap-2">
-                                                                                    {(value || []).map(
-                                                                                        (
-                                                                                            choice: string,
-                                                                                            index: number
-                                                                                        ) => (
-                                                                                            <div
-                                                                                                className="flex flex-row gap-2"
-                                                                                                key={index}
-                                                                                            >
-                                                                                                <LemonInput
-                                                                                                    value={choice}
-                                                                                                    fullWidth
-                                                                                                    onChange={(val) => {
-                                                                                                        const newChoices =
-                                                                                                            [...value]
-                                                                                                        newChoices[
-                                                                                                            index
-                                                                                                        ] = val
-                                                                                                        onChange(
-                                                                                                            newChoices
-                                                                                                        )
-                                                                                                    }}
-                                                                                                />
-                                                                                                <LemonButton
-                                                                                                    icon={
-                                                                                                        <IconDelete />
-                                                                                                    }
-                                                                                                    size="small"
-                                                                                                    status="muted"
-                                                                                                    noPadding
-                                                                                                    onClick={() => {
-                                                                                                        const newChoices =
-                                                                                                            [...value]
-                                                                                                        newChoices.splice(
-                                                                                                            index,
-                                                                                                            1
-                                                                                                        )
-                                                                                                        onChange(
-                                                                                                            newChoices
-                                                                                                        )
-                                                                                                    }}
-                                                                                                />
-                                                                                            </div>
-                                                                                        )
-                                                                                    )}
-                                                                                    <div className="w-fit">
-                                                                                        {(value || []).length < 6 && (
-                                                                                            <LemonButton
-                                                                                                icon={<IconPlusMini />}
-                                                                                                type="secondary"
-                                                                                                fullWidth={false}
-                                                                                                onClick={() => {
-                                                                                                    if (!value) {
-                                                                                                        onChange([''])
-                                                                                                    } else {
-                                                                                                        onChange([
-                                                                                                            ...value,
-                                                                                                            '',
-                                                                                                        ])
-                                                                                                    }
-                                                                                                }}
-                                                                                            >
-                                                                                                Add choice
-                                                                                            </LemonButton>
-                                                                                        )}
-                                                                                    </div>
-                                                                                </div>
-                                                                            )}
-                                                                        </Field>
-                                                                    </div>
-                                                                )}
-                                                                <Field name="buttonText" label="Button text">
-                                                                    <LemonInput
-                                                                        value={
-                                                                            question.buttonText === undefined
-                                                                                ? survey.questions.length > 1 &&
-                                                                                  index !== survey.questions.length - 1
-                                                                                    ? 'Next'
-                                                                                    : survey.appearance.submitButtonText
-                                                                                : question.buttonText
-                                                                        }
-                                                                    />
-                                                                </Field>
-                                                            </div>
-                                                        </Group>
-                                                    ),
+                                    <DndContext
+                                        onDragEnd={({ active, over }) => {
+                                            if (over && active.id !== over.id) {
+                                                onSortEnd({
+                                                    oldIndex: sortedItemIds.indexOf(active.id.toString()),
+                                                    newIndex: sortedItemIds.indexOf(over.id.toString()),
                                                 })
-                                            ),
-                                            ...(survey.appearance.displayThankYouMessage
-                                                ? [
-                                                      {
-                                                          key: survey.questions.length,
-                                                          header: (
-                                                              <div className="flex flex-row w-full items-center justify-between">
-                                                                  <b>Confirmation message</b>
-                                                                  <LemonButton
-                                                                      icon={<IconDelete />}
-                                                                      status="primary-alt"
-                                                                      data-attr={`delete-survey-confirmation`}
-                                                                      onClick={(e) => {
-                                                                          e.stopPropagation()
-                                                                          setSelectedQuestion(
-                                                                              survey.questions.length - 1
-                                                                          )
-                                                                          setSurveyValue('appearance', {
-                                                                              ...survey.appearance,
-                                                                              displayThankYouMessage: false,
-                                                                          })
-                                                                      }}
-                                                                      tooltipPlacement="topRight"
-                                                                  />
-                                                              </div>
-                                                          ),
-                                                          content: (
-                                                              <>
-                                                                  <PureField label="Thank you header">
-                                                                      <LemonInput
-                                                                          value={
-                                                                              survey.appearance.thankYouMessageHeader
-                                                                          }
-                                                                          onChange={(val) =>
-                                                                              setSurveyValue('appearance', {
-                                                                                  ...survey.appearance,
-                                                                                  thankYouMessageHeader: val,
-                                                                              })
-                                                                          }
-                                                                          placeholder="ex: Thank you for your feedback!"
-                                                                      />
-                                                                  </PureField>
-                                                                  <PureField
-                                                                      label="Thank you description"
-                                                                      className="mt-1"
-                                                                  >
-                                                                      <HTMLEditor
-                                                                          value={
-                                                                              survey.appearance
-                                                                                  .thankYouMessageDescription
-                                                                          }
-                                                                          onChange={(val) =>
-                                                                              setSurveyValue('appearance', {
-                                                                                  ...survey.appearance,
-                                                                                  thankYouMessageDescription: val,
-                                                                              })
-                                                                          }
-                                                                          writingHTMLDescription={
-                                                                              writingHTMLDescription
-                                                                          }
-                                                                          setWritingHTMLDescription={
-                                                                              setWritingHTMLDescription
-                                                                          }
-                                                                          textPlaceholder="ex: We really appreciate it."
-                                                                      />
-                                                                  </PureField>
-                                                                  <PureField label="Auto disappear">
-                                                                      <LemonCheckbox
-                                                                          checked={!!survey.appearance.autoDisappear}
-                                                                          onChange={(checked) =>
-                                                                              setSurveyValue('appearance', {
-                                                                                  ...survey.appearance,
-                                                                                  autoDisappear: checked,
-                                                                              })
-                                                                          }
-                                                                      />
-                                                                  </PureField>
-                                                              </>
-                                                          ),
-                                                      },
-                                                  ]
-                                                : []),
-                                        ]}
-                                    />
+                                            }
+                                        }}
+                                    >
+                                        <SortableContext
+                                            disabled={survey.questions.length <= 1}
+                                            items={sortedItemIds}
+                                            strategy={verticalListSortingStrategy}
+                                        >
+                                            <LemonCollapse
+                                                activeKey={selectedQuestion === null ? undefined : selectedQuestion}
+                                                onChange={(index) => {
+                                                    setSelectedQuestion(index)
+                                                }}
+                                                panels={[
+                                                    ...survey.questions.map(
+                                                        (
+                                                            question:
+                                                                | LinkSurveyQuestion
+                                                                | SurveyQuestion
+                                                                | RatingSurveyQuestion,
+                                                            index: number
+                                                        ) => ({
+                                                            key: index,
+                                                            header: (
+                                                                <SurveyEditQuestionHeader
+                                                                    index={index}
+                                                                    survey={survey}
+                                                                    setSelectedQuestion={setSelectedQuestion}
+                                                                    setSurveyValue={setSurveyValue}
+                                                                />
+                                                            ),
+                                                            content: (
+                                                                <SurveyEditQuestionGroup
+                                                                    index={index}
+                                                                    key={index}
+                                                                    question={question}
+                                                                />
+                                                            ),
+                                                        })
+                                                    ),
+                                                    ...(survey.appearance.displayThankYouMessage
+                                                        ? [
+                                                              {
+                                                                  key: survey.questions.length,
+                                                                  header: (
+                                                                      <div className="flex flex-row w-full items-center justify-between">
+                                                                          <b>Confirmation message</b>
+                                                                          <LemonButton
+                                                                              icon={<IconDelete />}
+                                                                              status="primary-alt"
+                                                                              data-attr={`delete-survey-confirmation`}
+                                                                              onClick={(e) => {
+                                                                                  e.stopPropagation()
+                                                                                  setSelectedQuestion(
+                                                                                      survey.questions.length - 1
+                                                                                  )
+                                                                                  setSurveyValue('appearance', {
+                                                                                      ...survey.appearance,
+                                                                                      displayThankYouMessage: false,
+                                                                                  })
+                                                                              }}
+                                                                              tooltipPlacement="topRight"
+                                                                          />
+                                                                      </div>
+                                                                  ),
+                                                                  content: (
+                                                                      <>
+                                                                          <PureField label="Thank you header">
+                                                                              <LemonInput
+                                                                                  value={
+                                                                                      survey.appearance
+                                                                                          .thankYouMessageHeader
+                                                                                  }
+                                                                                  onChange={(val) =>
+                                                                                      setSurveyValue('appearance', {
+                                                                                          ...survey.appearance,
+                                                                                          thankYouMessageHeader: val,
+                                                                                      })
+                                                                                  }
+                                                                                  placeholder="ex: Thank you for your feedback!"
+                                                                              />
+                                                                          </PureField>
+                                                                          <PureField
+                                                                              label="Thank you description"
+                                                                              className="mt-3"
+                                                                          >
+                                                                              <HTMLEditor
+                                                                                  value={
+                                                                                      survey.appearance
+                                                                                          .thankYouMessageDescription
+                                                                                  }
+                                                                                  onChange={(val) =>
+                                                                                      setSurveyValue('appearance', {
+                                                                                          ...survey.appearance,
+                                                                                          thankYouMessageDescription:
+                                                                                              val,
+                                                                                      })
+                                                                                  }
+                                                                                  writingHTMLDescription={
+                                                                                      writingHTMLDescription
+                                                                                  }
+                                                                                  setWritingHTMLDescription={
+                                                                                      setWritingHTMLDescription
+                                                                                  }
+                                                                                  textPlaceholder="ex: We really appreciate it."
+                                                                              />
+                                                                          </PureField>
+                                                                          <PureField className="mt-2">
+                                                                              <LemonCheckbox
+                                                                                  checked={
+                                                                                      !!survey.appearance.autoDisappear
+                                                                                  }
+                                                                                  label="Auto disappear"
+                                                                                  onChange={(checked) =>
+                                                                                      setSurveyValue('appearance', {
+                                                                                          ...survey.appearance,
+                                                                                          autoDisappear: checked,
+                                                                                      })
+                                                                                  }
+                                                                              />
+                                                                          </PureField>
+                                                                      </>
+                                                                  ),
+                                                              },
+                                                          ]
+                                                        : []),
+                                                ]}
+                                            />
+                                        </SortableContext>
+                                    </DndContext>
                                     <div className="flex gap-2">
-                                        {featureFlags[FEATURE_FLAGS.SURVEYS_MULTIPLE_QUESTIONS] && (
-                                            <div className="flex items-center gap-2 mt-2">
-                                                <LemonButton
-                                                    type="secondary"
-                                                    className="w-max"
-                                                    icon={<IconPlus />}
-                                                    sideIcon={
-                                                        surveysMultipleQuestionsAvailable ? null : (
-                                                            <IconLock className="ml-1 text-base text-muted" />
-                                                        )
-                                                    }
-                                                    disabledReason={
-                                                        surveysMultipleQuestionsAvailable
-                                                            ? null
-                                                            : 'Subscribe to surveys for multiple questions'
-                                                    }
-                                                    onClick={() => {
-                                                        setSurveyValue('questions', [
-                                                            ...survey.questions,
-                                                            { ...defaultSurveyFieldValues.open.questions[0] },
-                                                        ])
-                                                        setSelectedQuestion(survey.questions.length)
-                                                    }}
-                                                >
-                                                    Add question
-                                                </LemonButton>
-                                                {!surveysMultipleQuestionsAvailable && (
-                                                    <Link to={'/organization/billing'} target="_blank" targetBlankIcon>
-                                                        Subscribe
-                                                    </Link>
-                                                )}
-                                            </div>
-                                        )}
+                                        <div className="flex items-center gap-2 mt-2">
+                                            <LemonButton
+                                                type="secondary"
+                                                className="w-max"
+                                                icon={<IconPlus />}
+                                                sideIcon={
+                                                    surveysMultipleQuestionsAvailable ? null : (
+                                                        <IconLock className="ml-1 text-base text-muted" />
+                                                    )
+                                                }
+                                                disabledReason={
+                                                    surveysMultipleQuestionsAvailable
+                                                        ? null
+                                                        : 'Subscribe to surveys for multiple questions'
+                                                }
+                                                onClick={() => {
+                                                    setSurveyValue('questions', [
+                                                        ...survey.questions,
+                                                        { ...defaultSurveyFieldValues.open.questions[0] },
+                                                    ])
+                                                    setSelectedQuestion(survey.questions.length)
+                                                }}
+                                            >
+                                                Add question
+                                            </LemonButton>
+                                            {!surveysMultipleQuestionsAvailable && (
+                                                <Link to={'/organization/billing'} target="_blank" targetBlankIcon>
+                                                    Subscribe
+                                                </Link>
+                                            )}
+                                        </div>
                                         {!survey.appearance.displayThankYouMessage && (
                                             <LemonButton
                                                 type="secondary"
@@ -699,6 +283,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     value={SurveyType.Popover}
                                                 >
                                                     <div
+                                                        // eslint-disable-next-line react/forbid-dom-props
                                                         style={{
                                                             transform: 'scale(.8)',
                                                             position: 'absolute',
@@ -726,7 +311,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     description="Use the PostHog API to show/hide your survey programmatically"
                                                     value={SurveyType.API}
                                                 >
-                                                    <div className="absolute left-4" style={{ width: 350 }}>
+                                                    <div className="absolute left-4 w-80">
                                                         <SurveyAPIEditor survey={survey} />
                                                     </div>
                                                 </PresentationTypeCard>
@@ -958,111 +543,5 @@ export default function SurveyEdit(): JSX.Element {
                 />
             </div>
         </div>
-    )
-}
-
-export function HTMLEditor({
-    value,
-    onChange,
-    writingHTMLDescription,
-    setWritingHTMLDescription,
-    textPlaceholder,
-}: {
-    value?: string
-    onChange: (value: any) => void
-    writingHTMLDescription: boolean
-    setWritingHTMLDescription: (writingHTML: boolean) => void
-    textPlaceholder?: string
-}): JSX.Element {
-    const { surveysHTMLAvailable } = useValues(surveysLogic)
-    return (
-        <>
-            <LemonTabs
-                activeKey={writingHTMLDescription ? 'html' : 'text'}
-                onChange={(key) => setWritingHTMLDescription(key === 'html')}
-                tabs={[
-                    {
-                        key: 'text',
-                        label: <span className="text-sm">Text</span>,
-                        content: (
-                            <LemonTextArea
-                                minRows={2}
-                                value={value}
-                                onChange={(v) => onChange(v)}
-                                placeholder={textPlaceholder}
-                            />
-                        ),
-                    },
-                    {
-                        key: 'html',
-                        label: (
-                            <div>
-                                <span className="text-sm">HTML</span>
-                                {!surveysHTMLAvailable && <IconLock className="ml-2" />}
-                            </div>
-                        ),
-                        content: (
-                            <div>
-                                {surveysHTMLAvailable ? (
-                                    <CodeEditor
-                                        className="border"
-                                        language="html"
-                                        value={value}
-                                        onChange={(v) => onChange(v ?? '')}
-                                        height={150}
-                                        options={{
-                                            minimap: {
-                                                enabled: false,
-                                            },
-                                            scrollbar: {
-                                                alwaysConsumeMouseWheel: false,
-                                            },
-                                            wordWrap: 'on',
-                                            scrollBeyondLastLine: false,
-                                            automaticLayout: true,
-                                            fixedOverflowWidgets: true,
-                                            lineNumbers: 'off',
-                                            glyphMargin: false,
-                                            folding: false,
-                                        }}
-                                    />
-                                ) : (
-                                    <PayGateMini feature={AvailableFeature.SURVEYS_TEXT_HTML}>
-                                        <CodeEditor
-                                            className="border"
-                                            language="html"
-                                            value={value}
-                                            onChange={(v) => onChange(v ?? '')}
-                                            height={150}
-                                            options={{
-                                                minimap: {
-                                                    enabled: false,
-                                                },
-                                                scrollbar: {
-                                                    alwaysConsumeMouseWheel: false,
-                                                },
-                                                wordWrap: 'on',
-                                                scrollBeyondLastLine: false,
-                                                automaticLayout: true,
-                                                fixedOverflowWidgets: true,
-                                                lineNumbers: 'off',
-                                                glyphMargin: false,
-                                                folding: false,
-                                            }}
-                                        />
-                                    </PayGateMini>
-                                )}
-                            </div>
-                        ),
-                    },
-                ]}
-            />
-            {value && value?.toLowerCase().includes('<script') && (
-                <LemonBanner type="warning">
-                    Scripts won't run in the survey popover and we'll remove these on save. Use the API question mode to
-                    run your own scripts in surveys.
-                </LemonBanner>
-            )}
-        </>
     )
 }

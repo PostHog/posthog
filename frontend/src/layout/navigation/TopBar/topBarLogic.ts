@@ -1,4 +1,4 @@
-import { actions, kea, reducers, path } from 'kea'
+import { actions, kea, path, reducers } from 'kea'
 
 import type { topBarLogicType } from './topBarLogicType'
 

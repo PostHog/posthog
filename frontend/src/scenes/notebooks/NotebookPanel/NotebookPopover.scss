@@ -10,8 +10,8 @@
         position: absolute;
         inset: 0;
         z-index: 1;
-        background-color: rgb(0 0 0 / 10%);
         pointer-events: none;
+        background-color: rgb(0 0 0 / 10%);
         opacity: 0;
         transition: opacity 200ms ease-out;
     }
@@ -19,31 +19,31 @@
     .NotebookPopover__content {
         position: absolute;
         top: 1rem;
-        bottom: 1rem;
         right: 1rem;
+        bottom: 1rem;
         z-index: 2;
-        min-width: 30rem;
-        max-width: calc(100vw - 2rem);
-        width: 50rem; // This will be controlable
-        pointer-events: all;
         display: flex;
         flex-direction: column;
-
-        // Transition properties that are overwritten
-        transform: translateX(calc(100% + 1rem));
+        width: 50rem; // This will be controlable
+        min-width: 30rem;
+        max-width: calc(100vw - 2rem);
+        pointer-events: all;
         transition: transform var(--notebook-popover-transition-properties),
             width var(--notebook-popover-transition-properties);
 
+        // Transition properties that are overwritten
+        transform: translateX(calc(100% + 1rem));
+
         .NotebookPopover__content__card {
-            flex: 1;
             display: flex;
+            flex: 1;
             flex-direction: column;
-            border-radius: var(--radius);
+            overflow: hidden;
             background-color: var(--bg-3000);
             border: 1px solid var(--border-3000);
+            border-radius: var(--radius);
             box-shadow: 0 16px 16px rgb(0 0 0 / 0%);
             transition: box-shadow 150ms linear;
-            overflow: hidden;
         }
     }
 
@@ -87,42 +87,42 @@
     }
 
     .NotebookPanelDropzone {
-        box-shadow: 0 16px 16px rgb(0 0 0 / 15%);
-        border: 2px dashed var(--border-3000);
-        border-radius: var(--radius);
-        transition: all 150ms;
+        display: flex;
         height: 4rem;
         margin-bottom: 1rem;
         backdrop-filter: blur(5px);
-        display: flex;
+        border: 2px dashed var(--border-3000);
+        border-radius: var(--radius);
+        box-shadow: 0 16px 16px rgb(0 0 0 / 15%);
+        transition: all 150ms;
 
         .NotebookPanelDropzone__message {
-            flex: 1;
             display: flex;
+            flex: 1;
             flex-direction: column;
-            justify-content: center;
             align-items: center;
-            font-weight: 700;
+            justify-content: center;
+            padding: 1rem;
             font-size: 1rem;
+            font-weight: 700;
             color: var(--muted-alt);
             text-align: center;
             pointer-events: none;
             background-color: var(--bg-light);
-            padding: 1rem;
             opacity: 0.75;
             transition: all 150ms;
         }
 
         .NotebookPanelDropzone__dropped {
-            overflow: hidden;
-            flex: 1;
             display: flex;
+            flex: 1;
             flex-direction: column;
+            overflow: hidden;
         }
 
         &--active {
-            border-color: var(--primary-3000);
             height: 8rem;
+            border-color: var(--primary-3000);
 
             .NotebookPanelDropzone__message {
                 opacity: 1;
@@ -130,12 +130,12 @@
         }
 
         &--dropped {
-            padding: 1rem;
-            border-color: var(--primary-3000);
-            background-color: var(--bg-light);
-            height: 100%;
-            justify-content: flex-start;
             align-items: initial;
+            justify-content: flex-start;
+            height: 100%;
+            padding: 1rem;
+            background-color: var(--bg-light);
+            border-color: var(--primary-3000);
         }
     }
 }

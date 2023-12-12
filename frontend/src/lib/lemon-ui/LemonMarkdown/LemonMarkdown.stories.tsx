@@ -1,4 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
 import { LemonMarkdown as LemonMarkdownComponent, LemonMarkdownProps } from './LemonMarkdown'
 
 type Story = StoryObj<typeof LemonMarkdownComponent>

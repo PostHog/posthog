@@ -1,13 +1,15 @@
-import { LemonButton, LemonTable, LemonTag, Spinner } from '@posthog/lemon-ui'
-import { PageHeader } from 'lib/components/PageHeader'
-import { SceneExport } from 'scenes/sceneTypes'
-import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
+import { TZLabel } from '@posthog/apps-common'
+import { LemonButton, LemonDialog, LemonTable, LemonTag, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { dataWarehouseSceneLogic } from '../external/dataWarehouseSceneLogic'
-import SourceModal from '../external/SourceModal'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+
+import { dataWarehouseSceneLogic } from '../external/dataWarehouseSceneLogic'
+import SourceModal from '../external/SourceModal'
+import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
 export const scene: SceneExport = {
     component: DataWarehouseSettingsScene,
@@ -15,9 +17,10 @@ export const scene: SceneExport = {
 }
 
 const StatusTagSetting = {
-    running: 'default',
-    succeeded: 'primary',
-    error: 'danger',
+    Running: 'primary',
+    Completed: 'success',
+    Error: 'danger',
+    Failed: 'danger',
 }
 
 export function DataWarehouseSettingsScene(): JSX.Element {
@@ -65,18 +68,42 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                     {
                         title: 'Source Type',
                         key: 'name',
-                        width: 0,
                         render: function RenderName(_, source) {
                             return source.source_type
                         },
                     },
                     {
+                        title: 'Table Prefix',
+                        key: 'prefix',
+                        render: function RenderPrefix(_, source) {
+                            return source.prefix
+                        },
+                    },
+                    {
                         title: 'Status',
                         key: 'status',
-                        width: 0,
                         render: function RenderStatus(_, source) {
                             return (
                                 <LemonTag type={StatusTagSetting[source.status] || 'default'}>{source.status}</LemonTag>
+                            )
+                        },
+                    },
+                    {
+                        title: 'Sync Frequency',
+                        key: 'prefix',
+                        render: function RenderFrequency() {
+                            return 'Every 24 hours'
+                        },
+                    },
+                    {
+                        title: 'Last Successful Run',
+                        key: 'last_run_at',
+                        tooltip: 'Time of the last run that completed a data import',
+                        render: (_, run) => {
+                            return run.last_run_at ? (
+                                <TZLabel time={run.last_run_at} formatDate="MMM DD, YYYY" formatTime="HH:mm" />
+                            ) : (
+                                'Never'
                             )
                         },
                     },
@@ -105,12 +132,26 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                                                         >
                                                             Reload
                                                         </LemonButton>
+
                                                         <LemonButton
                                                             status="danger"
                                                             data-attr={`delete-data-warehouse-${source.source_type}`}
                                                             key={`delete-data-warehouse-${source.source_type}`}
                                                             onClick={() => {
-                                                                deleteSource(source)
+                                                                LemonDialog.open({
+                                                                    title: 'Delete data source?',
+                                                                    description:
+                                                                        'Are you sure you want to delete this data source? All related tables will be deleted.',
+
+                                                                    primaryButton: {
+                                                                        children: 'Delete',
+                                                                        status: 'danger',
+                                                                        onClick: () => deleteSource(source),
+                                                                    },
+                                                                    secondaryButton: {
+                                                                        children: 'Cancel',
+                                                                    },
+                                                                })
                                                             }}
                                                         >
                                                             Delete
@@ -126,7 +167,7 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                     },
                 ]}
             />
-            <SourceModal isOpen={isSourceModalOpen} onClose={toggleSourceModal} />
+            <SourceModal isOpen={isSourceModalOpen} onClose={() => toggleSourceModal(false)} />
         </div>
     )
 }

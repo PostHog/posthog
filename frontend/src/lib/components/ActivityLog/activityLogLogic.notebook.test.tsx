@@ -1,8 +1,10 @@
-import { ActivityLogItem, ActivityScope, humanize } from 'lib/components/ActivityLog/humanizeActivity'
 import '@testing-library/jest-dom'
-import { InsightShortId } from '~/types'
-import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
+
 import { render } from '@testing-library/react'
+import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
+import { ActivityLogItem, ActivityScope, humanize } from 'lib/components/ActivityLog/humanizeActivity'
+
+import { InsightShortId } from '~/types'
 
 describe('the activity log logic', () => {
     describe('humanizing notebooks', () => {

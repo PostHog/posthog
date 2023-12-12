@@ -2,7 +2,7 @@ import * as Sentry from '@sentry/node'
 import { Message, MessageHeader } from 'node-rdkafka'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION_DLQ, KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW } from '../../../config/kafka-topics'
-import { Hub, PipelineEvent } from '../../../types'
+import { Hub, PipelineEvent, ValueMatcher } from '../../../types'
 import { formPipelineEvent } from '../../../utils/event'
 import { retryIfRetriable } from '../../../utils/retries'
 import { status } from '../../../utils/status'
@@ -11,8 +11,10 @@ import { EventPipelineResult, runEventPipeline } from '../../../worker/ingestion
 import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { ingestionPartitionKeyOverflowed } from '../analytics-events-ingestion-consumer'
 import { IngestionConsumer } from '../kafka-queue'
-import { latestOffsetTimestampGauge } from '../metrics'
+import { eventDroppedCounter, latestOffsetTimestampGauge } from '../metrics'
 import {
+    ingestEventBatchingBatchCountSummary,
+    ingestEventBatchingInputLengthSummary,
     ingestionOverflowingMessagesTotal,
     ingestionParallelism,
     ingestionParallelismPotential,
@@ -26,7 +28,8 @@ require('@sentry/tracing')
 export enum IngestionOverflowMode {
     Disabled,
     Reroute,
-    Consume,
+    ConsumeSplitByDistinctId,
+    ConsumeSplitEvenly,
 }
 
 type IngestionSplitBatch = {
@@ -95,6 +98,7 @@ async function handleProcessingError(
 }
 
 export async function eachBatchParallelIngestion(
+    tokenBlockList: ValueMatcher<string>,
     messages: Message[],
     queue: IngestionConsumer,
     overflowMode: IngestionOverflowMode
@@ -112,15 +116,11 @@ export async function eachBatchParallelIngestion(
          * and a separate array for single messages, but let's look at profiles before optimizing.
          */
         const prepareSpan = transaction.startChild({ op: 'prepareBatch' })
-        const splitBatch = splitIngestionBatch(messages, overflowMode)
+        const splitBatch = splitIngestionBatch(tokenBlockList, messages, overflowMode)
         splitBatch.toProcess.sort((a, b) => a.length - b.length)
 
-        queue.pluginsServer.statsd?.histogram('ingest_event_batching.input_length', messages.length, {
-            key: metricKey,
-        })
-        queue.pluginsServer.statsd?.histogram('ingest_event_batching.batch_count', splitBatch.toProcess.length, {
-            key: metricKey,
-        })
+        ingestEventBatchingInputLengthSummary.observe(messages.length)
+        ingestEventBatchingBatchCountSummary.observe(splitBatch.toProcess.length)
         prepareSpan.finish()
 
         const processingPromises: Array<Promise<void>> = []
@@ -136,7 +136,11 @@ export async function eachBatchParallelIngestion(
                 })
 
                 // Process overflow ingestion warnings
-                if (overflowMode == IngestionOverflowMode.Consume && currentBatch.length > 0) {
+                if (
+                    (overflowMode == IngestionOverflowMode.ConsumeSplitByDistinctId ||
+                        overflowMode == IngestionOverflowMode.ConsumeSplitEvenly) &&
+                    currentBatch.length > 0
+                ) {
                     const team = await queue.pluginsServer.teamManager.getTeamForEvent(currentBatch[0].pluginEvent)
                     const distinct_id = currentBatch[0].pluginEvent.distinct_id
                     if (team && OverflowWarningLimiter.consume(`${team.id}:${distinct_id}`, 1)) {
@@ -235,7 +239,6 @@ export async function eachBatchParallelIngestion(
             }ms (${loggingKey})`
         )
     } finally {
-        queue.pluginsServer.statsd?.timing(`kafka_queue.${loggingKey}`, batchStartTimer)
         transaction.finish()
     }
 }
@@ -245,18 +248,8 @@ async function ingestEvent(
     event: PipelineEvent,
     checkAndPause?: () => void // pause incoming messages if we are slow in getting them out again
 ): Promise<EventPipelineResult> {
-    const eachEventStartTimer = new Date()
-
     checkAndPause?.()
-
-    server.statsd?.increment('kafka_queue_ingest_event_hit', {
-        pipeline: 'runEventPipeline',
-    })
-
     const result = await runEventPipeline(server, event)
-
-    server.statsd?.timing('kafka_queue.each_event', eachEventStartTimer)
-
     return result
 }
 
@@ -280,6 +273,7 @@ async function emitToOverflow(queue: IngestionConsumer, kafkaMessages: Message[]
 }
 
 export function splitIngestionBatch(
+    tokenBlockList: ValueMatcher<string>,
     kafkaMessages: Message[],
     overflowMode: IngestionOverflowMode
 ): IngestionSplitBatch {
@@ -293,14 +287,28 @@ export function splitIngestionBatch(
         toOverflow: [],
     }
 
-    if (overflowMode === IngestionOverflowMode.Consume) {
+    if (overflowMode === IngestionOverflowMode.ConsumeSplitEvenly) {
         /**
          * Grouping by distinct_id is inefficient here, because only a few ones are overflowing
          * at a time. When messages are sent to overflow, we already give away the ordering guarantee,
          * so we just return batches of one to increase concurrency.
          * TODO: add a PipelineEvent[] field to IngestionSplitBatch for batches of 1
          */
-        output.toProcess = kafkaMessages.map((m) => new Array({ message: m, pluginEvent: formPipelineEvent(m) }))
+        for (const message of kafkaMessages) {
+            // Drop based on a token blocklist
+            const pluginEvent = formPipelineEvent(message)
+            if (pluginEvent.token && tokenBlockList(pluginEvent.token)) {
+                eventDroppedCounter
+                    .labels({
+                        event_type: 'analytics',
+                        drop_cause: 'blocked_token',
+                    })
+                    .inc()
+                continue
+            }
+            output.toProcess.push(new Array({ message: message, pluginEvent }))
+        }
+
         return output
     }
 
@@ -308,10 +316,23 @@ export function splitIngestionBatch(
     for (const message of kafkaMessages) {
         if (overflowMode === IngestionOverflowMode.Reroute && message.key == null) {
             // Overflow detected by capture, reroute to overflow topic
+            // Not applying tokenBlockList to save CPU. TODO: do so once token is in the message headers
             output.toOverflow.push(message)
             continue
         }
         const pluginEvent = formPipelineEvent(message)
+
+        // Drop based on a token blocklist
+        if (pluginEvent.token && tokenBlockList(pluginEvent.token)) {
+            eventDroppedCounter
+                .labels({
+                    event_type: 'analytics',
+                    drop_cause: 'blocked_token',
+                })
+                .inc()
+            continue
+        }
+
         const eventKey = computeKey(pluginEvent)
         if (
             overflowMode === IngestionOverflowMode.Reroute &&

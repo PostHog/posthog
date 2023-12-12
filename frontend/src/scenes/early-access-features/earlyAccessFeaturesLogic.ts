@@ -1,11 +1,12 @@
 import { afterMount, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
 import { Breadcrumb, EarlyAccessFeatureType } from '~/types'
 
 import type { earlyAccessFeaturesLogicType } from './earlyAccessFeaturesLogicType'
-import { urls } from 'scenes/urls'
-import { Scene } from 'scenes/sceneTypes'
 
 export const earlyAccessFeaturesLogic = kea<earlyAccessFeaturesLogicType>([
     path(['scenes', 'features', 'featuresLogic']),

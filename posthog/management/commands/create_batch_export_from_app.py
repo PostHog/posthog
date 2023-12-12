@@ -7,7 +7,7 @@ from psycopg2.extensions import parse_dsn
 from posthog.batch_exports.models import BatchExport, BatchExportDestination
 from posthog.batch_exports.service import backfill_export, sync_batch_export
 from posthog.models.plugin import PluginAttachment, PluginConfig
-from posthog.temporal.client import sync_connect
+from posthog.temporal.common.client import sync_connect
 
 
 class Command(BaseCommand):

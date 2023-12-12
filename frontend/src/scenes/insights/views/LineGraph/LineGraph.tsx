@@ -1,5 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
-import { Root, createRoot } from 'react-dom/client'
+import 'chartjs-adapter-dayjs-3'
+
+import ChartDataLabels from 'chartjs-plugin-datalabels'
+import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import {
     ActiveElement,
@@ -10,34 +13,33 @@ import {
     ChartOptions,
     ChartType,
     Color,
-    InteractionItem,
-    TickOptions,
     GridLineOptions,
+    InteractionItem,
+    ScriptableLineSegmentContext,
+    TickOptions,
     TooltipModel,
     TooltipOptions,
-    ScriptableLineSegmentContext,
 } from 'lib/Chart'
-import ChartDataLabels from 'chartjs-plugin-datalabels'
-import 'chartjs-adapter-dayjs-3'
-import { areObjectValuesEmpty, lightenDarkenColor, hexToRGBA } from '~/lib/utils'
 import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
-import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
-import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
-import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
-import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import { groupsModel } from '~/models/groupsModel'
-import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { useEffect, useRef, useState } from 'react'
+import { createRoot, Root } from 'react-dom/client'
 import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { TrendsFilter } from '~/queries/schema'
+import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
+import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import ChartjsPluginStacked100, { ExtendedChartData } from 'chartjs-plugin-stacked100'
-import clsx from 'clsx'
+import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
+import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
+
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { areObjectValuesEmpty, hexToRGBA, lightenDarkenColor } from '~/lib/utils'
+import { groupsModel } from '~/models/groupsModel'
+import { TrendsFilter } from '~/queries/schema'
+import { GraphDataset, GraphPoint, GraphPointPayload, GraphType } from '~/types'
 
 let tooltipRoot: Root
 

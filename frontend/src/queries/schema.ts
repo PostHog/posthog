@@ -4,6 +4,7 @@ import {
     Breakdown,
     BreakdownKeyType,
     BreakdownType,
+    ChartDisplayType,
     CountPerActorMathType,
     EventPropertyFilter,
     EventType,
@@ -50,6 +51,7 @@ export enum NodeKind {
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
+    DataVisualizationNode = 'DataVisualizationNode',
     SavedInsightNode = 'SavedInsightNode',
     InsightVizNode = 'InsightVizNode',
 
@@ -97,6 +99,7 @@ export type QuerySchema =
     | AnyDataNode
 
     // Interface nodes
+    | DataVisualizationNode
     | DataTableNode
     | SavedInsightNode
     | InsightVizNode
@@ -342,6 +345,28 @@ export interface DataTableNode extends Node, DataTableNodeViewProps {
     hiddenColumns?: HogQLExpression[]
 }
 
+export interface GoalLine {
+    label: string
+    value: number
+}
+
+export interface ChartAxis {
+    column: string
+}
+
+interface ChartSettings {
+    xAxis?: ChartAxis
+    yAxis?: ChartAxis[]
+    goalLines?: GoalLine[]
+}
+
+export interface DataVisualizationNode extends Node {
+    kind: NodeKind.DataVisualizationNode
+    source: HogQLQuery
+    display?: ChartDisplayType
+    chartSettings?: ChartSettings
+}
+
 interface DataTableNodeViewProps {
     /** Show with most visual options enabled. Used in scenes. */ full?: boolean
     /** Include an event filter above the table (EventsNode only) */
@@ -403,6 +428,10 @@ export interface VizSpecificOptions {
         hideSizeColumn?: boolean
         useSmallLayout?: boolean
     }
+    [ChartDisplayType.ActionsPie]?: {
+        disableHoverOffset?: boolean
+        hideAggregation?: boolean
+    }
 }
 
 export interface InsightVizNode extends Node, InsightVizNodeViewProps {
@@ -424,7 +453,6 @@ interface InsightVizNodeViewProps {
     embedded?: boolean
     suppressSessionAnalysisWarning?: boolean
     hidePersonsModal?: boolean
-
     vizSpecificOptions?: VizSpecificOptions
 }
 
@@ -494,10 +522,27 @@ export interface FunnelsQuery extends InsightsQueryBase {
 
 /** `RetentionFilterType` minus everything inherited from `FilterType` */
 export type RetentionFilter = Omit<RetentionFilterType, keyof FilterType>
+
+export interface RetentionValue {
+    /** @asType integer */
+    count: number
+}
+
+export interface RetentionResult {
+    values: RetentionValue[]
+    label: string
+    /** @format date-time */
+    date: string
+}
+
+export interface RetentionQueryResponse extends QueryResponse {
+    results: RetentionResult[]
+}
 export interface RetentionQuery extends InsightsQueryBase {
     kind: NodeKind.RetentionQuery
+    response?: RetentionQueryResponse
     /** Properties specific to the retention insight */
-    retentionFilter?: RetentionFilter
+    retentionFilter: RetentionFilter
 }
 
 /** `PathsFilterType` minus everything inherited from `FilterType` and persons modal related params */
@@ -799,6 +844,7 @@ export interface DateRange {
 export interface BreakdownFilter {
     // TODO: unclutter
     breakdown_type?: BreakdownType | null
+    breakdown_limit?: number
     breakdown?: BreakdownKeyType
     breakdown_normalize_url?: boolean
     breakdowns?: Breakdown[]

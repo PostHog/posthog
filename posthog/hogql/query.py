@@ -3,7 +3,7 @@ from typing import Dict, Optional, Union, cast
 from posthog.clickhouse.client.connection import Workload
 from posthog.errors import ExposedCHQueryError
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_default_limit_for_context
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -34,7 +34,7 @@ def execute_hogql_query(
     workload: Workload = Workload.ONLINE,
     settings: Optional[HogQLGlobalSettings] = None,
     modifiers: Optional[HogQLQueryModifiers] = None,
-    in_export_context: Optional[bool] = False,
+    limit_context: Optional[LimitContext] = LimitContext.QUERY,
     timings: Optional[HogQLTimings] = None,
     explain: Optional[bool] = False,
 ) -> HogQLQueryResponse:
@@ -68,20 +68,12 @@ def execute_hogql_query(
             select_query = replace_placeholders(select_query, placeholders)
 
     with timings.measure("max_limit"):
-        from posthog.hogql.constants import (
-            DEFAULT_RETURNED_ROWS,
-            MAX_SELECT_RETURNED_ROWS,
-        )
-
         select_queries = (
             select_query.select_queries if isinstance(select_query, ast.SelectUnionQuery) else [select_query]
         )
         for one_query in select_queries:
             if one_query.limit is None:
-                # One more "max" of MAX_SELECT_RETURNED_ROWS (10k) in applied in the query printer.
-                one_query.limit = ast.Constant(
-                    value=MAX_SELECT_RETURNED_ROWS if in_export_context else DEFAULT_RETURNED_ROWS
-                )
+                one_query.limit = ast.Constant(value=get_default_limit_for_context(limit_context))
 
     # Get printed HogQL query, and returned columns. Using a cloned query.
     with timings.measure("hogql"):
@@ -122,7 +114,7 @@ def execute_hogql_query(
                     )
 
     settings = settings or HogQLGlobalSettings()
-    if in_export_context:
+    if limit_context == LimitContext.EXPORT or limit_context == LimitContext.COHORT_CALCULATION:
         settings.max_execution_time = EXPORT_CONTEXT_MAX_EXECUTION_TIME
 
     # Print the ClickHouse SQL query

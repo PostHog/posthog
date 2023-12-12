@@ -2,6 +2,7 @@ import { kea, key, path, props, selectors } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { humanFriendlyMilliseconds } from 'lib/utils'
+
 import {
     isSessionNode,
     TimeToSeeInteractionNode,
@@ -9,7 +10,6 @@ import {
     TimeToSeeQueryNode,
     TimeToSeeSessionNode,
 } from '../types'
-
 import type { traceLogicType } from './traceLogicType'
 
 export interface TraceLogicProps {

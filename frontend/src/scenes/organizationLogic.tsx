@@ -1,13 +1,15 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
-import api, { ApiConfig } from 'lib/api'
-import type { organizationLogicType } from './organizationLogicType'
-import { AvailableFeature, OrganizationType } from '~/types'
-import { userLogic } from './userLogic'
-import { getAppContext } from 'lib/utils/getAppContext'
-import { OrganizationMembershipLevel } from 'lib/constants'
-import { isUserLoggedIn } from 'lib/utils'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { loaders } from 'kea-loaders'
+import api, { ApiConfig } from 'lib/api'
+import { OrganizationMembershipLevel } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { isUserLoggedIn } from 'lib/utils'
+import { getAppContext } from 'lib/utils/getAppContext'
+
+import { AvailableFeature, OrganizationType } from '~/types'
+
+import type { organizationLogicType } from './organizationLogicType'
+import { userLogic } from './userLogic'
 
 export type OrganizationUpdatePayload = Partial<
     Pick<OrganizationType, 'name' | 'is_member_join_email_enabled' | 'enforce_2fa'>

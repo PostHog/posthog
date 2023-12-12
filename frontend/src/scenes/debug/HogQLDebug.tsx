@@ -1,15 +1,16 @@
+import { BindLogic, useValues } from 'kea'
+import { CodeEditor } from 'lib/components/CodeEditors'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+
+import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { DateRange } from '~/queries/nodes/DataNode/DateRange'
+import { ElapsedTime, Timings } from '~/queries/nodes/DataNode/ElapsedTime'
+import { Reload } from '~/queries/nodes/DataNode/Reload'
+import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
 import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
 import { DataNode, HogQLQuery, HogQLQueryResponse } from '~/queries/schema'
-import { DateRange } from '~/queries/nodes/DataNode/DateRange'
-import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
-import { BindLogic, useValues } from 'kea'
-import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { ElapsedTime, Timings } from '~/queries/nodes/DataNode/ElapsedTime'
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { CodeEditor } from 'lib/components/CodeEditors'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
-import { Reload } from '~/queries/nodes/DataNode/Reload'
 
 interface HogQLDebugProps {
     queryKey: string

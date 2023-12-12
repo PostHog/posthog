@@ -1,12 +1,12 @@
 import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
-
-import { PropertyGroupFilter, FilterLogicalOperator, EmptyPropertyFilter } from '~/types'
-
-import type { propertyGroupFilterLogicType } from './propertyGroupFilterLogicType'
+import { convertPropertiesToPropertyGroup } from 'lib/components/PropertyFilters/utils'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
 import { StickinessQuery, TrendsQuery } from '~/queries/schema'
-import { convertPropertiesToPropertyGroup } from 'lib/components/PropertyFilters/utils'
+import { EmptyPropertyFilter, FilterLogicalOperator, PropertyGroupFilter } from '~/types'
+
+import type { propertyGroupFilterLogicType } from './propertyGroupFilterLogicType'
 
 export type PropertyGroupFilterLogicProps = {
     pageKey: string

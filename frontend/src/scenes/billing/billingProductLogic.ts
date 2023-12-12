@@ -1,21 +1,37 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
+import React from 'react'
+
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2PlanType, BillingV2TierType } from '~/types'
+
+import { convertAmountToUsage } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import type { billingProductLogicType } from './billingProductLogicType'
-import { convertAmountToUsage } from './billing-utils'
-import posthog from 'posthog-js'
+import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
 const DEFAULT_BILLING_LIMIT = 500
 
+export interface BillingProductLogicProps {
+    product: BillingProductV2Type | BillingProductV2AddonType
+    billingLimitInputRef?: React.MutableRefObject<HTMLInputElement | null>
+}
+
 export const billingProductLogic = kea<billingProductLogicType>([
+    props({} as BillingProductLogicProps),
     key((props) => props.product.type),
     path(['scenes', 'billing', 'billingProductLogic']),
     connect({
-        values: [billingLogic, ['billing', 'isUnlicensedDebug']],
-        actions: [billingLogic, ['loadBillingSuccess', 'updateBillingLimitsSuccess', 'deactivateProduct']],
-    }),
-    props({
-        product: {} as BillingProductV2Type | BillingProductV2AddonType,
+        values: [billingLogic, ['billing', 'isUnlicensedDebug', 'scrollToProductKey']],
+        actions: [
+            billingLogic,
+            [
+                'loadBillingSuccess',
+                'updateBillingLimitsSuccess',
+                'deactivateProduct',
+                'setProductSpecificAlert',
+                'setScrollToProductKey',
+            ],
+        ],
     }),
     actions({
         setIsEditingBillingLimit: (isEditingBillingLimit: boolean) => ({ isEditingBillingLimit }),
@@ -89,7 +105,10 @@ export const billingProductLogic = kea<billingProductLogicType>([
         customLimitUsd: [
             (s, p) => [s.billing, p.product],
             (billing, product) => {
-                return billing?.custom_limits_usd?.[product.type] || billing?.custom_limits_usd?.[product.usage_key]
+                return (
+                    billing?.custom_limits_usd?.[product.type] ||
+                    (product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] : '')
+                )
             },
         ],
         currentAndUpgradePlans: [
@@ -145,42 +164,75 @@ export const billingProductLogic = kea<billingProductLogicType>([
         ],
         billingGaugeItems: [
             (s, p) => [p.product, s.freeTier, s.billingLimitAsUsage],
-            (product, freeTier, billingLimitAsUsage) => {
+            (product, freeTier, billingLimitAsUsage): BillingGaugeItemType[] => {
                 return [
                     freeTier
                         ? {
+                              type: BillingGaugeItemKind.FreeTier,
                               text: 'Free tier limit',
-                              color: 'success-light',
                               value: freeTier,
                               top: true,
                           }
                         : undefined,
                     {
+                        type: BillingGaugeItemKind.CurrentUsage,
                         text: 'Current',
-                        color: product.percentage_usage
-                            ? product.percentage_usage <= 1
-                                ? 'success'
-                                : 'danger'
-                            : 'success',
                         value: product.current_usage || 0,
                         top: false,
                     },
                     product.projected_usage && product.projected_usage > (product.current_usage || 0)
                         ? {
+                              type: BillingGaugeItemKind.ProjectedUsage,
                               text: 'Projected',
-                              color: 'border',
                               value: product.projected_usage || 0,
                               top: false,
                           }
                         : undefined,
                     billingLimitAsUsage
                         ? {
+                              type: BillingGaugeItemKind.BillingLimit,
                               text: 'Billing limit',
-                              color: 'primary-alt-light',
                               top: true,
                               value: billingLimitAsUsage || 0,
                           }
                         : (undefined as any),
+                ].filter(Boolean)
+            },
+        ],
+        billingGaugeItems3000: [
+            (s, p) => [p.product, s.freeTier, s.billingLimitAsUsage],
+            (product, freeTier, billingLimitAsUsage): BillingGaugeItemType[] => {
+                return [
+                    billingLimitAsUsage
+                        ? {
+                              type: BillingGaugeItemKind.BillingLimit,
+                              text: 'Billing limit',
+                              top: true,
+                              value: billingLimitAsUsage || 0,
+                          }
+                        : (undefined as any),
+                    freeTier
+                        ? {
+                              type: BillingGaugeItemKind.FreeTier,
+                              text: 'Free tier limit',
+                              value: freeTier,
+                              top: true,
+                          }
+                        : undefined,
+                    product.projected_usage && product.projected_usage > (product.current_usage || 0)
+                        ? {
+                              type: BillingGaugeItemKind.ProjectedUsage,
+                              text: 'Projected',
+                              value: product.projected_usage || 0,
+                              top: false,
+                          }
+                        : undefined,
+                    {
+                        type: BillingGaugeItemKind.CurrentUsage,
+                        text: 'Current',
+                        value: product.current_usage || 0,
+                        top: false,
+                    },
                 ].filter(Boolean)
             },
         ],
@@ -214,6 +266,41 @@ export const billingProductLogic = kea<billingProductLogicType>([
                 $survey_id: surveyID,
             })
             actions.setSurveyID('')
+        },
+        setScrollToProductKey: ({ scrollToProductKey }) => {
+            if (scrollToProductKey && scrollToProductKey === props.product.type) {
+                const { currentPlan } = values.currentAndUpgradePlans
+
+                if (currentPlan.initial_billing_limit) {
+                    actions.setProductSpecificAlert({
+                        status: 'warning',
+                        title: 'Billing Limit Automatically Applied',
+                        pathName: '/organization/billing',
+                        dismissKey: `auto-apply-billing-limit-${props.product.type}`,
+                        message: `To protect your costs and ours, we've automatically applied a $${currentPlan?.initial_billing_limit} billing limit for ${props.product.name}.`,
+                        action: {
+                            onClick: () => {
+                                actions.setIsEditingBillingLimit(true)
+                                setTimeout(() => {
+                                    if (props.billingLimitInputRef?.current) {
+                                        props.billingLimitInputRef?.current.focus()
+                                        props.billingLimitInputRef?.current.scrollIntoView({
+                                            behavior: 'smooth',
+                                            block: 'nearest',
+                                        })
+                                    }
+                                }, 0)
+                            },
+                            children: 'Update billing limit',
+                        },
+                    })
+                }
+            }
+        },
+    })),
+    events(({ actions, values }) => ({
+        afterMount: () => {
+            actions.setScrollToProductKey(values.scrollToProductKey)
         },
     })),
 ])

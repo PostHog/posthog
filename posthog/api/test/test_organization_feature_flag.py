@@ -53,7 +53,7 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
                     "email": self.user.email,
                     "is_email_verified": self.user.is_email_verified,
                 },
-                "filters": flag.filters,
+                "filters": flag.get_filters(),
                 "created_at": flag.created_at.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z",
                 "active": flag.active,
             }
@@ -242,6 +242,29 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             set(expected_flag_response.keys()),
             set(flag_response.keys()),
         )
+
+    def test_copy_feature_flag_with_old_legacy_flags(self):
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        target_project = self.team_2
+
+        flag_to_copy = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="flag-to-copy-here",
+            filters={},
+            rollout_percentage=self.rollout_percentage_to_copy,
+        )
+
+        data = {
+            "feature_flag_key": flag_to_copy.key,
+            "from_project": self.feature_flag_to_copy.team_id,
+            "target_project_ids": [target_project.id],
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["success"]), 1)
+        self.assertEqual(len(response.json()["failed"]), 0)
 
     def test_copy_feature_flag_update_override_deleted(self):
         target_project = self.team_2
@@ -581,8 +604,8 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         # get topological order of the original cohorts
         original_cohorts_cache = {}
         for _, cohort in cohorts.items():
-            original_cohorts_cache[str(cohort.id)] = cohort
-        original_cohort_ids = {int(str_id) for str_id in original_cohorts_cache.keys()}
+            original_cohorts_cache[cohort.id] = cohort
+        original_cohort_ids = {cohort_id for cohort_id in original_cohorts_cache.keys()}
         topologically_sorted_original_cohort_ids = sort_cohorts_topologically(
             original_cohort_ids, original_cohorts_cache
         )
@@ -593,7 +616,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
         def traverse(cohort, index):
             expected_cohort_id = topologically_sorted_original_cohort_ids_reversed[index]
-            expected_name = original_cohorts_cache[str(expected_cohort_id)].name
+            expected_name = original_cohorts_cache[expected_cohort_id].name
             self.assertEqual(expected_name, cohort.name)
 
             prop = cohort.filters["properties"]["values"][0]

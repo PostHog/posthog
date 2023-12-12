@@ -2,9 +2,9 @@ from datetime import datetime
 from typing import Any, Dict, List
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import jwt
-from zoneinfo import ZoneInfo
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time

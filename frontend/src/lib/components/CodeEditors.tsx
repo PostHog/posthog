@@ -1,8 +1,9 @@
+import MonacoEditor, { type EditorProps } from '@monaco-editor/react'
+import { useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { inStorybookTestRunner } from 'lib/utils'
-import MonacoEditor, { type EditorProps } from '@monaco-editor/react'
+
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { useValues } from 'kea'
 
 export type CodeEditorProps = Omit<EditorProps, 'loading' | 'theme'>
 

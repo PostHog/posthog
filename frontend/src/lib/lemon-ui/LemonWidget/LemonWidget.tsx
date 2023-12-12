@@ -1,7 +1,9 @@
-import { LemonButton } from '../LemonButton'
-import { IconClose } from '../icons'
 import './LemonWidget.scss'
+
 import clsx from 'clsx'
+
+import { IconClose } from '../icons'
+import { LemonButton } from '../LemonButton'
 
 export interface LemonWidgetProps {
     title: string

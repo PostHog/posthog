@@ -12,7 +12,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.models import Action, Cohort, Insight, Dashboard, FeatureFlag, Experiment, Team
+from posthog.models import Action, Cohort, Insight, Dashboard, FeatureFlag, Experiment, Team, EventDefinition, Survey
 from posthog.models.notebook.notebook import Notebook
 
 LIMIT = 25
@@ -21,8 +21,8 @@ LIMIT = 25
 ENTITY_MAP = {
     "insight": {
         "klass": Insight,
-        "search_fields": {"name": "A", "derived_name": "B", "description": "C"},
-        "extra_fields": ["name", "derived_name", "description"],
+        "search_fields": {"name": "A", "description": "C"},
+        "extra_fields": ["name", "description", "filters", "query"],
     },
     "dashboard": {
         "klass": Dashboard,
@@ -38,7 +38,7 @@ ENTITY_MAP = {
     "notebook": {
         "klass": Notebook,
         "search_fields": {"title": "A", "text_content": "C"},
-        "extra_fields": ["title", "text_content"],
+        "extra_fields": ["title", "content"],
     },
     "action": {
         "klass": Action,
@@ -47,6 +47,16 @@ ENTITY_MAP = {
     },
     "cohort": {
         "klass": Cohort,
+        "search_fields": {"name": "A", "description": "C"},
+        "extra_fields": ["name", "description"],
+    },
+    "event_definition": {
+        "klass": EventDefinition,
+        "search_fields": {"name": "A"},
+        "extra_fields": ["name"],
+    },
+    "survey": {
+        "klass": Survey,
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description"],
     },
@@ -133,7 +143,8 @@ def class_queryset(
     values = ["type", "result_id", "extra_fields"]
 
     qs: QuerySet[Any] = klass.objects.filter(team=team)  # filter team
-    qs = qs.annotate(type=Value(entity_type, output_field=CharField()))  # entity type
+    # :TRICKY: can't use an annotation here as `type` conflicts with a field on some models
+    qs = qs.extra(select={"type": f"'{entity_type}'"})  # entity type
 
     # entity id
     if entity_type == "insight" or entity_type == "notebook":
@@ -156,6 +167,7 @@ def class_queryset(
         )
         qs = qs.filter(rank__gt=0.05)
         values.append("rank")
+        qs.annotate(rank=F("rank"))
 
     # specify fields to fetch
     qs = qs.values(*values)

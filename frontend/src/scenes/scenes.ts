@@ -1,36 +1,47 @@
+import { combineUrl } from 'kea-router'
+import { dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { getDefaultEventsSceneQuery } from 'scenes/events/defaults'
 import { LoadedScene, Params, Scene, SceneConfig } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
 import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
-import { urls } from 'scenes/urls'
-import { InsightShortId, PipelineAppTabs, PipelineTabs, PropertyFilterType, ReplayTabs } from '~/types'
-import { combineUrl } from 'kea-router'
-import { getDefaultEventsSceneQuery } from 'scenes/events/defaults'
 import { EventsQuery } from '~/queries/schema'
-import { dayjs } from 'lib/dayjs'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { InsightShortId, PipelineAppTabs, PipelineTabs, PropertyFilterType, ReplayTabs } from '~/types'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
 export const preloadedScenes: Record<string, LoadedScene> = {
     [Scene.Error404]: {
-        name: Scene.Error404,
+        id: Scene.Error404,
         component: Error404Component,
         sceneParams: emptySceneParams,
     },
     [Scene.ErrorNetwork]: {
-        name: Scene.ErrorNetwork,
+        id: Scene.ErrorNetwork,
         component: ErrorNetworkComponent,
         sceneParams: emptySceneParams,
     },
     [Scene.ErrorProjectUnavailable]: {
-        name: Scene.ErrorProjectUnavailable,
+        id: Scene.ErrorProjectUnavailable,
         component: ErrorProjectUnavailableComponent,
         sceneParams: emptySceneParams,
     },
 }
 
-export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
+export const sceneConfigurations: Record<Scene, SceneConfig> = {
+    [Scene.Error404]: {
+        name: 'Not found',
+        projectBased: true,
+    },
+    [Scene.ErrorNetwork]: {
+        name: 'Network error',
+    },
+    [Scene.ErrorProjectUnavailable]: {
+        name: 'Project unavailable',
+    },
     // Project-based routes
     [Scene.Dashboards]: {
         projectBased: true,
@@ -118,7 +129,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Experiments]: {
         projectBased: true,
-        name: 'Experiments',
+        name: 'A/B testing',
     },
     [Scene.Experiment]: {
         projectBased: true,
@@ -281,6 +292,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Notebook]: {
         projectBased: true,
+        hideProjectNotice: true, // Currently doesn't render well...
         name: 'Notebook',
         layout: 'app-raw',
     },

@@ -1,6 +1,8 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useState } from 'react'
+
 import { mswDecorator } from '~/mocks/browser'
+
 import { PersonPropertySelect, PersonPropertySelectProps } from './PersonPropertySelect'
 
 type Story = StoryObj<typeof PersonPropertySelect>

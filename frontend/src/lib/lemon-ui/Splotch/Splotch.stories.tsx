@@ -1,4 +1,5 @@
 import { Meta, StoryFn } from '@storybook/react'
+
 import { Splotch, SplotchColor, SplotchProps } from './Splotch'
 
 const meta: Meta<typeof Splotch> = {

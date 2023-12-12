@@ -1,44 +1,43 @@
-import { CSSTransition } from 'react-transition-group'
+import './EditorFilters.scss'
+
+import { LemonBanner, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-
-import {
-    InsightEditorFilterGroup,
-    InsightEditorFilter,
-    EditorFilterProps,
-    ChartDisplayType,
-    AvailableFeature,
-    PathType,
-} from '~/types'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { userLogic } from 'scenes/userLogic'
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
-
-import { InsightQueryNode } from '~/queries/schema'
-import { EditorFilterGroup } from './EditorFilterGroup'
-import { LifecycleToggles } from './LifecycleToggles'
-import { GlobalAndOrFilters } from './GlobalAndOrFilters'
-import { TrendsSeries } from './TrendsSeries'
-import { TrendsSeriesLabel } from './TrendsSeriesLabel'
-import { TrendsFormula } from './TrendsFormula'
-import { Breakdown } from './Breakdown'
-import { PathsEventsTypes } from 'scenes/insights/EditorFilters/PathsEventTypes'
-import { PathsTargetEnd, PathsTargetStart } from 'scenes/insights/EditorFilters/PathsTarget'
-import { PathsExclusions } from 'scenes/insights/EditorFilters/PathsExclusions'
-import { PathsWildcardGroups } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
-import { PathsAdvanced } from 'scenes/insights/EditorFilters/PathsAdvanced'
-import { FunnelsQuerySteps } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
+import { CSSTransition } from 'react-transition-group'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { FunnelsAdvanced } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
+import { FunnelsQuerySteps } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
+import { PathsAdvanced } from 'scenes/insights/EditorFilters/PathsAdvanced'
+import { PathsEventsTypes } from 'scenes/insights/EditorFilters/PathsEventTypes'
+import { PathsExclusions } from 'scenes/insights/EditorFilters/PathsExclusions'
+import { PathsHogQL } from 'scenes/insights/EditorFilters/PathsHogQL'
+import { PathsTargetEnd, PathsTargetStart } from 'scenes/insights/EditorFilters/PathsTarget'
+import { PathsWildcardGroups } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
 import { RetentionSummary } from 'scenes/insights/EditorFilters/RetentionSummary'
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
-
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import './EditorFilters.scss'
-import { PathsHogQL } from 'scenes/insights/EditorFilters/PathsHogQL'
-import { LemonBanner, Link } from '@posthog/lemon-ui'
+import { InsightQueryNode } from '~/queries/schema'
+import {
+    AvailableFeature,
+    ChartDisplayType,
+    EditorFilterProps,
+    InsightEditorFilter,
+    InsightEditorFilterGroup,
+    PathType,
+} from '~/types'
+
+import { Breakdown } from './Breakdown'
+import { EditorFilterGroup } from './EditorFilterGroup'
+import { GlobalAndOrFilters } from './GlobalAndOrFilters'
+import { LifecycleToggles } from './LifecycleToggles'
+import { TrendsFormula } from './TrendsFormula'
+import { TrendsSeries } from './TrendsSeries'
+import { TrendsSeriesLabel } from './TrendsSeriesLabel'
 
 export interface EditorFiltersProps {
     query: InsightQueryNode

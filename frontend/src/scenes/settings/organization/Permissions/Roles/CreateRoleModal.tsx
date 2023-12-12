@@ -1,15 +1,17 @@
 import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { IconDelete } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
+
 import { RoleMemberType, UserType } from '~/types'
+
 import { rolesLogic } from './rolesLogic'
 
 export function CreateRoleModal(): JSX.Element {
@@ -118,12 +120,7 @@ export function CreateRoleModal(): JSX.Element {
                 <>
                     <h5>Role Members</h5>
                     {roleMembersInFocus.length > 0 ? (
-                        <div
-                            className="mt-2 pb-2 rounded overflow-y-auto"
-                            style={{
-                                maxHeight: 300,
-                            }}
-                        >
+                        <div className="mt-2 pb-2 rounded overflow-y-auto max-h-80">
                             {roleMembersInFocus.map((member) => {
                                 return (
                                     <MemberRow

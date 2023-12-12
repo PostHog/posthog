@@ -3,6 +3,7 @@ import {
     OperatorValueSelect,
     OperatorValueSelectProps,
 } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
+
 import { PropertyDefinition, PropertyType } from '~/types'
 
 const meta: Meta<typeof OperatorValueSelect> = {

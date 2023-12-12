@@ -22,11 +22,11 @@
     }
 
     .LemonActionableTooltip__icon {
-        color: var(--primary-3000);
         display: flex;
         align-items: center;
         width: 1.5rem;
         height: 1.5rem;
+        color: var(--primary-3000);
 
         > svg {
             width: 100%;
@@ -48,8 +48,8 @@
 
     .LemonActionableTooltip__url-buttons {
         display: flex;
-        width: 100%;
         flex-direction: column;
+        width: 100%;
 
         > * + * {
             margin-top: 0.25rem;
@@ -58,8 +58,8 @@
 
     .LemonActionableTooltip__action-buttons {
         display: flex;
-        width: 100%;
         flex-direction: column;
+        width: 100%;
 
         > * + * {
             margin-top: 0.25rem;
@@ -67,9 +67,9 @@
     }
 
     .LemonActionableTooltip__navigation {
-        color: var(--muted);
         display: flex;
         align-items: center;
+        color: var(--muted);
 
         > * + * {
             margin-left: 0.25rem;

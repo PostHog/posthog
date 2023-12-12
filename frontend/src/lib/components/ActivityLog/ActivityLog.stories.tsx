@@ -1,17 +1,18 @@
+import { Meta } from '@storybook/react'
 import {
     featureFlagsActivityResponseJson,
     insightsActivityResponseJson,
     personActivityResponseJson,
 } from 'lib/components/ActivityLog/__mocks__/activityLogMocks'
-import { mswDecorator } from '~/mocks/browser'
-import { Meta } from '@storybook/react'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+
+import { mswDecorator } from '~/mocks/browser'
 
 const meta: Meta<typeof ActivityLog> = {
     title: 'Components/ActivityLog',
     component: ActivityLog,
-    parameters: { testOptions: { skip: true } }, // FIXME: Currently disabled as the Timeout story is flaky
+    tags: ['test-skip'], // FIXME: Currently disabled as the Timeout story is flaky
     decorators: [
         mswDecorator({
             get: {

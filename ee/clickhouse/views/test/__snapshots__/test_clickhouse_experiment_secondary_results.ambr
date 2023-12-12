@@ -57,13 +57,12 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') as breakdown_value
+                            transform(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', ''), (['control', 'test', 'ablahebf', '']), (['control', 'test', 'ablahebf', '']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
-             AND replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') in (['control', 'test', 'ablahebf', ''])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,

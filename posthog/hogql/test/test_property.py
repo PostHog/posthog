@@ -1,6 +1,7 @@
 from typing import List, Union, cast, Optional, Dict, Any, Literal
+from unittest.mock import MagicMock, patch
 
-from posthog.constants import PropertyOperatorType
+from posthog.constants import PropertyOperatorType, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import (
@@ -10,6 +11,7 @@ from posthog.hogql.property import (
     property_to_expr,
     selector_to_expr,
     tag_name_to_expr,
+    entity_to_expr,
 )
 from posthog.hogql.visitor import clear_locations
 from posthog.models import (
@@ -22,7 +24,7 @@ from posthog.models import (
 )
 from posthog.models.property import PropertyGroup
 from posthog.models.property_definition import PropertyType
-from posthog.schema import HogQLPropertyFilter, PropertyOperator
+from posthog.schema import HogQLPropertyFilter, PropertyOperator, RetentionEntity
 from posthog.test.base import BaseTest
 
 elements_chain_match = lambda x: parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(x))})
@@ -63,6 +65,29 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._property_to_expr(HogQLPropertyFilter(type="hogql", key="1")),
             ast.Constant(value=1),
+        )
+
+    def test_property_to_expr_group(self):
+        self.assertEqual(
+            self._property_to_expr({"type": "group", "group_type_index": 0, "key": "a", "value": "b"}),
+            self._parse_expr("group_0.properties.a = 'b'"),
+        )
+        self.assertEqual(
+            self._property_to_expr({"type": "group", "group_type_index": 3, "key": "a", "value": "b"}),
+            self._parse_expr("group_3.properties.a = 'b'"),
+        )
+        self.assertEqual(
+            self._parse_expr("group_0.properties.a = NULL OR (NOT JSONHas(group_0.properties, 'a'))"),
+            self._property_to_expr(
+                {"type": "group", "group_type_index": 0, "key": "a", "value": "b", "operator": "is_not_set"}
+            ),
+        )
+
+        with self.assertRaises(Exception) as e:
+            self._property_to_expr({"type": "group", "key": "a", "value": "b"})
+        self.assertEqual(
+            str(e.exception),
+            "Missing required key group_type_index for property type group",
         )
 
     def test_property_to_expr_event(self):
@@ -163,7 +188,7 @@ class TestProperty(BaseTest):
         # positive
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "exact"}),
-            self._parse_expr("properties.a IN ('b', 'c')"),
+            self._parse_expr("properties.a = 'b' OR properties.a = 'c'"),
         )
         self.assertEqual(
             self._property_to_expr(
@@ -183,7 +208,7 @@ class TestProperty(BaseTest):
         # negative
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "is_not"}),
-            self._parse_expr("properties.a NOT IN ('b', 'c')"),
+            self._parse_expr("properties.a != 'b' AND properties.a != 'c'"),
         )
         self.assertEqual(
             self._property_to_expr(
@@ -581,3 +606,35 @@ class TestProperty(BaseTest):
             str(e.exception),
             "The 'event' property filter only works in 'event' scope, not in 'person' scope",
         )
+
+    def test_entity_to_expr_actions_type_with_id(self):
+        action_mock = MagicMock()
+        with patch("posthog.models.Action.objects.get", return_value=action_mock):
+            entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_ACTIONS, "id": 123})
+            result = entity_to_expr(entity)
+            self.assertIsInstance(result, ast.Expr)
+
+    def test_entity_to_expr_events_type_with_id(self):
+        entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_EVENTS, "id": "event_id"})
+        result = entity_to_expr(entity)
+        expected = ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["events", "event"]),
+            right=ast.Constant(value="event_id"),
+        )
+        self.assertEqual(result, expected)
+
+    def test_entity_to_expr_events_type_without_id(self):
+        entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_EVENTS, "id": None})
+        result = entity_to_expr(entity)
+        self.assertEqual(result, ast.Constant(value=True))
+
+    def test_entity_to_expr_default_case(self):
+        entity = RetentionEntity()
+        result = entity_to_expr(entity, default_event="default_event")
+        expected = ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Field(chain=["events", "event"]),
+            right=ast.Constant(value="default_event"),
+        )
+        self.assertEqual(result, expected)

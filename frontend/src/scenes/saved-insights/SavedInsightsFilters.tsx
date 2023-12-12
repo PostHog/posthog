@@ -1,13 +1,14 @@
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { SavedInsightsTabs } from '~/types'
-import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
-import { useActions, useValues } from 'kea'
-import { dashboardsModel } from '~/models/dashboardsModel'
-import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
-import { membersLogic } from 'scenes/organization/membersLogic'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { IconCalendar } from '@posthog/icons'
+import { useActions, useValues } from 'kea'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { membersLogic } from 'scenes/organization/membersLogic'
+import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
+import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { SavedInsightsTabs } from '~/types'
 
 export function SavedInsightsFilters(): JSX.Element {
     const { nameSortedDashboards } = useValues(dashboardsModel)

@@ -1,34 +1,34 @@
 .properties-table-key {
+    display: flex;
     min-width: 8rem;
     max-width: 24rem;
-    display: flex;
 }
 
 .property-value-type {
-    align-items: center;
-    background: var(--mid);
-    border-radius: var(--radius);
-    border: 1px solid var(--border-light);
-    color: var(--muted-alt);
-    cursor: default;
     display: flex;
+    align-items: center;
+    width: fit-content;
+    height: 1.25rem;
+    padding: 0.125rem 0.25rem;
     font-size: 0.625rem;
     font-weight: 500;
-    height: 1.25rem;
-    letter-spacing: 0.25px;
-    padding: 0.125rem 0.25rem;
+    color: var(--muted-alt);
     text-transform: uppercase;
+    letter-spacing: 0.25px;
     white-space: nowrap;
-    width: fit-content;
+    cursor: default;
+    background: var(--mid);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius);
 
     .posthog-3000 & {
-        background: none;
-        border-radius: calc(var(--radius) * 0.75);
-        border-style: solid;
-        border-width: 1px;
+        padding: 0.075rem 0.25rem;
         font-family: var(--font-mono);
         font-size: 0.688rem;
-        padding: 0.075rem 0.25rem;
+        background: none;
+        border-style: solid;
+        border-width: 1px;
+        border-radius: calc(var(--radius) * 0.75);
     }
 
     &:not(:first-child) {
@@ -37,10 +37,10 @@
 }
 
 .properties-table-value {
-    align-items: center;
     display: flex;
-    max-width: fit-content;
+    align-items: center;
     min-width: 12rem;
+    max-width: fit-content;
 
     .value-link {
         > * {
@@ -59,11 +59,11 @@
         cursor: pointer;
 
         .posthog-3000 & {
+            padding: 0.125rem 0.25rem;
+            margin-left: -0.25rem;
+            text-decoration: none;
             border: 1px solid transparent;
             border-radius: calc(var(--radius) * 0.75);
-            margin-left: -0.25rem;
-            padding: 0.125rem 0.25rem;
-            text-decoration: none;
 
             &:hover {
                 background: var(--bg-light);

@@ -393,7 +393,7 @@ def get_teams_with_billable_event_count_in_period(
         f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM events
-        WHERE timestamp between %(begin)s AND %(end)s AND event != '$feature_flag_called'
+        WHERE timestamp between %(begin)s AND %(end)s AND event != '$feature_flag_called' AND event NOT IN ('survey sent', 'survey shown', 'survey dismissed')
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
@@ -832,9 +832,9 @@ def _get_all_usage_data_as_team_rows(period_start: datetime, period_end: datetim
 
 def _get_teams_for_usage_reports() -> Sequence[Team]:
     return list(
-        Team.objects.select_related("organization").exclude(
-            Q(organization__for_internal_metrics=True) | Q(is_demo=True)
-        )
+        Team.objects.select_related("organization")
+        .exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
+        .only("id", "organization__id", "organization__name", "organization__created_at")
     )
 
 

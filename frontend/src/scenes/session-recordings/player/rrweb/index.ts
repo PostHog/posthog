@@ -1,4 +1,4 @@
-import { ReplayPlugin, playerConfig } from 'rrweb/typings/types'
+import { playerConfig, ReplayPlugin } from 'rrweb/typings/types'
 
 const PROXY_URL = 'https://replay.ph-proxy.com' as const
 

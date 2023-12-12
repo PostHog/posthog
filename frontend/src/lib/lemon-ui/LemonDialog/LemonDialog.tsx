@@ -1,11 +1,11 @@
-import { ReactNode, useEffect, useRef, useState } from 'react'
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-import { LemonModal, LemonModalProps } from 'lib/lemon-ui/LemonModal'
-import { createRoot } from 'react-dom/client'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { LemonModal, LemonModalProps } from 'lib/lemon-ui/LemonModal'
+import { ReactNode, useEffect, useRef, useState } from 'react'
+import { createRoot } from 'react-dom/client'
 
-export type LemonDialogProps = Pick<LemonModalProps, 'title' | 'description' | 'width' | 'inline'> & {
+export type LemonDialogProps = Pick<LemonModalProps, 'title' | 'description' | 'width' | 'inline' | 'footer'> & {
     primaryButton?: LemonButtonProps | null
     secondaryButton?: LemonButtonProps | null
     tertiaryButton?: LemonButtonProps | null
@@ -23,6 +23,7 @@ export function LemonDialog({
     secondaryButton,
     content,
     closeOnNavigate = true,
+    footer,
     ...props
 }: LemonDialogProps): JSX.Element {
     const [isOpen, setIsOpen] = useState(true)
@@ -70,7 +71,9 @@ export function LemonDialog({
             onClose={() => setIsOpen(false)}
             onAfterClose={() => onAfterClose?.()}
             footer={
-                primaryButton || secondaryButton || tertiaryButton ? (
+                footer ? (
+                    footer
+                ) : primaryButton || secondaryButton || tertiaryButton ? (
                     <>
                         <div className="flex-1">{renderButton(tertiaryButton)}</div>
                         {renderButton(secondaryButton)}

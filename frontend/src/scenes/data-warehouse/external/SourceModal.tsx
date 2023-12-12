@@ -1,10 +1,11 @@
 import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonModalProps } from '@posthog/lemon-ui'
-import { Form } from 'kea-forms'
-import { ConnectorConfigType, sourceModalLogic } from './sourceModalLogic'
 import { useActions, useValues } from 'kea'
-import { DatawarehouseTableForm } from '../new_table/DataWarehouseTableForm'
+import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import stripeLogo from 'public/stripe-logo.svg'
+
+import { DatawarehouseTableForm } from '../new_table/DataWarehouseTableForm'
+import { ConnectorConfigType, sourceModalLogic } from './sourceModalLogic'
 
 interface SourceModalProps extends LemonModalProps {}
 
@@ -41,10 +42,13 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
         if (selectedConnector) {
             return (
                 <Form logic={sourceModalLogic} formKey={'externalDataSource'} className="space-y-4" enableFormOnSubmit>
-                    <Field name="account_id" label="Account Id">
+                    <Field name="prefix" label="Table Prefix">
+                        <LemonInput className="ph-ignore-input" autoFocus data-attr="prefix" placeholder="internal_" />
+                    </Field>
+                    <Field name="account_id" label="Stripe Account ID">
                         <LemonInput className="ph-ignore-input" autoFocus data-attr="account-id" placeholder="acct_" />
                     </Field>
-                    <Field name="client_secret" label="Client Secret">
+                    <Field name="client_secret" label="Stripe Client Secret">
                         <LemonInput
                             className="ph-ignore-input"
                             autoFocus

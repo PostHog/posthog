@@ -1,8 +1,10 @@
-import { kea, props, path, selectors } from 'kea'
-import { Breadcrumb, SessionRecordingType } from '~/types'
-import type { sessionRecordingDetailLogicType } from './sessionRecordingDetailLogicType'
-import { urls } from 'scenes/urls'
+import { kea, path, props, selectors } from 'kea'
 import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { Breadcrumb, SessionRecordingType } from '~/types'
+
+import type { sessionRecordingDetailLogicType } from './sessionRecordingDetailLogicType'
 
 export interface SessionRecordingDetailLogicProps {
     id?: SessionRecordingType['id']

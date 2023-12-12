@@ -12,17 +12,30 @@ import {
     selectors,
     sharedListeners,
 } from 'kea'
-import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
-import { dashboardsModel } from '~/models/dashboardsModel'
+import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
-import { clearDOMTextSelection, isUserLoggedIn, shouldCancelQuery, toParams, uuid } from 'lib/utils'
-import { insightsModel } from '~/models/insightsModel'
+import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
 import {
     AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS,
     DashboardPrivilegeLevel,
     OrganizationMembershipLevel,
 } from 'lib/constants'
+import { Dayjs, dayjs, now } from 'lib/dayjs'
+import { captureTimeToSeeData, currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { clearDOMTextSelection, isUserLoggedIn, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { Layout, Layouts } from 'react-grid-layout'
+import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { insightsModel } from '~/models/insightsModel'
 import {
     AnyPropertyFilter,
     Breadcrumb,
@@ -39,21 +52,10 @@ import {
     TextModel,
     TileLayout,
 } from '~/types'
-import type { dashboardLogicType } from './dashboardLogicType'
-import { Layout, Layouts } from 'react-grid-layout'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { teamLogic } from '../teamLogic'
-import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
-import { dayjs, now, Dayjs } from 'lib/dayjs'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { Link } from 'lib/lemon-ui/Link'
-import { captureTimeToSeeData, currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
+
 import { getResponseBytes, sortDates } from '../insights/utils'
-import { loaders } from 'kea-loaders'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
-import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from '../teamLogic'
+import type { dashboardLogicType } from './dashboardLogicType'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
     sm: 1024,
@@ -947,13 +949,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
             let refreshesFinished = 0
             let totalResponseBytes = 0
 
+            const hardRefreshWithoutCache = action === 'refresh_manual' || action === 'refresh_above_threshold'
+
             // array of functions that reload each item
             const fetchItemFunctions = insights.map((insight) => async () => {
                 // :TODO: Support query cancellation and use this queryId in the actual query.
                 const queryId = `${dashboardQueryId}::${uuid()}`
                 const queryStartTime = performance.now()
                 const apiUrl = `api/projects/${values.currentTeamId}/insights/${insight.id}/?${toParams({
-                    refresh: true,
+                    refresh: hardRefreshWithoutCache,
                     from_dashboard: dashboardId, // needed to load insight in correct context
                     client_query_id: queryId,
                     session_id: currentSessionId(),
@@ -1052,12 +1056,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             eventUsageLogic.actions.reportDashboardPropertiesChanged()
         },
         setDashboardMode: async ({ mode, source }) => {
-            // Edit mode special handling
-            if (mode === DashboardMode.Fullscreen) {
-                document.body.classList.add('fullscreen-scroll')
-            } else {
-                document.body.classList.remove('fullscreen-scroll')
-            }
             if (mode === DashboardMode.Edit) {
                 clearDOMTextSelection()
             }

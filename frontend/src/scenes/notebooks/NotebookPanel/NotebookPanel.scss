@@ -1,47 +1,47 @@
 @import '../../../styles/mixins';
 
 .NotebookPanel {
-    flex: 1;
     display: flex;
+    flex: 1;
     flex-direction: column;
-    background-color: var(--accent-3000);
     overflow: hidden;
+    background-color: var(--accent-3000);
 
     .NotebookPanelDropzone {
+        display: flex;
+        height: 4rem;
+        margin: 0.5rem;
         border: 2px dashed var(--border-3000);
         border-radius: var(--radius);
-        margin: 0.5rem;
         transition: all 150ms;
-        height: 4rem;
-        display: flex;
 
         .NotebookPanelDropzone__message {
-            flex: 1;
             display: flex;
+            flex: 1;
             flex-direction: column;
-            justify-content: center;
             align-items: center;
-            font-weight: 700;
+            justify-content: center;
+            padding: 1rem;
             font-size: 1rem;
+            font-weight: 700;
             color: var(--muted-alt);
             text-align: center;
             pointer-events: none;
             background-color: var(--bg-light);
-            padding: 1rem;
             opacity: 0.75;
             transition: all 150ms;
         }
 
         .NotebookPanelDropzone__dropped {
-            overflow: hidden;
-            flex: 1;
             display: flex;
+            flex: 1;
             flex-direction: column;
+            overflow: hidden;
         }
 
         &--active {
-            border-color: var(--primary-3000);
             height: 8rem;
+            border-color: var(--primary-3000);
 
             .NotebookPanelDropzone__message {
                 opacity: 1;
@@ -49,11 +49,11 @@
         }
 
         &--dropped {
-            border: none;
+            align-items: initial;
+            justify-content: flex-start;
             height: 100%;
             margin: 1rem;
-            justify-content: flex-start;
-            align-items: initial;
+            border: none;
         }
     }
 }

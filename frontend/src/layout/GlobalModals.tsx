@@ -1,19 +1,19 @@
-import { kea, path, actions, reducers, useActions, useValues } from 'kea'
-import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
-import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
-
-import type { globalModalsLogicType } from './GlobalModalsType'
-import { FeaturePreviewsModal } from './FeaturePreviews'
-import { UpgradeModal } from 'scenes/UpgradeModal'
 import { LemonModal } from '@posthog/lemon-ui'
-import { Setup2FA } from 'scenes/authentication/Setup2FA'
-import { userLogic } from 'scenes/userLogic'
-import { membersLogic } from 'scenes/organization/membersLogic'
+import { actions, kea, path, reducers, useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { HedgehogBuddyWithLogic } from 'lib/components/HedgehogBuddy/HedgehogBuddyWithLogic'
 import { Prompt } from 'lib/logic/newPrompt/Prompt'
+import { Setup2FA } from 'scenes/authentication/Setup2FA'
+import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
+import { membersLogic } from 'scenes/organization/membersLogic'
+import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { InviteModal } from 'scenes/settings/organization/InviteModal'
-import { HedgehogBuddyWithLogic } from 'lib/components/HedgehogBuddy/HedgehogBuddy'
+import { UpgradeModal } from 'scenes/UpgradeModal'
+import { userLogic } from 'scenes/userLogic'
+
+import { FeaturePreviewsModal } from './FeaturePreviews'
+import type { globalModalsLogicType } from './GlobalModalsType'
 
 export const globalModalsLogic = kea<globalModalsLogicType>([
     path(['layout', 'navigation', 'globalModalsLogic']),

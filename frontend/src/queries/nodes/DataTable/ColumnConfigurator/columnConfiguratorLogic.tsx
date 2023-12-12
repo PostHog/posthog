@@ -1,7 +1,9 @@
 import { actions, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
-import type { columnConfiguratorLogicType } from './columnConfiguratorLogicType'
 import { teamLogic } from 'scenes/teamLogic'
+
 import { HOGQL_COLUMNS_KEY } from '~/queries/nodes/DataTable/defaultEventsQuery'
+
+import type { columnConfiguratorLogicType } from './columnConfiguratorLogicType'
 
 export interface ColumnConfiguratorLogicProps {
     key: string

@@ -1,8 +1,10 @@
 import { Meta } from '@storybook/react'
-import { AvailableFeature } from '~/types'
-import { useAvailableFeatures } from '~/mocks/features'
+
 import { useStorybookMocks } from '~/mocks/browser'
+import { useAvailableFeatures } from '~/mocks/features'
 import { mockIntegration } from '~/test/mocks'
+import { AvailableFeature } from '~/types'
+
 import { SlackIntegration } from './SlackIntegration'
 
 const meta: Meta<typeof SlackIntegration> = {

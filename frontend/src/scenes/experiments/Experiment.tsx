@@ -1,24 +1,5 @@
-import { Popconfirm, Progress } from 'antd'
-import { BindLogic, useActions, useValues } from 'kea'
-import { PageHeader } from 'lib/components/PageHeader'
-import { useEffect, useState } from 'react'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { SceneExport } from 'scenes/sceneTypes'
-import { AvailableFeature, Experiment as ExperimentType, FunnelStep, InsightType } from '~/types'
 import './Experiment.scss'
-import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
-import { IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { dayjs } from 'lib/dayjs'
-import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
-import { SecondaryMetrics } from './SecondaryMetrics'
-import { EditableField } from 'lib/components/EditableField/EditableField'
-import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
-import { ExperimentPreview } from './ExperimentPreview'
-import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { router } from 'kea-router'
+
 import {
     LemonDivider,
     LemonInput,
@@ -29,23 +10,45 @@ import {
     LemonTextArea,
     Tooltip,
 } from '@posthog/lemon-ui'
-import { NotFound } from 'lib/components/NotFound'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { Form, Group } from 'kea-forms'
-import { Field } from 'lib/forms/Field'
-import { userLogic } from 'scenes/userLogic'
-import { ExperimentsPayGate } from './ExperimentsPayGate'
-import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
-import { EXPERIMENT_INSIGHT_ID } from './constants'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { Query } from '~/queries/Query/Query'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
-import { ExperimentInsightCreator } from './MetricSelector'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { ExperimentResult } from './ExperimentResult'
+import { Popconfirm, Progress } from 'antd'
 import clsx from 'clsx'
+import { BindLogic, useActions, useValues } from 'kea'
+import { Form, Group } from 'kea-forms'
+import { router } from 'kea-router'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { EditableField } from 'lib/components/EditableField/EditableField'
+import { NotFound } from 'lib/components/NotFound'
+import { PageHeader } from 'lib/components/PageHeader'
+import { dayjs } from 'lib/dayjs'
+import { Field } from 'lib/forms/Field'
+import { IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
+import { Link } from 'lib/lemon-ui/Link'
+import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
+import { useEffect, useState } from 'react'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { Query } from '~/queries/Query/Query'
+import { AvailableFeature, Experiment as ExperimentType, FunnelStep, InsightType } from '~/types'
+
+import { EXPERIMENT_INSIGHT_ID } from './constants'
+import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
+import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
+import { ExperimentPreview } from './ExperimentPreview'
+import { ExperimentResult } from './ExperimentResult'
 import { getExperimentStatus, getExperimentStatusColor } from './experimentsLogic'
+import { ExperimentsPayGate } from './ExperimentsPayGate'
+import { ExperimentInsightCreator } from './MetricSelector'
+import { SecondaryMetrics } from './SecondaryMetrics'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -523,104 +526,104 @@ export function Experiment(): JSX.Element {
             ) : experiment ? (
                 <div className="view-experiment">
                     <div className="draft-header">
-                        <div className="flex w-full justify-between align-center flex-nowrap">
-                            <PageHeader
-                                style={{ paddingRight: 8 }}
-                                title={`${experiment?.name}`}
-                                buttons={
-                                    <>
-                                        {experiment.feature_flag && (
-                                            <CopyToClipboardInline
-                                                explicitValue={experiment.feature_flag.key}
-                                                iconStyle={{ color: 'var(--muted-alt)' }}
-                                            >
-                                                <span className="text-muted">{experiment.feature_flag.key}</span>
-                                            </CopyToClipboardInline>
-                                        )}
-                                        <StatusTag experiment={experiment} />
-                                        <ResultsTag />
-                                    </>
-                                }
-                            />
-                            <div className="page-title-row">
-                                {experiment && !isExperimentRunning && (
-                                    <div className="flex items-center">
-                                        <LemonButton
-                                            type="secondary"
-                                            className="mr-2"
-                                            onClick={() => setEditExperiment(true)}
+                        <PageHeader
+                            title={
+                                <div className="flex items-center gap-2">
+                                    <span>{experiment?.name}</span>
+                                    {experiment.feature_flag && (
+                                        <CopyToClipboardInline
+                                            iconStyle={{ color: 'var(--muted-alt)' }}
+                                            className="text-muted font-normal text-sm"
+                                            description="feature flag key"
                                         >
-                                            Edit
-                                        </LemonButton>
-                                        <LemonButton type="primary" onClick={() => launchExperiment()}>
-                                            Launch
-                                        </LemonButton>
-                                    </div>
-                                )}
-                                {experiment && isExperimentRunning && (
-                                    <div className="flex flex-row gap-2">
-                                        <>
-                                            <More
-                                                overlay={
-                                                    <>
-                                                        <LemonButton
-                                                            status="stealth"
-                                                            onClick={() => loadExperimentResults(true)}
-                                                            fullWidth
-                                                            data-attr="refresh-experiment"
-                                                        >
-                                                            Refresh experiment results
-                                                        </LemonButton>
-                                                    </>
-                                                }
-                                            />
-                                            <LemonDivider vertical />
-                                        </>
-                                        <Popconfirm
-                                            placement="bottomLeft"
-                                            title={
-                                                <div>
-                                                    Reset this experiment and go back to draft mode?
-                                                    <div className="text-sm text-muted">
-                                                        All collected data so far will be discarded.
-                                                    </div>
-                                                    {experiment.archived && (
-                                                        <div className="text-sm text-muted">
-                                                            Resetting will also unarchive the experiment.
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            }
-                                            onConfirm={() => resetRunningExperiment()}
-                                        >
-                                            <LemonButton type="secondary" status="primary">
-                                                Reset
-                                            </LemonButton>
-                                        </Popconfirm>
-                                        {!experiment.end_date && (
+                                            {experiment.feature_flag.key}
+                                        </CopyToClipboardInline>
+                                    )}
+                                    <StatusTag experiment={experiment} />
+                                    <ResultsTag />
+                                </div>
+                            }
+                            buttons={
+                                <>
+                                    {experiment && !isExperimentRunning && (
+                                        <div className="flex items-center">
                                             <LemonButton
                                                 type="secondary"
-                                                status="danger"
-                                                onClick={() => endExperiment()}
+                                                className="mr-2"
+                                                onClick={() => setEditExperiment(true)}
                                             >
-                                                Stop
+                                                Edit
                                             </LemonButton>
-                                        )}
-                                        {experiment?.end_date &&
-                                            dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
-                                            !experiment.archived && (
+                                            <LemonButton type="primary" onClick={() => launchExperiment()}>
+                                                Launch
+                                            </LemonButton>
+                                        </div>
+                                    )}
+                                    {experiment && isExperimentRunning && (
+                                        <div className="flex flex-row gap-2">
+                                            <>
+                                                <More
+                                                    overlay={
+                                                        <>
+                                                            <LemonButton
+                                                                status="stealth"
+                                                                onClick={() => loadExperimentResults(true)}
+                                                                fullWidth
+                                                                data-attr="refresh-experiment"
+                                                            >
+                                                                Refresh experiment results
+                                                            </LemonButton>
+                                                        </>
+                                                    }
+                                                />
+                                                <LemonDivider vertical />
+                                            </>
+                                            <Popconfirm
+                                                placement="bottomLeft"
+                                                title={
+                                                    <div>
+                                                        Reset this experiment and go back to draft mode?
+                                                        <div className="text-sm text-muted">
+                                                            All collected data so far will be discarded.
+                                                        </div>
+                                                        {experiment.archived && (
+                                                            <div className="text-sm text-muted">
+                                                                Resetting will also unarchive the experiment.
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                }
+                                                onConfirm={() => resetRunningExperiment()}
+                                            >
+                                                <LemonButton type="secondary" status="primary">
+                                                    Reset
+                                                </LemonButton>
+                                            </Popconfirm>
+                                            {!experiment.end_date && (
                                                 <LemonButton
                                                     type="secondary"
                                                     status="danger"
-                                                    onClick={() => archiveExperiment()}
+                                                    onClick={() => endExperiment()}
                                                 >
-                                                    <b>Archive</b>
+                                                    Stop
                                                 </LemonButton>
                                             )}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
+                                            {experiment?.end_date &&
+                                                dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
+                                                !experiment.archived && (
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        status="danger"
+                                                        onClick={() => archiveExperiment()}
+                                                    >
+                                                        <b>Archive</b>
+                                                    </LemonButton>
+                                                )}
+                                        </div>
+                                    )}
+                                </>
+                            }
+                        />
                         <div className="w-full pb-4">
                             <span className="exp-description">
                                 {isExperimentRunning ? (

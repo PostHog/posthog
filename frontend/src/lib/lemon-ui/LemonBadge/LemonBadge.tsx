@@ -1,7 +1,8 @@
+import './LemonBadge.scss'
+
 import clsx from 'clsx'
 import { compactNumber, humanFriendlyNumber } from 'lib/utils'
 import { CSSTransition } from 'react-transition-group'
-import './LemonBadge.scss'
 
 interface LemonBadgePropsBase {
     size?: 'small' | 'medium' | 'large'

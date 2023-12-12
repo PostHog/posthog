@@ -1,13 +1,14 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { PluginConfigTypeNew, PluginType, ProductKey } from '~/types'
 import posthog from 'posthog-js'
+import { canConfigurePlugins } from 'scenes/plugins/access'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { PluginConfigTypeNew, PluginType, ProductKey } from '~/types'
 
 import type { pipelineTransformationsLogicType } from './transformationsLogicType'
-import { teamLogic } from 'scenes/teamLogic'
-import { canConfigurePlugins } from 'scenes/plugins/access'
-import { userLogic } from 'scenes/userLogic'
 
 function capturePluginEvent(event: string, plugin: PluginType, pluginConfig: PluginConfigTypeNew): void {
     posthog.capture(event, {

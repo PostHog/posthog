@@ -1,10 +1,11 @@
-import { loaders } from 'kea-loaders'
-import { kea, path, actions, reducers, selectors } from 'kea'
-import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import type { actionsLogicType } from './actionsLogicType'
-import { ActionType } from '~/types'
 import Fuse from 'fuse.js'
-import { toolbarFetch } from '~/toolbar/utils'
+import { actions, kea, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+
+import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { ActionType } from '~/types'
+
+import type { actionsLogicType } from './actionsLogicType'
 
 export const actionsLogic = kea<actionsLogicType>([
     path(['toolbar', 'actions', 'actionsLogic']),
@@ -21,7 +22,7 @@ export const actionsLogic = kea<actionsLogicType>([
                     const results = await response.json()
 
                     if (response.status === 403) {
-                        toolbarLogic.actions.authenticate()
+                        toolbarConfigLogic.actions.authenticate()
                         return []
                     }
 

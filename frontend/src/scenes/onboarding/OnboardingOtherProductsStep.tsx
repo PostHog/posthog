@@ -1,8 +1,9 @@
-import { useWindowSize } from 'lib/hooks/useWindowSize'
-import { OnboardingStep } from './OnboardingStep'
-import { OnboardingStepKey, onboardingLogic } from './onboardingLogic'
 import { useActions, useValues } from 'kea'
+import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { ProductCard } from 'scenes/products/Products'
+
+import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
+import { OnboardingStep } from './OnboardingStep'
 
 export const OnboardingOtherProductsStep = ({
     stepKey = OnboardingStepKey.OTHER_PRODUCTS,

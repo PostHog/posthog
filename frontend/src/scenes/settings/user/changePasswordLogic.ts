@@ -1,5 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { kea, path, connect } from 'kea'
+import { connect, kea, path } from 'kea'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
 import { userLogic } from 'scenes/userLogic'

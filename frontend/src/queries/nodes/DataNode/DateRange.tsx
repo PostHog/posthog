@@ -1,4 +1,5 @@
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+
 import { DataNode, EventsQuery, HogQLQuery } from '~/queries/schema'
 import { isEventsQuery, isHogQLQuery } from '~/queries/utils'
 

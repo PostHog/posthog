@@ -1,8 +1,10 @@
-import { cohortSceneLogic } from './cohortSceneLogic'
 import 'antd/lib/dropdown/style/index.css'
-import { SceneExport } from 'scenes/sceneTypes'
+
 import { CohortEdit } from 'scenes/cohorts/CohortEdit'
+import { SceneExport } from 'scenes/sceneTypes'
+
 import { CohortLogicProps } from './cohortEditLogic'
+import { cohortSceneLogic } from './cohortSceneLogic'
 
 export const scene: SceneExport = {
     component: Cohort,

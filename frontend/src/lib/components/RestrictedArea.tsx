@@ -1,10 +1,11 @@
 import { useValues } from 'kea'
-import { useMemo } from 'react'
-import { organizationLogic } from '../../scenes/organizationLogic'
-import { EitherMembershipLevel, OrganizationMembershipLevel } from '../constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { membershipLevelToName } from '../utils/permissioning'
+import { useMemo } from 'react'
+
+import { organizationLogic } from '../../scenes/organizationLogic'
 import { isAuthenticatedTeam, teamLogic } from '../../scenes/teamLogic'
+import { EitherMembershipLevel, OrganizationMembershipLevel } from '../constants'
+import { membershipLevelToName } from '../utils/permissioning'
 
 export interface RestrictedComponentProps {
     isRestricted: boolean

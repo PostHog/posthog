@@ -1,11 +1,12 @@
-import { IconChevronRight } from 'lib/lemon-ui/icons'
-import { SidebarCategory } from '../types'
-import { Spinner } from 'lib/lemon-ui/Spinner'
-import { SidebarList } from './SidebarList'
-import { navigation3000Logic } from '../navigationLogic'
 import { useActions, useValues } from 'kea'
-import { NewItemButton } from './NewItemButton'
+import { IconChevronRight } from 'lib/lemon-ui/icons'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { capitalizeFirstLetter } from 'lib/utils'
+
+import { navigation3000Logic } from '../navigationLogic'
+import { SidebarCategory } from '../types'
+import { NewItemButton } from './NewItemButton'
+import { SidebarList } from './SidebarList'
 
 interface SidebarAccordionProps {
     category: SidebarCategory

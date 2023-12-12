@@ -1,15 +1,21 @@
 import './SurveyAppearance.scss'
+
 import { LemonButton, LemonCheckbox, LemonInput, Link } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import React, { useEffect, useRef, useState } from 'react'
+
 import {
-    SurveyAppearance as SurveyAppearanceType,
-    SurveyQuestion,
-    RatingSurveyQuestion,
-    SurveyQuestionType,
-    MultipleSurveyQuestion,
     AvailableFeature,
     BasicSurveyQuestion,
     LinkSurveyQuestion,
+    MultipleSurveyQuestion,
+    RatingSurveyQuestion,
+    SurveyAppearance as SurveyAppearanceType,
+    SurveyQuestion,
+    SurveyQuestionType,
 } from '~/types'
+
 import { defaultSurveyAppearance } from './constants'
 import {
     cancel,
@@ -23,9 +29,6 @@ import {
     verySatisfiedEmoji,
 } from './SurveyAppearanceUtils'
 import { surveysLogic } from './surveysLogic'
-import { useValues } from 'kea'
-import React, { useEffect, useRef, useState } from 'react'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { sanitizeHTML } from './utils'
 
 interface SurveyAppearanceProps {
@@ -76,6 +79,7 @@ const Button = ({
                 link && type === SurveyQuestionType.Link ? window.open(link) : null
                 onSubmit()
             }}
+            // eslint-disable-next-line react/forbid-dom-props
             style={{ color: textColor, backgroundColor: appearance.submitButtonColor }}
             {...other}
         >
@@ -242,6 +246,7 @@ export function BaseAppearance({
         <form
             ref={ref}
             className="survey-form"
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
                 backgroundColor: appearance.backgroundColor,
                 border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
@@ -251,6 +256,7 @@ export function BaseAppearance({
             <div className="survey-box">
                 {!preview && (
                     <div
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={{
                             border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
                         }}
@@ -278,6 +284,7 @@ export function BaseAppearance({
                     {question.type === SurveyQuestionType.Open && (
                         <textarea
                             {...(preview ? { tabIndex: -1 } : null)}
+                            // eslint-disable-next-line react/forbid-dom-props
                             style={{
                                 border: `1px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
                             }}
@@ -343,6 +350,7 @@ const RatingButton = ({
             className="ratings-number"
             type="button"
             onClick={() => setActiveNumber(num)}
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
                 color: textColor,
                 backgroundColor: active ? appearance.ratingButtonActiveColor : appearance.ratingButtonColor,
@@ -368,6 +376,7 @@ const NumberRating = ({
     const totalNumbers = ratingSurveyQuestion.scale === 10 ? 11 : ratingSurveyQuestion.scale
     return (
         <div
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
                 border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
                 gridTemplateColumns: `repeat(${totalNumbers}, minmax(0, 1fr))`,
@@ -416,6 +425,7 @@ const EmojiRating = ({
                         className="ratings-emoji"
                         type="button"
                         key={idx}
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={{ fill: active ? appearance.ratingButtonActiveColor : appearance.ratingButtonColor }}
                         onClick={() => setActiveIndex(idx)}
                     >
@@ -452,6 +462,7 @@ export function SurveyRatingAppearance({
         <form
             ref={ref}
             className="survey-form"
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
                 backgroundColor: appearance.backgroundColor,
                 border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
@@ -461,6 +472,7 @@ export function SurveyRatingAppearance({
             <div className="survey-box">
                 {!preview && (
                     <div
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={{
                             border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
                         }}
@@ -526,6 +538,64 @@ export function SurveyRatingAppearance({
     )
 }
 
+const OpenEndedChoice = ({
+    label,
+    initialChecked,
+    inputType,
+    index,
+}: {
+    label: string
+    initialChecked: boolean
+    inputType: string
+    textColor: string
+    index: number
+}): JSX.Element => {
+    const textRef = useRef<HTMLInputElement | null>(null)
+    const checkRef = useRef<HTMLInputElement | null>(null)
+
+    return (
+        <div
+            className="choice-option choice-option-open"
+            onClick={() => {
+                if (checkRef.current?.checked || checkRef.current?.disabled) {
+                    textRef.current?.focus()
+                }
+            }}
+        >
+            <input
+                id={`${label}-${index}`}
+                ref={checkRef}
+                type={inputType}
+                disabled={!initialChecked || !checkRef.current?.value}
+                defaultChecked={initialChecked}
+                name="choice"
+            />
+            <label htmlFor={`${label}-${index}`}>
+                <span>{label}:</span>
+                <input
+                    ref={textRef}
+                    type="text"
+                    maxLength={100}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => {
+                        if (checkRef.current) {
+                            checkRef.current.value = e.target.value
+                            if (e.target.value) {
+                                checkRef.current.disabled = false
+                                checkRef.current.checked = true
+                            } else {
+                                checkRef.current.disabled = true
+                                checkRef.current.checked = false
+                            }
+                        }
+                    }}
+                />
+            </label>
+            <span className="choice-check">{check}</span>
+        </div>
+    )
+}
+
 export function SurveyMultipleChoiceAppearance({
     multipleChoiceQuestion,
     appearance,
@@ -554,6 +624,7 @@ export function SurveyMultipleChoiceAppearance({
         <form
             ref={ref}
             className="survey-form"
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
                 backgroundColor: appearance.backgroundColor,
                 border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
@@ -563,6 +634,7 @@ export function SurveyMultipleChoiceAppearance({
             <div className="survey-box">
                 {!preview && (
                     <div
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={{
                             border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
                         }}
@@ -584,18 +656,29 @@ export function SurveyMultipleChoiceAppearance({
                     />
                 )}
                 <div className="multiple-choice-options">
-                    {(multipleChoiceQuestion.choices || []).map((choice, idx) => (
-                        <div className="choice-option" key={idx}>
-                            <input
-                                {...(initialChecked ? { checked: initialChecked.includes(idx) } : null)}
-                                type={inputType}
-                                name="choice"
-                                value={choice}
+                    {(multipleChoiceQuestion.choices || []).map((choice, idx) =>
+                        multipleChoiceQuestion?.hasOpenChoice && idx === multipleChoiceQuestion.choices?.length - 1 ? (
+                            <OpenEndedChoice
+                                key={idx}
+                                index={idx}
+                                initialChecked={!!initialChecked?.includes(idx)}
+                                inputType={inputType}
+                                label={choice}
+                                textColor={textColor}
                             />
-                            <label>{choice}</label>
-                            <span className="choice-check">{check}</span>
-                        </div>
-                    ))}
+                        ) : (
+                            <div className="choice-option" key={idx}>
+                                <input
+                                    {...(initialChecked ? { defaultChecked: initialChecked.includes(idx) } : null)}
+                                    type={inputType}
+                                    name="choice"
+                                    value={choice}
+                                />
+                                <label>{choice}</label>
+                                <span className="choice-check">{check}</span>
+                            </div>
+                        )
+                    )}
                 </div>
                 <div className="bottom-section">
                     <div className="buttons">
@@ -630,6 +713,7 @@ export function SurveyThankYou({ appearance }: { appearance: SurveyAppearanceTyp
         <div
             ref={ref}
             className="thank-you-message"
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
                 backgroundColor: appearance.backgroundColor,
                 border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
@@ -638,6 +722,7 @@ export function SurveyThankYou({ appearance }: { appearance: SurveyAppearanceTyp
         >
             <div className="thank-you-message-container">
                 <div
+                    // eslint-disable-next-line react/forbid-dom-props
                     style={{ border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}` }}
                     className="cancel-btn-wrapper"
                 >

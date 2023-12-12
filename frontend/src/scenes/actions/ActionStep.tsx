@@ -1,18 +1,20 @@
-import { LemonEventName } from './EventName'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
-import { ActionStepType, StringMatching } from '~/types'
+import './ActionStep.scss'
+
 import { LemonButton, LemonInput, LemonSegmentedButton, Link } from '@posthog/lemon-ui'
-import { IconClose, IconOpenInApp } from 'lib/lemon-ui/icons'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { OperandTag } from 'lib/components/PropertyFilters/components/OperandTag'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { IconClose, IconOpenInApp } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { useState } from 'react'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
 
-import './ActionStep.scss'
-import { OperandTag } from 'lib/components/PropertyFilters/components/OperandTag'
+import { ActionStepType, StringMatching } from '~/types'
+
+import { LemonEventName } from './EventName'
 
 const learnMoreLink = 'https://posthog.com/docs/user-guides/actions?utm_medium=in-product&utm_campaign=action-page'
 

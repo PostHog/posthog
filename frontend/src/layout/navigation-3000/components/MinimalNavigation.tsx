@@ -1,13 +1,14 @@
+import { IconLogomark } from '@posthog/icons'
 import { LemonButton, Lettermark, Popover, ProfilePicture } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import { SitePopoverOverlay } from '~/layout/navigation/TopBar/SitePopover'
-import { useValues, useActions } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { userLogic } from 'scenes/userLogic'
-import { IconLogomark } from '@posthog/icons'
-import { urls } from 'scenes/urls'
-import { organizationLogic } from 'scenes/organizationLogic'
 
 export function MinimalNavigation(): JSX.Element {
     const { user } = useValues(userLogic)

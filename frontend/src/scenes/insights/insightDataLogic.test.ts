@@ -1,14 +1,14 @@
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
+import { useMocks } from '~/mocks/jest'
+import { examples } from '~/queries/examples'
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { NodeKind, TrendsQuery } from '~/queries/schema'
+import { initKeaTests } from '~/test/init'
 import { InsightShortId } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
-import { NodeKind, TrendsQuery } from '~/queries/schema'
-import { useMocks } from '~/mocks/jest'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { examples } from '~/queries/examples'
 
 const Insight123 = '123' as InsightShortId
 

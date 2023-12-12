@@ -1,33 +1,36 @@
+import './SurveyView.scss'
+
 import { TZLabel } from '@posthog/apps-common'
 import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
-import { useValues, useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
+import { PageHeader } from 'lib/components/PageHeader'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
+
 import { Query } from '~/queries/Query/Query'
+import { NodeKind } from '~/queries/schema'
+import { PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
+
+import { SURVEY_EVENT_NAME } from './constants'
+import { SurveyReleaseSummary } from './Survey'
+import { SurveyAPIEditor } from './SurveyAPIEditor'
+import { SurveyFormAppearance } from './SurveyFormAppearance'
 import { surveyLogic } from './surveyLogic'
 import { surveysLogic } from './surveysLogic'
-import { PageHeader } from 'lib/components/PageHeader'
-import { SurveyReleaseSummary } from './Survey'
-import { PropertyFilterType, PropertyOperator, Survey, SurveyQuestionType, SurveyType } from '~/types'
-import { SurveyAPIEditor } from './SurveyAPIEditor'
-import { NodeKind } from '~/queries/schema'
-import { dayjs } from 'lib/dayjs'
-import { SURVEY_EVENT_NAME } from './constants'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
-    Summary,
-    RatingQuestionBarChart,
-    SingleChoiceQuestionPieChart,
     MultipleChoiceQuestionBarChart,
     OpenTextViz,
+    RatingQuestionBarChart,
+    SingleChoiceQuestionPieChart,
+    Summary,
 } from './surveyViewViz'
-import './SurveyView.scss'
-import { SurveyFormAppearance } from './SurveyFormAppearance'
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const { survey, surveyLoading, selectedQuestion } = useValues(surveyLogic)

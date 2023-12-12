@@ -1,15 +1,18 @@
-import React from 'react'
-import { LemonButton, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconCheckmark, IconClose, IconWarning } from 'lib/lemon-ui/icons'
-import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType, BillingV2PlanType } from '~/types'
 import './PlanComparison.scss'
+
+import { LemonButton, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { IconCheckmark, IconClose, IconWarning } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { convertLargeNumberToWords, getUpgradeProductLink } from './billing-utils'
-import { billingLogic } from './billingLogic'
+import React from 'react'
 import { getProductIcon } from 'scenes/products/Products'
 import useResizeObserver from 'use-resize-observer'
+
+import { BillingProductV2AddonType, BillingProductV2Type, BillingV2FeatureType, BillingV2PlanType } from '~/types'
+
+import { convertLargeNumberToWords, getUpgradeProductLink } from './billing-utils'
+import { billingLogic } from './billingLogic'
 
 export function PlanIcon({
     feature,
@@ -60,7 +63,7 @@ const getProductTiers = (
             {tiers ? (
                 tiers?.map((tier, i) => (
                     <div
-                        key={`${plan.key}-${product.type}-${tier.up_to}`}
+                        key={`${plan.plan_key}-${product.type}-${tier.up_to}`}
                         className={`flex ${width && width < 100 ? 'flex-col mb-2' : ' justify-between items-center'}`}
                         ref={tiersRef}
                     >
@@ -76,7 +79,7 @@ const getProductTiers = (
                 ))
             ) : product?.free_allocation ? (
                 <div
-                    key={`${plan.key}-${product.type}-tiers`}
+                    key={`${plan.plan_key}-${product.type}-tiers`}
                     className={`flex ${width && width < 100 ? 'flex-col mb-2' : ' justify-between items-center'}`}
                     ref={tiersRef}
                 >
@@ -108,7 +111,7 @@ export const PlanComparison = ({
 
     const upgradeButtons = plans?.map((plan) => {
         return (
-            <td key={`${plan.key}-cta`} className="PlanTable__td__upgradeButton">
+            <td key={`${plan.plan_key}-cta`} className="PlanTable__td__upgradeButton">
                 <LemonButton
                     to={getUpgradeProductLink(product, plan.plan_key || '', redirectPath, includeAddons)}
                     type={plan.current_plan ? 'secondary' : 'primary'}

@@ -1,12 +1,13 @@
-import { LemonInput, LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
+import SignupReferralSource from 'lib/components/SignupReferralSource'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 import { Field } from 'lib/forms/Field'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { signupLogic } from '../signupLogic'
-import SignupReferralSource from 'lib/components/SignupReferralSource'
 import { useButtonStyle } from 'scenes/authentication/useButtonStyles'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+import { signupLogic } from '../signupLogic'
 
 const UTM_TAGS = 'utm_campaign=in-product&utm_tag=signup-header'
 

@@ -1,7 +1,18 @@
+import posthogEE from '@posthog/ee/exports'
+import { EventType, eventWithTime } from '@rrweb/types'
+import { captureException } from '@sentry/react'
 import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { Dayjs, dayjs } from 'lib/dayjs'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { toParams } from 'lib/utils'
+import { chainToElements } from 'lib/utils/elements-chain'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import posthog from 'posthog-js'
+
+import { NodeKind } from '~/queries/schema'
 import {
     AnyPropertyFilter,
     EncodedRecordingSnapshot,
@@ -20,29 +31,42 @@ import {
     SessionRecordingType,
     SessionRecordingUsageType,
 } from '~/types'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { EventType, eventWithTime } from '@rrweb/types'
-import { Dayjs, dayjs } from 'lib/dayjs'
+
+import { PostHogEE } from '../../../../@posthog/ee/types'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
-import { chainToElements } from 'lib/utils/elements-chain'
-import { captureException } from '@sentry/react'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
-import posthog from 'posthog-js'
-import { NodeKind } from '~/queries/schema'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
 
-const parseEncodedSnapshots = (items: (EncodedRecordingSnapshot | string)[], sessionId: string): RecordingSnapshot[] =>
-    items.flatMap((l) => {
+let postHogEEModule: PostHogEE
+
+const parseEncodedSnapshots = async (
+    items: (EncodedRecordingSnapshot | string)[],
+    sessionId: string,
+    withMobileTransformer: boolean
+): Promise<RecordingSnapshot[]> => {
+    if (!postHogEEModule && withMobileTransformer) {
+        postHogEEModule = await posthogEE()
+    }
+    return items.flatMap((l) => {
+        if (!l) {
+            // blob files have an empty line at the end
+            return []
+        }
         try {
             const snapshotLine = typeof l === 'string' ? (JSON.parse(l) as EncodedRecordingSnapshot) : l
             const snapshotData = snapshotLine['data']
 
-            return snapshotData.map((d: any) => ({
-                windowId: snapshotLine['window_id'],
-                ...d,
-            }))
+            return snapshotData.map((d: unknown) => {
+                const snap = withMobileTransformer
+                    ? postHogEEModule?.mobileReplay?.transformEventToWeb(d) || (d as eventWithTime)
+                    : (d as eventWithTime)
+                return {
+                    windowId: snapshotLine['window_id'],
+                    ...(snap || (d as eventWithTime)),
+                }
+            })
         } catch (e) {
             posthog.capture('session recording had unparseable line', {
                 sessionId,
@@ -52,6 +76,7 @@ const parseEncodedSnapshots = (items: (EncodedRecordingSnapshot | string)[], ses
             return []
         }
     })
+}
 
 const getHrefFromSnapshot = (snapshot: RecordingSnapshot): string | undefined => {
     return (snapshot.data as any)?.href || (snapshot.data as any)?.payload?.href
@@ -63,7 +88,7 @@ export const prepareRecordingSnapshots = (
 ): RecordingSnapshot[] => {
     const seenHashes: Record<string, (RecordingSnapshot | string)[]> = {}
 
-    const prepared = (newSnapshots || [])
+    return (newSnapshots || [])
         .concat(existingSnapshots ? existingSnapshots ?? [] : [])
         .filter((snapshot) => {
             // For a multitude of reasons, there can be duplicate snapshots in the same recording.
@@ -87,27 +112,6 @@ export const prepareRecordingSnapshots = (
             return true
         })
         .sort((a, b) => a.timestamp - b.timestamp)
-
-    return prepared
-}
-
-export const convertSnapshotsByWindowId = (snapshotsByWindowId: {
-    [key: string]: eventWithTime[]
-}): RecordingSnapshot[] => {
-    return Object.entries(snapshotsByWindowId).flatMap(([windowId, snapshots]) => {
-        return snapshots.map((snapshot) => ({
-            ...snapshot,
-            windowId,
-        }))
-    })
-}
-
-// Until we change the API to return a simple list of snapshots, we need to convert this ourselves
-export const convertSnapshotsResponse = (
-    snapshotsByWindowId: { [key: string]: eventWithTime[] },
-    existingSnapshots?: RecordingSnapshot[]
-): RecordingSnapshot[] => {
-    return prepareRecordingSnapshots(convertSnapshotsByWindowId(snapshotsByWindowId), existingSnapshots)
 }
 
 const generateRecordingReportDurations = (
@@ -165,12 +169,44 @@ function makeEventsQuery(
     })
 }
 
+async function processEncodedResponse(
+    encodedResponse: (EncodedRecordingSnapshot | string)[],
+    props: SessionRecordingDataLogicProps,
+    existingData: SessionPlayerSnapshotData | null,
+    featureFlags: FeatureFlagsSet
+): Promise<{ transformed: RecordingSnapshot[]; untransformed: RecordingSnapshot[] | null }> {
+    let untransformed: RecordingSnapshot[] | null = null
+
+    const transformed = prepareRecordingSnapshots(
+        await parseEncodedSnapshots(
+            encodedResponse,
+            props.sessionRecordingId,
+            !!featureFlags[FEATURE_FLAGS.SESSION_REPLAY_MOBILE]
+        ),
+        existingData?.snapshots ?? []
+    )
+
+    if (featureFlags[FEATURE_FLAGS.SESSION_REPLAY_EXPORT_MOBILE_DATA]) {
+        untransformed = prepareRecordingSnapshots(
+            await parseEncodedSnapshots(
+                encodedResponse,
+                props.sessionRecordingId,
+                false // don't transform mobile data
+            ),
+            existingData?.untransformed_snapshots ?? []
+        )
+    }
+
+    return { transformed, untransformed }
+}
+
 export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'sessionRecordingDataLogic', key]),
     props({} as SessionRecordingDataLogicProps),
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
     connect({
         logic: [eventUsageLogic],
+        values: [featureFlagLogic, ['featureFlags']],
     }),
     defaults({
         sessionPlayerMetaData: null as SessionRecordingType | null,
@@ -344,10 +380,15 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             props.sessionRecordingId,
                             source.blob_key
                         )
-                        data.snapshots = prepareRecordingSnapshots(
-                            parseEncodedSnapshots(encodedResponse, props.sessionRecordingId),
-                            values.sessionPlayerSnapshotData?.snapshots ?? []
+
+                        const { transformed, untransformed } = await processEncodedResponse(
+                            encodedResponse,
+                            props,
+                            values.sessionPlayerSnapshotData,
+                            values.featureFlags
                         )
+                        data.snapshots = transformed
+                        data.untransformed_snapshots = untransformed ?? undefined
                     } else {
                         const params = toParams({
                             source: source?.source,
@@ -356,10 +397,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         })
                         const response = await api.recordings.listSnapshots(props.sessionRecordingId, params)
                         if (response.snapshots) {
-                            data.snapshots = prepareRecordingSnapshots(
-                                parseEncodedSnapshots(response.snapshots, props.sessionRecordingId),
-                                values.sessionPlayerSnapshotData?.snapshots ?? []
+                            const { transformed, untransformed } = await processEncodedResponse(
+                                response.snapshots,
+                                props,
+                                values.sessionPlayerSnapshotData,
+                                values.featureFlags
                             )
+                            data.snapshots = transformed
+                            data.untransformed_snapshots = untransformed ?? undefined
                         }
 
                         if (response.sources) {

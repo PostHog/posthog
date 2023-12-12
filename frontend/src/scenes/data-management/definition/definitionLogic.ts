@@ -1,17 +1,19 @@
-import { actions, afterMount, kea, key, props, path, selectors, reducers, connect } from 'kea'
-import { AvailableFeature, Breadcrumb, Definition, PropertyDefinition } from '~/types'
+import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import api from 'lib/api'
-import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
-import type { definitionLogicType } from './definitionLogicType'
+import api from 'lib/api'
 import { getPropertyLabel } from 'lib/taxonomy'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+
+import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
+import { AvailableFeature, Breadcrumb, Definition, PropertyDefinition } from '~/types'
+
+import { DataManagementTab } from '../DataManagementScene'
 import { eventDefinitionsTableLogic } from '../events/eventDefinitionsTableLogic'
 import { propertyDefinitionsTableLogic } from '../properties/propertyDefinitionsTableLogic'
-import { Scene } from 'scenes/sceneTypes'
-import { DataManagementTab } from '../DataManagementScene'
+import type { definitionLogicType } from './definitionLogicType'
 
 export enum DefinitionPageMode {
     View = 'view',

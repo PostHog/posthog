@@ -1,43 +1,22 @@
-import { BuiltLogic, kea, props, path, connect, actions, reducers, selectors, listeners } from 'kea'
+import { actions, BuiltLogic, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
-import posthog from 'posthog-js'
-import type { sceneLogicType } from './sceneLogicType'
+import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
+import { BarStatus } from 'lib/components/CommandBar/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { preflightLogic } from './PreflightCheck/preflightLogic'
-import { AvailableFeature } from '~/types'
-import { userLogic } from './userLogic'
-import { handleLoginRedirect } from './authentication/loginLogic'
-import { teamLogic } from './teamLogic'
-import { urls } from 'scenes/urls'
-import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } from 'scenes/sceneTypes'
+import posthog from 'posthog-js'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
-import { organizationLogic } from './organizationLogic'
-import { appContextLogic } from './appContextLogic'
+import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
-/** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
-const sceneNavAlias: Partial<Record<Scene, Scene>> = {
-    [Scene.Action]: Scene.DataManagement,
-    [Scene.EventDefinition]: Scene.DataManagement,
-    [Scene.PropertyDefinition]: Scene.DataManagement,
-    [Scene.Person]: Scene.PersonsManagement,
-    [Scene.Cohort]: Scene.PersonsManagement,
-    [Scene.Experiment]: Scene.Experiments,
-    [Scene.Group]: Scene.PersonsManagement,
-    [Scene.Dashboard]: Scene.Dashboards,
-    [Scene.FeatureFlag]: Scene.FeatureFlags,
-    [Scene.EarlyAccessFeature]: Scene.EarlyAccessFeatures,
-    [Scene.Survey]: Scene.Surveys,
-    [Scene.SurveyTemplates]: Scene.Surveys,
-    [Scene.DataWarehousePosthog]: Scene.DataWarehouse,
-    [Scene.DataWarehouseExternal]: Scene.DataWarehouse,
-    [Scene.DataWarehouseSavedQueries]: Scene.DataWarehouse,
-    [Scene.DataWarehouseSettings]: Scene.DataWarehouse,
-    [Scene.DataWarehouseTable]: Scene.DataWarehouse,
-    [Scene.AppMetrics]: Scene.Apps,
-    [Scene.ReplaySingle]: Scene.Replay,
-    [Scene.ReplayPlaylist]: Scene.ReplayPlaylist,
-    [Scene.Site]: Scene.ToolbarLaunch,
-}
+import { AvailableFeature } from '~/types'
+
+import { appContextLogic } from './appContextLogic'
+import { handleLoginRedirect } from './authentication/loginLogic'
+import { organizationLogic } from './organizationLogic'
+import { preflightLogic } from './PreflightCheck/preflightLogic'
+import type { sceneLogicType } from './sceneLogicType'
+import { teamLogic } from './teamLogic'
+import { userLogic } from './userLogic'
 
 export const sceneLogic = kea<sceneLogicType>([
     props(
@@ -48,7 +27,7 @@ export const sceneLogic = kea<sceneLogicType>([
     path(['scenes', 'sceneLogic']),
     connect(() => ({
         logic: [router, userLogic, preflightLogic, appContextLogic],
-        actions: [router, ['locationChanged']],
+        actions: [router, ['locationChanged'], commandBarLogic, ['setCommandBar']],
     })),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -100,7 +79,7 @@ export const sceneLogic = kea<sceneLogicType>([
                         : state,
                 setLoadedScene: (state, { loadedScene }) => ({
                     ...state,
-                    [loadedScene.name]: { ...loadedScene, lastTouch: new Date().valueOf() },
+                    [loadedScene.id]: { ...loadedScene, lastTouch: new Date().valueOf() },
                 }),
             },
         ],
@@ -140,10 +119,6 @@ export const sceneLogic = kea<sceneLogicType>([
                     ? Scene.ErrorProjectUnavailable
                     : scene
             },
-        ],
-        aliasedActiveScene: [
-            (s) => [s.activeScene],
-            (activeScene) => (activeScene ? sceneNavAlias[activeScene] || activeScene : null),
         ],
         activeLoadedScene: [
             (s) => [s.activeScene, s.loadedScenes],
@@ -316,11 +291,11 @@ export const sceneLogic = kea<sceneLogicType>([
                 const { default: defaultExport, logic, scene: _scene, ...others } = importedScene
 
                 if (_scene) {
-                    loadedScene = { name: scene, ...(_scene as SceneExport), sceneParams: params }
+                    loadedScene = { id: scene, ...(_scene as SceneExport), sceneParams: params }
                 } else if (defaultExport) {
                     console.warn(`Scene ${scene} not yet converted to use SceneExport!`)
                     loadedScene = {
-                        name: scene,
+                        id: scene,
                         component: defaultExport,
                         logic: logic,
                         sceneParams: params,
@@ -328,7 +303,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 } else {
                     console.warn(`Scene ${scene} not yet converted to use SceneExport!`)
                     loadedScene = {
-                        name: scene,
+                        id: scene,
                         component:
                             Object.keys(others).length === 1
                                 ? others[Object.keys(others)[0]]
@@ -360,10 +335,26 @@ export const sceneLogic = kea<sceneLogicType>([
             window.location.reload()
         },
         locationChanged: () => {
-            // Remove trailing slash
             const {
                 location: { pathname, search, hash },
             } = router.values
+
+            // Open search or command bar
+            const params = new URLSearchParams(search)
+            const searchBar = params.get('searchBar')
+            const commandBar = params.get('commandBar')
+
+            if (searchBar !== null) {
+                actions.setCommandBar(BarStatus.SHOW_SEARCH, searchBar)
+                params.delete('searchBar')
+                router.actions.replace(pathname, params, hash)
+            } else if (commandBar !== null) {
+                actions.setCommandBar(BarStatus.SHOW_ACTIONS, commandBar)
+                params.delete('commandBar')
+                router.actions.replace(pathname, params, hash)
+            }
+
+            // Remove trailing slash
             if (pathname !== '/' && pathname.endsWith('/')) {
                 router.actions.replace(pathname.replace(/(\/+)$/, ''), search, hash)
             }

@@ -1,11 +1,14 @@
+from typing import Any, Dict
+
+from django.db import models
+
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
-from posthog.models.utils import UUIDModel, CreatedMetaFields, DeletedMetaFields
-from django.db import models
-from posthog.models.team import Team
-from .datawarehouse_saved_query import DataWarehouseSavedQuery
-from typing import Dict, Any
 from posthog.hogql.errors import HogQLException
+from posthog.models.team import Team
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel
+
+from .datawarehouse_saved_query import DataWarehouseSavedQuery
 
 
 class DataWarehouseViewLink(CreatedMetaFields, UUIDModel, DeletedMetaFields):

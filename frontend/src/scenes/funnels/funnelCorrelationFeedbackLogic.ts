@@ -1,10 +1,11 @@
-import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { lemonToast } from '@posthog/lemon-ui'
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
-import type { funnelCorrelationFeedbackLogicType } from './funnelCorrelationFeedbackLogicType'
 import { InsightLogicProps } from '~/types'
+
+import type { funnelCorrelationFeedbackLogicType } from './funnelCorrelationFeedbackLogicType'
 import { funnelCorrelationLogic } from './funnelCorrelationLogic'
 import { funnelPropertyCorrelationLogic } from './funnelPropertyCorrelationLogic'
 

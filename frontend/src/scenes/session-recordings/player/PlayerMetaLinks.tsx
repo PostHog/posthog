@@ -1,19 +1,21 @@
+import { useActions, useValues } from 'kea'
+import { IconComment, IconDelete, IconLink, IconPinFilled, IconPinOutline } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { IconNotebook } from 'scenes/notebooks/IconNotebook'
+import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
+import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import {
     sessionRecordingPlayerLogic,
     SessionRecordingPlayerMode,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { useActions, useValues } from 'kea'
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-import { IconComment, IconDelete, IconLink, IconPinFilled, IconPinOutline } from 'lib/lemon-ui/icons'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
-import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
-import { NotebookNodeType } from '~/types'
-import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
-import { sessionPlayerModalLogic } from './modal/sessionPlayerModalLogic'
 import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
-import { IconNotebook } from 'scenes/notebooks/IconNotebook'
+
+import { NotebookNodeType } from '~/types'
+
+import { sessionPlayerModalLogic } from './modal/sessionPlayerModalLogic'
+import { PlaylistPopoverButton } from './playlist-popover/PlaylistPopover'
 
 export function PlayerMetaLinks(): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { IconPlus, IconSettings } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -9,7 +9,9 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+
 import { AvailableFeature, TeamBasicType } from '~/types'
+
 import { globalModalsLogic } from '../GlobalModals'
 
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
@@ -66,7 +68,7 @@ function CurrentProjectButton({ onClickInside }: { onClickInside?: () => void })
     const { push } = useActions(router)
 
     return isAuthenticatedTeam(currentTeam) ? (
-        <LemonButtonWithSideAction
+        <LemonButton
             active
             sideAction={{
                 icon: <IconSettings className="text-muted-alt" />,
@@ -81,7 +83,7 @@ function CurrentProjectButton({ onClickInside }: { onClickInside?: () => void })
             fullWidth
         >
             <ProjectName team={currentTeam} />
-        </LemonButtonWithSideAction>
+        </LemonButton>
     ) : null
 }
 
@@ -89,7 +91,7 @@ function OtherProjectButton({ team, onClickInside }: { team: TeamBasicType; onCl
     const { updateCurrentTeam } = useActions(userLogic)
 
     return (
-        <LemonButtonWithSideAction
+        <LemonButton
             onClick={() => {
                 onClickInside?.()
                 updateCurrentTeam(team.id, '/')
@@ -107,6 +109,6 @@ function OtherProjectButton({ team, onClickInside }: { team: TeamBasicType; onCl
             fullWidth
         >
             <ProjectName team={team} />
-        </LemonButtonWithSideAction>
+        </LemonButton>
     )
 }

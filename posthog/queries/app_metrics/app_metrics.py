@@ -66,15 +66,17 @@ class AppMetricsQuery:
 
     def query(self):
         job_id = self.filter.validated_data.get("job_id")
+        category = self.filter.validated_data.get("category")
         query = self.QUERY.format(
             job_id_clause="AND job_id = %(job_id)s" if job_id is not None else "",
+            category_clause="AND category = %(category)s" if category is not None else "",
             interval_function=self.interval_function,
         )
 
         return query, {
             "team_id": self.team.pk,
             "plugin_config_id": self.plugin_config_id,
-            "category": self.filter.validated_data.get("category"),
+            "category": category,
             "job_id": job_id,
             "date_from": format_ch_timestamp(self.date_from),
             "date_to": format_ch_timestamp(self.date_to),
@@ -145,12 +147,16 @@ class AppMetricsErrorDetailsQuery:
 
     def query(self):
         job_id = self.filter.validated_data.get("job_id")
-        query = self.QUERY.format(job_id_clause="AND job_id = %(job_id)s" if job_id is not None else "")
+        category = self.filter.validated_data.get("category")
+        query = self.QUERY.format(
+            job_id_clause="AND job_id = %(job_id)s" if job_id is not None else "",
+            category_clause="AND category = %(category)s" if category is not None else "",
+        )
 
         return query, {
             "team_id": self.team.pk,
             "plugin_config_id": self.plugin_config_id,
-            "category": self.filter.validated_data.get("category"),
+            "category": category,
             "job_id": job_id,
             "error_type": self.filter.validated_data.get("error_type"),
         }

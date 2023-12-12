@@ -1,11 +1,12 @@
-import { useRef, useState } from 'react'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconErrorOutline, IconInfo } from 'lib/lemon-ui/icons'
-import { useActions, useValues } from 'kea'
-import { hogQLEditorLogic } from './hogQLEditorLogic'
 import { Link } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
+import { IconErrorOutline, IconInfo } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import { useRef, useState } from 'react'
+
+import { hogQLEditorLogic } from './hogQLEditorLogic'
 
 export interface HogQLEditorProps {
     onChange: (value: string) => void

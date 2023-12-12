@@ -1,17 +1,18 @@
 import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
-import { IconDelete } from 'lib/lemon-ui/icons'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Field } from 'lib/forms/Field'
+import { IconDelete } from 'lib/lemon-ui/icons'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { capitalizeFirstLetter, genericOperatorMap, humanFriendlyNumber } from 'lib/utils'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+
 import { RolloutConditionType } from '~/types'
+
 import { featureFlagLogic } from './featureFlagLogic'
 
 interface FeatureFlagAutoRollbackProps {

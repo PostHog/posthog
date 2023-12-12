@@ -1,15 +1,15 @@
-import { useEffect, useRef } from 'react'
+import 'maplibre-gl/dist/maplibre-gl.css'
+import './Maplibre.scss'
+
 import { useValues } from 'kea'
 import maplibregl, { Map as RawMap, Marker } from 'maplibre-gl'
 import { Protocol } from 'pmtiles'
 import layers from 'protomaps-themes-base'
+import { useEffect, useRef } from 'react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import useResizeObserver from 'use-resize-observer'
 
-import 'maplibre-gl/dist/maplibre-gl.css'
-import './Maplibre.scss'
-
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 const protocol = new Protocol()
 maplibregl.addProtocol('pmtiles', protocol.tile)

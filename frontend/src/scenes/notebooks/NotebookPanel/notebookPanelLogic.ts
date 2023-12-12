@@ -1,14 +1,14 @@
-import { actions, kea, reducers, path, listeners, selectors, connect } from 'kea'
-
-import { HTMLProps } from 'react'
-import { EditorFocusPosition } from '../Notebook/utils'
-
-import type { notebookPanelLogicType } from './notebookPanelLogicType'
-import { NotebookNodeResource, SidePanelTab } from '~/types'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { notebookPopoverLogic } from './notebookPopoverLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { HTMLProps } from 'react'
+
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { NotebookNodeResource, SidePanelTab } from '~/types'
+
+import { EditorFocusPosition } from '../Notebook/utils'
+import type { notebookPanelLogicType } from './notebookPanelLogicType'
+import { notebookPopoverLogic } from './notebookPopoverLogic'
 
 export const notebookPanelLogic = kea<notebookPanelLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookPanelLogic']),
@@ -29,7 +29,10 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
         ],
     }),
     actions({
-        selectNotebook: (id: string, autofocus: EditorFocusPosition | undefined = undefined) => ({ id, autofocus }),
+        selectNotebook: (id: string, options: { autofocus?: EditorFocusPosition; silent?: boolean } = {}) => ({
+            id,
+            ...options,
+        }),
         startDropMode: true,
         endDropMode: true,
         setDroppedResource: (resource: NotebookNodeResource | string | null) => ({ resource }),
@@ -67,7 +70,7 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
     })),
 
     selectors(({ cache, actions }) => ({
-        is3000: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.POSTHOG_3000]],
+        is3000: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test'],
 
         visibility: [
             (s) => [s.selectedTab, s.sidePanelOpen, s.popoverVisibility, s.is3000],
@@ -108,6 +111,9 @@ export const notebookPanelLogic = kea<notebookPanelLogicType>([
 
     listeners(({ cache, actions, values }) => ({
         selectNotebook: (options) => {
+            if (options.silent) {
+                return
+            }
             if (!values.is3000) {
                 actions.setPopoverVisibility('visible')
                 notebookPopoverLogic.actions.selectNotebook(options.id, options.autofocus)

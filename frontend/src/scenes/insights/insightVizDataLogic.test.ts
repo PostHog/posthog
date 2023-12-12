@@ -1,16 +1,16 @@
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
+import { FunnelLayout } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { funnelInvalidExclusionError, funnelResult } from 'scenes/funnels/__mocks__/funnelDataLogicMocks'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
+import { useMocks } from '~/mocks/jest'
+import { funnelsQueryDefault, trendsQueryDefault } from '~/queries/nodes/InsightQuery/defaults'
+import { ActionsNode, EventsNode, FunnelsQuery, InsightQueryNode, NodeKind, TrendsQuery } from '~/queries/schema'
+import { initKeaTests } from '~/test/init'
 import { BaseMathType, ChartDisplayType, InsightModel, InsightShortId, InsightType } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
-import { useMocks } from '~/mocks/jest'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { trendsQueryDefault, funnelsQueryDefault } from '~/queries/nodes/InsightQuery/defaults'
-import { ActionsNode, EventsNode, FunnelsQuery, InsightQueryNode, NodeKind, TrendsQuery } from '~/queries/schema'
-import { FunnelLayout } from 'lib/constants'
-import { funnelInvalidExclusionError, funnelResult } from 'scenes/funnels/__mocks__/funnelDataLogicMocks'
 
 const Insight123 = '123' as InsightShortId
 

@@ -1,19 +1,21 @@
-import { kea, path, actions, selectors, connect, reducers, listeners, events } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { EventDefinitionType, ProductKey, TeamBasicType } from '~/types'
-import type { activationLogicType } from './activationLogicType'
-import { urls } from 'scenes/urls'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { EventDefinitionType, ProductKey, TeamBasicType } from '~/types'
+
+import type { activationLogicType } from './activationLogicType'
 
 export enum ActivationTasks {
     IngestFirstEvent = 'ingest_first_event',

@@ -1,12 +1,12 @@
 .dashboard-items-wrapper {
-    margin-top: 1rem;
     width: 100%; // This provides the width for the dashboard items grid
+    margin-top: 1rem;
 }
 
 .react-grid-layout {
     position: relative;
-    transition: height 100ms ease;
     margin-bottom: 2rem;
+    transition: height 100ms ease;
 
     /* remove initial loading animation, animations are only needed in edit mode */
     &.dashboard-view-mode .react-grid-item {
@@ -28,8 +28,8 @@
 }
 
 .react-grid-item.react-draggable-dragging {
-    transition: none;
     z-index: 105;
+    transition: none;
     will-change: transform;
 }
 
@@ -38,14 +38,14 @@
 }
 
 .react-grid-item.react-grid-placeholder {
-    transition: 100ms ease;
-    max-width: 100%;
     position: relative;
-    border: 1px solid var(--primary-3000);
-    outline: 1px solid var(--primary-3000);
-    border-radius: var(--radius);
     z-index: 2;
+    max-width: 100%;
     user-select: none;
+    border: 1px solid var(--primary-3000);
+    border-radius: var(--radius);
+    outline: 1px solid var(--primary-3000);
+    transition: 100ms ease;
 }
 
 .react-resizable-hide > .react-resizable-handle {
@@ -58,12 +58,12 @@
 
     & > .react-resizable-handle {
         position: absolute;
+        right: -0.5rem;
+        bottom: -0.5rem;
+        z-index: 10;
         width: 2rem;
         height: 2rem;
-        bottom: -0.5rem;
-        right: -0.5rem;
         cursor: se-resize;
-        z-index: 10;
     }
 
     & > .react-resizable-handle.react-resizable-handle-se {
@@ -78,8 +78,8 @@
     }
 
     & > .react-resizable-handle.react-resizable-handle-s {
-        left: 0;
         right: 2rem;
+        left: 0;
         width: auto;
         cursor: ns-resize;
     }

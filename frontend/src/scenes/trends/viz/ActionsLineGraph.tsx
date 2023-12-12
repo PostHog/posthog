@@ -1,21 +1,21 @@
-import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { useValues } from 'kea'
-import { InsightEmptyState } from '../../insights/EmptyStates'
-import { ChartDisplayType, ChartParams, GraphType } from '~/types'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
-import { openPersonsModal } from '../persons-modal/PersonsModal'
-import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { trendsDataLogic } from '../trendsDataLogic'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { isInsightVizNode, isLifecycleQuery } from '~/queries/utils'
-import { DataTableNode, NodeKind } from '~/queries/schema'
-import { combineUrl, router } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+
+import { NodeKind } from '~/queries/schema'
+import { isInsightVizNode, isLifecycleQuery } from '~/queries/utils'
+import { ChartDisplayType, ChartParams, GraphType } from '~/types'
+
+import { InsightEmptyState } from '../../insights/EmptyStates'
+import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
+import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
+import { openPersonsModal } from '../persons-modal/PersonsModal'
+import { trendsDataLogic } from '../trendsDataLogic'
 
 export function ActionsLineGraph({
     inSharedMode = false,
@@ -41,6 +41,13 @@ export function ActionsLineGraph({
         isStickiness,
     } = useValues(trendsDataLogic(insightProps))
 
+    const labels =
+        (indexedResults.length === 2 &&
+            indexedResults.every((x) => x.compare) &&
+            indexedResults.find((x) => x.compare_label === 'current')?.days) ||
+        (indexedResults[0] && indexedResults[0].labels) ||
+        []
+
     return indexedResults &&
         indexedResults[0]?.data &&
         indexedResults.filter((result) => result.count !== 0).length > 0 ? (
@@ -49,7 +56,7 @@ export function ActionsLineGraph({
             type={display === ChartDisplayType.ActionsBar || isLifecycle ? GraphType.Bar : GraphType.Line}
             hiddenLegendKeys={hiddenLegendKeys}
             datasets={indexedResults}
-            labels={(indexedResults[0] && indexedResults[0].labels) || []}
+            labels={labels}
             inSharedMode={inSharedMode}
             labelGroupType={labelGroupType}
             showPersonsModal={showPersonsModal}
@@ -82,60 +89,51 @@ export function ActionsLineGraph({
                           const { index, points, crossDataset } = payload
 
                           const dataset = points.referencePoint.dataset
+                          if (!dataset) {
+                              return
+                          }
+
                           const day = dataset?.days?.[index] ?? ''
                           const label = dataset?.label ?? dataset?.labels?.[index] ?? ''
 
-                          const hogQLInsightsFlagEnabled = Boolean(featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS])
+                          const title = isStickiness ? (
+                              <>
+                                  <PropertyKeyInfo value={label || ''} disablePopover /> stickiness on day {day}
+                              </>
+                          ) : (
+                              (label: string) => (
+                                  <>
+                                      {label} on{' '}
+                                      <DateDisplay interval={interval || 'day'} date={day?.toString() || ''} />
+                                  </>
+                              )
+                          )
 
                           if (
-                              hogQLInsightsFlagEnabled &&
+                              featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE] &&
                               isLifecycle &&
                               query &&
                               isInsightVizNode(query) &&
                               isLifecycleQuery(query.source)
                           ) {
-                              const newQuery: DataTableNode = {
-                                  kind: NodeKind.DataTableNode,
-                                  full: true,
-                                  source: {
-                                      kind: NodeKind.PersonsQuery,
-                                      source: {
-                                          kind: NodeKind.InsightPersonsQuery,
-                                          source: query.source,
-                                          day,
-                                          status: dataset.status,
-                                      },
-                                  },
-                              }
-                              router.actions.push(combineUrl(urls.persons(), undefined, { q: newQuery }).url)
-                              return
-                          }
-
-                          if (!dataset) {
-                              return
-                          }
-
-                          const datasetUrls = urlsForDatasets(crossDataset, index)
-
-                          if (datasetUrls?.length) {
-                              const title = isStickiness ? (
-                                  <>
-                                      <PropertyKeyInfo value={label || ''} disablePopover /> stickiness on day {day}
-                                  </>
-                              ) : (
-                                  (label: string) => (
-                                      <>
-                                          {label} on{' '}
-                                          <DateDisplay interval={interval || 'day'} date={day?.toString() || ''} />
-                                      </>
-                                  )
-                              )
-
                               openPersonsModal({
-                                  urls: datasetUrls,
-                                  urlsIndex: crossDataset?.findIndex((x) => x.id === dataset.id) || 0,
                                   title,
+                                  query: {
+                                      kind: NodeKind.InsightPersonsQuery,
+                                      source: query.source,
+                                      day,
+                                      status: dataset.status,
+                                  },
                               })
+                          } else {
+                              const datasetUrls = urlsForDatasets(crossDataset, index)
+                              if (datasetUrls?.length) {
+                                  openPersonsModal({
+                                      urls: datasetUrls,
+                                      urlsIndex: crossDataset?.findIndex((x) => x.id === dataset.id) || 0,
+                                      title,
+                                  })
+                              }
                           }
                       }
             }

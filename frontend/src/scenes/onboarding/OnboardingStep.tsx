@@ -1,10 +1,11 @@
 import { LemonButton } from '@posthog/lemon-ui'
-import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { OnboardingStepKey, onboardingLogic } from './onboardingLogic'
 import { useActions, useValues } from 'kea'
-import { IconArrowLeft, IconArrowRight } from 'lib/lemon-ui/icons'
 import { router } from 'kea-router'
+import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import { IconArrowLeft, IconArrowRight } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
+
+import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
 
 export const OnboardingStep = ({
     stepKey,
@@ -13,6 +14,7 @@ export const OnboardingStep = ({
     children,
     showSkip = false,
     onSkip,
+    continueAction,
     continueOverride,
     backActionOverride,
 }: {
@@ -22,6 +24,7 @@ export const OnboardingStep = ({
     children: React.ReactNode
     showSkip?: boolean
     onSkip?: () => void
+    continueAction?: () => void
     continueOverride?: JSX.Element
     backActionOverride?: () => void
 }): JSX.Element => {
@@ -76,7 +79,10 @@ export const OnboardingStep = ({
                     ) : (
                         <LemonButton
                             type="primary"
-                            onClick={() => (!hasNextStep ? completeOnboarding() : goToNextStep())}
+                            onClick={() => {
+                                continueAction && continueAction()
+                                !hasNextStep ? completeOnboarding() : goToNextStep()
+                            }}
                             sideIcon={hasNextStep ? <IconArrowRight /> : null}
                         >
                             {!hasNextStep ? 'Finish' : 'Continue'}

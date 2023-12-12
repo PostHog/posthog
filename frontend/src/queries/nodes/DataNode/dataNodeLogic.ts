@@ -1,52 +1,58 @@
-import { dayjs } from 'lib/dayjs'
+import clsx from 'clsx'
+import equal from 'fast-deep-equal'
 import {
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
     kea,
+    key,
+    listeners,
     path,
     props,
-    key,
-    afterMount,
-    selectors,
     propsChanged,
     reducers,
-    actions,
-    beforeUnmount,
-    listeners,
-    connect,
+    selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import type { dataNodeLogicType } from './dataNodeLogicType'
+import { subscriptions } from 'kea-subscriptions'
+import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { objectsEqual, shouldCancelQuery, uuid } from 'lib/utils'
+import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
+import { compareInsightQuery } from 'scenes/insights/utils/compareInsightQuery'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { query } from '~/queries/query'
 import {
     AnyResponseType,
     DataNode,
     EventsQuery,
     EventsQueryResponse,
+    InsightVizNode,
+    NodeKind,
     PersonsNode,
     PersonsQuery,
     PersonsQueryResponse,
     QueryResponse,
     QueryTiming,
 } from '~/queries/schema'
-import { query } from '~/queries/query'
 import {
-    isInsightQueryNode,
     isEventsQuery,
+    isInsightPersonsQuery,
+    isInsightQueryNode,
+    isLifecycleQuery,
     isPersonsNode,
-    isQueryWithHogQLSupport,
     isPersonsQuery,
+    isTrendsQuery,
 } from '~/queries/utils'
-import { subscriptions } from 'kea-subscriptions'
-import { objectsEqual, shouldCancelQuery, uuid } from 'lib/utils'
-import clsx from 'clsx'
-import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
-import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { userLogic } from 'scenes/userLogic'
-import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import equal from 'fast-deep-equal'
+
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
-import { compareInsightQuery } from 'scenes/insights/utils/compareInsightQuery'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import type { dataNodeLogicType } from './dataNodeLogicType'
 
 export interface DataNodeLogicProps {
     key: string
@@ -58,6 +64,7 @@ export interface DataNodeLogicProps {
 }
 
 const AUTOLOAD_INTERVAL = 30000
+const LOAD_MORE_ROWS_LIMIT = 10000
 
 const queryEqual = (a: DataNode, b: DataNode): boolean => {
     if (isInsightQueryNode(a) && isInsightQueryNode(b)) {
@@ -117,7 +124,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                     if (
                         isInsightQueryNode(props.query) &&
-                        !(values.hogQLInsightsFlagEnabled && isQueryWithHogQLSupport(props.query)) &&
+                        !(values.hogQLInsightsLifecycleFlagEnabled && isLifecycleQuery(props.query)) &&
+                        !(values.hogQLInsightsTrendsFlagEnabled && isTrendsQuery(props.query)) &&
                         props.cachedResults &&
                         props.cachedResults['id'] &&
                         props.cachedResults['filters'] &&
@@ -337,9 +345,17 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             () => [(_, props) => props.cachedResults ?? null],
             (cachedResults: AnyResponseType | null): boolean => !!cachedResults,
         ],
-        hogQLInsightsFlagEnabled: [
+        hogQLInsightsLifecycleFlagEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags) => featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE],
+        ],
+        hogQLInsightsRetentionFlagEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION],
+        ],
+        hogQLInsightsTrendsFlagEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS],
         ],
         query: [(_, p) => [p.query], (query) => query],
         newQuery: [
@@ -391,7 +407,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             if (sortColumnIndex !== -1) {
                                 const lastTimestamp = typedResults?.[typedResults.length - 1]?.[sortColumnIndex]
                                 if (lastTimestamp) {
-                                    const newQuery: EventsQuery = { ...query, before: lastTimestamp }
+                                    const newQuery: EventsQuery = {
+                                        ...query,
+                                        before: lastTimestamp,
+                                        limit: Math.max(
+                                            100,
+                                            Math.min(2 * (typedResults?.length || 100), LOAD_MORE_ROWS_LIMIT)
+                                        ),
+                                    }
                                     return newQuery
                                 }
                             }
@@ -399,6 +422,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             return {
                                 ...query,
                                 offset: typedResults?.length || 0,
+                                limit: Math.max(100, Math.min(2 * (typedResults?.length || 100), LOAD_MORE_ROWS_LIMIT)),
                             } as EventsQuery | PersonsQuery
                         }
                     }
@@ -418,6 +442,21 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         canLoadNextData: [
             (s) => [s.nextQuery, s.isShowingCachedResults],
             (nextQuery, isShowingCachedResults) => (isShowingCachedResults ? false : !!nextQuery),
+        ],
+        backToSourceQuery: [
+            (s) => [s.query],
+            (query): InsightVizNode | null => {
+                if (isPersonsQuery(query) && isInsightPersonsQuery(query.source) && !!query.source.source) {
+                    const insightQuery = query.source.source
+                    const insightVizNode: InsightVizNode = {
+                        kind: NodeKind.InsightVizNode,
+                        source: insightQuery,
+                        full: true,
+                    }
+                    return insightVizNode
+                }
+                return null
+            },
         ],
         autoLoadRunning: [
             (s) => [s.autoLoadToggled, s.autoLoadStarted, s.dataLoading],
@@ -464,6 +503,21 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (s) => [s.response],
             (response): QueryTiming[] | null => {
                 return response && 'timings' in response ? response.timings : null
+            },
+        ],
+        numberOfRows: [
+            (s) => [s.response],
+            (response): number | null => {
+                if (!response) {
+                    return null
+                }
+                const fields = ['result', 'results']
+                for (const field of fields) {
+                    if (field in response && Array.isArray(response[field])) {
+                        return response[field].length
+                    }
+                }
+                return null
             },
         ],
     }),

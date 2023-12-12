@@ -1,8 +1,10 @@
 import { LemonSelect } from '@posthog/lemon-ui'
-import { SurveyAppearance, SurveyThankYou } from './SurveyAppearance'
-import { SurveyAPIEditor } from './SurveyAPIEditor'
-import { NewSurvey, defaultSurveyAppearance } from './constants'
+
 import { Survey, SurveyType } from '~/types'
+
+import { defaultSurveyAppearance, NewSurvey } from './constants'
+import { SurveyAPIEditor } from './SurveyAPIEditor'
+import { SurveyAppearance, SurveyThankYou } from './SurveyAppearance'
 
 interface SurveyFormAppearanceProps {
     activePreview: number

@@ -1,9 +1,10 @@
 .CohortCriteriaGroups__matching-group {
-    padding-top: 1rem;
-    border: 1px solid var(--border);
-    border-radius: 4px;
     width: 100%;
+    padding-top: 1rem;
     margin: 0.5rem 0;
+    background-color: var(--bg-light);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
 
     &.CohortCriteriaGroups__matching-group--error {
         border: 1px solid var(--danger);
@@ -11,9 +12,9 @@
 }
 
 .CohortCriteriaGroups__matching-group__logical-divider {
-    color: var(--primary-alt);
-    font-weight: 600;
-    font-size: 12px;
-    text-transform: uppercase;
     padding: 0 1.5rem;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--primary-alt);
+    text-transform: uppercase;
 }

@@ -1,13 +1,14 @@
-import { useState } from 'react'
-import { useActions, useValues } from 'kea'
-import { getSlackAppManifest, integrationsLogic } from './integrationsLogic'
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonButton, Link } from '@posthog/lemon-ui'
-import { IconDelete, IconSlack } from 'lib/lemon-ui/icons'
+import { useActions, useValues } from 'kea'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { IconDelete, IconSlack } from 'lib/lemon-ui/icons'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { useState } from 'react'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+
+import { getSlackAppManifest, integrationsLogic } from './integrationsLogic'
 
 export function SlackIntegration(): JSX.Element {
     const { slackIntegration, addToSlackButtonUrl } = useValues(integrationsLogic)

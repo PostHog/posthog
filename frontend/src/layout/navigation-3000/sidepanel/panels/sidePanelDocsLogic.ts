@@ -1,9 +1,10 @@
-import { actions, kea, reducers, path, listeners, connect, selectors } from 'kea'
-
-import type { sidePanelDocsLogicType } from './sidePanelDocsLogicType'
-import { sidePanelStateLogic } from '../sidePanelStateLogic'
-import { SidePanelTab } from '~/types'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
+
+import { SidePanelTab } from '~/types'
+
+import { sidePanelStateLogic } from '../sidePanelStateLogic'
+import type { sidePanelDocsLogicType } from './sidePanelDocsLogicType'
 
 export const POSTHOG_WEBSITE_ORIGIN = 'https://posthog.com'
 

@@ -1,10 +1,18 @@
 import './UniversalSearch.scss'
-import { useState } from 'react'
-import { LemonButtonWithDropdownProps } from 'lib/lemon-ui/LemonButton'
-import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps, TaxonomicFilterValue } from '../TaxonomicFilter/types'
-import { Popover } from 'lib/lemon-ui/Popover'
+
+import clsx from 'clsx'
+import { useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import { useEventListener } from 'lib/hooks/useEventListener'
+import { LemonButtonWithDropdownProps } from 'lib/lemon-ui/LemonButton'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { Popover } from 'lib/lemon-ui/Popover'
+import { useState } from 'react'
+import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
+import { PluginSelectionType, pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { urls } from 'scenes/urls'
+
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import {
     ActionType,
     ChartDisplayType,
@@ -17,15 +25,10 @@ import {
     InsightType,
     PersonType,
 } from '~/types'
-import { PluginSelectionType, pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import clsx from 'clsx'
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { useMountedLogic, useValues } from 'kea'
-import { useEventListener } from 'lib/hooks/useEventListener'
-import { taxonomicFilterLogic } from '../TaxonomicFilter/taxonomicFilterLogic'
+
 import { TaxonomicFilter } from '../TaxonomicFilter/TaxonomicFilter'
-import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { taxonomicFilterLogic } from '../TaxonomicFilter/taxonomicFilterLogic'
+import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps, TaxonomicFilterValue } from '../TaxonomicFilter/types'
 
 export interface UniversalSearchPopoverProps<ValueType = TaxonomicFilterValue>
     extends Omit<LemonButtonWithDropdownProps, 'dropdown' | 'value' | 'onChange' | 'placeholder'> {

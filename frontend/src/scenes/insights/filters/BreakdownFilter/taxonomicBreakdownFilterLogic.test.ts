@@ -1,10 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
-
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
+import { initKeaTests } from '~/test/init'
 import { InsightLogicProps } from '~/types'
+
+import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
 const taxonomicGroupFor = (
     type: TaxonomicFilterGroupType,

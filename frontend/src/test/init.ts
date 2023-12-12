@@ -1,13 +1,14 @@
-import { initKea } from '~/initKea'
-import { testUtilsPlugin } from 'kea-test-utils'
 import { createMemoryHistory } from 'history'
-import posthog from 'posthog-js'
-import { AppContext, TeamType } from '~/types'
+import { testUtilsPlugin } from 'kea-test-utils'
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { dayjs } from 'lib/dayjs'
+import posthog from 'posthog-js'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { teamLogic } from 'scenes/teamLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { initKea } from '~/initKea'
+import { AppContext, TeamType } from '~/types'
 
 process.on('unhandledRejection', (err) => {
     console.warn(err)

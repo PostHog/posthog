@@ -9,8 +9,8 @@
     display: flex;
 
     svg {
-        margin-left: 1rem;
         margin-right: 1rem;
+        margin-left: 1rem;
 
         /*
          * Axis
@@ -66,10 +66,11 @@
 
         g#labels {
             text.bar-label {
+                font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+
                 // same as chart-js
                 font-size: 12px;
                 font-weight: normal;
-                font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
                 fill: var(--white);
 
                 &.outside {

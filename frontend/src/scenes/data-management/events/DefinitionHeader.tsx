@@ -1,16 +1,17 @@
-import { EventDefinition, PropertyDefinition } from '~/types'
-import { IconSelectAll } from 'lib/lemon-ui/icons'
 import { IconBadge, IconBolt, IconCursor, IconEye, IconLeave, IconList, IconLogomark } from '@posthog/icons'
-import { getKeyMapping, KEY_MAPPING } from 'lib/taxonomy'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
 import {
     eventTaxonomicGroupProps,
     propertyTaxonomicGroupProps,
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { IconSelectAll } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { getKeyMapping, KEY_MAPPING } from 'lib/taxonomy'
+import { urls } from 'scenes/urls'
+
+import { EventDefinition, PropertyDefinition } from '~/types'
 
 export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.Element {
     if (KEY_MAPPING.event[definition.name]) {

@@ -1,9 +1,11 @@
 // Signup.stories.tsx
 import { Meta } from '@storybook/react'
 import { useEffect } from 'react'
-import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { userLogic } from 'scenes/userLogic'
+
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
+
 import { SignupContainer } from './SignupContainer'
 
 const meta: Meta = {

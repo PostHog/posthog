@@ -19,13 +19,14 @@ import {
 import { PostgresRouter, PostgresUse } from '../src/utils/db/postgres'
 import { parseRawClickHouseEvent } from '../src/utils/event'
 import { createPostgresPool, UUIDT } from '../src/utils/utils'
+import { RawAppMetric } from '../src/worker/ingestion/app-metrics'
 import { insertRow } from '../tests/helpers/sql'
 import { waitForExpect } from './expectations'
 import { produce } from './kafka'
 
 let clickHouseClient: ClickHouse
 export let postgres: PostgresRouter
-let redis: Redis.Redis
+export let redis: Redis.Redis
 let graphileWorker: WorkerUtils
 
 beforeAll(async () => {
@@ -151,7 +152,7 @@ export const createPlugin = async (plugin: Omit<Plugin, 'id'>) => {
 }
 
 export const createPluginConfig = async (
-    pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'has_error'>,
+    pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order'>,
     enabled = true
 ) => {
     return await insertRow(postgres, 'posthog_pluginconfig', {
@@ -328,6 +329,14 @@ export const fetchPluginLogEntries = async (pluginConfigId: number) => {
         WHERE plugin_config_id = ${pluginConfigId}
     `)) as unknown as ClickHouse.ObjectQueryResult<PluginLogEntry>
     return logEntries
+}
+
+export const fetchPluginAppMetrics = async (pluginConfigId: number) => {
+    const { data: appMetrics } = (await clickHouseClient.querying(`
+        SELECT * FROM app_metrics
+        WHERE plugin_config_id = ${pluginConfigId} ORDER BY timestamp
+    `)) as unknown as ClickHouse.ObjectQueryResult<RawAppMetric>
+    return appMetrics
 }
 
 export const createOrganization = async (organizationProperties = {}) => {

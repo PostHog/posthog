@@ -6,17 +6,17 @@
 
 @keyframes BatchExportRunIcon__pulse {
     0% {
-        outline-offset: 0;
         outline-color: var(--primary-3000-hover);
+        outline-offset: 0;
     }
 
     80% {
-        outline-offset: 20px;
         outline-color: transparent;
+        outline-offset: 20px;
     }
 
     100% {
-        outline-offset: 20px;
         outline-color: transparent;
+        outline-offset: 20px;
     }
 }

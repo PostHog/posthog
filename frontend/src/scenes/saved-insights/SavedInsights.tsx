@@ -1,24 +1,26 @@
-import { useActions, useValues } from 'kea'
-import { Link } from 'lib/lemon-ui/Link'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { InsightModel, InsightType, LayoutView, SavedInsightsTabs } from '~/types'
-import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
 import './SavedInsights.scss'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { PageHeader } from 'lib/components/PageHeader'
-import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
-import { teamLogic } from '../teamLogic'
+
 import {
     IconBrackets,
     IconFunnels,
     IconHogQL,
     IconLifecycle,
     IconRetention,
+    IconStar,
+    IconStarFilled,
     IconStickiness,
     IconTrends,
     IconUserPaths,
 } from '@posthog/icons'
+import { LemonSelectOptions } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { InsightCard } from 'lib/components/Cards/InsightCard'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { PageHeader } from 'lib/components/PageHeader'
+import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import {
     IconAction,
     IconBarChart,
@@ -29,38 +31,38 @@ import {
     IconPerson,
     IconPlusMini,
     IconSelectEvents,
-    IconStarFilled,
-    IconStarOutline,
     IconTableChart,
 } from 'lib/lemon-ui/icons'
-import { SceneExport } from 'scenes/sceneTypes'
-import { TZLabel } from 'lib/components/TZLabel'
-import { urls } from 'scenes/urls'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonButton, LemonButtonWithSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { LemonButton, LemonButtonWithSideAction, LemonButtonWithSideActionProps } from 'lib/lemon-ui/LemonButton'
-import { InsightCard } from 'lib/components/Cards/InsightCard'
-
-import { groupsModel } from '~/models/groupsModel'
-import { cohortsModel } from '~/models/cohortsModel'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
-import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
-import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { LemonSelectOptions } from '@posthog/lemon-ui'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
-import { NodeKind } from '~/queries/schema'
-import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { isInsightVizNode } from '~/queries/utils'
-import { overlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
-import { summarizeInsight } from 'scenes/insights/summarizeInsight'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { Link } from 'lib/lemon-ui/Link'
+import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
+import { summarizeInsight } from 'scenes/insights/summarizeInsight'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { overlayForNewInsightMenu } from 'scenes/saved-insights/newInsightsMenu'
+import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
+import { SceneExport } from 'scenes/sceneTypes'
+import { mathsLogic } from 'scenes/trends/mathsLogic'
+import { urls } from 'scenes/urls'
+
+import { cohortsModel } from '~/models/cohortsModel'
+import { groupsModel } from '~/models/groupsModel'
+import { NodeKind } from '~/queries/schema'
+import { isInsightVizNode } from '~/queries/utils'
+import { InsightModel, InsightType, LayoutView, SavedInsightsTabs } from '~/types'
+
+import { teamLogic } from '../teamLogic'
+import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
 
 interface NewInsightButtonProps {
     dataAttr: string
@@ -203,6 +205,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconTableChart,
         inMenu: true,
     },
+    [NodeKind.DataVisualizationNode]: {
+        name: 'Data visualization',
+        description: 'Slice and dice your data in a table or chart',
+        icon: IconTableChart,
+        inMenu: false,
+    },
     [NodeKind.SavedInsightNode]: {
         name: 'Insight visualization by short id',
         description: 'View your insights',
@@ -304,7 +312,7 @@ export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element
     }
     const insightMetadata = INSIGHT_TYPES_METADATA[insightType]
     if (insightMetadata && insightMetadata.icon) {
-        return <insightMetadata.icon style={{ display: 'block', fontSize: '1rem' }} />
+        return <insightMetadata.icon />
     }
     return null
 }
@@ -312,15 +320,16 @@ export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element
 export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const overrides3000: Partial<LemonButtonWithSideActionProps> = featureFlags[FEATURE_FLAGS.POSTHOG_3000]
-        ? {
-              size: 'small',
-              icon: <IconPlusMini />,
-          }
-        : {}
+    const overrides3000: Partial<LemonButtonWithSideActionProps> =
+        featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test'
+            ? {
+                  size: 'small',
+                  icon: <IconPlusMini />,
+              }
+            : {}
 
     return (
-        <LemonButtonWithSideAction
+        <LemonButton
             type="primary"
             to={urls.insightNew()}
             sideAction={{
@@ -336,7 +345,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
             {...overrides3000}
         >
             New insight
-        </LemonButtonWithSideAction>
+        </LemonButton>
     )
 }
 
@@ -429,10 +438,10 @@ export function SavedInsights(): JSX.Element {
                                     insight.favorited ? (
                                         <IconStarFilled className="text-warning" />
                                     ) : (
-                                        <IconStarOutline className="text-muted" />
+                                        <IconStar className="text-muted" />
                                     )
                                 }
-                                tooltip={`${insight.favorited ? 'Add to' : 'Remove from'} favorite insights`}
+                                tooltip={`${insight.favorited ? 'Remove from' : 'Add to'} favorite insights`}
                             />
                         </span>
                         {hasDashboardCollaboration && insight.description && (
@@ -546,7 +555,7 @@ export function SavedInsights(): JSX.Element {
                 <>
                     <SavedInsightsFilters />
                     <LemonDivider className="my-4" />
-                    <div className="flex justify-between mb-4 mt-2 items-center">
+                    <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
                         <span className="text-muted-alt">
                             {count
                                 ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${

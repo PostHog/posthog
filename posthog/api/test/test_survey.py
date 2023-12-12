@@ -1144,6 +1144,27 @@ class TestSurveyQuestionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
         assert response_data["detail"] == "Questions must be a list of objects"
 
+    def test_validate_malformed_question_choices_as_string(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Notebooks beta release survey",
+                "description": "Get feedback on the new notebooks feature",
+                "type": "popover",
+                "questions": [
+                    {
+                        "question": "this is my question",
+                        "type": "multiple_choice",
+                        "choices": "these are my question choices",
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert response_data["detail"] == "Question choices must be a list of strings"
+
 
 class TestSurveysAPIList(BaseTest, QueryMatchingTest):
     def setUp(self):

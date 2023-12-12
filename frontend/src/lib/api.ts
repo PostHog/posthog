@@ -1,18 +1,27 @@
-import posthog from 'posthog-js'
 import { decompressSync, strFromU8 } from 'fflate'
 import { encodeParams } from 'kea-router'
+import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
+import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { objectClean, toParams } from 'lib/utils'
+import posthog from 'posthog-js'
+import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
+import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
+import { QuerySchema, QueryStatus } from '~/queries/schema'
 import {
     ActionType,
+    BatchExportConfiguration,
     BatchExportLogEntry,
+    BatchExportRun,
     CohortType,
     DashboardCollaboratorType,
     DashboardTemplateEditorType,
     DashboardTemplateListParams,
     DashboardTemplateType,
     DashboardType,
-    DataWarehouseTable,
     DataWarehouseSavedQuery,
+    DataWarehouseTable,
+    DataWarehouseViewLink,
     EarlyAccessFeatureType,
     EventDefinition,
     EventDefinitionType,
@@ -20,15 +29,20 @@ import {
     EventType,
     Experiment,
     ExportedAssetType,
+    ExternalDataStripeSource,
+    ExternalDataStripeSourceCreatePayload,
     FeatureFlagAssociatedRoleType,
     FeatureFlagType,
-    OrganizationFeatureFlags,
-    OrganizationFeatureFlagsCopyBody,
+    Group,
+    GroupListParams,
     InsightModel,
     IntegrationType,
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
+    NotebookNodeResource,
     NotebookType,
+    OrganizationFeatureFlags,
+    OrganizationFeatureFlagsCopyBody,
     OrganizationResourcePermissionType,
     OrganizationType,
     PersonListParams,
@@ -40,6 +54,8 @@ import {
     RoleMemberType,
     RolesListParams,
     RoleType,
+    SearchListParams,
+    SearchResponse,
     SessionRecordingPlaylistType,
     SessionRecordingSnapshotResponse,
     SessionRecordingsResponse,
@@ -49,15 +65,10 @@ import {
     SubscriptionType,
     Survey,
     TeamType,
-    UserType,
-    DataWarehouseViewLink,
-    BatchExportConfiguration,
-    BatchExportRun,
     UserBasicType,
-    NotebookNodeResource,
-    ExternalDataStripeSourceCreatePayload,
-    ExternalDataStripeSource,
+    UserType,
 } from '~/types'
+
 import {
     ACTIVITY_PAGE_SIZE,
     DashboardPrivilegeLevel,
@@ -65,12 +76,6 @@ import {
     EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
     LOGS_PORTION_LIMIT,
 } from './constants'
-import { toParams } from 'lib/utils'
-import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
-import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
-import { QuerySchema, QueryStatus } from '~/queries/schema'
-import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 
 /**
  * WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
@@ -97,6 +102,7 @@ export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
 
 export interface ApiMethodOptions {
     signal?: AbortSignal
+    headers?: Record<string, any>
 }
 
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
@@ -460,6 +466,16 @@ class ApiRequest {
         return this.persons().addPathComponent('activity')
     }
 
+    // # Groups
+    public groups(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('groups')
+    }
+
+    // # Search
+    public search(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('search')
+    }
+
     // # Annotations
     public annotations(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('annotations')
@@ -479,6 +495,13 @@ class ApiRequest {
             throw new Error('Must provide an ID for the feature flag to construct the URL')
         }
         return this.featureFlags(teamId).addPathComponent(id)
+    }
+
+    public featureFlagCreateStaticCohort(id: FeatureFlagType['id'], teamId?: TeamType['id']): ApiRequest {
+        if (!id) {
+            throw new Error('Must provide an ID for the feature flag to construct the URL')
+        }
+        return this.featureFlag(id, teamId).addPathComponent('create_static_cohort_for_flag')
     }
 
     public featureFlagsActivity(id: FeatureFlagType['id'], teamId: TeamType['id']): ApiRequest {
@@ -727,6 +750,9 @@ const api = {
     featureFlags: {
         async get(id: FeatureFlagType['id']): Promise<FeatureFlagType> {
             return await new ApiRequest().featureFlag(id).get()
+        },
+        async createStaticCohort(id: FeatureFlagType['id']): Promise<{ cohort: CohortType }> {
+            return await new ApiRequest().featureFlagCreateStaticCohort(id).create()
         },
     },
 
@@ -1215,6 +1241,18 @@ const api = {
         },
     },
 
+    groups: {
+        async list(params: GroupListParams): Promise<CountedPaginatedResponse<Group>> {
+            return await new ApiRequest().groups().withQueryString(toParams(params, true)).get()
+        },
+    },
+
+    search: {
+        async list(params: SearchListParams): Promise<SearchResponse> {
+            return await new ApiRequest().search().withQueryString(toParams(params, true)).get()
+        },
+    },
+
     sharing: {
         async get({
             dashboardId,
@@ -1482,8 +1520,14 @@ const api = {
     },
 
     notebooks: {
-        async get(notebookId: NotebookType['short_id']): Promise<NotebookType> {
-            return await new ApiRequest().notebook(notebookId).get()
+        async get(
+            notebookId: NotebookType['short_id'],
+            params: Record<string, any> = {},
+            headers: Record<string, any> = {}
+        ): Promise<NotebookType> {
+            return await new ApiRequest().notebook(notebookId).withQueryString(toParams(params)).get({
+                headers,
+            })
         },
         async update(
             notebookId: NotebookType['short_id'],
@@ -1492,13 +1536,19 @@ const api = {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
         async list(
-            contains?: NotebookNodeResource[],
-            createdBy?: UserBasicType['uuid'],
-            search?: string
-        ): Promise<PaginatedResponse<NotebookType>> {
+            params: {
+                contains?: NotebookNodeResource[]
+                created_by?: UserBasicType['uuid']
+                search?: string
+                order?: string
+                offset?: number
+                limit?: number
+            } = {}
+        ): Promise<CountedPaginatedResponse<NotebookType>> {
             // TODO attrs could be a union of types like NotebookNodeRecordingAttributes
             const apiRequest = new ApiRequest().notebooks()
-            let q = {}
+            const { contains, ...queryParams } = objectClean(params)
+
             if (contains?.length) {
                 const containsString =
                     contains
@@ -1508,15 +1558,11 @@ const api = {
                             return `${target}${match}`
                         })
                         .join(',') || undefined
-                q = { ...q, contains: containsString, created_by: createdBy }
+
+                queryParams['contains'] = containsString
             }
-            if (createdBy) {
-                q = { ...q, created_by: createdBy }
-            }
-            if (search) {
-                q = { ...q, search: search }
-            }
-            return await apiRequest.withQueryString(q).get()
+
+            return await apiRequest.withQueryString(queryParams).get()
         },
         async create(data?: Pick<NotebookType, 'content' | 'text_content' | 'title'>): Promise<NotebookType> {
             return await new ApiRequest().notebooks().create({ data })
@@ -1805,6 +1851,7 @@ const api = {
             response = await fetch(url, {
                 signal: options?.signal,
                 headers: {
+                    ...objectClean(options?.headers ?? {}),
                     ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
                 },
             })
@@ -1828,6 +1875,7 @@ const api = {
         const response = await fetch(url, {
             method: 'PATCH',
             headers: {
+                ...objectClean(options?.headers ?? {}),
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                 ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
@@ -1860,6 +1908,7 @@ const api = {
         const response = await fetch(url, {
             method: 'POST',
             headers: {
+                ...objectClean(options?.headers ?? {}),
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                 ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),

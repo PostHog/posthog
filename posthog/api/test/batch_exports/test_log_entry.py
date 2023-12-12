@@ -18,7 +18,7 @@ from posthog.batch_exports.models import (
     fetch_batch_export_log_entries,
 )
 from posthog.client import sync_execute
-from posthog.temporal.client import sync_connect
+from posthog.temporal.common.client import sync_connect
 
 
 def create_batch_export_log_entry(

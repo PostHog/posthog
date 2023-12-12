@@ -1,10 +1,11 @@
-import { kea, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 
-import type { sdksLogicType } from './sdksLogicType'
 import { SDK, SDKInstructionsMap } from '~/types'
+
 import { onboardingLogic } from '../onboardingLogic'
 import { allSDKs } from './allSDKs'
-import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
+import type { sdksLogicType } from './sdksLogicType'
 
 /* 
 To add SDK instructions for your product:

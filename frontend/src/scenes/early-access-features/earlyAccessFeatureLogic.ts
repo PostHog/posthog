@@ -1,9 +1,13 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+
 import {
     Breadcrumb,
     EarlyAccessFeatureStage,
@@ -11,11 +15,9 @@ import {
     EarlyAccessFeatureType,
     NewEarlyAccessFeatureType,
 } from '~/types'
+
 import type { earlyAccessFeatureLogicType } from './earlyAccessFeatureLogicType'
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import { lemonToast } from '@posthog/lemon-ui'
-import { Scene } from 'scenes/sceneTypes'
 
 export const NEW_EARLY_ACCESS_FEATURE: NewEarlyAccessFeatureType = {
     name: '',

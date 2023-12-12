@@ -1,14 +1,15 @@
-import { kea, path, connect, actions, reducers } from 'kea'
-import { urlToAction } from 'kea-router'
-import { forms } from 'kea-forms'
-import api from 'lib/api'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import type { signupLogicType } from './signupLogicType'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
 import { isString } from '@tiptap/core'
+import { actions, connect, kea, path, reducers } from 'kea'
+import { forms } from 'kea-forms'
+import { urlToAction } from 'kea-router'
+import api from 'lib/api'
+import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { urls } from 'scenes/urls'
+
+import type { signupLogicType } from './signupLogicType'
 
 export interface AccountResponse {
     success: boolean

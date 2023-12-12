@@ -1,4 +1,5 @@
 import { LemonSelect } from '@posthog/lemon-ui'
+
 import { FilterLogicalOperator } from '~/types'
 
 interface AndOrFilterSelectProps {
