@@ -1,6 +1,7 @@
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonDivider, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { LaptopHog1 } from 'lib/components/hedgehogs'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { useEffect } from 'react'
 import React from 'react'
@@ -47,6 +48,7 @@ export function SDKs({
             stepKey={stepKey}
             continueOverride={!showSideBySide && panel === 'options' ? <></> : undefined}
             backActionOverride={!showSideBySide && panel === 'instructions' ? () => setPanel('options') : undefined}
+            hedgehog={<LaptopHog1 />}
         >
             <LemonDivider className="my-8" />
             <div className="flex gap-x-8 mt-8">
