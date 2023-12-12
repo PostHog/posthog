@@ -152,9 +152,7 @@ describe('ingester', () => {
     })
 
     it('can parse absence of debug partition config', () => {
-        const config = {
-            SESSION_RECORDING_DEBUG_PARTITION: '103',
-        } satisfies Partial<PluginsServerConfig> as PluginsServerConfig
+        const config = {} satisfies Partial<PluginsServerConfig> as PluginsServerConfig
 
         const ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage)
         expect(ingester['debugPartition']).toBeUndefined()
