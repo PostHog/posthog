@@ -5,9 +5,10 @@ import '../../../../../scenes/insights/InsightTooltip/InsightTooltip.scss'
 
 import { LemonTable } from '@posthog/lemon-ui'
 import { ChartData, ChartType, Color, GridLineOptions, TickOptions, TooltipModel } from 'chart.js'
+import annotationPlugin, { AnnotationPluginOptions, LineAnnotationOptions } from 'chartjs-plugin-annotation'
 import ChartDataLabels from 'chartjs-plugin-datalabels'
 import clsx from 'clsx'
-import { useMountedLogic, useValues } from 'kea'
+import { useValues } from 'kea'
 import { Chart, ChartItem, ChartOptions } from 'lib/Chart'
 import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
@@ -15,9 +16,10 @@ import { useEffect, useRef } from 'react'
 import { ensureTooltip } from 'scenes/insights/views/LineGraph/LineGraph'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { GraphType } from '~/types'
+import { ChartDisplayType, GraphType } from '~/types'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
+import { displayLogic } from '../../displayLogic'
 
 export const LineGraph = (): JSX.Element => {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -26,8 +28,10 @@ export const LineGraph = (): JSX.Element => {
 
     // TODO: Extract this logic out of this component and inject values in
     // via props. Make this a purely presentational component
-    const vizLogic = useMountedLogic(dataVisualizationLogic)
-    const { xData, yData, presetChartHeight } = useValues(vizLogic)
+    const { xData, yData, presetChartHeight, visualizationType } = useValues(dataVisualizationLogic)
+    const isBarChart = visualizationType === ChartDisplayType.ActionsBar
+
+    const { goalLines } = useValues(displayLogic)
 
     useEffect(() => {
         if (!xData || !yData) {
@@ -35,16 +39,46 @@ export const LineGraph = (): JSX.Element => {
         }
 
         const data: ChartData = {
-            labels: xData,
-            datasets: yData.map(({ data }, index) => ({
-                data,
-                borderColor: getSeriesColor(index),
-                borderWidth: 2,
-                pointRadius: 0,
-                hitRadius: 0,
-                order: 1,
-            })),
+            labels: xData.data,
+            datasets: yData.map(({ data }, index) => {
+                const color = getSeriesColor(index)
+
+                return {
+                    data,
+                    borderColor: color,
+                    backgroundColor: color,
+                    borderWidth: isBarChart ? 0 : 2,
+                    pointRadius: 0,
+                    hitRadius: 0,
+                    order: 1,
+                    hoverBorderWidth: isBarChart ? 0 : 2,
+                    hoverBorderRadius: isBarChart ? 0 : 2,
+                    type: isBarChart ? GraphType.Bar : GraphType.Line,
+                } as ChartData['datasets'][0]
+            }),
         }
+
+        const annotations = goalLines.reduce(
+            (acc, cur, curIndex) => {
+                const line: LineAnnotationOptions = {
+                    label: {
+                        display: true,
+                        content: cur.label,
+                        position: 'end',
+                    },
+                    scaleID: 'y',
+                    value: cur.value,
+                }
+
+                acc.annotations[`line${curIndex}`] = {
+                    type: 'line',
+                    ...line,
+                }
+
+                return acc
+            },
+            { annotations: {} } as AnnotationPluginOptions
+        )
 
         const tickOptions: Partial<TickOptions> = {
             color: colors.axisLabel as Color,
@@ -91,22 +125,26 @@ export const LineGraph = (): JSX.Element => {
                 legend: {
                     display: false,
                 },
-                // @ts-expect-error Types of library are out of date
-                crosshair: {
-                    snap: {
-                        enabled: true, // Snap crosshair to data points
-                    },
-                    sync: {
-                        enabled: false, // Sync crosshairs across multiple Chartjs instances
-                    },
-                    zoom: {
-                        enabled: false, // Allow drag to zoom
-                    },
-                    line: {
-                        color: colors.crosshair ?? undefined,
-                        width: 1,
-                    },
-                },
+                annotation: annotations,
+                ...(isBarChart
+                    ? { crosshair: false }
+                    : {
+                          crosshair: {
+                              snap: {
+                                  enabled: true, // Snap crosshair to data points
+                              },
+                              sync: {
+                                  enabled: false, // Sync crosshairs across multiple Chartjs instances
+                              },
+                              zoom: {
+                                  enabled: false, // Allow drag to zoom
+                              },
+                              line: {
+                                  color: colors.crosshair ?? undefined,
+                                  width: 1,
+                              },
+                          },
+                      }),
                 // TODO: A lot of this is v similar to the trends LineGraph - considering merging these
                 tooltip: {
                     enabled: false,
@@ -135,13 +173,13 @@ export const LineGraph = (): JSX.Element => {
                             tooltipRoot.render(
                                 <div className="InsightTooltip">
                                     <LemonTable
-                                        dataSource={yData.map(({ data, name: seriesLabel }) => ({
-                                            series: seriesLabel,
+                                        dataSource={yData.map(({ data, column }) => ({
+                                            series: column.name,
                                             data: data[referenceDataPoint.dataIndex],
                                         }))}
                                         columns={[
                                             {
-                                                title: xData[referenceDataPoint.dataIndex],
+                                                title: xData.data[referenceDataPoint.dataIndex],
                                                 dataIndex: 'series',
                                                 render: (value) => {
                                                     return (
@@ -193,7 +231,7 @@ export const LineGraph = (): JSX.Element => {
                 },
             },
             hover: {
-                mode: 'nearest',
+                mode: isBarChart ? 'point' : 'nearest',
                 axis: 'x',
                 intersect: false,
             },
@@ -222,14 +260,15 @@ export const LineGraph = (): JSX.Element => {
             },
         }
 
+        Chart.register(annotationPlugin)
         const newChart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
-            type: GraphType.Line,
+            type: isBarChart ? GraphType.Bar : GraphType.Line,
             data,
             options,
             plugins: [ChartDataLabels],
         })
         return () => newChart.destroy()
-    }, [xData, yData])
+    }, [xData, yData, visualizationType, goalLines])
 
     return (
         <div

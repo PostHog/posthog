@@ -58,8 +58,6 @@ export interface LemonButtonPropsBase
     /** Tooltip to display on hover. */
     tooltip?: TooltipProps['title']
     tooltipPlacement?: TooltipProps['placement']
-    /** Tooltip's `getPopupContainer`. **/
-    getTooltipPopupContainer?: () => HTMLElement
     /** Whether the row should take up the parent's full width. */
     fullWidth?: boolean
     center?: boolean
@@ -128,7 +126,6 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 to,
                 targetBlank,
                 disableClientSideRouting,
-                getTooltipPopupContainer,
                 onClick,
                 truncate = false,
                 ...buttonProps
@@ -237,11 +234,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
 
             if (tooltipContent) {
                 workingButton = (
-                    <Tooltip
-                        title={tooltipContent}
-                        placement={tooltipPlacement}
-                        getPopupContainer={getTooltipPopupContainer}
-                    >
+                    <Tooltip title={tooltipContent} placement={tooltipPlacement}>
                         {/* If the button is a `button` element and disabled, wrap it in a div so that the tooltip works */}
                         {disabled && ButtonComponent === 'button' ? <div>{workingButton}</div> : workingButton}
                     </Tooltip>

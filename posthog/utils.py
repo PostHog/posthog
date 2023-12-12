@@ -53,6 +53,7 @@ from sentry_sdk.api import capture_exception
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import RequestParsingError
+from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
 
 if TYPE_CHECKING:
@@ -631,6 +632,7 @@ def decompress(data: Any, compression: str):
             raise RequestParsingError("Failed to decompress data. %s" % (str(error)))
 
     if compression == "lz64":
+        KLUDGES_COUNTER.labels(kludge="lz64_compression").inc()
         if not isinstance(data, str):
             data = data.decode()
         data = data.replace(" ", "+")
@@ -645,6 +647,7 @@ def decompress(data: Any, compression: str):
     base64_decoded = None
     try:
         base64_decoded = base64_decode(data)
+        KLUDGES_COUNTER.labels(kludge="base64_after_decompression_" + compression).inc()
     except Exception:
         pass
 
@@ -659,7 +662,9 @@ def decompress(data: Any, compression: str):
     except (json.JSONDecodeError, UnicodeDecodeError) as error_main:
         if compression == "":
             try:
-                return decompress(data, "gzip")
+                fallback = decompress(data, "gzip")
+                KLUDGES_COUNTER.labels(kludge="unspecified_gzip_fallback").inc()
+                return fallback
             except Exception as inner:
                 # re-trying with compression set didn't succeed, throw original error
                 raise RequestParsingError("Invalid JSON: %s" % (str(error_main))) from inner
@@ -679,6 +684,8 @@ def load_data_from_request(request):
             data = request.POST.get("data")
     else:
         data = request.GET.get("data")
+        if data:
+            KLUDGES_COUNTER.labels(kludge="data_in_get_param").inc()
 
     # add the data in sentry's scope in case there's an exception
     with configure_scope() as scope:

@@ -23,6 +23,43 @@
             z-index: 100;
         }
     }
+
+    &.BillingGaugeItem--free_tier {
+        background-color: var(--border-light-opaque);
+    }
+
+    &.BillingGaugeItem--billing_limit {
+        background-color: var(--border-light-opaque);
+    }
+
+    &.BillingGaugeItem--current_usage {
+        background: var(--danger);
+
+        &.BillingGaugeItem--within-usage-limit {
+            background: var(--brand-blue);
+        }
+    }
+
+    &.BillingGaugeItem--projected_usage {
+        background: repeating-linear-gradient(
+            -45deg,
+            var(--danger-3000-button-border-dark),
+            var(--danger-3000-button-border-dark) 0.5rem,
+            var(--danger-3000-button-border-hover-dark) 0.5rem,
+            var(--danger-3000-button-border-hover-dark) 1rem
+        );
+        opacity: 0.5;
+
+        &.BillingGaugeItem--within-usage-limit {
+            background: repeating-linear-gradient(
+                -45deg,
+                var(--data-color-1),
+                var(--data-color-1) 0.5rem,
+                var(--data-color-1-hover) 0.5rem,
+                var(--data-color-1-hover) 1rem
+            );
+        }
+    }
 }
 
 @keyframes BillingGaugeItem__expand {

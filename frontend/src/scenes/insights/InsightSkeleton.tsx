@@ -16,7 +16,7 @@ export function InsightSkeleton(): JSX.Element {
                         <LemonSkeleton.Row repeat={3} />
                     </div>
                 </div>
-                <div className="border rounded p-6" style={{ minHeight: 600 }} />
+                <div className="border rounded p-6 min-h-100" />
             </div>
         </>
     )

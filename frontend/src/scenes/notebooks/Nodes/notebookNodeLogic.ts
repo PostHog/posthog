@@ -64,6 +64,9 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         setMessageListeners: (listeners: NotebookNodeMessagesListeners) => ({ listeners }),
         setTitlePlaceholder: (titlePlaceholder: string) => ({ titlePlaceholder }),
         setRef: (ref: HTMLElement | null) => ({ ref }),
+        toggleEditingTitle: (editing?: boolean) => ({ editing }),
+        copyToClipboard: true,
+        convertToBacklink: (href: string) => ({ href }),
     }),
 
     connect((props: NotebookNodeLogicProps) => ({
@@ -119,6 +122,12 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             props.titlePlaceholder,
             {
                 setTitlePlaceholder: (_, { titlePlaceholder }) => titlePlaceholder,
+            },
+        ],
+        isEditingTitle: [
+            false,
+            {
+                toggleEditingTitle: (state, { editing }) => (typeof editing === 'boolean' ? editing : !state),
             },
         ],
     })),
@@ -272,11 +281,56 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 props.updateAttributes({ __init: null })
             }
         },
+
+        copyToClipboard: async () => {
+            const { nodeAttributes } = values
+
+            const htmlAttributesString = Object.entries(nodeAttributes)
+                .map(([key, value]) => {
+                    if (key === 'nodeId' || key.startsWith('__')) {
+                        return ''
+                    }
+
+                    if (value === null || value === undefined) {
+                        return ''
+                    }
+
+                    return `${key}='${JSON.stringify(value)}'`
+                })
+                .filter((x) => !!x)
+                .join(' ')
+
+            const html = `<${props.nodeType} ${htmlAttributesString} data-pm-slice="0 0 []"></${props.nodeType}>`
+
+            const type = 'text/html'
+            const blob = new Blob([html], { type })
+            const data = [new ClipboardItem({ [type]: blob })]
+
+            await window.navigator.clipboard.write(data)
+        },
+        convertToBacklink: ({ href }) => {
+            const editor = values.notebookLogic.values.editor
+            if (!props.getPos || !editor) {
+                return
+            }
+
+            editor.insertContentAfterNode(props.getPos(), {
+                type: NotebookNodeType.Backlink,
+                attrs: {
+                    href,
+                },
+            })
+            actions.deleteNode()
+        },
     })),
 
     afterMount((logic) => {
         const { props, actions, values } = logic
-        props.notebookLogic.actions.registerNodeLogic(values.nodeId, logic as any)
+
+        // The node logic is mounted after the editor is mounted, so we need to wait a tick before we can register it
+        queueMicrotask(() => {
+            props.notebookLogic.actions.registerNodeLogic(values.nodeId, logic as any)
+        })
 
         const isResizeable =
             typeof props.resizeable === 'function' ? props.resizeable(props.attributes) : props.resizeable ?? true
