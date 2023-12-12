@@ -41,8 +41,12 @@ const BUFFER_MS = 60000 // +- before and after start and end of a recording to q
 
 let postHogEEModule: PostHogEE
 
-const parseEncodedSnapshots = async (
-    items: (EncodedRecordingSnapshot | string)[],
+function isRecordingSnapshot(x: unknown): x is RecordingSnapshot {
+    return typeof x === 'object' && x !== null && 'type' in x && 'timestamp' in x
+}
+
+export const parseEncodedSnapshots = async (
+    items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[],
     sessionId: string,
     withMobileTransformer: boolean
 ): Promise<RecordingSnapshot[]> => {
@@ -56,14 +60,14 @@ const parseEncodedSnapshots = async (
         }
         try {
             const snapshotLine = typeof l === 'string' ? (JSON.parse(l) as EncodedRecordingSnapshot) : l
-            const snapshotData = snapshotLine['data']
+            const snapshotData = isRecordingSnapshot(snapshotLine) ? [snapshotLine] : snapshotLine['data']
 
             return snapshotData.map((d: unknown) => {
                 const snap = withMobileTransformer
                     ? postHogEEModule?.mobileReplay?.transformEventToWeb(d) || (d as eventWithTime)
                     : (d as eventWithTime)
                 return {
-                    windowId: snapshotLine['window_id'],
+                    windowId: snapshotLine['window_id'] || snapshotLine['windowId'],
                     ...(snap || (d as eventWithTime)),
                 }
             })
