@@ -10,10 +10,10 @@ from posthog.models.utils import UUIDModel
 class Comment(UUIDModel):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     content: models.TextField = models.TextField(blank=True, null=True)
-    deleted_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
     version: models.IntegerField = models.IntegerField(default=0)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    deleted: models.BooleanField = models.BooleanField(null=True, blank=True)
 
     # Loose relationship modelling to other PostHog resources
     item_id = models.fields.CharField(max_length=72, null=True)

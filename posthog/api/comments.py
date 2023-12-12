@@ -19,7 +19,7 @@ class CommentSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Comment
-        exclude = []
+        exclude = ["team"]
         read_only_fields = ["id", "created_by", "version"]
 
     def validate(self, data):
@@ -34,6 +34,10 @@ class CommentSerializer(serializers.ModelSerializer):
         data["created_by"] = request.user
 
         return data
+
+    def create(self, validated_data: Any) -> Any:
+        validated_data["team_id"] = self.context["team_id"]
+        return super().create(validated_data)
 
     def update(self, instance: Comment, validated_data: Dict, **kwargs) -> Comment:
         request = self.context["request"]
