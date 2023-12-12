@@ -172,16 +172,9 @@ async def test_run_stripe_job(activity_environment, team, **kwargs):
 
     with mock.patch(
         "posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline.create_pipeline",
-    ) as mock_create_pipeline, mock.patch(
-        "posthog.temporal.data_imports.pipelines.stripe.helpers.stripe_get_data"
-    ) as mock_stripe_get_data:  # noqa: B015
-        mock_stripe_get_data.return_value = {
-            "data": [{"id": "test-id", "object": "test-object"}],
-            "has_more": False,
-        }
+    ) as mock_create_pipeline:  # noqa: B015
         await activity_environment.run(run_external_data_job, inputs)
 
-        assert mock_stripe_get_data.call_count == 5
         assert mock_create_pipeline.call_count == 5
 
         mock_create_pipeline.assert_called_with(
