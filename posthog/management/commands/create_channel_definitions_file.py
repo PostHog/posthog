@@ -28,7 +28,9 @@ class Command(BaseCommand):
     help = (
         "Write the channel_definitions.json file. Needs a ga4 sources file like"
         "https://storage.googleapis.com/support-kms-prod/qn1xhBu8MVcZPIZ2WZMNdI40FtZXFPGYxj2K"
-        "as input. The best way I have found to do this is to open it in Google Docs, then save it as a text file"
+        "as input. The best way I have found to do this is to open it in Google Docs, then save it as a text file. "
+        "According the Google, they review this doc 'at least once a year and often more frequently', see "
+        "https://support.google.com/analytics/answer/9756891"
     )
 
     def add_arguments(self, parser):
