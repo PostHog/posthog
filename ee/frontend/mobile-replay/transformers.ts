@@ -378,6 +378,85 @@ function makeProgressElement(
                 ...children,
             ],
         }
+    } else if (wireframe.style?.bar === 'rating') {
+        // value needs to be expressed as a number between 0 and 100
+        const max = wireframe.max || 1
+        let value = wireframe.value || null
+        if (_isPositiveInteger(value) && value <= max) {
+            value = (value / max) * 100
+        } else {
+            value = null
+        }
+
+        if (value === null) {
+            return makePlaceholderElement(wireframe, children)
+        }
+
+        const stylingChildren: serializedNodeWithId[] = [
+            {
+                type: NodeType.Element,
+                tagName: 'style',
+                attributes: {
+                    type: 'text/css',
+                },
+                id: idSequence.next().value,
+                childNodes: [
+                    {
+                        type: NodeType.Text,
+                        textContent: `.stars {position: relative;display:inline-block;font-size: ${
+                            wireframe.height
+                        }px;height: ${wireframe.height}px;line-height: ${
+                            wireframe.height
+                        }px;}.stars:before {content: "\\2606\\2606\\2606\\2606\\2606";}.stars:after {content: "\\2605\\2605\\2605\\2605\\2605";position:absolute;  left:0;overflow:hidden;width:var(--w,50%);color: ${
+                            wireframe.style?.color || 'rgb(255, 200, 0)'
+                        };z-index:-1;}`,
+                        id: idSequence.next().value,
+                    },
+                ],
+            },
+        ]
+
+        const ratingBar = {
+            type: NodeType.Element,
+            tagName: 'ul',
+            id: idSequence.next().value,
+            attributes: {
+                // unset UL styles
+                style: 'list-style-type: none; margin: 0; padding: 0;',
+            },
+            childNodes: [
+                {
+                    type: NodeType.Element,
+                    tagName: 'li',
+                    id: idSequence.next().value,
+                    attributes: {
+                        style: 'list-style-type: none;',
+                    },
+                    childNodes: [
+                        {
+                            type: NodeType.Element,
+                            tagName: 'div',
+                            attributes: {
+                                style: `--w: ${value}%;`,
+                                class: 'stars',
+                            },
+                            id: idSequence.next().value,
+                            childNodes: [],
+                        },
+                    ],
+                },
+            ],
+        } as serializedNodeWithId
+
+        return {
+            type: NodeType.Element,
+            tagName: 'div',
+            attributes: {
+                style: makeMinimalStyles(wireframe),
+            },
+            id: wireframe.id,
+            childNodes: [...stylingChildren, ratingBar, ...children],
+        }
     } else {
         return {
             type: NodeType.Element,
