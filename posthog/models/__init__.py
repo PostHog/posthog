@@ -20,6 +20,7 @@ from .annotation import Annotation
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from .cohort import Cohort, CohortPeople
+from .comment import Comment
 from .dashboard import Dashboard
 from .dashboard_tile import DashboardTile, Text
 from .early_access_feature import EarlyAccessFeature
