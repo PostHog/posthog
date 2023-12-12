@@ -10,23 +10,28 @@ import { RetentionTableAppearanceType, RetentionTablePeoplePayload } from 'scene
 
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { query } from '~/queries/query'
-import { NodeKind, RetentionAppearanceQuery, RetentionQuery } from '~/queries/schema'
+import { NodeKind, PersonsQuery, RetentionQuery } from '~/queries/schema'
 import { InsightLogicProps } from '~/types'
 
 import type { retentionPeopleLogicType } from './retentionPeopleLogicType'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
-export function wrapRetentionQuery(
-    query: RetentionQuery,
-    selectedInterval: number,
-    offset = 0
-): RetentionAppearanceQuery {
+export function wrapRetentionQuery(query: RetentionQuery, selectedInterval: number, offset = 0): PersonsQuery {
     return {
-        kind: NodeKind.RetentionAppearanceQuery,
-        source: query,
+        kind: NodeKind.PersonsQuery,
+        select: ['person'],
+        source: {
+            kind: NodeKind.InsightPersonsQuery,
+            source: {
+                ...query,
+                retentionFilter: {
+                    ...query.retentionFilter,
+                    selected_interval: selectedInterval,
+                },
+            },
+        },
         offset,
-        selectedInterval,
     }
 }
 

@@ -346,8 +346,7 @@ class RetentionQueryRunner(QueryRunner):
                     -- make sure we have stable ordering/pagination
                     -- NOTE: relies on ids being monotonic
                     ORDER BY
-                        length(appearances) DESC,
-                        actor_id
+                        length(appearances) DESC
                 """,
                 placeholders,
                 timings=self.timings,
@@ -363,7 +362,7 @@ class RetentionQueryRunner(QueryRunner):
         return [
             1 if interval_number in appearances else 0
             for interval_number in range(
-                self.query.retentionFilter.total_intervals - (self.query.retentionFilter.selected_interval or 0)
+                self.query_date_range.total_intervals - (self.query.retentionFilter.selected_interval or 0)
             )
         ]
 

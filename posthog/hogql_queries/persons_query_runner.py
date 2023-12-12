@@ -209,6 +209,7 @@ class PersonsQueryRunner(QueryRunner):
                 columns += [
                     ast.Field(chain=[source_alias, *chain]) for chain in source_query_runner.to_persons_fields()
                 ]
+                order_by = source_query.order_by + order_by
             else:
                 join_expr = ast.JoinExpr(table=ast.Field(chain=["persons"]))
 
