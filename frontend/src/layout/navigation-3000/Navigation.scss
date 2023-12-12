@@ -73,12 +73,15 @@
         flex: 1;
         flex-direction: column;
         justify-content: space-between;
-        padding: 0 0.375rem;
         overflow-y: auto;
         background: var(--accent-3000);
 
         .LemonButton__chrome {
             --lemon-button-padding-horizontal: 0.25rem !important;
+        }
+
+        > * {
+            padding: 0 0.375rem;
         }
 
         ul {
@@ -91,6 +94,10 @@
     }
 }
 
+.Navbar3000__top {
+    overflow: auto;
+}
+
 .Navbar3000__overlay {
     position: fixed;
     z-index: var(--z-mobile-nav-overlay);
@@ -99,12 +106,12 @@
     background-color: var(--modal-backdrop-color);
     backdrop-filter: blur(var(--modal-backdrop-blur));
     opacity: 1;
-    transition: background-color 100ms ease-out, backdrop-filter 100ms ease-out;
+    transition: opacity 100ms ease-out, backdrop-filter 100ms ease-out;
 
     &.Navbar3000--hidden {
         pointer-events: none;
-        background-color: transparent;
         backdrop-filter: blur(0);
+        opacity: 0;
     }
 }
 

@@ -120,12 +120,7 @@ export function CreateRoleModal(): JSX.Element {
                 <>
                     <h5>Role Members</h5>
                     {roleMembersInFocus.length > 0 ? (
-                        <div
-                            className="mt-2 pb-2 rounded overflow-y-auto"
-                            style={{
-                                maxHeight: 300,
-                            }}
-                        >
+                        <div className="mt-2 pb-2 rounded overflow-y-auto max-h-80">
                             {roleMembersInFocus.map((member) => {
                                 return (
                                     <MemberRow

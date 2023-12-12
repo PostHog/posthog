@@ -14,7 +14,7 @@ export function GroupsIntroduction({ access }: Props): JSX.Element {
     if (access === GroupsAccessStatus.NoAccess) {
         header = (
             <>
-                Introducing <span className="highlight">Group Analytics</span>!
+                Introducing <span className="highlight">Group&nbsp;Analytics</span>!
             </>
         )
         subtext = (
@@ -45,17 +45,17 @@ export function GroupsIntroduction({ access }: Props): JSX.Element {
 
 export function GroupIntroductionFooter({ needsUpgrade }: { needsUpgrade: boolean }): JSX.Element {
     return (
-        <div className="text-sm bg-mid rounded p-2" style={{ maxWidth: '15rem' }}>
+        <div className="text-sm bg-mid rounded p-2 max-w-60">
             {needsUpgrade ? (
                 <>
-                    Track usage of groups of users with Group Analytics.{' '}
+                    Track usage of groups of users with Group&nbsp;Analytics.{' '}
                     <Link
                         className="font-medium"
                         to="/organization/billing"
                         target="_blank"
                         data-attr="group-analytics-upgrade"
                     >
-                        Upgrade now
+                        Upgrade now
                     </Link>{' '}
                     or{' '}
                     <Link
