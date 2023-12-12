@@ -26,7 +26,7 @@ import { LinkSurveyQuestion, RatingSurveyQuestion, SurveyQuestion, SurveyType, S
 
 import { defaultSurveyAppearance, defaultSurveyFieldValues, SurveyUrlMatchTypeLabels } from './constants'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
-import { Customization, SurveyAppearance } from './SurveyAppearance'
+import { Customization, SurveyAppearance, WidgetCustomization } from './SurveyAppearance'
 import { HTMLEditor, PresentationTypeCard } from './SurveyAppearanceUtils'
 import { SurveyEditQuestionGroup, SurveyEditQuestionHeader } from './SurveyEditQuestionRow'
 import { SurveyFormAppearance } from './SurveyFormAppearance'
@@ -144,73 +144,6 @@ export default function SurveyEdit(): JSX.Element {
                                 </Field>
                             ),
                         },
-                        ...(survey.type === SurveyType.Widget
-                            ? [
-                                  {
-                                      key: SurveyEditSection.Widget,
-                                      header: 'Widget',
-                                      content: (
-                                          <>
-                                              <PureField label="Widget type">
-                                                  <LemonSelect
-                                                      value={survey.appearance.widgetType}
-                                                      onChange={(val) =>
-                                                          setSurveyValue('appearance', {
-                                                              ...survey.appearance,
-                                                              widgetType: val,
-                                                          })
-                                                      }
-                                                      options={[
-                                                          { label: 'Tab', value: 'tab' },
-                                                          { label: 'Custom widget', value: 'selector' },
-                                                      ]}
-                                                  />
-                                              </PureField>
-                                              {survey.appearance.widgetType === 'selector' ? (
-                                                  <PureField label="Custom selector" className="mt-4">
-                                                      <LemonInput
-                                                          value={survey.appearance.widgetSelector}
-                                                          onChange={(widgetSelector) =>
-                                                              setSurveyValue('appearance', {
-                                                                  ...survey.appearance,
-                                                                  widgetSelector,
-                                                              })
-                                                          }
-                                                          placeholder="ex: .feedback-button"
-                                                      />
-                                                  </PureField>
-                                              ) : (
-                                                  <>
-                                                      <PureField label="Label" className="mt-4">
-                                                          <LemonInput
-                                                              value={survey.appearance.widgetLabel}
-                                                              onChange={(widgetLabel) =>
-                                                                  setSurveyValue('appearance', {
-                                                                      ...survey.appearance,
-                                                                      widgetLabel,
-                                                                  })
-                                                              }
-                                                          />
-                                                      </PureField>
-                                                      <PureField label="Background color" className="mt-4">
-                                                          <LemonInput
-                                                              value={survey.appearance.widgetColor}
-                                                              onChange={(widgetColor) =>
-                                                                  setSurveyValue('appearance', {
-                                                                      ...survey.appearance,
-                                                                      widgetColor,
-                                                                  })
-                                                              }
-                                                              placeholder="ex: #000000"
-                                                          />
-                                                      </PureField>
-                                                  </>
-                                              )}
-                                          </>
-                                      ),
-                                  },
-                              ]
-                            : []),
                         {
                             key: SurveyEditSection.Steps,
                             header: 'Steps',
@@ -413,13 +346,28 @@ export default function SurveyEdit(): JSX.Element {
                                       content: (
                                           <Field name="appearance" label="">
                                               {({ value, onChange }) => (
-                                                  <Customization
-                                                      appearance={value || defaultSurveyAppearance}
-                                                      surveyQuestionItem={survey.questions[0]}
-                                                      onAppearanceChange={(appearance) => {
-                                                          onChange(appearance)
-                                                      }}
-                                                  />
+                                                  <>
+                                                      {survey.type === SurveyType.Widget && (
+                                                          <>
+                                                              <div className="font-bold">Widget customization</div>
+                                                              <WidgetCustomization
+                                                                  appearance={value || defaultSurveyAppearance}
+                                                                  onAppearanceChange={(appearance) => {
+                                                                      onChange(appearance)
+                                                                  }}
+                                                              />
+                                                              <LemonDivider className="mt-4" />
+                                                              <div className="font-bold">Survey customization</div>
+                                                          </>
+                                                      )}
+                                                      <Customization
+                                                          appearance={value || defaultSurveyAppearance}
+                                                          surveyQuestionItem={survey.questions[0]}
+                                                          onAppearanceChange={(appearance) => {
+                                                              onChange(appearance)
+                                                          }}
+                                                      />
+                                                  </>
                                               )}
                                           </Field>
                                       ),
