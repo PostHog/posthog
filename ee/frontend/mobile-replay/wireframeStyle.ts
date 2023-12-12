@@ -125,7 +125,7 @@ export function makeIndeterminateProgressStyles(wireframe: wireframeProgress, st
         styles += `background-color: ${combinedStyles.backgroundColor};`
     }
     styles += makePositionStyles(wireframe)
-    styles += `border: 4px solid ${combinedStyles.borderColor || 'transparent'};`
+    styles += `border: 4px solid ${combinedStyles.borderColor || combinedStyles.color || 'transparent'};`
     styles += `border-radius: 50%;border-top: 4px solid #fff;`
     styles += `animation: spin 2s linear infinite;`
 
