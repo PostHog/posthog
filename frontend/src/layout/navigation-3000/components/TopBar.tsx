@@ -236,6 +236,7 @@ function Here({ breadcrumb }: HereProps): JSX.Element {
                     placeholder="Unnamed"
                     compactButtons="xsmall"
                     editingIndication="underlined"
+                    autoFocus
                 />
             ) : (
                 <span>{breadcrumb.name}</span>
