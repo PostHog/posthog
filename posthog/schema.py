@@ -55,6 +55,13 @@ class BreakdownType(str, Enum):
     hogql = "hogql"
 
 
+class ChartAxis(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: str
+
+
 class ChartDisplayType(str, Enum):
     ActionsLineGraph = "ActionsLineGraph"
     ActionsLineGraphCumulative = "ActionsLineGraphCumulative"
@@ -767,8 +774,8 @@ class ChartSettings(BaseModel):
         extra="forbid",
     )
     goalLines: Optional[List[GoalLine]] = None
-    xAxisIndex: Optional[List[float]] = None
-    yAxisIndex: Optional[List[float]] = None
+    xAxis: Optional[ChartAxis] = None
+    yAxis: Optional[List[ChartAxis]] = None
 
 
 class ElementPropertyFilter(BaseModel):

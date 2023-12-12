@@ -39,7 +39,7 @@ export const LineGraph = (): JSX.Element => {
         }
 
         const data: ChartData = {
-            labels: xData,
+            labels: xData.data,
             datasets: yData.map(({ data }, index) => {
                 const color = getSeriesColor(index)
 
@@ -173,13 +173,13 @@ export const LineGraph = (): JSX.Element => {
                             tooltipRoot.render(
                                 <div className="InsightTooltip">
                                     <LemonTable
-                                        dataSource={yData.map(({ data, name: seriesLabel }) => ({
-                                            series: seriesLabel,
+                                        dataSource={yData.map(({ data, column }) => ({
+                                            series: column.name,
                                             data: data[referenceDataPoint.dataIndex],
                                         }))}
                                         columns={[
                                             {
-                                                title: xData[referenceDataPoint.dataIndex],
+                                                title: xData.data[referenceDataPoint.dataIndex],
                                                 dataIndex: 'series',
                                                 render: (value) => {
                                                     return (
