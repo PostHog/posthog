@@ -398,9 +398,9 @@ function makeToggleParts(wireframe: wireframeToggle): serializedNodeWithId[] {
             type: NodeType.Element,
             tagName: 'div',
             attributes: {
-                id: 'slider',
-                style: `position:absolute;top:35%;left:0;display:inline-block;width:100%;height:33%;background-color:${
-                    wireframe.style?.backgroundColor || defaultColor
+                'data-toggle-part': 'slider',
+                style: `position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;background-color:${
+                    wireframe.style?.color || defaultColor
                 };opacity: 0.2;border-radius:7.5%;`,
             },
             id: idSequence.next().value,
@@ -410,9 +410,12 @@ function makeToggleParts(wireframe: wireframeToggle): serializedNodeWithId[] {
             type: NodeType.Element,
             tagName: 'div',
             attributes: {
-                style: `position:absolute;top:1.5%;${togglePosition}:0;display:flex;align-items:center;justify-content:center;width:45%;height:85%;cursor:inherit;background-color:${
-                    wireframe.style?.backgroundColor || defaultColor
-                };border:2px solid ${wireframe.style?.backgroundColor || defaultColor};border-radius:50%;`,
+                'data-toggle-part': 'handle',
+                style: `position:absolute;top:1.5%;${togglePosition}:5%;display:flex;align-items:center;justify-content:center;width:40%;height:75%;cursor:inherit;background-color:${
+                    wireframe.style?.color || defaultColor
+                };border:2px solid ${
+                    wireframe.style?.borderColor || wireframe.style?.color || defaultColor
+                };border-radius:50%;`,
             },
             id: idSequence.next().value,
             childNodes: [],
@@ -421,11 +424,13 @@ function makeToggleParts(wireframe: wireframeToggle): serializedNodeWithId[] {
 }
 
 function makeToggleElement(wireframe: wireframeToggle): (elementNode & { id: number }) | null {
+    const isLabelled = 'label' in wireframe
     return {
         type: NodeType.Element,
         tagName: 'div',
         attributes: {
-            style: makePositionStyles(wireframe),
+            // if labelled take up available space, otherwise use provided positioning
+            style: isLabelled ? `height:100%;flex:1` : makePositionStyles(wireframe),
         },
         id: wireframe.id,
         childNodes: [
