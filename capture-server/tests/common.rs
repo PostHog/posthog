@@ -177,6 +177,7 @@ impl EphemeralTopic {
 impl Drop for EphemeralTopic {
     fn drop(&mut self) {
         debug!("dropping EphemeralTopic {}...", self.topic_name);
+        _ = self.consumer.unassign();
         self.consumer.unsubscribe();
         match futures::executor::block_on(timeout(
             Duration::from_secs(10),
