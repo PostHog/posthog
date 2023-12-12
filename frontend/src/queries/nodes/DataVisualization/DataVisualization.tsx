@@ -17,6 +17,7 @@ import { HogQLQueryEditor } from '../HogQLQuery/HogQLQueryEditor'
 import { Chart } from './Components/Chart'
 import { TableDisplay } from './Components/TableDisplay'
 import { dataVisualizationLogic, DataVisualizationLogicProps } from './dataVisualizationLogic'
+import { displayLogic } from './displayLogic'
 
 interface DataTableVisualizationProps {
     uniqueKey?: string | number
@@ -82,43 +83,45 @@ export function DataTableVisualization(props: DataTableVisualizationProps): JSX.
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
             <BindLogic logic={dataVisualizationLogic} props={dataVisualizationLogicProps}>
-                <div className="DataVisualization flex flex-1">
-                    <div className="relative w-full flex flex-col gap-4 flex-1 overflow-hidden">
-                        {showEditingUI && (
-                            <>
-                                <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded />
-                                {sourceFeatures.has(QueryFeature.dateRangePicker) && (
-                                    <div className="flex gap-4 items-center flex-wrap">
-                                        <DateRange
-                                            key="date-range"
-                                            query={query.source}
-                                            setQuery={(query) => {
-                                                if (query.kind === NodeKind.HogQLQuery) {
-                                                    setQuerySource(query)
-                                                }
-                                            }}
-                                        />
+                <BindLogic logic={displayLogic} props={{ key: dataVisualizationLogicProps.key }}>
+                    <div className="DataVisualization flex flex-1">
+                        <div className="relative w-full flex flex-col gap-4 flex-1 overflow-hidden">
+                            {showEditingUI && (
+                                <>
+                                    <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded />
+                                    {sourceFeatures.has(QueryFeature.dateRangePicker) && (
+                                        <div className="flex gap-4 items-center flex-wrap">
+                                            <DateRange
+                                                key="date-range"
+                                                query={query.source}
+                                                setQuery={(query) => {
+                                                    if (query.kind === NodeKind.HogQLQuery) {
+                                                        setQuerySource(query)
+                                                    }
+                                                }}
+                                            />
+                                        </div>
+                                    )}
+                                </>
+                            )}
+                            {showResultControls && (
+                                <>
+                                    <LemonDivider className="my-0" />
+                                    <div className="flex gap-4 justify-between flex-wrap">
+                                        <div className="flex gap-4 items-center">
+                                            <Reload />
+                                            <ElapsedTime />
+                                        </div>
+                                        <div className="flex gap-4 items-center">
+                                            <TableDisplay />
+                                        </div>
                                     </div>
-                                )}
-                            </>
-                        )}
-                        {showResultControls && (
-                            <>
-                                <LemonDivider className="my-0" />
-                                <div className="flex gap-4 justify-between flex-wrap">
-                                    <div className="flex gap-4 items-center">
-                                        <Reload />
-                                        <ElapsedTime />
-                                    </div>
-                                    <div className="flex gap-4 items-center">
-                                        <TableDisplay />
-                                    </div>
-                                </div>
-                            </>
-                        )}
-                        {component}
+                                </>
+                            )}
+                            {component}
+                        </div>
                     </div>
-                </div>
+                </BindLogic>
             </BindLogic>
         </BindLogic>
     )

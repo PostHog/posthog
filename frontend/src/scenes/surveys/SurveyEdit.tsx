@@ -94,6 +94,7 @@ export default function SurveyEdit(): JSX.Element {
                                                     value={SurveyType.Popover}
                                                 >
                                                     <div
+                                                        // eslint-disable-next-line react/forbid-dom-props
                                                         style={{
                                                             transform: 'scale(.8)',
                                                             position: 'absolute',
@@ -121,7 +122,11 @@ export default function SurveyEdit(): JSX.Element {
                                                     description="Use the PostHog API to show/hide your survey programmatically"
                                                     value={SurveyType.API}
                                                 >
-                                                    <div className="absolute left-4" style={{ width: 350 }}>
+                                                    <div
+                                                        className="absolute left-4"
+                                                        // eslint-disable-next-line react/forbid-dom-props
+                                                        style={{ width: 350 }}
+                                                    >
                                                         <SurveyAPIEditor survey={survey} />
                                                     </div>
                                                 </PresentationTypeCard>

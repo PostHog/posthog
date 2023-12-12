@@ -345,9 +345,19 @@ export interface DataTableNode extends Node, DataTableNodeViewProps {
     hiddenColumns?: HogQLExpression[]
 }
 
+export interface GoalLine {
+    label: string
+    value: number
+}
+
+export interface ChartAxis {
+    column: string
+}
+
 interface ChartSettings {
-    xAxisIndex?: number[]
-    yAxisIndex?: number[]
+    xAxis?: ChartAxis
+    yAxis?: ChartAxis[]
+    goalLines?: GoalLine[]
 }
 
 export interface DataVisualizationNode extends Node {

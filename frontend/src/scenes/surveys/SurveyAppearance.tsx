@@ -83,6 +83,7 @@ const Button = ({
                 link && type === SurveyQuestionType.Link ? window.open(link) : null
                 onSubmit()
             }}
+            // eslint-disable-next-line react/forbid-dom-props
             style={{ color: textColor, backgroundColor: appearance.submitButtonColor }}
             {...other}
         >
@@ -298,6 +299,7 @@ export function BaseAppearance({
         <form
             ref={ref}
             className={`survey-form ${isWidgetSurvey ? 'widget-survey' : ''}`}
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
                 backgroundColor: appearance.backgroundColor,
                 border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
@@ -307,6 +309,7 @@ export function BaseAppearance({
             <div className="survey-box">
                 {!preview && (
                     <div
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={{
                             border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
                         }}
@@ -334,6 +337,7 @@ export function BaseAppearance({
                     {question.type === SurveyQuestionType.Open && (
                         <textarea
                             {...(preview ? { tabIndex: -1 } : null)}
+                            // eslint-disable-next-line react/forbid-dom-props
                             style={{
                                 border: `1px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
                             }}
@@ -399,6 +403,7 @@ const RatingButton = ({
             className="ratings-number"
             type="button"
             onClick={() => setActiveNumber(num)}
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
                 color: textColor,
                 backgroundColor: active ? appearance.ratingButtonActiveColor : appearance.ratingButtonColor,
@@ -424,6 +429,7 @@ const NumberRating = ({
     const totalNumbers = ratingSurveyQuestion.scale === 10 ? 11 : ratingSurveyQuestion.scale
     return (
         <div
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
                 border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
                 gridTemplateColumns: `repeat(${totalNumbers}, minmax(0, 1fr))`,
@@ -472,6 +478,7 @@ const EmojiRating = ({
                         className="ratings-emoji"
                         type="button"
                         key={idx}
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={{ fill: active ? appearance.ratingButtonActiveColor : appearance.ratingButtonColor }}
                         onClick={() => setActiveIndex(idx)}
                     >
@@ -510,6 +517,7 @@ export function SurveyRatingAppearance({
         <form
             ref={ref}
             className={`survey-form ${isWidgetSurvey ? 'widget-survey' : ''}`}
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
                 backgroundColor: appearance.backgroundColor,
                 border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
@@ -519,6 +527,7 @@ export function SurveyRatingAppearance({
             <div className="survey-box">
                 {!preview && (
                     <div
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={{
                             border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
                         }}
@@ -672,6 +681,7 @@ export function SurveyMultipleChoiceAppearance({
         <form
             ref={ref}
             className={`survey-form ${isWidgetSurvey ? 'widget-survey' : ''}`}
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
                 backgroundColor: appearance.backgroundColor,
                 border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
@@ -681,6 +691,7 @@ export function SurveyMultipleChoiceAppearance({
             <div className="survey-box">
                 {!preview && (
                     <div
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={{
                             border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
                         }}
@@ -759,6 +770,7 @@ export function SurveyThankYou({ appearance }: { appearance: SurveyAppearanceTyp
         <div
             ref={ref}
             className="thank-you-message"
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
                 backgroundColor: appearance.backgroundColor,
                 border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
@@ -767,6 +779,7 @@ export function SurveyThankYou({ appearance }: { appearance: SurveyAppearanceTyp
         >
             <div className="thank-you-message-container">
                 <div
+                    // eslint-disable-next-line react/forbid-dom-props
                     style={{ border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}` }}
                     className="cancel-btn-wrapper"
                 >
@@ -832,6 +845,7 @@ export function SurveyWidgetAppearance({
         <>
             <div
                 className="ph-survey-widget-tab auto-text-color"
+                // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     backgroundColor: appearance.widgetColor || '#e0a045',
                     color: textColor,

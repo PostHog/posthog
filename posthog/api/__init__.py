@@ -34,6 +34,7 @@ from . import (
     property_definition,
     query,
     search,
+    scheduled_change,
     sharing,
     survey,
     tagged_item,
@@ -126,6 +127,13 @@ projects_router.register(
     r"data_management",
     DataManagementViewSet,
     "data_management",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"scheduled_changes",
+    scheduled_change.ScheduledChangeViewSet,
+    "scheduled_changes",
     ["team_id"],
 )
 

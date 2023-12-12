@@ -16,23 +16,28 @@ function ensureUnit(value: string | number): string {
     return isNumber(value) ? `${value}px` : value.replace(/px$/g, '') + 'px'
 }
 
-function makeBorderStyles(wireframe: wireframe): string {
+function makeBorderStyles(wireframe: wireframe, styleOverride?: MobileStyles): string {
     let styles = ''
 
-    if (!wireframe.style) {
+    const combinedStyles = {
+        ...wireframe.style,
+        ...styleOverride,
+    }
+
+    if (!combinedStyles) {
         return styles
     }
 
-    if (isUnitLike(wireframe.style.borderWidth)) {
-        const borderWidth = ensureUnit(wireframe.style.borderWidth)
+    if (isUnitLike(combinedStyles.borderWidth)) {
+        const borderWidth = ensureUnit(combinedStyles.borderWidth)
         styles += `border-width: ${borderWidth};`
     }
-    if (isUnitLike(wireframe.style.borderRadius)) {
-        const borderRadius = ensureUnit(wireframe.style.borderRadius)
+    if (isUnitLike(combinedStyles.borderRadius)) {
+        const borderRadius = ensureUnit(combinedStyles.borderRadius)
         styles += `border-radius: ${borderRadius};`
     }
-    if (wireframe.style?.borderColor) {
-        styles += `border-color: ${wireframe.style.borderColor};`
+    if (combinedStyles?.borderColor) {
+        styles += `border-color: ${combinedStyles.borderColor};`
     }
 
     if (styles.length > 0) {
@@ -42,27 +47,7 @@ function makeBorderStyles(wireframe: wireframe): string {
     return styles
 }
 
-export function makeSvgBorder(style: MobileStyles | undefined): Record<string, string> {
-    const svgBorderStyles: Record<string, string> = {}
-
-    if (!style) {
-        return svgBorderStyles
-    }
-
-    if (isUnitLike(style.borderWidth)) {
-        svgBorderStyles['stroke-width'] = ensureUnit(style.borderWidth)
-    }
-    if (style.borderColor) {
-        svgBorderStyles.stroke = style.borderColor
-    }
-    if (isUnitLike(style.borderRadius)) {
-        svgBorderStyles.rx = ensureUnit(style.borderRadius)
-    }
-
-    return svgBorderStyles
-}
-
-export function makePositionStyles(wireframe: wireframe): string {
+function makePositionStyles(wireframe: wireframe): string {
     let styles = ''
     if (isNumber(wireframe.width)) {
         styles += `width: ${ensureUnit(wireframe.width)};`
@@ -85,16 +70,22 @@ export function makePositionStyles(wireframe: wireframe): string {
     return styles
 }
 
-function makeLayoutStyles(wireframe: wireframe): string {
+function makeLayoutStyles(wireframe: wireframe, styleOverride?: MobileStyles): string {
     let styles = ''
-    if (wireframe.style?.verticalAlign) {
+
+    const combinedStyles = {
+        ...wireframe.style,
+        ...styleOverride,
+    }
+
+    if (combinedStyles.verticalAlign) {
         styles += `align-items: ${
-            { top: 'flex-start', center: 'center', bottom: 'flex-end' }[wireframe.style.verticalAlign]
+            { top: 'flex-start', center: 'center', bottom: 'flex-end' }[combinedStyles.verticalAlign]
         };`
     }
-    if (wireframe.style?.horizontalAlign) {
+    if (combinedStyles.horizontalAlign) {
         styles += `justify-content: ${
-            { left: 'flex-start', center: 'center', right: 'flex-end' }[wireframe.style.horizontalAlign]
+            { left: 'flex-start', center: 'center', right: 'flex-end' }[combinedStyles.horizontalAlign]
         };`
     }
     if (styles.length) {
@@ -103,45 +94,59 @@ function makeLayoutStyles(wireframe: wireframe): string {
     return styles
 }
 
-function makeFontStyles(wireframe: wireframe): string {
+function makeFontStyles(wireframe: wireframe, styleOverride?: MobileStyles): string {
     let styles = ''
 
-    if (!wireframe.style) {
+    const combinedStyles = {
+        ...wireframe.style,
+        ...styleOverride,
+    }
+
+    if (!combinedStyles) {
         return styles
     }
 
-    if (isUnitLike(wireframe.style.fontSize)) {
-        styles += `font-size: ${ensureUnit(wireframe.style?.fontSize)};`
+    if (isUnitLike(combinedStyles.fontSize)) {
+        styles += `font-size: ${ensureUnit(combinedStyles?.fontSize)};`
     }
-    if (wireframe.style.fontFamily) {
-        styles += `font-family: ${wireframe.style.fontFamily};`
+    if (combinedStyles.fontFamily) {
+        styles += `font-family: ${combinedStyles.fontFamily};`
     }
     return styles
 }
 
-export function makeIndeterminateProgressStyles(wireframe: wireframeProgress): string {
+export function makeIndeterminateProgressStyles(wireframe: wireframeProgress, styleOverride?: MobileStyles): string {
     let styles = ''
-    if (wireframe.style?.backgroundColor) {
-        styles += `background-color: ${wireframe.style.backgroundColor};`
+    const combinedStyles = {
+        ...wireframe.style,
+        ...styleOverride,
+    }
+    if (combinedStyles.backgroundColor) {
+        styles += `background-color: ${combinedStyles.backgroundColor};`
     }
     styles += makePositionStyles(wireframe)
-    styles += `border: 4px solid ${wireframe.style?.borderColor || 'transparent'};`
+    styles += `border: 4px solid ${combinedStyles.borderColor || combinedStyles.color || 'transparent'};`
     styles += `border-radius: 50%;border-top: 4px solid #fff;`
     styles += `animation: spin 2s linear infinite;`
 
     return styles
 }
 
-export function makeDeterminateProgressStyles(wireframe: wireframeProgress): string {
+export function makeDeterminateProgressStyles(wireframe: wireframeProgress, styleOverride?: MobileStyles): string {
     let styles = ''
-    if (wireframe.style?.backgroundColor) {
-        styles += `background-color: ${wireframe.style.backgroundColor};`
+    const combinedStyles = {
+        ...wireframe.style,
+        ...styleOverride,
+    }
+
+    if (combinedStyles.backgroundColor) {
+        styles += `background-color: ${combinedStyles.backgroundColor};`
     }
     styles += makePositionStyles(wireframe)
     styles += 'border-radius: 50%;'
     const radialGradient = `radial-gradient(closest-side, white 80%, transparent 0 99.9%, white 0)`
-    const conicGradient = `conic-gradient(${wireframe.style?.color || 'black'} calc(${wireframe.value} * 1%), ${
-        wireframe.style?.backgroundColor
+    const conicGradient = `conic-gradient(${combinedStyles.color || 'black'} calc(${wireframe.value} * 1%), ${
+        combinedStyles.backgroundColor
     } 0)`
     styles += `background: ${radialGradient}, ${conicGradient};`
 
@@ -151,27 +156,33 @@ export function makeDeterminateProgressStyles(wireframe: wireframeProgress): str
 /**
  * normally use makeStylesString instead, but sometimes you need styles without any colors applied
  * */
-export function makeMinimalStyles(wireframe: wireframe): string {
+export function makeMinimalStyles(wireframe: wireframe, styleOverride?: MobileStyles): string {
     let styles = ''
 
     styles += makePositionStyles(wireframe)
-    styles += makeLayoutStyles(wireframe)
-    styles += makeFontStyles(wireframe)
+    styles += makeLayoutStyles(wireframe, styleOverride)
+    styles += makeFontStyles(wireframe, styleOverride)
 
     return styles
 }
 
-export function makeStylesString(wireframe: wireframe): string {
+export function makeStylesString(wireframe: wireframe, styleOverride?: MobileStyles): string {
     let styles = ''
 
-    if (wireframe.style?.color) {
-        styles += `color: ${wireframe.style.color};`
+    const combinedStyles = {
+        ...wireframe.style,
+        ...styleOverride,
     }
-    if (wireframe.style?.backgroundColor) {
-        styles += `background-color: ${wireframe.style.backgroundColor};`
+
+    if (combinedStyles.color) {
+        styles += `color: ${combinedStyles.color};`
     }
-    styles += makeBorderStyles(wireframe)
-    styles += makeMinimalStyles(wireframe)
+    if (combinedStyles.backgroundColor) {
+        styles += `background-color: ${combinedStyles.backgroundColor};`
+    }
+
+    styles += makeBorderStyles(wireframe, styleOverride)
+    styles += makeMinimalStyles(wireframe, styleOverride)
 
     return styles
 }

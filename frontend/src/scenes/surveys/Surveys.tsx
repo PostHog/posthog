@@ -154,7 +154,7 @@ export function Surveys(): JSX.Element {
                 {!shouldShowEmptyState && (
                     <>
                         <div>
-                            <div className="flex justify-between mb-4">
+                            <div className="flex justify-between mb-4 gap-2 flex-wrap">
                                 <LemonInput
                                     type="search"
                                     placeholder="Search for surveys"

@@ -284,6 +284,16 @@
             "enum": ["cohort", "person", "event", "group", "session", "hogql"],
             "type": "string"
         },
+        "ChartAxis": {
+            "additionalProperties": false,
+            "properties": {
+                "column": {
+                    "type": "string"
+                }
+            },
+            "required": ["column"],
+            "type": "object"
+        },
         "ChartDisplayType": {
             "enum": [
                 "ActionsLineGraph",
@@ -514,15 +524,18 @@
                 "chartSettings": {
                     "additionalProperties": false,
                     "properties": {
-                        "xAxisIndex": {
+                        "goalLines": {
                             "items": {
-                                "type": "number"
+                                "$ref": "#/definitions/GoalLine"
                             },
                             "type": "array"
                         },
-                        "yAxisIndex": {
+                        "xAxis": {
+                            "$ref": "#/definitions/ChartAxis"
+                        },
+                        "yAxis": {
                             "items": {
-                                "type": "number"
+                                "$ref": "#/definitions/ChartAxis"
                             },
                             "type": "array"
                         }
@@ -1351,6 +1364,19 @@
                 }
             },
             "required": ["kind", "series"],
+            "type": "object"
+        },
+        "GoalLine": {
+            "additionalProperties": false,
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["label", "value"],
             "type": "object"
         },
         "GroupMathType": {
