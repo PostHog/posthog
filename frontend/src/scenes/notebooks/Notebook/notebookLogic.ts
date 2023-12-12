@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
-import { downloadFile, slugify } from 'lib/utils'
+import { base64Decode, base64Encode, downloadFile, slugify } from 'lib/utils'
 import posthog from 'posthog-js'
 import {
     buildTimestampCommentContent,
@@ -500,7 +500,7 @@ export const notebookLogic = kea<notebookLogicType>([
 
             if (values.mode === 'canvas') {
                 // TODO: We probably want this to be configurable
-                cache.lastState = btoa(JSON.stringify(jsonContent))
+                cache.lastState = base64Encode(JSON.stringify(jsonContent))
                 router.actions.replace(
                     router.values.currentLocation.pathname,
                     router.values.currentLocation.searchParams,
@@ -582,6 +582,9 @@ export const notebookLogic = kea<notebookLogicType>([
         },
 
         scheduleNotebookRefresh: () => {
+            if (values.mode !== 'notebook') {
+                return
+            }
             clearTimeout(cache.refreshTimeout)
             cache.refreshTimeout = setTimeout(() => {
                 actions.loadNotebook()
@@ -607,7 +610,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     return
                 }
 
-                actions.setLocalContent(JSON.parse(atob(hashParams['🦔'])))
+                actions.setLocalContent(JSON.parse(base64Decode(hashParams['🦔'])))
             }
         },
     })),

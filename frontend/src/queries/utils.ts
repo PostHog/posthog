@@ -16,6 +16,7 @@ import {
     InsightFilter,
     InsightFilterProperty,
     InsightNodeKind,
+    InsightPersonsQuery,
     InsightQueryNode,
     InsightVizNode,
     LifecycleQuery,
@@ -93,6 +94,10 @@ export function isPersonsNode(node?: Node | null): node is PersonsNode {
 
 export function isPersonsQuery(node?: Node | null): node is PersonsQuery {
     return node?.kind === NodeKind.PersonsQuery
+}
+
+export function isInsightPersonsQuery(node?: Node | null): node is InsightPersonsQuery {
+    return node?.kind === NodeKind.InsightPersonsQuery
 }
 
 export function isDataTableNode(node?: Node | null): node is DataTableNode {

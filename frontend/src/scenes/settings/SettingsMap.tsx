@@ -101,7 +101,7 @@ export const SettingsMap: SettingSection[] = [
             },
             {
                 id: 'internal-user-filtering',
-                title: 'Filter our internal and test users',
+                title: 'Filter out internal and test users',
                 component: <ProjectAccountFiltersSetting />,
             },
             {

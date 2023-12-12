@@ -7,7 +7,7 @@ from django.conf import settings
 from dlt.pipeline.exceptions import PipelineStepFailed
 
 from posthog.warehouse.models import ExternalDataSource
-from posthog.temporal.data_imports.pipelines.stripe.helpers import stripe_pagination
+from posthog.temporal.data_imports.pipelines.stripe.helpers import stripe_source
 from posthog.temporal.data_imports.pipelines.stripe.settings import ENDPOINTS
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 
@@ -95,19 +95,13 @@ async def run_stripe_pipeline(inputs: StripeJobInputs) -> None:
         else:
             starting_after = None
 
-        async for item, cursor in stripe_pagination(inputs.stripe_secret_key, endpoint, starting_after=starting_after):
-            try:
-                # init pipeline and run data import
-                pipeline = create_pipeline(inputs)
-                pipeline.run(item, table_name=endpoint.lower(), loader_file_format="parquet")
-
-                # clear everything from pipeline
-                pipeline.drop()
-                pipeline.deactivate()
-                activity.heartbeat(endpoint, cursor)
-            except PipelineStepFailed:
-                logger.error(f"Data import failed for endpoint {endpoint} with cursor {cursor}")
-                raise
+        pipeline = create_pipeline(inputs)
+        try:
+            source = stripe_source(inputs.stripe_secret_key, endpoint, starting_after=starting_after)
+            pipeline.run(source, table_name=endpoint.lower(), loader_file_format="parquet")
+        except PipelineStepFailed:
+            logger.error(f"Data import failed for endpoint {endpoint} with cursor {cursor}")
+            raise
 
 
 PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING = {ExternalDataSource.Type.STRIPE: ENDPOINTS}

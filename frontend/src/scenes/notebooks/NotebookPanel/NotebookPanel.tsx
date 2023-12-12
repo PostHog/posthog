@@ -42,6 +42,7 @@ export function NotebookPanel(): JSX.Element | null {
                                 selectNotebook(notebook.short_id)
                             }}
                         />
+                        <div className="flex-1" />
                         {selectedNotebook && <NotebookSyncInfo shortId={selectedNotebook} />}
 
                         <LemonButton

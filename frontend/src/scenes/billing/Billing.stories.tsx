@@ -13,6 +13,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-05-25',
+        testOptions: { include3000: true },
     },
     decorators: [
         mswDecorator({

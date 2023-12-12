@@ -170,7 +170,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         incrementErrorCount: true,
         incrementWarningCount: (count: number = 1) => ({ count }),
         updateFromMetadata: true,
-        exportRecordingToFile: true,
+        exportRecordingToFile: (exportUntransformedMobileData?: boolean) => ({ exportUntransformedMobileData }),
         deleteRecording: true,
         openExplorer: true,
         closeExplorer: true,
@@ -881,7 +881,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             cache.pausedMediaElements = []
         },
 
-        exportRecordingToFile: async () => {
+        exportRecordingToFile: async ({ exportUntransformedMobileData }) => {
             if (!values.sessionPlayerData) {
                 return
             }
@@ -906,11 +906,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     await delay(delayTime)
                 }
 
-                const payload = createExportedSessionRecording(sessionRecordingDataLogic(props))
+                const payload = createExportedSessionRecording(
+                    sessionRecordingDataLogic(props),
+                    !!exportUntransformedMobileData
+                )
 
                 const recordingFile = new File(
                     [JSON.stringify(payload, null, 2)],
-                    `export-${props.sessionRecordingId}.ph-recording.json`,
+                    `export-${props.sessionRecordingId}.${
+                        exportUntransformedMobileData ? 'mobile.' : ''
+                    }ph-recording.json`,
                     { type: 'application/json' }
                 )
 
