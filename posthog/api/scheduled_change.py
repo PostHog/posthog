@@ -32,8 +32,9 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
             "failure_reason",
             "created_at",
             "created_by",
+            "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "created_by"]
+        read_only_fields = ["id", "created_at", "created_by", "updated_at"]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> ScheduledChange:
         request = self.context["request"]
