@@ -66,17 +66,21 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 loadSearchResponse: async (_, breakpoint) => {
                     await breakpoint(DEBOUNCE_MS)
 
+                    let response
                     if (clickhouseTabs.includes(values.activeTab)) {
                         // prevent race conditions when switching tabs quickly
-                        return values.rawSearchResponse
+                        response = values.rawSearchResponse
                     } else if (values.activeTab === Tab.All) {
-                        return await api.search.list({ q: values.searchQuery })
+                        response = await api.search.list({ q: values.searchQuery })
                     } else {
-                        return await api.search.list({
+                        response = await api.search.list({
                             q: values.searchQuery,
                             entities: [values.activeTab.toLowerCase() as SearchableEntity],
                         })
                     }
+
+                    breakpoint()
+                    return response
                 },
             },
         ],
@@ -85,7 +89,9 @@ export const searchBarLogic = kea<searchBarLogicType>([
             {
                 loadPersonsResponse: async (_, breakpoint) => {
                     await breakpoint(DEBOUNCE_MS)
-                    return await api.persons.list({ search: values.searchQuery })
+                    const response = await api.persons.list({ search: values.searchQuery })
+                    breakpoint()
+                    return response
                 },
             },
         ],
@@ -94,7 +100,9 @@ export const searchBarLogic = kea<searchBarLogicType>([
             {
                 loadGroup0Response: async (_, breakpoint) => {
                     await breakpoint(DEBOUNCE_MS)
-                    return await api.groups.list({ group_type_index: 0, search: values.searchQuery })
+                    const response = await api.groups.list({ group_type_index: 0, search: values.searchQuery })
+                    breakpoint()
+                    return response
                 },
             },
         ],
@@ -103,7 +111,9 @@ export const searchBarLogic = kea<searchBarLogicType>([
             {
                 loadGroup1Response: async (_, breakpoint) => {
                     await breakpoint(DEBOUNCE_MS)
-                    return await api.groups.list({ group_type_index: 1, search: values.searchQuery })
+                    const response = await api.groups.list({ group_type_index: 1, search: values.searchQuery })
+                    breakpoint()
+                    return response
                 },
             },
         ],
@@ -112,7 +122,9 @@ export const searchBarLogic = kea<searchBarLogicType>([
             {
                 loadGroup2Response: async (_, breakpoint) => {
                     await breakpoint(DEBOUNCE_MS)
-                    return await api.groups.list({ group_type_index: 2, search: values.searchQuery })
+                    const response = await api.groups.list({ group_type_index: 2, search: values.searchQuery })
+                    breakpoint()
+                    return response
                 },
             },
         ],
@@ -121,7 +133,9 @@ export const searchBarLogic = kea<searchBarLogicType>([
             {
                 loadGroup3Response: async (_, breakpoint) => {
                     await breakpoint(DEBOUNCE_MS)
-                    return await api.groups.list({ group_type_index: 3, search: values.searchQuery })
+                    const response = await api.groups.list({ group_type_index: 3, search: values.searchQuery })
+                    breakpoint()
+                    return response
                 },
             },
         ],
@@ -130,7 +144,9 @@ export const searchBarLogic = kea<searchBarLogicType>([
             {
                 loadGroup4Response: async (_, breakpoint) => {
                     await breakpoint(DEBOUNCE_MS)
-                    return await api.groups.list({ group_type_index: 4, search: values.searchQuery })
+                    const response = await api.groups.list({ group_type_index: 4, search: values.searchQuery })
+                    breakpoint()
+                    return response
                 },
             },
         ],
