@@ -314,7 +314,6 @@ class InsightNodeKind(str, Enum):
     TrendsQuery = "TrendsQuery"
     FunnelsQuery = "FunnelsQuery"
     RetentionQuery = "RetentionQuery"
-    RetentionAppearanceQuery = "RetentionAppearanceQuery"
     PathsQuery = "PathsQuery"
     StickinessQuery = "StickinessQuery"
     LifecycleQuery = "LifecycleQuery"
@@ -982,6 +981,7 @@ class RetentionFilter(BaseModel):
     retention_reference: Optional[RetentionReference] = None
     retention_type: Optional[RetentionType] = None
     returning_entity: Optional[RetentionEntity] = None
+    selected_interval: Optional[int] = None
     target_entity: Optional[RetentionEntity] = None
     total_intervals: Optional[int] = None
 
@@ -1886,9 +1886,7 @@ class InsightVizNode(BaseModel):
     showLastComputationRefresh: Optional[bool] = None
     showResults: Optional[bool] = None
     showTable: Optional[bool] = None
-    source: Union[
-        TrendsQuery, FunnelsQuery, RetentionQuery, RetentionAppearanceQuery, PathsQuery, StickinessQuery, LifecycleQuery
-    ]
+    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
     suppressSessionAnalysisWarning: Optional[bool] = None
     vizSpecificOptions: Optional[VizSpecificOptions] = None
 
@@ -1901,7 +1899,8 @@ class InsightPersonsQuery(BaseModel):
     kind: Literal["InsightPersonsQuery"] = "InsightPersonsQuery"
     response: Optional[PersonsQueryResponse] = None
     source: Union[
-        TrendsQuery, FunnelsQuery, RetentionQuery, RetentionAppearanceQuery, PathsQuery, StickinessQuery, LifecycleQuery
+        RetentionAppearanceQuery,
+        Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery],
     ]
     status: Optional[str] = None
 

@@ -1698,7 +1698,6 @@
                 "TrendsQuery",
                 "FunnelsQuery",
                 "RetentionQuery",
-                "RetentionAppearanceQuery",
                 "PathsQuery",
                 "StickinessQuery",
                 "LifecycleQuery"
@@ -1719,7 +1718,14 @@
                     "$ref": "#/definitions/PersonsQueryResponse"
                 },
                 "source": {
-                    "$ref": "#/definitions/InsightQueryNode"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/InsightQueryNode"
+                        },
+                        {
+                            "$ref": "#/definitions/RetentionAppearanceQuery"
+                        }
+                    ]
                 },
                 "status": {
                     "type": "string"
@@ -1738,9 +1744,6 @@
                 },
                 {
                     "$ref": "#/definitions/RetentionQuery"
-                },
-                {
-                    "$ref": "#/definitions/RetentionAppearanceQuery"
                 },
                 {
                     "$ref": "#/definitions/PathsQuery"
@@ -2661,6 +2664,9 @@
                 },
                 "returning_entity": {
                     "$ref": "#/definitions/RetentionEntity"
+                },
+                "selected_interval": {
+                    "type": "integer"
                 },
                 "target_entity": {
                     "$ref": "#/definitions/RetentionEntity"

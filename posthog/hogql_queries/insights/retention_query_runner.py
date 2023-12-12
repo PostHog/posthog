@@ -324,3 +324,32 @@ class RetentionQueryRunner(QueryRunner):
         ]
 
         return RetentionQueryResponse(results=results, timings=response.timings, hogql=hogql)
+
+    def to_persons_query(self) -> ast.SelectQuery:
+        if self.query.retentionFilter.selected_interval is None:
+            raise ValueError("selectedInterval is required for actors of retention query")
+
+        placeholders = {
+            "actor_query": self.actor_query(breakdown_values_filter=[self.query.retentionFilter.selected_interval]),
+        }
+        with self.timings.measure("retention_query"):
+            retention_query = parse_select(
+                """
+                    SELECT
+                        actor_id,
+                        groupArray(actor_activity.intervals_from_base) AS appearances
+
+                    FROM {actor_query} AS actor_activity
+
+                    GROUP BY actor_id
+
+                    -- make sure we have stable ordering/pagination
+                    -- NOTE: relies on ids being monotonic
+                    ORDER BY
+                        length(appearances) DESC,
+                        actor_id
+                """,
+                placeholders,
+                timings=self.timings,
+            )
+        return retention_query

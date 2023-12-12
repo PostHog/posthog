@@ -1877,8 +1877,14 @@ export interface RetentionEntity {
 export interface RetentionFilterType extends FilterType {
     retention_type?: RetentionType
     retention_reference?: 'total' | 'previous' // retention wrt cohort size or previous period
-    /** @asType integer */
+    /**
+     * @asType integer
+     */
     total_intervals?: number // retention total intervals
+    /**
+     * @asType integer
+     */
+    selected_interval?: number // retention selected interval
     returning_entity?: RetentionEntity
     target_entity?: RetentionEntity
     period?: RetentionPeriod

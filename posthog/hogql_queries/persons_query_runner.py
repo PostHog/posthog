@@ -63,21 +63,6 @@ class PersonsQueryRunner(QueryRunner):
     def filter_conditions(self) -> List[ast.Expr]:
         where_exprs: List[ast.Expr] = []
 
-        if self.query.source:
-            source = self.query.source
-            try:
-                source_query_runner = get_query_runner(source, self.team, self.timings)
-                source_query = source_query_runner.to_persons_query()
-                where_exprs.append(
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["id"]),
-                        op=ast.CompareOperationOp.In,
-                        right=source_query,
-                    )
-                )
-            except NotImplementedError:
-                raise ValueError(f"Queries of type '{source.kind}' are not implemented as a PersonsQuery sources.")
-
         if self.query.properties:
             where_exprs.append(property_to_expr(self.query.properties, self.team, scope="person"))
 
@@ -194,9 +179,30 @@ class PersonsQueryRunner(QueryRunner):
             offset = 0 if self.query.offset is None else self.query.offset
 
         with self.timings.measure("select"):
+            if self.query.source:
+                source_query_runner = get_query_runner(self.query.source, self.team, self.timings)
+                source_query = source_query_runner.to_persons_query()
+                join_expr = ast.JoinExpr(
+                    table=ast.Field(chain=["persons"]),
+                    next_join=ast.JoinExpr(
+                        table=source_query,
+                        join_type="INNER JOIN",
+                        alias="source",
+                        constraint=ast.JoinConstraint(
+                            expr=ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["persons", "id"]),
+                                right=ast.Field(chain=["source", "actor_id"]),
+                            )
+                        ),
+                    ),
+                )
+            else:
+                join_expr = ast.JoinExpr(table=ast.Field(chain=["persons"]))
+
             stmt = ast.SelectQuery(
                 select=columns,
-                select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+                select_from=join_expr,
                 where=where,
                 having=having,
                 group_by=group_by if has_any_aggregation else None,
