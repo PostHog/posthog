@@ -352,8 +352,9 @@ exports[`replay/transform transform can process unknown types without error 1`] 
                           {
                             "attributes": {
                               "fill": "grey",
-                              "height": "100%",
-                              "width": "100%",
+                              "height": 30,
+                              "style": "width: 100px;height: 30px;position: fixed;left: 25px;top: 42px;",
+                              "width": 100,
                             },
                             "childNodes": [],
                             "id": 101,
@@ -2628,8 +2629,9 @@ exports[`replay/transform transform inputs placeholder - $inputType - $value 1`]
                         {
                           "attributes": {
                             "fill": "grey",
-                            "height": "100%",
-                            "width": "100%",
+                            "height": 30,
+                            "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                            "width": 100,
                           },
                           "childNodes": [],
                           "id": 170,
@@ -3079,8 +3081,9 @@ exports[`replay/transform transform omitting x and y is equivalent to setting th
                           {
                             "attributes": {
                               "fill": "grey",
-                              "height": "100%",
-                              "width": "100%",
+                              "height": 30,
+                              "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+                              "width": 100,
                             },
                             "childNodes": [],
                             "id": 115,

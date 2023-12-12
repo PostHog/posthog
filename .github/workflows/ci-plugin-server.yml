@@ -70,7 +70,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@v3
               with:
-                  node-version: 18
+                  node-version: 18.12.1
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
@@ -151,7 +151,7 @@ jobs:
               if: needs.changes.outputs.plugin-server == 'true'
               uses: actions/setup-node@v3
               with:
-                  node-version: 18
+                  node-version: 18.12.1
                   cache: pnpm
                   cache-dependency-path: plugin-server/pnpm-lock.yaml
 
@@ -246,7 +246,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@v3
               with:
-                  node-version: 18
+                  node-version: 18.12.1
                   cache: pnpm
                   cache-dependency-path: plugin-server/pnpm-lock.yaml
 

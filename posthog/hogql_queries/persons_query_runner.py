@@ -1,6 +1,6 @@
-import json
 from datetime import timedelta
-from typing import List, cast, Literal
+from typing import List, cast, Literal, Dict, Any
+from django.db.models.query import Prefetch
 
 from posthog.hogql import ast
 from posthog.hogql.constants import get_max_limit_for_context, get_default_limit_for_context
@@ -9,8 +9,7 @@ from posthog.hogql.property import property_to_expr, has_aggregation
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
 from posthog.schema import PersonsQuery, PersonsQueryResponse
-
-PERSON_FULL_TUPLE = ["id", "properties", "created_at", "is_identified"]
+from posthog.models.person import Person
 
 
 class PersonsQueryRunner(QueryRunner):
@@ -28,11 +27,24 @@ class PersonsQueryRunner(QueryRunner):
         input_columns = self.input_columns()
         if "person" in input_columns:
             person_column_index = input_columns.index("person")
+            person_ids = [str(result[person_column_index]) for result in response.results]
+            pg_persons = {
+                str(p.uuid): p
+                for p in Person.objects.filter(team_id=self.team.pk, persondistinctid__team_id=self.team.pk)
+                .filter(uuid__in=person_ids)
+                .prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+            }
+
             for index, result in enumerate(response.results):
                 response.results[index] = list(result)
-                select = result[person_column_index]
-                new_result = dict(zip(PERSON_FULL_TUPLE, select))
-                new_result["properties"] = json.loads(new_result["properties"])
+                person_id = str(result[person_column_index])
+                new_result: Dict[str, Any] = {"id": person_id}
+                person = pg_persons.get(person_id)
+                if person:
+                    new_result["distinct_ids"] = person.distinct_ids
+                    new_result["properties"] = person.properties
+                    new_result["created_at"] = person.created_at
+                    new_result["is_identified"] = person.is_identified
                 response.results[index][person_column_index] = new_result
 
         has_more = len(response.results) > self.query_limit()
@@ -114,24 +126,16 @@ class PersonsQueryRunner(QueryRunner):
             aggregations = []
             for expr in self.input_columns():
                 if expr == "person.$delete":
-                    columns.append(ast.Constant(value=1))
+                    column = ast.Constant(value=1)
                 elif expr == "person":
-                    tuple_exprs = []
-                    for field in PERSON_FULL_TUPLE:
-                        column = ast.Field(chain=[field])
-                        tuple_exprs.append(column)
-                        if has_aggregation(column):
-                            aggregations.append(column)
-                        elif not isinstance(column, ast.Constant):
-                            group_by.append(column)
-                    columns.append(ast.Tuple(exprs=tuple_exprs))
+                    column = ast.Field(chain=["id"])
                 else:
                     column = parse_expr(expr)
-                    columns.append(parse_expr(expr))
-                    if has_aggregation(column):
-                        aggregations.append(column)
-                    elif not isinstance(column, ast.Constant):
-                        group_by.append(column)
+                columns.append(column)
+                if has_aggregation(column):
+                    aggregations.append(column)
+                elif not isinstance(column, ast.Constant):
+                    group_by.append(column)
             has_any_aggregation = len(aggregations) > 0
 
         with self.timings.measure("filters"):
