@@ -31,7 +31,6 @@ from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
 from posthog.rate_limit import DecideRateThrottle
 from posthog.settings import SITE_URL, DEBUG
-from posthog.settings.statsd import STATSD_HOST
 from posthog.user_permissions import UserPermissions
 from .auth import PersonalAPIKeyAuthentication
 from .utils_cors import cors_response
@@ -362,19 +361,12 @@ class CaptureMiddleware:
                 # Some middlewares raise MiddlewareNotUsed if they are not
                 # needed. In this case we want to avoid the default middlewares
                 # being used.
-                middlewares.append(middleware_class(get_response=get_response))
+                middlewares.append(middleware_class(get_response=None))
             except MiddlewareNotUsed:
                 pass
 
         # List of middlewares we want to run, that would've been shortcircuited otherwise
         self.CAPTURE_MIDDLEWARE = middlewares
-
-        if STATSD_HOST is not None:
-            # import here to avoid log-spew about failure to connect to statsd,
-            # as this connection is created on import
-            from django_statsd.middleware import StatsdMiddlewareTimer
-
-            self.CAPTURE_MIDDLEWARE.append(StatsdMiddlewareTimer(get_response=get_response))
 
     def __call__(self, request: HttpRequest):
         if request.path in (

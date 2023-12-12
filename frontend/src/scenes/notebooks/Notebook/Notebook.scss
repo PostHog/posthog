@@ -4,6 +4,12 @@
     flex-direction: column;
     width: 100%;
 
+    // overriding ::selection is necessary here because
+    // antd makes it invisible otherwise
+    span::selection {
+        color: var(--primary-3000);
+    }
+
     .NotebookEditor {
         position: relative;
         flex: 1;
@@ -117,7 +123,7 @@
 
         .Backlink {
             padding: 0.125rem 0.25rem;
-            background-color: var(--white);
+            background-color: var(--bg-light);
             border: 1px solid var(--border);
             border-radius: var(--radius);
 
@@ -126,12 +132,11 @@
             }
 
             & svg {
-                color: var(--muted-dark);
+                color: var(--text-3000);
             }
 
             &.Backlink--selected {
-                outline-style: solid;
-                outline-color: var(--primary-bg-active);
+                border-color: var(--primary-3000);
             }
 
             &.Backlink--active {
@@ -141,6 +146,10 @@
 
                 & .Backlink__label,
                 & svg {
+                    color: var(--white);
+                }
+
+                span::selection {
                     color: var(--white);
                 }
             }
@@ -275,12 +284,6 @@
     .NotebookMention {
         display: inline-flex;
         max-height: 22px;
-    }
-
-    // overriding ::selection is necessary here because
-    // antd makes it invisible otherwise
-    span::selection {
-        color: var(--primary-3000);
     }
 
     // Overrides for insight controls

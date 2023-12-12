@@ -74,6 +74,6 @@ async def stripe_get_data(
         api_key=api_key,
         created={"gte": start_date, "lt": end_date},
         limit=100,
-        **kwargs,
+        **kwargs,  # type: ignore
     )
     return dict(resource_dict)

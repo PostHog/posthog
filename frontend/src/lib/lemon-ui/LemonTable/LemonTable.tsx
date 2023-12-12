@@ -223,8 +223,10 @@ export function LemonTable<T extends Record<string, any>>({
                 stealth && 'LemonTable--stealth',
                 isScrollableLeft && 'scrollable--left',
                 isScrollableRight && 'scrollable--right',
+                !uppercaseHeader && 'LemonTable--lowercase-header',
                 className
             )}
+            // eslint-disable-next-line react/forbid-dom-props
             style={style}
             data-attr={dataAttr}
         >
@@ -232,17 +234,14 @@ export function LemonTable<T extends Record<string, any>>({
                 <div className="LemonTable__content">
                     <table>
                         <colgroup>
-                            {!!expandable && <col style={{ width: 0 }} /> /* Expand/collapse column */}
+                            {!!expandable && <col className="w-0" /> /* Expand/collapse column */}
                             {columns.map((column, index) => (
+                                // eslint-disable-next-line react/forbid-dom-props
                                 <col key={`LemonTable-col-${index}`} style={{ width: column.width }} />
                             ))}
                         </colgroup>
                         {showHeader && (
-                            <thead
-                                style={
-                                    !uppercaseHeader ? { textTransform: 'none', letterSpacing: 'normal' } : undefined
-                                }
-                            >
+                            <thead>
                                 {columnGroups.some((group) => group.title) && (
                                     <tr className="LemonTable__row--grouping">
                                         {!!expandable && <th className="LemonTable__toggle" /> /* Expand/collapse */}
