@@ -15,7 +15,7 @@
         font-weight: normal;
     }
 
-    .posthog-3000 &:not(.breakdown) {
+    .posthog-3000 &:not(.LemonTag--breakdown) {
         padding: 0.075rem 0.25rem;
         font-size: 0.688rem;
         background: none;
@@ -115,7 +115,7 @@
         background: none;
     }
 
-    &.breakdown {
+    &.LemonTag--breakdown {
         padding: 8px 12px;
         font-size: 14px;
         font-weight: 400;

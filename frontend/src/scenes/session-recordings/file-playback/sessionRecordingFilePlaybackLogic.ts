@@ -33,7 +33,9 @@ export type ExportedSessionRecordingFileV2 = {
 }
 
 export const createExportedSessionRecording = (
-    logic: BuiltLogic<sessionRecordingDataLogicType>
+    logic: BuiltLogic<sessionRecordingDataLogicType>,
+    // DEBUG signal only, to be removed before release
+    exportUntransformedMobileSnapshotData: boolean
 ): ExportedSessionRecordingFileV2 => {
     const { sessionPlayerMetaData, sessionPlayerSnapshotData } = logic.values
 
@@ -42,7 +44,9 @@ export const createExportedSessionRecording = (
         data: {
             id: sessionPlayerMetaData?.id ?? '',
             person: sessionPlayerMetaData?.person,
-            snapshots: sessionPlayerSnapshotData?.snapshots || [],
+            snapshots: exportUntransformedMobileSnapshotData
+                ? sessionPlayerSnapshotData?.untransformed_snapshots || []
+                : sessionPlayerSnapshotData?.snapshots || [],
         },
     }
 }

@@ -40,21 +40,21 @@ def team(organization):
 @pytest_asyncio.fixture
 async def aorganization():
     name = f"BatchExportsTestOrg-{random.randint(1, 99999)}"
-    org = await sync_to_async(Organization.objects.create)(name=name)
+    org = await sync_to_async(Organization.objects.create)(name=name)  # type: ignore
 
     yield org
 
-    await sync_to_async(org.delete)()
+    await sync_to_async(org.delete)()  # type: ignore
 
 
 @pytest_asyncio.fixture
 async def ateam(aorganization):
     name = f"BatchExportsTestTeam-{random.randint(1, 99999)}"
-    team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)
+    team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)  # type: ignore
 
     yield team
 
-    await sync_to_async(team.delete)()
+    await sync_to_async(team.delete)()  # type: ignore
 
 
 @pytest.fixture

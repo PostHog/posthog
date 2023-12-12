@@ -32,6 +32,7 @@ type RowProps = {
 }
 
 const Row = ({ className, columns, children }: RowProps): JSX.Element => (
+    // eslint-disable-next-line react/forbid-dom-props
     <div className={clsx('gap-4 grid', className)} style={{ gridTemplateColumns: columns ? columns : '100%' }}>
         {children}
     </div>
@@ -66,6 +67,7 @@ const Image = ({
     width?: number | string
     height?: number | string
     style?: React.CSSProperties
+    // eslint-disable-next-line react/forbid-dom-props
 }): JSX.Element => <img src={src} alt={alt} width={width} height={height} style={style} className="mt-2" />
 
 export const SidePanelWelcome = (): JSX.Element => {
@@ -96,6 +98,7 @@ export const SidePanelWelcome = (): JSX.Element => {
                     <p className="text-sm font-medium mb-3 opacity-75">We're past 0 to 1.</p>
                     <p
                         className="text-sm font-medium mb-4 opacity-75"
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={{ maxWidth: 'min(calc(50% - 1rem), 16rem)' }}
                     >
                         It's time to go from 1 to&nbsp;3000. And&nbsp;this is just the&nbsp;beginning…
@@ -247,7 +250,7 @@ export const SidePanelWelcome = (): JSX.Element => {
                         Share feedback
                     </LemonButton>
                 </div>
-                <div className="-mb-3" style={{ fontSize: 13 }}>
+                <div className="-mb-3" style={{ fontSize: 13 /* eslint-disable-line react/forbid-dom-props */ }}>
                     <IconArrowLeft className="text-base mr-2 inline" />
                     <span className="m-0">
                         <strong>Pro tip:</strong> Access this panel again from the{' '}
