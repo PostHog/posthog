@@ -67,7 +67,6 @@ export const parseEncodedSnapshots = async (
                     ? postHogEEModule?.mobileReplay?.transformEventToWeb(d) || (d as eventWithTime)
                     : (d as eventWithTime)
                 return {
-                    // TODO the check for `windowId` can be removed in a follow-up
                     windowId: snapshotLine['window_id'] || snapshotLine['windowId'],
                     ...(snap || (d as eventWithTime)),
                 }

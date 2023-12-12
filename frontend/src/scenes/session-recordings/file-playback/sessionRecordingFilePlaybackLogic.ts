@@ -38,19 +38,6 @@ export type ExportedSessionRecordingFileV2 = {
     }
 }
 
-function normaliseWindowId(snapshots: RecordingSnapshot[]): RecordingSnapshot[] {
-    return snapshots.map((s) => {
-        if ('windowId' in s) {
-            return {
-                ...s,
-                window_id: s.windowId,
-            }
-        } else {
-            return s
-        }
-    })
-}
-
 export const createExportedSessionRecording = (
     logic: BuiltLogic<sessionRecordingDataLogicType>,
     // DEBUG signal only, to be removed before release
@@ -58,15 +45,14 @@ export const createExportedSessionRecording = (
 ): ExportedSessionRecordingFileV2 => {
     const { sessionPlayerMetaData, sessionPlayerSnapshotData } = logic.values
 
-    const snapshots = exportUntransformedMobileSnapshotData
-        ? sessionPlayerSnapshotData?.untransformed_snapshots || []
-        : sessionPlayerSnapshotData?.snapshots || []
     return {
         version: '2023-04-28',
         data: {
             id: sessionPlayerMetaData?.id ?? '',
             person: sessionPlayerMetaData?.person,
-            snapshots: normaliseWindowId(snapshots),
+            snapshots: exportUntransformedMobileSnapshotData
+                ? sessionPlayerSnapshotData?.untransformed_snapshots || []
+                : sessionPlayerSnapshotData?.snapshots || [],
         },
     }
 }
