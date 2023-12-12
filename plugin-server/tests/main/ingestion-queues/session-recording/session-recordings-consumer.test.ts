@@ -144,19 +144,19 @@ describe('ingester', () => {
 
     it('can parse debug partition config', () => {
         const config = {
-            SESSION_RECORDING_KAFKA_DEBUG_PARTITION: '103',
-        }
+            SESSION_RECORDING_DEBUG_PARTITION: '103',
+        } satisfies Partial<PluginsServerConfig> as PluginsServerConfig
 
-        const ingester = new SessionRecordingIngester(config as any, hub.postgres, hub.objectStorage)
+        const ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage)
         expect(ingester['debugPartition']).toEqual(103)
     })
 
     it('can parse absence of debug partition config', () => {
         const config = {
-            SESSION_RECORDING_KAFKA_DEBUG_PARTITION: '103',
-        }
+            SESSION_RECORDING_DEBUG_PARTITION: '103',
+        } satisfies Partial<PluginsServerConfig> as PluginsServerConfig
 
-        const ingester = new SessionRecordingIngester(config as any, hub.postgres, hub.objectStorage)
+        const ingester = new SessionRecordingIngester(config, hub.postgres, hub.objectStorage)
         expect(ingester['debugPartition']).toBeUndefined()
     })
 
