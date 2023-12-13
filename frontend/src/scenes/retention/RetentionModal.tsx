@@ -102,8 +102,8 @@ export function RetentionModal(): JSX.Element | null {
                                         </th>
                                     ))}
                                 </tr>
-                                {people.result &&
-                                    people.result.map((personAppearances: RetentionTableAppearanceType) => (
+                                {people.results &&
+                                    people.results.map((personAppearances: RetentionTableAppearanceType) => (
                                         <tr key={personAppearances.person.id}>
                                             {/* eslint-disable-next-line react/forbid-dom-props */}
                                             <td style={{ minWidth: 200 }}>
@@ -150,7 +150,7 @@ export function RetentionModal(): JSX.Element | null {
                                     ))}
                             </tbody>
                         </table>
-                        {people.next ? (
+                        {people.next || people.offset ? (
                             <div className="m-4 flex justify-center">
                                 <LemonButton
                                     type="primary"

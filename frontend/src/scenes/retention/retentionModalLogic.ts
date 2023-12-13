@@ -1,6 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { retentionToActorsQuery } from 'scenes/retention/queries'
 import { urls } from 'scenes/urls'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
@@ -9,7 +10,7 @@ import { isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 import type { retentionModalLogicType } from './retentionModalLogicType'
-import { retentionPeopleLogic, wrapRetentionQuery } from './retentionPeopleLogic'
+import { retentionPeopleLogic } from './retentionPeopleLogic'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
@@ -51,7 +52,7 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
                 if (!querySource) {
                     return null
                 }
-                return wrapRetentionQuery(querySource, selectedRow ?? 0)
+                return retentionToActorsQuery(querySource, selectedRow ?? 0)
             },
         ],
         exploreUrl: [
