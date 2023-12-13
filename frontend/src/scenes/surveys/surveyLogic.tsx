@@ -30,6 +30,7 @@ import { sanitizeHTML } from './utils'
 
 export enum SurveyEditSection {
     Steps = 'steps',
+    Widget = 'widget',
     Presentation = 'presentation',
     Appearance = 'appearance',
     Customization = 'customization',

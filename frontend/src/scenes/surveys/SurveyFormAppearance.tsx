@@ -10,12 +10,14 @@ interface SurveyFormAppearanceProps {
     activePreview: number
     survey: NewSurvey | Survey
     setActivePreview: (activePreview: number) => void
+    isEditingSurvey?: boolean
 }
 
 export function SurveyFormAppearance({
     activePreview,
     survey,
     setActivePreview,
+    isEditingSurvey,
 }: SurveyFormAppearanceProps): JSX.Element {
     const showThankYou = survey.appearance.displayThankYouMessage && activePreview >= survey.questions.length
 
@@ -25,12 +27,13 @@ export function SurveyFormAppearance({
                 <SurveyThankYou appearance={survey.appearance} />
             ) : (
                 <SurveyAppearance
-                    type={survey.questions[activePreview].type}
+                    surveyType={survey.type}
                     surveyQuestionItem={survey.questions[activePreview]}
                     appearance={{
                         ...(survey.appearance || defaultSurveyAppearance),
                         ...(survey.questions.length > 1 ? { submitButtonText: 'Next' } : null),
                     }}
+                    isEditingSurvey={isEditingSurvey}
                 />
             )}
             <LemonSelect

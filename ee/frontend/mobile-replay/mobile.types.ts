@@ -201,7 +201,7 @@ export type wireframeProgress = wireframeInputBase & {
      */
     max?: number
     style?: MobileStyles & {
-        bar: 'horizontal' | 'circular'
+        bar: 'horizontal' | 'circular' | 'rating'
     }
 }
 
