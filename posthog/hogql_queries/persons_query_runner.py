@@ -8,7 +8,7 @@ from posthog.hogql.property import property_to_expr, has_aggregation
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
 from posthog.queries.actor_base_query import SerializedGroup, SerializedPerson, get_groups, get_people
-from posthog.schema import PersonsQuery, PersonsQueryResponse
+from posthog.schema import PersonsQuery, PersonsQueryResponse, InsightPersonsQuery, StickinessQuery, LifecycleQuery
 
 
 class PersonsQueryRunner(QueryRunner):
@@ -21,6 +21,13 @@ class PersonsQueryRunner(QueryRunner):
 
     @property
     def aggregation_group_type_index(self):
+        if (
+            not self.query.source
+            or not isinstance(self.query.source, InsightPersonsQuery)
+            or isinstance(self.query.source.source, StickinessQuery)
+            or isinstance(self.query.source.source, LifecycleQuery)
+        ):
+            return None
         try:
             return self.query.source.source.aggregation_group_type_index
         except AttributeError:
@@ -77,7 +84,7 @@ class PersonsQueryRunner(QueryRunner):
         return PersonsQueryResponse(
             results=results,
             timings=response.timings,
-            types=[type for _, type in response.types],
+            types=[t for _, t in response.types] if response.types else None,
             columns=input_columns,
             hogql=response.hogql,
             missing_actors_count=missing_actors_count,
@@ -134,7 +141,7 @@ class PersonsQueryRunner(QueryRunner):
         # TODO: Make sure this group stuff is correct
         if self.aggregation_group_type_index is not None:
             # Take shortcut and deliver the source query as is
-            source_query_runner = get_query_runner(self.query.source, self.team, self.timings)
+            source_query_runner = get_query_runner(self.query.source, self.team, self.timings)  # type: ignore
             return source_query_runner.to_persons_query()
 
         with self.timings.measure("columns"):
@@ -208,7 +215,7 @@ class PersonsQueryRunner(QueryRunner):
                 source_query_runner = get_query_runner(self.query.source, self.team, self.timings)
                 source_query = source_query_runner.to_persons_query()
                 # Figure out the id column of the source query, first column that has id in the name
-                source_id_chain = None
+                source_id_chain = []
                 for column in source_query.select:
                     if isinstance(column, ast.Field) and any("id" in part.lower() for part in column.chain):
                         source_id_chain = column.chain
