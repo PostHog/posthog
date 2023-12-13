@@ -43,18 +43,6 @@ export function RetentionModal(): JSX.Element | null {
                     <LemonButton type="secondary" onClick={closeModal}>
                         Close
                     </LemonButton>
-                    {exploreUrl && (
-                        <LemonButton
-                            type="primary"
-                            to={exploreUrl}
-                            data-attr="person-modal-new-insight"
-                            onClick={() => {
-                                closeModal()
-                            }}
-                        >
-                            Explore
-                        </LemonButton>
-                    )}
                     <LemonButton
                         type="primary"
                         onClick={() =>
@@ -68,6 +56,18 @@ export function RetentionModal(): JSX.Element | null {
                     >
                         Export to CSV
                     </LemonButton>
+                    {exploreUrl && (
+                        <LemonButton
+                            type="primary"
+                            to={exploreUrl}
+                            data-attr="person-modal-new-insight"
+                            onClick={() => {
+                                closeModal()
+                            }}
+                        >
+                            Explore {aggregationTargetLabel.plural}
+                        </LemonButton>
+                    )}
                 </>
             }
             width={isEmpty ? undefined : '90%'}
