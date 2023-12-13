@@ -29,6 +29,7 @@ import {
     makeHTMLStyles,
     makeIndeterminateProgressStyles,
     makeMinimalStyles,
+    makePositionStyles,
     makeStylesString,
 } from './wireframeStyle'
 
@@ -468,20 +469,61 @@ function makeProgressElement(
     }
 }
 
-function makeToggleElement(
-    wireframe: wireframeToggle,
-    children: serializedNodeWithId[]
-): (elementNode & { id: number }) | null {
-    // first return simply a checkbox
+function makeToggleParts(wireframe: wireframeToggle): serializedNodeWithId[] {
+    const togglePosition = wireframe.checked ? 'right' : 'left'
+    const defaultColor = wireframe.checked ? '#1d4aff' : BACKGROUND
+    return [
+        {
+            type: NodeType.Element,
+            tagName: 'div',
+            attributes: {
+                'data-toggle-part': 'slider',
+                style: `position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;background-color:${
+                    wireframe.style?.color || defaultColor
+                };opacity: 0.2;border-radius:7.5%;`,
+            },
+            id: idSequence.next().value,
+            childNodes: [],
+        },
+        {
+            type: NodeType.Element,
+            tagName: 'div',
+            attributes: {
+                'data-toggle-part': 'handle',
+                style: `position:absolute;top:1.5%;${togglePosition}:5%;display:flex;align-items:center;justify-content:center;width:40%;height:75%;cursor:inherit;background-color:${
+                    wireframe.style?.color || defaultColor
+                };border:2px solid ${
+                    wireframe.style?.borderColor || wireframe.style?.color || defaultColor
+                };border-radius:50%;`,
+            },
+            id: idSequence.next().value,
+            childNodes: [],
+        },
+    ]
+}
+
+function makeToggleElement(wireframe: wireframeToggle): (elementNode & { id: number }) | null {
+    const isLabelled = 'label' in wireframe
     return {
         type: NodeType.Element,
-        tagName: 'input',
+        tagName: 'div',
         attributes: {
-            ...inputAttributes(wireframe),
-            type: 'checkbox',
+            // if labelled take up available space, otherwise use provided positioning
+            style: isLabelled ? `height:100%;flex:1` : makePositionStyles(wireframe),
         },
         id: wireframe.id,
-        childNodes: children,
+        childNodes: [
+            {
+                type: NodeType.Element,
+                tagName: 'div',
+                attributes: {
+                    // relative position, fills parent
+                    style: 'position:relative;width:100%;height:100%;',
+                },
+                id: idSequence.next().value,
+                childNodes: makeToggleParts(wireframe),
+            },
+        ],
     }
 }
 
@@ -507,7 +549,7 @@ function makeInputElement(
 
     const theInputElement: (elementNode & { id: number }) | null =
         wireframe.inputType === 'toggle'
-            ? makeToggleElement(wireframe, children)
+            ? makeToggleElement(wireframe)
             : {
                   type: NodeType.Element,
                   tagName: 'input',
