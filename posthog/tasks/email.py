@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
+import posthoganalytics
 import structlog
 from django.conf import settings
 from django.utils import timezone
@@ -116,6 +117,12 @@ def send_email_verification(user_id: int, token: str) -> None:
             "link": f"/verify_email/{user.uuid}/{token}",
             "site_url": settings.SITE_URL,
         },
+    )
+    posthoganalytics.capture(
+        user.distinct_id,
+        "verification email sent",
+        properties={"email address": user.email},
+        groups={"organization": str(user.current_organization.id)},  # type: ignore
     )
     message.add_recipient(user.pending_email if user.pending_email is not None else user.email)
     message.send()
