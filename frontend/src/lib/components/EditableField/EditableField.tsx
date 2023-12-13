@@ -1,12 +1,13 @@
 import './EditableField.scss'
 
+import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
 import { IconEdit, IconMarkdown } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import TextareaAutosize from 'react-textarea-autosize'
 
 export interface EditableFieldProps {
@@ -51,7 +52,7 @@ export function EditableField({
     placeholder,
     minLength,
     maxLength,
-    autoFocus = true,
+    autoFocus = false,
     multiline = false,
     markdown = false,
     compactButtons = false,
@@ -65,15 +66,31 @@ export function EditableField({
     saveButtonText = 'Save',
     notice,
 }: EditableFieldProps): JSX.Element {
-    const [localIsEditing, setLocalIsEditing] = useState(false)
+    const [localIsEditing, setLocalIsEditing] = useState(mode === 'edit')
     const [localTentativeValue, setLocalTentativeValue] = useState(value)
+    const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>()
+    const previousIsEditing = useRef<boolean>()
 
     useEffect(() => {
         setLocalTentativeValue(value)
     }, [value])
+
     useEffect(() => {
         setLocalIsEditing(mode === 'edit')
     }, [mode])
+
+    useEffect(() => {
+        // We always want to focus when switching to edit mode, but can't use autoFocus, because we don't want this to
+        // happen when the component is _initially_ rendered in edit mode. The `previousIsEditing.current === false`
+        // check is important for this, because only `false` means that the component was previously rendered in view
+        // mode. `undefined` means that the component was never rendered before.
+        if (inputRef.current && previousIsEditing.current === false && localIsEditing) {
+            const endOfInput = inputRef.current.value.length
+            inputRef.current.setSelectionRange(endOfInput, endOfInput)
+            inputRef.current.focus()
+        }
+        previousIsEditing.current = localIsEditing
+    }, [localIsEditing])
 
     const isSaveable = !minLength || localTentativeValue.length >= minLength
 
@@ -150,6 +167,7 @@ export function EditableField({
                                     minLength={minLength}
                                     maxLength={maxLength}
                                     autoFocus={autoFocus}
+                                    ref={inputRef as React.RefObject<HTMLTextAreaElement>}
                                 />
                             ) : (
                                 <AutosizeInput
@@ -165,6 +183,7 @@ export function EditableField({
                                     minLength={minLength}
                                     maxLength={maxLength}
                                     autoFocus={autoFocus}
+                                    ref={inputRef as React.RefObject<HTMLInputElement>}
                                 />
                             )}
                             {(!mode || !!onModeToggle) && (
@@ -242,17 +261,7 @@ export function EditableField({
     )
 }
 
-const AutosizeInput = ({
-    name,
-    value,
-    onChange,
-    placeholder,
-    onBlur,
-    onKeyDown,
-    minLength,
-    maxLength,
-    autoFocus,
-}: {
+interface AutosizeInputProps {
     name: string
     value: string
     onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
@@ -262,11 +271,18 @@ const AutosizeInput = ({
     minLength?: number
     maxLength?: number
     autoFocus?: boolean
-}): JSX.Element => {
+}
+
+const AutosizeInput = React.forwardRef<HTMLInputElement, AutosizeInputProps>(function AutosizeInput(
+    { name, value, onChange, placeholder, onBlur, onKeyDown, minLength, maxLength, autoFocus },
+    ref
+) {
     const [inputWidth, setInputWidth] = useState<number | string>(1)
-    const inputRef = useRef<HTMLInputElement>(null)
+    const [inputStyles, setInputStyles] = useState<CSSStyleDeclaration>()
     const sizerRef = useRef<HTMLDivElement>(null)
     const placeHolderSizerRef = useRef<HTMLDivElement>(null)
+    const inputRef = useRef<HTMLInputElement>(null)
+    const mergedRefs = useMergeRefs([ref, inputRef])
 
     const copyStyles = (styles: CSSStyleDeclaration, node: HTMLDivElement): void => {
         node.style.fontSize = styles.fontSize
@@ -277,21 +293,22 @@ const AutosizeInput = ({
         node.style.textTransform = styles.textTransform
     }
 
-    const inputStyles = useMemo(() => {
-        return inputRef.current ? window.getComputedStyle(inputRef.current) : null
+    useLayoutEffect(() => {
+        if (inputRef.current) {
+            setInputStyles(getComputedStyle(inputRef.current))
+        }
     }, [inputRef.current])
 
     useLayoutEffect(() => {
-        if (inputStyles && placeHolderSizerRef.current) {
-            copyStyles(inputStyles, placeHolderSizerRef.current)
+        if (inputStyles) {
+            if (sizerRef.current) {
+                copyStyles(inputStyles, sizerRef.current)
+            }
+            if (placeHolderSizerRef.current) {
+                copyStyles(inputStyles, placeHolderSizerRef.current)
+            }
         }
-    }, [placeHolderSizerRef, placeHolderSizerRef])
-
-    useLayoutEffect(() => {
-        if (inputStyles && sizerRef.current) {
-            copyStyles(inputStyles, sizerRef.current)
-        }
-    }, [inputStyles, sizerRef])
+    }, [inputStyles])
 
     useLayoutEffect(() => {
         if (!sizerRef.current || !placeHolderSizerRef.current) {
@@ -320,7 +337,7 @@ const AutosizeInput = ({
                 minLength={minLength}
                 maxLength={maxLength}
                 autoFocus={autoFocus}
-                ref={inputRef}
+                ref={mergedRefs}
                 /* eslint-disable-next-line react/forbid-dom-props */
                 style={{ boxSizing: 'content-box', width: `${inputWidth}px` }}
             />
@@ -332,4 +349,4 @@ const AutosizeInput = ({
             </div>
         </div>
     )
-}
+})
