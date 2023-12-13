@@ -113,6 +113,7 @@ def render_2023(request, user_uuid: str) -> HttpResponse:
             "badge": badge,
             "badges": unlocked_achievements if len(unlocked_achievements.items()) > 1 else {},
             "achievements_count": achievements_count,
+            "max_achievements": len(badge_preference),
             "human_badge": human_badge.get(badge),
             "highlight_color": highlight_color.get(badge),
             "image_png": f"year_in_hog/badges/2023_{badge}.png",
