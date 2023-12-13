@@ -1,11 +1,12 @@
-/// When a customer is writing too often to the same key, we get hot partitions. This negatively
-/// affects our write latency and cluster health. We try to provide ordering guarantees wherever
-/// possible, but this does require that we map key -> partition.
+/// The analytics ingestion pipeline provides ordering guarantees for events of the same
+/// token and distinct_id. We currently achieve this through a locality constraint on the
+/// Kafka partition (consistent partition hashing through a computed key).
 ///
-/// If the write-rate reaches a certain amount, we need to be able to handle the hot partition
-/// before it causes a negative impact. In this case, instead of passing the error to the customer
-/// with a 429, we relax our ordering constraints and temporarily override the key, meaning the
-/// customers data will be spread across all partitions.
+/// Volume spikes to a given key can create lag on the destination partition and induce
+/// ingestion lag. To protect the downstream systems, capture can relax this locality
+/// constraint when bursts are detected. When that happens, the excess traffic will be
+/// spread across all partitions and be processed by the overflow consumer, without
+/// strict ordering guarantees.
 use std::collections::HashSet;
 use std::num::NonZeroU32;
 use std::sync::Arc;
@@ -16,12 +17,12 @@ use rand::Rng;
 
 // See: https://docs.rs/governor/latest/governor/_guide/index.html#usage-in-multiple-threads
 #[derive(Clone)]
-pub struct PartitionLimiter {
+pub struct OverflowLimiter {
     limiter: Arc<RateLimiter<String, DefaultKeyedStateStore<String>, clock::DefaultClock>>,
     forced_keys: HashSet<String>,
 }
 
-impl PartitionLimiter {
+impl OverflowLimiter {
     pub fn new(per_second: NonZeroU32, burst: NonZeroU32, forced_keys: Option<String>) -> Self {
         let quota = Quota::per_second(per_second).allow_burst(burst);
         let limiter = Arc::new(governor::RateLimiter::dashmap(quota));
@@ -31,7 +32,7 @@ impl PartitionLimiter {
             Some(values) => values.split(',').map(String::from).collect(),
         };
 
-        PartitionLimiter {
+        OverflowLimiter {
             limiter,
             forced_keys,
         }
@@ -71,12 +72,12 @@ impl PartitionLimiter {
 
 #[cfg(test)]
 mod tests {
-    use crate::partition_limits::PartitionLimiter;
+    use crate::limiters::overflow::OverflowLimiter;
     use std::num::NonZeroU32;
 
     #[tokio::test]
     async fn low_limits() {
-        let limiter = PartitionLimiter::new(
+        let limiter = OverflowLimiter::new(
             NonZeroU32::new(1).unwrap(),
             NonZeroU32::new(1).unwrap(),
             None,
@@ -89,7 +90,7 @@ mod tests {
 
     #[tokio::test]
     async fn bursting() {
-        let limiter = PartitionLimiter::new(
+        let limiter = OverflowLimiter::new(
             NonZeroU32::new(1).unwrap(),
             NonZeroU32::new(3).unwrap(),
             None,
@@ -109,7 +110,7 @@ mod tests {
         let key_three = String::from("three");
         let forced_keys = Some(String::from("one,three"));
 
-        let limiter = PartitionLimiter::new(
+        let limiter = OverflowLimiter::new(
             NonZeroU32::new(1).unwrap(),
             NonZeroU32::new(1).unwrap(),
             forced_keys,

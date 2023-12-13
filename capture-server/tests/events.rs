@@ -77,7 +77,7 @@ async fn it_captures_a_batch() -> Result<()> {
 }
 
 #[tokio::test]
-async fn it_is_limited_with_burst() -> Result<()> {
+async fn it_overflows_events_on_burst() -> Result<()> {
     setup_tracing();
 
     let token = random_string("token", 16);
@@ -87,8 +87,8 @@ async fn it_is_limited_with_burst() -> Result<()> {
 
     let mut config = DEFAULT_CONFIG.clone();
     config.kafka.kafka_topic = topic.topic_name().to_string();
-    config.burst_limit = NonZeroU32::new(2).unwrap();
-    config.per_second_limit = NonZeroU32::new(1).unwrap();
+    config.overflow_burst_limit = NonZeroU32::new(2).unwrap();
+    config.overflow_per_second_limit = NonZeroU32::new(1).unwrap();
 
     let server = ServerHandle::for_config(config);
 
@@ -125,7 +125,7 @@ async fn it_is_limited_with_burst() -> Result<()> {
 }
 
 #[tokio::test]
-async fn it_does_not_partition_limit_different_ids() -> Result<()> {
+async fn it_does_not_overflow_team_with_different_ids() -> Result<()> {
     setup_tracing();
 
     let token = random_string("token", 16);
@@ -136,8 +136,8 @@ async fn it_does_not_partition_limit_different_ids() -> Result<()> {
 
     let mut config = DEFAULT_CONFIG.clone();
     config.kafka.kafka_topic = topic.topic_name().to_string();
-    config.burst_limit = NonZeroU32::new(1).unwrap();
-    config.per_second_limit = NonZeroU32::new(1).unwrap();
+    config.overflow_burst_limit = NonZeroU32::new(1).unwrap();
+    config.overflow_per_second_limit = NonZeroU32::new(1).unwrap();
 
     let server = ServerHandle::for_config(config);
 

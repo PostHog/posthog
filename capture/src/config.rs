@@ -14,10 +14,10 @@ pub struct Config {
     pub otel_url: Option<String>,
 
     #[envconfig(default = "100")]
-    pub per_second_limit: NonZeroU32,
+    pub overflow_per_second_limit: NonZeroU32,
 
     #[envconfig(default = "1000")]
-    pub burst_limit: NonZeroU32,
+    pub overflow_burst_limit: NonZeroU32,
 
     pub overflow_forced_keys: Option<String>, // Coma-delimited keys
 

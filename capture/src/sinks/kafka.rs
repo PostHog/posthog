@@ -2,11 +2,10 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use metrics::{absolute_counter, counter, gauge, histogram};
-use rdkafka::config::ClientConfig;
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
-use rdkafka::producer::future_producer::{FutureProducer, FutureRecord};
-use rdkafka::producer::{DeliveryFuture, Producer};
+use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
 use rdkafka::util::Timeout;
+use rdkafka::ClientConfig;
 use tokio::task::JoinSet;
 use tracing::log::{debug, error, info};
 use tracing::{info_span, instrument, Instrument};
@@ -15,38 +14,9 @@ use crate::api::CaptureError;
 use crate::config::KafkaConfig;
 use crate::event::ProcessedEvent;
 use crate::health::HealthHandle;
-use crate::partition_limits::PartitionLimiter;
+use crate::limiters::overflow::OverflowLimiter;
 use crate::prometheus::report_dropped_events;
-
-#[async_trait]
-pub trait EventSink {
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError>;
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError>;
-}
-
-pub struct PrintSink {}
-
-#[async_trait]
-impl EventSink for PrintSink {
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        info!("single event: {:?}", event);
-        counter!("capture_events_ingested_total", 1);
-
-        Ok(())
-    }
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        let span = tracing::span!(tracing::Level::INFO, "batch of events");
-        let _enter = span.enter();
-
-        histogram!("capture_event_batch_size", events.len() as f64);
-        counter!("capture_events_ingested_total", events.len() as u64);
-        for event in events {
-            info!("event: {:?}", event);
-        }
-
-        Ok(())
-    }
-}
+use crate::sinks::Event;
 
 struct KafkaContext {
     liveness: HealthHandle,
@@ -113,14 +83,14 @@ impl rdkafka::ClientContext for KafkaContext {
 pub struct KafkaSink {
     producer: FutureProducer<KafkaContext>,
     topic: String,
-    partition: PartitionLimiter,
+    partition: OverflowLimiter,
 }
 
 impl KafkaSink {
     pub fn new(
         config: KafkaConfig,
         liveness: HealthHandle,
-        partition: PartitionLimiter,
+        partition: OverflowLimiter,
     ) -> anyhow::Result<KafkaSink> {
         info!("connecting to Kafka brokers at {}...", config.kafka_hosts);
 
@@ -234,7 +204,7 @@ impl KafkaSink {
 }
 
 #[async_trait]
-impl EventSink for KafkaSink {
+impl Event for KafkaSink {
     #[instrument(skip_all)]
     async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
         let limited = self.partition.is_limited(&event.key());
@@ -294,8 +264,9 @@ mod tests {
     use crate::config;
     use crate::event::ProcessedEvent;
     use crate::health::HealthRegistry;
-    use crate::partition_limits::PartitionLimiter;
-    use crate::sink::{EventSink, KafkaSink};
+    use crate::limiters::overflow::OverflowLimiter;
+    use crate::sinks::kafka::KafkaSink;
+    use crate::sinks::Event;
     use crate::utils::uuid_v7;
     use rand::distributions::Alphanumeric;
     use rand::Rng;
@@ -310,7 +281,7 @@ mod tests {
         let handle = registry
             .register("one".to_string(), Duration::seconds(30))
             .await;
-        let limiter = PartitionLimiter::new(
+        let limiter = OverflowLimiter::new(
             NonZeroU32::new(10).unwrap(),
             NonZeroU32::new(10).unwrap(),
             None,

@@ -28,8 +28,8 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     print_sink: false,
     address: SocketAddr::from_str("127.0.0.1:0").unwrap(),
     redis_url: "redis://localhost:6379/".to_string(),
-    burst_limit: NonZeroU32::new(5).unwrap(),
-    per_second_limit: NonZeroU32::new(10).unwrap(),
+    overflow_burst_limit: NonZeroU32::new(5).unwrap(),
+    overflow_per_second_limit: NonZeroU32::new(10).unwrap(),
     overflow_forced_keys: None,
     kafka: KafkaConfig {
         kafka_producer_linger_ms: 0, // Send messages as soon as possible

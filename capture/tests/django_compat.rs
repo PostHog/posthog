@@ -5,12 +5,12 @@ use axum_test_helper::TestClient;
 use base64::engine::general_purpose;
 use base64::Engine;
 use capture::api::{CaptureError, CaptureResponse, CaptureResponseCode};
-use capture::billing_limits::BillingLimiter;
 use capture::event::ProcessedEvent;
 use capture::health::HealthRegistry;
+use capture::limiters::billing::BillingLimiter;
 use capture::redis::MockRedisClient;
 use capture::router::router;
-use capture::sink::EventSink;
+use capture::sinks::Event;
 use capture::time::TimeSource;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -61,7 +61,7 @@ impl MemorySink {
 }
 
 #[async_trait]
-impl EventSink for MemorySink {
+impl Event for MemorySink {
     async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
         self.events.lock().unwrap().push(event);
         Ok(())

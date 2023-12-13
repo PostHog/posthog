@@ -4,12 +4,14 @@ use std::sync::Arc;
 
 use time::Duration;
 
-use crate::billing_limits::BillingLimiter;
 use crate::config::Config;
 use crate::health::{ComponentStatus, HealthRegistry};
-use crate::partition_limits::PartitionLimiter;
+use crate::limiters::billing::BillingLimiter;
+use crate::limiters::overflow::OverflowLimiter;
 use crate::redis::RedisClient;
-use crate::{router, sink};
+use crate::router;
+use crate::sinks::kafka::KafkaSink;
+use crate::sinks::print::PrintSink;
 
 pub async fn serve<F>(config: Config, listener: TcpListener, shutdown: F)
 where
@@ -34,7 +36,7 @@ where
         router::router(
             crate::time::SystemTime {},
             liveness,
-            sink::PrintSink {},
+            PrintSink {},
             redis_client,
             billing,
             config.export_prometheus,
@@ -44,9 +46,9 @@ where
             .register("rdkafka".to_string(), Duration::seconds(30))
             .await;
 
-        let partition = PartitionLimiter::new(
-            config.per_second_limit,
-            config.burst_limit,
+        let partition = OverflowLimiter::new(
+            config.overflow_per_second_limit,
+            config.overflow_burst_limit,
             config.overflow_forced_keys,
         );
         if config.export_prometheus {
@@ -55,18 +57,14 @@ where
                 partition.report_metrics().await;
             });
         }
-
         {
             // Ensure that the rate limiter state does not grow unbounded
-
             let partition = partition.clone();
-
             tokio::spawn(async move {
                 partition.clean_state().await;
             });
         }
-
-        let sink = sink::KafkaSink::new(config.kafka, sink_liveness, partition)
+        let sink = KafkaSink::new(config.kafka, sink_liveness, partition)
             .expect("failed to start Kafka sink");
 
         router::router(

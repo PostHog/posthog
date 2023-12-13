@@ -15,14 +15,14 @@ use metrics::counter;
 use time::OffsetDateTime;
 use tracing::instrument;
 
-use crate::billing_limits::QuotaResource;
 use crate::event::{Compression, ProcessingContext};
+use crate::limiters::billing::QuotaResource;
 use crate::prometheus::report_dropped_events;
 use crate::token::validate_token;
 use crate::{
     api::{CaptureError, CaptureResponse, CaptureResponseCode},
     event::{EventFormData, EventQuery, ProcessedEvent, RawEvent},
-    router, sink,
+    router, sinks,
     utils::uuid_v7,
 };
 
@@ -209,7 +209,7 @@ pub fn extract_and_verify_token(events: &[RawEvent]) -> Result<String, CaptureEr
 
 #[instrument(skip_all, fields(events = events.len()))]
 pub async fn process_events<'a>(
-    sink: Arc<dyn sink::EventSink + Send + Sync>,
+    sink: Arc<dyn sinks::Event + Send + Sync>,
     events: &'a [RawEvent],
     context: &'a ProcessingContext,
 ) -> Result<(), CaptureError> {
