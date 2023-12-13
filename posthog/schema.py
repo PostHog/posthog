@@ -955,6 +955,7 @@ class PersonsQueryResponse(BaseModel):
     hasMore: Optional[bool] = None
     hogql: str
     limit: int
+    missing_actors_count: Optional[int] = None
     offset: int
     results: List[List]
     timings: Optional[List[QueryTiming]] = None

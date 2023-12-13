@@ -2307,6 +2307,9 @@
                 "limit": {
                     "type": "integer"
                 },
+                "missing_actors_count": {
+                    "type": "integer"
+                },
                 "offset": {
                     "type": "integer"
                 },

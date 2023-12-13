@@ -25,6 +25,8 @@ class PersonsQueryRunner(QueryRunner):
             modifiers=self.modifiers,
         )
         input_columns = self.input_columns()
+        missing_actors_count = None
+
         if "person" in input_columns:
             person_column_index = input_columns.index("person")
             person_ids = [str(result[person_column_index]) for result in response.results]
@@ -47,6 +49,8 @@ class PersonsQueryRunner(QueryRunner):
                     new_result["is_identified"] = person.is_identified
                 response.results[index][person_column_index] = new_result
 
+            missing_actors_count = len(person_ids) - len(pg_persons)
+
         has_more = len(response.results) > self.query_limit()
         columns = self.input_columns()
         # we added +1 before for pagination, remove the last element if there's more
@@ -59,6 +63,7 @@ class PersonsQueryRunner(QueryRunner):
             columns=columns,
             hogql=response.hogql,
             hasMore=has_more,
+            missing_actors_count=missing_actors_count,
             limit=self.query_limit(),
             offset=self.query.offset or 0,
         )

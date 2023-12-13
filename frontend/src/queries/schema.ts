@@ -640,6 +640,8 @@ export interface PersonsQueryResponse {
     limit: number
     /** @asType integer */
     offset: number
+    /** @asType integer */
+    missing_actors_count?: number
 }
 
 export interface PersonsQuery extends DataNode {

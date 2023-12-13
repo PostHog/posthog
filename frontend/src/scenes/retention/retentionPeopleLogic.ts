@@ -69,7 +69,7 @@ async function hogqlRetentionQuery(
     return {
         result,
         next: response.hasMore ? response.offset + response.limit : undefined,
-        //missing_persons: response.missing_persons,
+        missing_persons: response.missing_actors_count,
     }
 }
 
