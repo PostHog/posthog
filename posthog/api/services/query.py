@@ -31,7 +31,6 @@ QUERY_WITH_RUNNER_NO_CACHE = [
     "HogQLQuery",
     "EventsQuery",
     "PersonsQuery",
-    "RetentionAppearanceQuery",
     "SessionsTimelineQuery",
 ]
 

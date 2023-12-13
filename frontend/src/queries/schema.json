@@ -1718,14 +1718,7 @@
                     "$ref": "#/definitions/PersonsQueryResponse"
                 },
                 "source": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/InsightQueryNode"
-                        },
-                        {
-                            "$ref": "#/definitions/RetentionAppearanceQuery"
-                        }
-                    ]
+                    "$ref": "#/definitions/InsightQueryNode"
                 },
                 "status": {
                     "type": "string"
@@ -2011,7 +2004,6 @@
                 "TrendsQuery",
                 "FunnelsQuery",
                 "RetentionQuery",
-                "RetentionAppearanceQuery",
                 "PathsQuery",
                 "StickinessQuery",
                 "LifecycleQuery",
@@ -2026,18 +2018,6 @@
                 "DatabaseSchemaQuery"
             ],
             "type": "string"
-        },
-        "PaginatableQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "limit": {
-                    "type": "integer"
-                },
-                "offset": {
-                    "type": "integer"
-                }
-            },
-            "type": "object"
         },
         "PathCleaningFilter": {
             "additionalProperties": false,
@@ -2494,9 +2474,6 @@
                     "$ref": "#/definitions/RetentionQuery"
                 },
                 {
-                    "$ref": "#/definitions/RetentionAppearanceQuery"
-                },
-                {
                     "$ref": "#/definitions/PathsQuery"
                 },
                 {
@@ -2595,32 +2572,6 @@
                 }
             },
             "required": ["key", "operator", "type", "value"],
-            "type": "object"
-        },
-        "RetentionAppearanceQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "kind": {
-                    "const": "RetentionAppearanceQuery",
-                    "type": "string"
-                },
-                "limit": {
-                    "type": "integer"
-                },
-                "offset": {
-                    "type": "integer"
-                },
-                "response": {
-                    "$ref": "#/definitions/PersonsQueryResponse"
-                },
-                "selectedInterval": {
-                    "type": "integer"
-                },
-                "source": {
-                    "$ref": "#/definitions/RetentionQuery"
-                }
-            },
-            "required": ["kind", "source", "selectedInterval"],
             "type": "object"
         },
         "RetentionEntity": {

@@ -145,12 +145,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconRetention,
         inMenu: true,
     },
-    [NodeKind.RetentionAppearanceQuery]: {
-        name: 'Retention Appearance',
-        description: 'See the users and when they returned on subsequent intervals after an initial action',
-        icon: IconRetention,
-        inMenu: false,
-    },
     [NodeKind.PathsQuery]: {
         name: 'Paths',
         description: 'Trace the journeys users take within your product and where they drop off',

@@ -360,7 +360,6 @@ class NodeKind(str, Enum):
     TrendsQuery = "TrendsQuery"
     FunnelsQuery = "FunnelsQuery"
     RetentionQuery = "RetentionQuery"
-    RetentionAppearanceQuery = "RetentionAppearanceQuery"
     PathsQuery = "PathsQuery"
     StickinessQuery = "StickinessQuery"
     LifecycleQuery = "LifecycleQuery"
@@ -373,14 +372,6 @@ class NodeKind(str, Enum):
     TimeToSeeDataSessionsJSONNode = "TimeToSeeDataSessionsJSONNode"
     TimeToSeeDataSessionsWaterfallNode = "TimeToSeeDataSessionsWaterfallNode"
     DatabaseSchemaQuery = "DatabaseSchemaQuery"
-
-
-class PaginatableQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    limit: Optional[int] = None
-    offset: Optional[int] = None
 
 
 class PathCleaningFilter(BaseModel):
@@ -1858,18 +1849,6 @@ class PathsQuery(BaseModel):
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 
-class RetentionAppearanceQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kind: Literal["RetentionAppearanceQuery"] = "RetentionAppearanceQuery"
-    limit: Optional[int] = None
-    offset: Optional[int] = None
-    response: Optional[PersonsQueryResponse] = None
-    selectedInterval: int
-    source: RetentionQuery
-
-
 class InsightVizNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1899,10 +1878,7 @@ class InsightPersonsQuery(BaseModel):
     day: Optional[str] = None
     kind: Literal["InsightPersonsQuery"] = "InsightPersonsQuery"
     response: Optional[PersonsQueryResponse] = None
-    source: Union[
-        RetentionAppearanceQuery,
-        Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery],
-    ]
+    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
     status: Optional[str] = None
 
 
@@ -2017,7 +1993,6 @@ class QuerySchema(RootModel):
         TrendsQuery,
         FunnelsQuery,
         RetentionQuery,
-        RetentionAppearanceQuery,
         PathsQuery,
         StickinessQuery,
         LifecycleQuery,

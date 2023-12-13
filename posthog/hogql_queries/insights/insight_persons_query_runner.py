@@ -4,7 +4,6 @@ from typing import cast
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
-from posthog.hogql_queries.insights.retention_appearance_query_runner import RetentionAppearanceQueryRunner
 from posthog.hogql_queries.insights.retention_query_runner import RetentionQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
@@ -29,9 +28,6 @@ class InsightPersonsQueryRunner(QueryRunner):
         elif isinstance(self.source_runner, TrendsQueryRunner):
             trends_runner = cast(TrendsQueryRunner, self.source_runner)
             return trends_runner.to_persons_query()
-        elif isinstance(self.source_runner, RetentionAppearanceQueryRunner):
-            retention_runner = cast(RetentionAppearanceQueryRunner, self.source_runner)
-            return retention_runner.to_persons_query()
         elif isinstance(self.source_runner, RetentionQueryRunner):
             retention_runner = cast(RetentionQueryRunner, self.source_runner)
             return retention_runner.to_persons_query()

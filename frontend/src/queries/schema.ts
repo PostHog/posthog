@@ -59,7 +59,6 @@ export enum NodeKind {
     TrendsQuery = 'TrendsQuery',
     FunnelsQuery = 'FunnelsQuery',
     RetentionQuery = 'RetentionQuery',
-    RetentionAppearanceQuery = 'RetentionAppearanceQuery',
     PathsQuery = 'PathsQuery',
     StickinessQuery = 'StickinessQuery',
     LifecycleQuery = 'LifecycleQuery',
@@ -109,7 +108,6 @@ export type QuerySchema =
     | TrendsQuery
     | FunnelsQuery
     | RetentionQuery
-    | RetentionAppearanceQuery
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
@@ -774,27 +772,12 @@ export type InsightFilter =
 
 export interface InsightPersonsQuery {
     kind: NodeKind.InsightPersonsQuery
-    source: InsightQueryNode | RetentionAppearanceQuery
+    source: InsightQueryNode
     day?: string
     status?: string
     // TODO: add breakdowns
     // TODO: add fields for other insights (funnels dropdown, compare_previous choice, etc)
     response?: PersonsQueryResponse
-}
-
-export interface PaginatableQuery {
-    /** @asType integer */
-    limit?: number
-    /** @asType integer */
-    offset?: number
-}
-
-export interface RetentionAppearanceQuery extends PaginatableQuery {
-    kind: NodeKind.RetentionAppearanceQuery
-    source: RetentionQuery
-    /** @asType integer */
-    selectedInterval: number
-    response?: PersonsQueryResponse // TODO: 🤔
 }
 
 export const dateRangeForFilter = (source: FilterType | undefined): DateRange | undefined => {
