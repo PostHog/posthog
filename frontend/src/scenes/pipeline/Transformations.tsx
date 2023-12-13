@@ -365,6 +365,7 @@ const MinimalAppView = ({ pluginConfig, order }: { pluginConfig: PluginConfigTyp
         <div
             ref={setNodeRef}
             className="flex gap-2 cursor-move border rounded p-2 items-center bg-bg-light"
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
                 position: 'relative',
                 transform: CSS.Transform.toString(transform),

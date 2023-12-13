@@ -263,6 +263,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     date_from: dateFrom,
                     date_to: dateTo,
                 }
+                const compare = !!dateRange.date_from
+
                 const tiles: (WebDashboardTile | null)[] = [
                     {
                         layout: {
@@ -300,7 +302,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                             },
                                         ],
                                         trendsFilter: {
-                                            compare: true,
+                                            compare,
                                             display: ChartDisplayType.ActionsLineGraph,
                                         },
                                         filterTestAccounts: true,
@@ -330,7 +332,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                             },
                                         ],
                                         trendsFilter: {
-                                            compare: true,
+                                            compare,
                                             display: ChartDisplayType.ActionsLineGraph,
                                         },
                                         filterTestAccounts: true,
@@ -360,7 +362,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                             },
                                         ],
                                         trendsFilter: {
-                                            compare: true,
+                                            compare,
                                             display: ChartDisplayType.ActionsLineGraph,
                                         },
                                         filterTestAccounts: true,
@@ -394,6 +396,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         breakdownBy: WebStatsBreakdown.Page,
                                         dateRange,
                                     },
+                                    embedded: false,
                                 },
                             },
                             {
@@ -409,6 +412,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         breakdownBy: WebStatsBreakdown.InitialPage,
                                         dateRange,
                                     },
+                                    embedded: false,
                                 },
                             },
                         ],
@@ -505,6 +509,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                             hideAggregation: true,
                                         },
                                     },
+                                    embedded: true,
                                 },
                             },
                             {
@@ -520,6 +525,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         breakdownBy: WebStatsBreakdown.Browser,
                                         dateRange,
                                     },
+                                    embedded: false,
                                 },
                             },
                             {
@@ -535,6 +541,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         breakdownBy: WebStatsBreakdown.OS,
                                         dateRange,
                                     },
+                                    embedded: false,
                                 },
                             },
                         ],
@@ -565,6 +572,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     useSmallLayout: !isGreaterThanMd,
                                 },
                             },
+                            embedded: true,
                         },
                     },
                     shouldShowGeographyTile
@@ -602,6 +610,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               properties: webAnalyticsFilters,
                                           },
                                           hidePersonsModal: true,
+                                          embedded: true,
                                       },
                                   },
                                   {

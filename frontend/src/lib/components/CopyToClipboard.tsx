@@ -62,6 +62,7 @@ export function CopyToClipboardInline({
                     isValueSensitive && 'ph-no-capture',
                     className
                 )}
+                // eslint-disable-next-line react/forbid-dom-props
                 style={style}
                 onClick={!selectable ? copy : undefined}
                 {...props}

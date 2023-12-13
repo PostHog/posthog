@@ -40,15 +40,15 @@ export function SurveyTemplates(): JSX.Element {
                             key={idx}
                             onClick={() => {
                                 setSurveyTemplateValues({
-                                    name: template.type,
+                                    name: template.templateType,
                                     questions: template.questions,
                                     appearance: { ...defaultSurveyAppearance, ...template.appearance },
                                 })
-                                reportSurveyTemplateClicked(template.type)
+                                reportSurveyTemplateClicked(template.templateType)
                             }}
                         >
                             <span className="text-md">
-                                <b>{template.type}</b>
+                                <b>{template.templateType}</b>
                             </span>
                             <span className="flex flex-wrap text-xs text-muted max-w-80 font-medium mb-3">
                                 {template.description}
@@ -57,7 +57,7 @@ export function SurveyTemplates(): JSX.Element {
                                 <div className="SurveyTemplate">
                                     <SurveyAppearance
                                         key={idx}
-                                        type={template.questions[0].type}
+                                        surveyType={template.type}
                                         appearance={{
                                             ...defaultSurveyAppearance,
                                             whiteLabel: true,

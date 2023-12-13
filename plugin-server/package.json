@@ -61,7 +61,6 @@
         "fast-deep-equal": "^3.1.3",
         "generic-pool": "^3.7.1",
         "graphile-worker": "0.13.0",
-        "hot-shots": "^9.2.0",
         "ioredis": "^4.27.6",
         "ipaddr.js": "^2.1.0",
         "kafkajs": "^2.2.0",
@@ -132,7 +131,6 @@
     },
     "pnpm": {
         "patchedDependencies": {
-            "pg@8.10.0": "patches/pg@8.10.0.patch",
             "node-rdkafka@2.17.0": "patches/node-rdkafka@2.17.0.patch"
         }
     }

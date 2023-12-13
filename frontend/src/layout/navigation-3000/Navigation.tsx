@@ -2,13 +2,16 @@ import './Navigation.scss'
 
 import clsx from 'clsx'
 import { useMountedLogic, useValues } from 'kea'
+import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
 import { CommandPalette } from 'lib/components/CommandPalette/CommandPalette'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import posthog from 'posthog-js'
 import { ReactNode, useEffect } from 'react'
 import { SceneConfig } from 'scenes/sceneTypes'
 
 import { navigationLogic } from '../navigation/navigationLogic'
+import { ProjectNotice } from '../navigation/ProjectNotice'
 import { MinimalNavigation } from './components/MinimalNavigation'
 import { Navbar } from './components/Navbar'
 import { Sidebar } from './components/Sidebar'
@@ -31,6 +34,8 @@ export function Navigation({
     useEffect(() => {
         // FIXME: Include debug notice in a non-obstructing way
         document.getElementById('bottom-notice')?.remove()
+        // TODO: Unflag Notebooks once the 3000 experiment is over
+        posthog.updateEarlyAccessFeatureEnrollment(FEATURE_FLAGS.NOTEBOOKS, true)
     }, [])
 
     if (mode !== 'full') {
@@ -50,6 +55,7 @@ export function Navigation({
             </FlaggedFeature>
             <main>
                 <TopBar />
+
                 <div
                     className={clsx(
                         'Navigation3000__scene',
@@ -57,6 +63,8 @@ export function Navigation({
                         sceneConfig?.layout === 'app-raw' && 'Navigation3000__scene--raw'
                     )}
                 >
+                    <BillingAlertsV2 />
+                    {!sceneConfig?.hideProjectNotice && <ProjectNotice />}
                     {children}
                 </div>
             </main>

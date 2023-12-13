@@ -2,8 +2,9 @@ import './LemonButton.scss'
 import './LemonButtonLegacy.scss'
 import './LemonButton3000.scss'
 
+import { IconChevronDown } from '@posthog/icons'
 import clsx from 'clsx'
-import { IconArrowDropDown, IconChevronRight } from 'lib/lemon-ui/icons'
+import { IconChevronRight } from 'lib/lemon-ui/icons'
 import React, { useContext } from 'react'
 
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
@@ -57,8 +58,6 @@ export interface LemonButtonPropsBase
     /** Tooltip to display on hover. */
     tooltip?: TooltipProps['title']
     tooltipPlacement?: TooltipProps['placement']
-    /** Tooltip's `getPopupContainer`. **/
-    getTooltipPopupContainer?: () => HTMLElement
     /** Whether the row should take up the parent's full width. */
     fullWidth?: boolean
     center?: boolean
@@ -72,11 +71,33 @@ export interface LemonButtonPropsBase
     size?: 'xsmall' | 'small' | 'medium' | 'large'
     'data-attr'?: string
     'aria-label'?: string
+    /** Whether to truncate the button's text if necessary */
+    truncate?: boolean
 }
 
-export interface LemonButtonProps extends LemonButtonPropsBase {
-    sideIcon?: React.ReactElement | null
+export type SideAction = Pick<
+    LemonButtonProps,
+    'onClick' | 'to' | 'disabled' | 'icon' | 'type' | 'tooltip' | 'data-attr' | 'aria-label' | 'status' | 'targetBlank'
+> & {
+    dropdown?: LemonButtonDropdown
+    /**
+     * Whether to show a divider between button contents and side action.
+     * @default true // for non-full-width buttons
+     * @default false // for full-width buttons
+     */
+    divider?: boolean
 }
+
+export interface LemonButtonWithoutSideActionProps extends LemonButtonPropsBase {
+    sideIcon?: React.ReactElement | null
+    sideAction?: null
+}
+/** A LemonButtonWithSideAction can't have a sideIcon - instead it has a clickable sideAction. */
+export interface LemonButtonWithSideActionProps extends LemonButtonPropsBase {
+    sideAction: SideAction
+    sideIcon?: null
+}
+export type LemonButtonProps = LemonButtonWithoutSideActionProps | LemonButtonWithSideActionProps
 
 /** Styled button. */
 export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAttributes<HTMLButtonElement>> =
@@ -93,6 +114,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 status = 'primary',
                 icon,
                 sideIcon,
+                sideAction,
                 fullWidth,
                 center,
                 size,
@@ -104,8 +126,8 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 to,
                 targetBlank,
                 disableClientSideRouting,
-                getTooltipPopupContainer,
                 onClick,
+                truncate = false,
                 ...buttonProps
             },
             ref
@@ -117,13 +139,24 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 active = true
             }
 
-            if (popoverPlacement) {
+            const usingSideActionDivider = sideAction && (sideAction.divider ?? !fullWidth)
+            if (sideAction) {
+                // Bogus `sideIcon` div prevents overflow under the side button.
+                sideIcon = (
+                    <span
+                        className={clsx(
+                            'LemonButtonWithSideAction__spacer',
+                            usingSideActionDivider && 'LemonButtonWithSideAction__spacer--divider'
+                        )}
+                    />
+                )
+            } else if (popoverPlacement) {
                 if (!children) {
                     if (icon === undefined) {
-                        icon = popoverPlacement.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
+                        icon = popoverPlacement.startsWith('right') ? <IconChevronRight /> : <IconChevronDown />
                     }
                 } else if (sideIcon === undefined) {
-                    sideIcon = popoverPlacement.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
+                    sideIcon = popoverPlacement.startsWith('right') ? <IconChevronRight /> : <IconChevronDown />
                 }
             }
             if (loading) {
@@ -181,6 +214,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         !!icon && `LemonButton--has-icon`,
                         !!sideIcon && `LemonButton--has-side-icon`,
                         stealth && 'LemonButton--is-stealth',
+                        truncate && 'LemonButton--truncate',
                         className
                     )}
                     onClick={!disabled ? onClick : undefined}
@@ -200,14 +234,32 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
 
             if (tooltipContent) {
                 workingButton = (
-                    <Tooltip
-                        title={tooltipContent}
-                        placement={tooltipPlacement}
-                        getPopupContainer={getTooltipPopupContainer}
-                    >
+                    <Tooltip title={tooltipContent} placement={tooltipPlacement}>
                         {/* If the button is a `button` element and disabled, wrap it in a div so that the tooltip works */}
                         {disabled && ButtonComponent === 'button' ? <div>{workingButton}</div> : workingButton}
                     </Tooltip>
+                )
+            }
+
+            if (sideAction) {
+                const { dropdown: sideDropdown, divider: _, ...sideActionRest } = sideAction
+                const SideComponent = sideDropdown ? LemonButtonWithDropdown : LemonButton
+
+                workingButton = (
+                    <div className="LemonButtonWithSideAction">
+                        {workingButton}
+                        <div className="LemonButtonWithSideAction__side-button">
+                            <SideComponent
+                                // We don't want secondary style as it creates double borders
+                                type={type !== 'secondary' ? type : undefined}
+                                size={size}
+                                status={status}
+                                dropdown={sideDropdown as LemonButtonDropdown}
+                                noPadding
+                                {...sideActionRest}
+                            />
+                        </div>
+                    </div>
                 )
             }
 
@@ -217,66 +269,6 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
 LemonButton.displayName = 'LemonButton'
 
 export const Within3000PageHeaderContext = React.createContext<boolean>(false)
-
-export type SideAction = Pick<
-    LemonButtonProps,
-    'onClick' | 'to' | 'disabled' | 'icon' | 'type' | 'tooltip' | 'data-attr' | 'aria-label' | 'status' | 'targetBlank'
-> & {
-    dropdown?: LemonButtonDropdown
-    /**
-     * Whether to show a divider between button contents and side action.
-     * @default true // for non-full-width buttons
-     * @default false // for full-width buttons
-     */
-    divider?: boolean
-}
-
-/** A LemonButtonWithSideAction can't have a sideIcon - instead it has a clickable sideAction. */
-export interface LemonButtonWithSideActionProps extends LemonButtonPropsBase {
-    sideAction: SideAction
-}
-
-/**
- * Styled button with a side action on the right.
- * We can't use `LemonRow`'s `sideIcon` prop because putting `onClick` on it clashes with the parent`s `onClick`.
- */
-export const LemonButtonWithSideAction: React.FunctionComponent<
-    LemonButtonWithSideActionProps & React.RefAttributes<HTMLButtonElement>
-> = React.forwardRef(({ sideAction, children, ...buttonProps }, ref) => {
-    const { dropdown: sideDropdown, divider = !buttonProps.fullWidth, ...sideActionRest } = sideAction
-    const SideComponent = sideDropdown ? LemonButtonWithDropdown : LemonButton
-
-    return (
-        <div className={clsx('LemonButtonWithSideAction', `LemonButtonWithSideAction--${buttonProps.size}`)}>
-            {/* Bogus `sideIcon` div prevents overflow under the side button. */}
-            <LemonButton
-                ref={ref}
-                {...buttonProps}
-                sideIcon={
-                    <span
-                        className={clsx(
-                            'LemonButtonWithSideAction__spacer',
-                            divider && 'LemonButtonWithSideAction__spacer--divider'
-                        )}
-                    />
-                }
-            >
-                {children}
-            </LemonButton>
-            <div className="LemonButtonWithSideAction__side-button">
-                <SideComponent
-                    // We don't want secondary style as it creates double borders
-                    type={buttonProps.type !== 'secondary' ? buttonProps.type : undefined}
-                    status={buttonProps.status}
-                    dropdown={sideDropdown as LemonButtonDropdown}
-                    noPadding
-                    {...sideActionRest}
-                />
-            </div>
-        </div>
-    )
-})
-LemonButtonWithSideAction.displayName = 'LemonButtonWithSideAction'
 
 export interface LemonButtonWithDropdownProps extends LemonButtonPropsBase {
     dropdown: LemonButtonDropdown

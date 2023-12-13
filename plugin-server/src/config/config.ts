@@ -80,9 +80,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: 0,
         SENTRY_PLUGIN_SERVER_PROFILING_SAMPLE_RATE: 0,
         HTTP_SERVER_PORT: DEFAULT_HTTP_SERVER_PORT,
-        STATSD_HOST: null,
-        STATSD_PORT: 8125,
-        STATSD_PREFIX: 'plugin-server.',
         SCHEDULE_LOCK_TTL: 60,
         REDIS_POOL_MIN_SIZE: 1,
         REDIS_POOL_MAX_SIZE: 3,
@@ -131,8 +128,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         EXTERNAL_REQUEST_TIMEOUT_MS: 10 * 1000, // 10 seconds
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
         DROP_EVENTS_BY_TOKEN: '',
+        POE_DEFERRED_WRITES_ENABLED: false,
         POE_EMBRACE_JOIN_FOR_TEAMS: '',
         RELOAD_PLUGIN_JITTER_MAX_MS: 60000,
+        RUSTY_HOOK_FOR_TEAMS: '',
+        RUSTY_HOOK_URL: '',
 
         STARTUP_PROFILE_DURATION_SECONDS: 300, // 5 minutes
         STARTUP_PROFILE_CPU: false,
@@ -158,6 +158,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_SESSION_RECORDING_REDIS_HOST: undefined,
         POSTHOG_SESSION_RECORDING_REDIS_PORT: undefined,
         SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: true,
+        SESSION_RECORDING_DEBUG_PARTITION: undefined,
     }
 }
 

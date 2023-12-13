@@ -52,8 +52,8 @@ export interface LemonTableProps<T extends Record<string, any>> {
     inset?: boolean
     /** An embedded table has no border around it and no background. This way it blends better into other components. */
     embedded?: boolean
-    /** Whether inner table borders should be shown. **/
-    borderedRows?: boolean
+    /** Whether to hide the table background and inner borders. **/
+    stealth?: boolean
     loading?: boolean
     pagination?: PaginationAuto | PaginationManual
     expandable?: ExpandableConfig<T>
@@ -82,7 +82,6 @@ export interface LemonTableProps<T extends Record<string, any>> {
     className?: string
     style?: React.CSSProperties
     'data-attr'?: string
-    display?: 'stealth' | 'default'
     /** Footer to be shown below the table. */
     footer?: React.ReactNode
     /** Whether the first column should always remain visible when scrolling horizontally. */
@@ -101,7 +100,7 @@ export function LemonTable<T extends Record<string, any>>({
     size,
     inset = false,
     embedded = false,
-    borderedRows = true,
+    stealth = false,
     loading,
     pagination,
     expandable,
@@ -118,7 +117,6 @@ export function LemonTable<T extends Record<string, any>>({
     className,
     style,
     'data-attr': dataAttr,
-    display = 'default',
     footer,
     firstColumnSticky,
 }: LemonTableProps<T>): JSX.Element {
@@ -222,12 +220,13 @@ export function LemonTable<T extends Record<string, any>>({
                 loading && 'LemonTable--loading',
                 embedded && 'LemonTable--embedded',
                 rowRibbonColor !== undefined && `LemonTable--with-ribbon`,
-                !borderedRows && 'LemonTable--borderless-rows',
-                display === 'stealth' && 'LemonTable--stealth',
+                stealth && 'LemonTable--stealth',
                 isScrollableLeft && 'scrollable--left',
                 isScrollableRight && 'scrollable--right',
+                !uppercaseHeader && 'LemonTable--lowercase-header',
                 className
             )}
+            // eslint-disable-next-line react/forbid-dom-props
             style={style}
             data-attr={dataAttr}
         >
@@ -235,17 +234,14 @@ export function LemonTable<T extends Record<string, any>>({
                 <div className="LemonTable__content">
                     <table>
                         <colgroup>
-                            {!!expandable && <col style={{ width: 0 }} /> /* Expand/collapse column */}
+                            {!!expandable && <col className="w-0" /> /* Expand/collapse column */}
                             {columns.map((column, index) => (
+                                // eslint-disable-next-line react/forbid-dom-props
                                 <col key={`LemonTable-col-${index}`} style={{ width: column.width }} />
                             ))}
                         </colgroup>
                         {showHeader && (
-                            <thead
-                                style={
-                                    !uppercaseHeader ? { textTransform: 'none', letterSpacing: 'normal' } : undefined
-                                }
-                            >
+                            <thead>
                                 {columnGroups.some((group) => group.title) && (
                                     <tr className="LemonTable__row--grouping">
                                         {!!expandable && <th className="LemonTable__toggle" /> /* Expand/collapse */}

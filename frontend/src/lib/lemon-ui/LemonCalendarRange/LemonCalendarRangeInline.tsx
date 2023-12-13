@@ -102,10 +102,14 @@ export function LemonCalendarRangeInline({
                         className:
                             date.isSame(rangeStart, 'd') && date.isSame(rangeEnd, 'd')
                                 ? props.className
-                                : clsx(props.className, {
-                                      'rounded-r-none': date.isSame(rangeStart, 'd') && dayIndex < 6,
-                                      'rounded-l-none': date.isSame(rangeEnd, 'd') && dayIndex > 0,
-                                  }),
+                                : clsx(
+                                      props.className,
+                                      {
+                                          'rounded-r-none': date.isSame(rangeStart, 'd') && dayIndex < 6,
+                                          'rounded-l-none': date.isSame(rangeEnd, 'd') && dayIndex > 0,
+                                      },
+                                      'LemonCalendar__range--boundary'
+                                  ),
                         status: 'primary',
                         type: 'primary',
                     }

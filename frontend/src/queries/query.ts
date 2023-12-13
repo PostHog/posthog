@@ -30,6 +30,7 @@ import {
     isLifecycleQuery,
     isPersonsNode,
     isPersonsQuery,
+    isRetentionQuery,
     isTimeToSeeDataQuery,
     isTimeToSeeDataSessionsNode,
     isTimeToSeeDataSessionsQuery,
@@ -148,6 +149,9 @@ export async function query<N extends DataNode = DataNode>(
     const hogQLInsightsLifecycleFlagEnabled = Boolean(
         featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE]
     )
+    const hogQLInsightsRetentionFlagEnabled = Boolean(
+        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION]
+    )
     const hogQLInsightsTrendsFlagEnabled = Boolean(
         featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]
     )
@@ -193,6 +197,7 @@ export async function query<N extends DataNode = DataNode>(
         } else if (isInsightQueryNode(queryNode)) {
             if (
                 (hogQLInsightsLifecycleFlagEnabled && isLifecycleQuery(queryNode)) ||
+                (hogQLInsightsRetentionFlagEnabled && isRetentionQuery(queryNode)) ||
                 (hogQLInsightsTrendsFlagEnabled && isTrendsQuery(queryNode))
             ) {
                 if (hogQLInsightsLiveCompareEnabled) {
@@ -218,7 +223,7 @@ export async function query<N extends DataNode = DataNode>(
                     const results = flattenObject(res1)
                     const legacyResults = flattenObject(res2)
                     const sortedKeys = Array.from(new Set([...Object.keys(results), ...Object.keys(legacyResults)]))
-                        .filter((key) => !key.includes('.persons_urls.'))
+                        .filter((key) => !key.includes('.persons_urls.') && !key.includes('.people_url'))
                         .sort()
                     const tableData = [['', 'key', 'HOGQL', 'LEGACY']]
                     let matchCount = 0

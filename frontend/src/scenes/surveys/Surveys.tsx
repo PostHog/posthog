@@ -1,6 +1,5 @@
 import {
     LemonButton,
-    LemonButtonWithSideAction,
     LemonDivider,
     LemonInput,
     LemonSelect,
@@ -71,7 +70,7 @@ export function Surveys(): JSX.Element {
                 title="Surveys"
                 buttons={
                     <>
-                        <LemonButtonWithSideAction
+                        <LemonButton
                             to={urls.surveyTemplates()}
                             type="primary"
                             data-attr="new-survey"
@@ -89,7 +88,7 @@ export function Surveys(): JSX.Element {
                             }}
                         >
                             New survey
-                        </LemonButtonWithSideAction>
+                        </LemonButton>
                     </>
                 }
                 caption={
@@ -155,7 +154,7 @@ export function Surveys(): JSX.Element {
                 {!shouldShowEmptyState && (
                     <>
                         <div>
-                            <div className="flex justify-between mb-4">
+                            <div className="flex justify-between mb-4 gap-2 flex-wrap">
                                 <LemonInput
                                     type="search"
                                     placeholder="Search for surveys"

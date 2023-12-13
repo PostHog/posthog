@@ -140,7 +140,6 @@ export const BillingLimitInput = ({ product }: { product: BillingProductV2Type }
                             </LemonButton>
                             {customLimitUsd ? (
                                 <LemonButton
-                                    // icon={<IconDelete />}
                                     status="danger"
                                     size="small"
                                     tooltip="Remove billing limit"

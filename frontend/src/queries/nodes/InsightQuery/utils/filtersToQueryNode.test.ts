@@ -167,7 +167,7 @@ describe('filtersToQueryNode', () => {
             const query: InsightQueryNode = {
                 kind: NodeKind.RetentionQuery,
                 filterTestAccounts: true,
-            }
+            } as InsightQueryNode
             expect(result).toEqual(query)
         })
 
@@ -212,7 +212,7 @@ describe('filtersToQueryNode', () => {
                         },
                     ],
                 },
-            }
+            } as InsightQueryNode
             expect(result).toEqual(query)
         })
 
@@ -231,7 +231,7 @@ describe('filtersToQueryNode', () => {
                     date_to: '2021-12-08',
                     date_from: '2021-12-08',
                 },
-            }
+            } as InsightQueryNode
             expect(result).toEqual(query)
         })
     })
@@ -401,8 +401,8 @@ describe('filtersToQueryNode', () => {
                 retention_type: 'retention_first_time',
                 retention_reference: 'total',
                 total_intervals: 2,
-                returning_entity: [{ a: 1 }],
-                target_entity: [{ b: 1 }],
+                returning_entity: { id: '1' },
+                target_entity: { id: '1' },
                 period: RetentionPeriod.Day,
             }
 
@@ -414,8 +414,8 @@ describe('filtersToQueryNode', () => {
                     retention_type: 'retention_first_time',
                     retention_reference: 'total',
                     total_intervals: 2,
-                    returning_entity: [{ a: 1 }],
-                    target_entity: [{ b: 1 }],
+                    returning_entity: { id: '1' },
+                    target_entity: { id: '1' },
                     period: RetentionPeriod.Day,
                 },
             }

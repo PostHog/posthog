@@ -832,9 +832,9 @@ def _get_all_usage_data_as_team_rows(period_start: datetime, period_end: datetim
 
 def _get_teams_for_usage_reports() -> Sequence[Team]:
     return list(
-        Team.objects.select_related("organization").exclude(
-            Q(organization__for_internal_metrics=True) | Q(is_demo=True)
-        )
+        Team.objects.select_related("organization")
+        .exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
+        .only("id", "organization__id", "organization__name", "organization__created_at")
     )
 
 

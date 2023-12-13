@@ -8,9 +8,6 @@ patchedDependencies:
   node-rdkafka@2.17.0:
     hash: p4aetcvho53cvjti6c3zi7tfaq
     path: patches/node-rdkafka@2.17.0.patch
-  pg@8.10.0:
-    hash: ju7a73s3qkmrf666u3aacfrooi
-    path: patches/pg@8.10.0.patch
 
 dependencies:
   '@aws-sdk/client-s3':
@@ -88,9 +85,6 @@ dependencies:
   graphile-worker:
     specifier: 0.13.0
     version: 0.13.0
-  hot-shots:
-    specifier: ^9.2.0
-    version: 9.3.0
   ioredis:
     specifier: ^4.27.6
     version: 4.28.5
@@ -120,7 +114,7 @@ dependencies:
     version: 2.1.1
   pg:
     specifier: ^8.6.0
-    version: 8.10.0(patch_hash=ju7a73s3qkmrf666u3aacfrooi)
+    version: 8.10.0
   pino:
     specifier: ^8.6.0
     version: 8.11.0
@@ -6364,7 +6358,7 @@ packages:
       chokidar: 3.5.3
       cosmiconfig: 7.1.0
       json5: 2.2.3
-      pg: 8.10.0(patch_hash=ju7a73s3qkmrf666u3aacfrooi)
+      pg: 8.10.0
       tslib: 2.5.0
       yargs: 16.2.0
     transitivePeerDependencies:
@@ -6483,13 +6477,6 @@ packages:
       minimalistic-assert: 1.0.1
       minimalistic-crypto-utils: 1.0.1
     dev: true
-
-  /hot-shots@9.3.0:
-    resolution: {integrity: sha512-e4tgWptiBvlIMnAX0ORe+dNEt0HznD+T2ckzXDUwCBsU7uWr2mwq5UtoT+Df5r9hD5S/DuP8rTxJUQvqAFSFKA==}
-    engines: {node: '>=6.0.0'}
-    optionalDependencies:
-      unix-dgram: 2.0.6
-    dev: false
 
   /hsl-to-rgb-for-reals@1.1.1:
     resolution: {integrity: sha512-LgOWAkrN0rFaQpfdWBQlv/VhkOxb5AsBjk6NQVx4yEzWS923T07X0M1Y0VNko2H52HeSpZrZNNMJ0aFqsdVzQg==}
@@ -8526,7 +8513,7 @@ packages:
     peerDependencies:
       pg: '>=8.0'
     dependencies:
-      pg: 8.10.0(patch_hash=ju7a73s3qkmrf666u3aacfrooi)
+      pg: 8.10.0
     dev: false
 
   /pg-protocol@1.6.0:
@@ -8542,7 +8529,7 @@ packages:
       postgres-date: 1.0.7
       postgres-interval: 1.2.0
 
-  /pg@8.10.0(patch_hash=ju7a73s3qkmrf666u3aacfrooi):
+  /pg@8.10.0:
     resolution: {integrity: sha512-ke7o7qSTMb47iwzOSaZMfeR7xToFdkE71ifIipOAAaLIM0DYzfOAXlgFFmYUIE2BcJtvnVlGCID84ZzCegE8CQ==}
     engines: {node: '>= 8.0.0'}
     peerDependencies:
@@ -8559,7 +8546,6 @@ packages:
       pg-types: 2.2.0
       pgpass: 1.0.5
     dev: false
-    patched: true
 
   /pgpass@1.0.5:
     resolution: {integrity: sha512-FdW9r/jQZhSeohs1Z3sI1yxFQNFvMcnmfuj4WBMUTxOrAyLMaTcE1aAMBiTlbMNaXvBCQuVi0R7hd8udDSP7ug==}
@@ -10014,16 +10000,6 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
     dev: true
-
-  /unix-dgram@2.0.6:
-    resolution: {integrity: sha512-AURroAsb73BZ6CdAyMrTk/hYKNj3DuYYEuOaB8bYMOHGKupRNScw90Q5C71tWJc3uE7dIeXRyuwN0xLLq3vDTg==}
-    engines: {node: '>=0.10.48'}
-    requiresBuild: true
-    dependencies:
-      bindings: 1.5.0
-      nan: 2.17.0
-    dev: false
-    optional: true
 
   /update-browserslist-db@1.0.11(browserslist@4.21.5):
     resolution: {integrity: sha512-dCwEFf0/oT85M1fHBg4F0jtLwJrutGoHSQXCh7u4o2t1drG+c0a9Flnqww6XUKSfQMPpJBRjU8d4RXB09qtvaA==}

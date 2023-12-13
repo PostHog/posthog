@@ -34,7 +34,7 @@ import {
     SessionRecordingType,
 } from '~/types'
 
-import { personsModalLogic, wrapInsightsPersonsQuery } from './personsModalLogic'
+import { personsModalLogic } from './personsModalLogic'
 import { SaveCohortModal } from './SaveCohortModal'
 
 export interface PersonsModalProps extends Pick<LemonModalProps, 'inline'> {
@@ -76,8 +76,10 @@ export function PersonsModal({
         isModalOpen,
         missingActorsCount,
         propertiesTimelineFilterFromUrl,
+        exploreUrl,
+        personsQuery,
     } = useValues(logic)
-    const { setSearchTerm, saveCohortWithUrl, setIsCohortModalOpen, closeModal, loadNextActors } = useActions(logic)
+    const { setSearchTerm, saveAsCohort, setIsCohortModalOpen, closeModal, loadNextActors } = useActions(logic)
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { currentTeam } = useValues(teamLogic)
 
@@ -181,40 +183,51 @@ export function PersonsModal({
                     </div>
                 </div>
                 <LemonModal.Footer>
-                    <div className="flex-1">
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => {
-                                void triggerExport({
-                                    export_format: ExporterFormat.CSV,
-                                    export_context: query
-                                        ? { source: wrapInsightsPersonsQuery(query) as Record<string, any> }
-                                        : { path: originalUrl },
-                                })
-                            }}
-                            data-attr="person-modal-download-csv"
-                            disabled={!actors.length}
-                        >
-                            Download CSV
-                        </LemonButton>
+                    <div className="flex justify-between gap-2 w-full">
+                        <div className="flex gap-2">
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => {
+                                    void triggerExport({
+                                        export_format: ExporterFormat.CSV,
+                                        export_context: query
+                                            ? { source: personsQuery as Record<string, any> }
+                                            : { path: originalUrl },
+                                    })
+                                }}
+                                data-attr="person-modal-download-csv"
+                                disabled={!actors.length}
+                            >
+                                Download CSV
+                            </LemonButton>
+                            {actors && actors.length > 0 && !isGroupType(actors[0]) && (
+                                <LemonButton
+                                    onClick={() => setIsCohortModalOpen(true)}
+                                    type="secondary"
+                                    data-attr="person-modal-save-as-cohort"
+                                    disabled={!actors.length}
+                                >
+                                    Save as cohort
+                                </LemonButton>
+                            )}
+                        </div>
+                        {exploreUrl && (
+                            <LemonButton
+                                type="primary"
+                                to={exploreUrl}
+                                data-attr="person-modal-new-insight"
+                                onClick={() => {
+                                    closeModal()
+                                }}
+                            >
+                                Explore
+                            </LemonButton>
+                        )}
                     </div>
-                    <LemonButton type="secondary" onClick={closeModal}>
-                        Close
-                    </LemonButton>
-                    {actors && actors.length > 0 && !isGroupType(actors[0]) && !query && (
-                        <LemonButton
-                            onClick={() => setIsCohortModalOpen(true)}
-                            type="primary"
-                            data-attr="person-modal-save-as-cohort"
-                            disabled={!actors.length}
-                        >
-                            Save as cohort
-                        </LemonButton>
-                    )}
                 </LemonModal.Footer>
             </LemonModal>
             <SaveCohortModal
-                onSave={(title) => saveCohortWithUrl(title)}
+                onSave={(title) => saveAsCohort(title)}
                 onCancel={() => setIsCohortModalOpen(false)}
                 isOpen={isCohortModalOpen}
             />

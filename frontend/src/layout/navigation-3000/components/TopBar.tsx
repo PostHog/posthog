@@ -1,10 +1,11 @@
 import './TopBar.scss'
 
+import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import { IconArrowDropDown, IconMenu } from 'lib/lemon-ui/icons'
+import { IconMenu } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import React, { useLayoutEffect, useState } from 'react'
@@ -34,8 +35,8 @@ export function TopBar(): JSX.Element | null {
             const mainElement = document.getElementsByTagName('main')[0]
             const mainScrollTop = mainElement.scrollTop
             const compactionDistance = Math.min(
-                // This ensure that scrolling to the bottom of the scene will always result in the compact top bar state
-                // even if there's just a few pixels of scroll room. Otherwise the top bar would be halfway-compact then
+                // This ensures that scrolling to the bottom of the scene will always result in the compact top bar state
+                // even if there's just a few pixels of scroll room. Otherwise, the top bar would be halfway-compact then
                 mainElement.scrollHeight - mainElement.clientHeight,
                 BREADCRUMBS_HEIGHT_COMPACT
             )
@@ -163,7 +164,7 @@ function Breadcrumb({ breadcrumb, index, here }: BreadcrumbProps): JSX.Element {
             to={breadcrumb.path}
         >
             {nameElement}
-            {breadcrumb.popover && <IconArrowDropDown />}
+            {breadcrumb.popover && <IconChevronDown />}
         </Component>
     )
 
