@@ -29,7 +29,7 @@ human_badge = {
     "deep_diver": "Deep Diver",
     "curator": "Curator",
     "flag_raiser": "Flag Raiser",
-    "popcorn_muncher": "Popcorn muncher",
+    "popcorn_muncher": "Popcorn Muncher",
     "scientist": "Scientist",
     "reporter": "Reporter",
     "champion": "Champion",

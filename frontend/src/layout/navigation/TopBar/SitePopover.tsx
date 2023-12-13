@@ -1,10 +1,9 @@
-import { IconDay, IconFeatures, IconLaptop, IconLive, IconNight } from '@posthog/icons'
+import { IconChevronDown, IconDay, IconFeatures, IconLaptop, IconLive, IconNight } from '@posthog/icons'
 import { LemonButtonPropsBase, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import {
-    IconArrowDropDown,
     IconBill,
     IconCheckmark,
     IconCorporate,
@@ -332,7 +331,7 @@ export function SitePopover(): JSX.Element {
                     <ProfilePicture name={user?.first_name} email={user?.email} size="md" />
                     {!systemStatus && <IconExclamation className="SitePopover__danger" />}
                 </div>
-                <IconArrowDropDown />
+                <IconChevronDown />
             </div>
         </Popover>
     )

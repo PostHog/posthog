@@ -1,10 +1,11 @@
 import './NotificationsBell.scss'
 
+import { IconChevronDown } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLog'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
-import { IconArrowDropDown, IconInfo, IconNotification, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconInfo, IconNotification, IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
@@ -62,7 +63,7 @@ export function NotificationBell(): JSX.Element {
                 <IconWithCount count={unreadCount} showZero={true} status={hasUnread ? 'primary' : 'muted'}>
                     <IconNotification />
                 </IconWithCount>
-                <IconArrowDropDown />
+                <IconChevronDown />
             </div>
         </Popover>
     )
