@@ -1,4 +1,5 @@
-import { captureException } from '@sentry/node'
+import { captureException, captureMessage } from '@sentry/node'
+import Ajv, { ValidateFunction } from 'ajv'
 import { HighLevelProducer as RdKafkaProducer, NumberNullUndefined } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
@@ -7,12 +8,15 @@ import { createRdConnectionConfigFromEnvVars, createRdProducerConfigFromEnvVars 
 import { findOffsetsToCommit } from '../../../../kafka/consumer'
 import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handling'
 import { createKafkaProducer, disconnectProducer, flushProducer, produce } from '../../../../kafka/producer'
+import schema from '../../../../schema.json'
+import { ConsoleLogEntry } from '../../../../schema/ingestion-schema'
 import { PluginsServerConfig } from '../../../../types'
 import { status } from '../../../../utils/status'
-import { ConsoleLogEntry, gatherConsoleLogEvents, RRWebEventType } from '../../../../worker/ingestion/process-event'
+import { gatherConsoleLogEvents, RRWebEventType } from '../../../../worker/ingestion/process-event'
 import { eventDroppedCounter } from '../../metrics'
 import { IncomingRecordingMessage } from '../types'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
+import { invalidSchemaCounter } from './replay-events-ingester'
 
 const HIGH_WATERMARK_KEY = 'session_replay_console_logs_events_ingester'
 
@@ -44,12 +48,15 @@ function deduplicateConsoleLogEvents(consoleLogEntries: ConsoleLogEntry[]): Cons
 export class ConsoleLogsIngester {
     producer?: RdKafkaProducer
     enabled: boolean
+    private schemaValidate: ValidateFunction
 
     constructor(
         private readonly serverConfig: PluginsServerConfig,
         private readonly persistentHighWaterMarker: OffsetHighWaterMarker
     ) {
         this.enabled = serverConfig.SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED
+        const ajv = new Ajv()
+        this.schemaValidate = ajv.compile(schema)
     }
 
     public async consumeBatch(messages: IncomingRecordingMessage[]) {
@@ -149,7 +156,31 @@ export class ConsoleLogsIngester {
         try {
             const consoleLogEvents = deduplicateConsoleLogEvents(
                 gatherConsoleLogEvents(event.team_id, event.session_id, event.events)
-            )
+            ).filter((cle) => {
+                const isValid = this.schemaValidate(cle)
+
+                if (!isValid) {
+                    captureMessage(`Invalid console log record for session ${event.session_id}`, {
+                        extra: {
+                            event: cle,
+                            validationErrors: this.schemaValidate.errors,
+                        },
+                        tags: {
+                            team: event.team_id,
+                            session_id: event.session_id,
+                        },
+                    })
+
+                    invalidSchemaCounter.inc({ type: 'console_log' })
+                }
+
+                // if this hits kafka and blocks CH ingestion we'd only drop it anyway
+                // so, let's drop it once we know its invalid
+                // TODO actually drop this once we have some confidence the schema is correct
+                //return isValid
+                return true
+            })
+
             consoleLogEventsCounter.inc(consoleLogEvents.length)
 
             return consoleLogEvents.map((cle: ConsoleLogEntry) =>

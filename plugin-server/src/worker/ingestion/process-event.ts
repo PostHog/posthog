@@ -6,7 +6,7 @@ import { DateTime } from 'luxon'
 import { Counter, Summary } from 'prom-client'
 
 import { activeMilliseconds } from '../../main/ingestion-queues/session-recording/snapshot-segmenter'
-import { SummarizedSessionRecordingEvent } from '../../schema/ingestion-schema'
+import { ConsoleLogEntry, SummarizedSessionRecordingEvent } from '../../schema/ingestion-schema'
 import {
     ClickHouseTimestamp,
     Element,
@@ -306,25 +306,6 @@ export const createSessionRecordingEvent = (
     return data
 }
 
-export type ConsoleLogEntry = {
-    team_id: number
-    message: string
-    log_level: 'info' | 'warn' | 'error'
-    log_source: 'session_replay'
-    // the session_id
-    log_source_id: string
-    // The ClickHouse log_entries table collapses input based on its order by key
-    // team_id, log_source, log_source_id, instance_id, timestamp
-    // since we don't have a natural instance id, we don't send one.
-    // This means that if we can log two messages for one session with the same timestamp
-    // we might lose one of them
-    // in practice console log timestamps are pretty precise: 2023-10-04 07:53:29.586
-    // so, this is unlikely enough that we can avoid filling the DB with UUIDs only to avoid losing
-    // a very, very small proportion of console logs.
-    instance_id: string | null
-    timestamp: ClickHouseTimestamp
-}
-
 function sanitizeForUTF8(input: string): string {
     // the JS console truncates some logs...
     // when it does that it doesn't check if the output is valid UTF-8
@@ -335,10 +316,10 @@ function sanitizeForUTF8(input: string): string {
     return buffer.toString()
 }
 
-function safeString(payload: (string | null)[]) {
+function safeString(payload: (string | null)[] | undefined) {
     // the individual strings are sometimes wrapped in quotes... we want to strip those
     return payload
-        .filter((item): item is string => !!item && typeof item === 'string')
+        ?.filter((item): item is string => !!item && typeof item === 'string')
         .map((item) => sanitizeForUTF8(item.substring(0, 2999)))
         .join(' ')
 }
@@ -370,6 +351,7 @@ enum RRWebEventSource {
     StyleDeclaration = 1,
     Selection = 1,
 }
+
 export const gatherConsoleLogEvents = (
     team_id: number,
     session_id: string,
@@ -384,16 +366,18 @@ export const gatherConsoleLogEvents = (
             try {
                 const level = event.data.payload?.level
                 const message = safeString(event.data.payload?.payload)
-                consoleLogEntries.push({
-                    team_id,
-                    // TODO when is it not a single item array?
-                    message: message,
-                    log_level: level,
-                    log_source: 'session_replay',
-                    log_source_id: session_id,
-                    instance_id: null,
-                    timestamp: castTimestampOrNow(DateTime.fromMillis(event.timestamp), TimestampFormat.ClickHouse),
-                })
+                if (message) {
+                    consoleLogEntries.push({
+                        team_id,
+                        // TODO when is it not a single item array?
+                        message: message,
+                        log_level: level,
+                        log_source: 'session_replay',
+                        log_source_id: session_id,
+                        instance_id: null,
+                        timestamp: castTimestampOrNow(DateTime.fromMillis(event.timestamp), TimestampFormat.ClickHouse),
+                    })
+                }
             } catch (e) {
                 // if we can't process a console log, we don't want to lose the whole shebang
                 captureException(e, { extra: { messagePayload: event.data.payload?.payload }, tags: { session_id } })

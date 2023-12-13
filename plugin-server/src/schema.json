@@ -1,7 +1,39 @@
 {
-    "$ref": "#/definitions/SummarizedSessionRecordingEvent",
     "$schema": "http://json-schema.org/draft-07/schema#",
     "definitions": {
+        "ClickHouseTimestamp": {
+            "type": "string"
+        },
+        "ConsoleLogEntry": {
+            "additionalProperties": false,
+            "properties": {
+                "instance_id": {
+                    "type": ["string", "null"]
+                },
+                "log_level": {
+                    "enum": ["info", "warn", "error"],
+                    "type": "string"
+                },
+                "log_source": {
+                    "const": "session_replay",
+                    "type": "string"
+                },
+                "log_source_id": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "team_id": {
+                    "type": "number"
+                },
+                "timestamp": {
+                    "$ref": "#/definitions/ClickHouseTimestamp"
+                }
+            },
+            "required": ["team_id", "message", "log_level", "log_source", "log_source_id", "instance_id", "timestamp"],
+            "type": "object"
+        },
         "SummarizedSessionRecordingEvent": {
             "additionalProperties": false,
             "description": "written to kafka topic: clickhouse_session_replay_events and from there to clickhouse table: session_replay_events",
@@ -24,6 +56,9 @@
                 "distinct_id": {
                     "type": "string"
                 },
+                "event_count": {
+                    "type": "integer"
+                },
                 "first_timestamp": {
                     "type": "string"
                 },
@@ -35,6 +70,9 @@
                 },
                 "last_timestamp": {
                     "type": "string"
+                },
+                "message_count": {
+                    "type": "integer"
                 },
                 "mouse_activity_count": {
                     "type": "integer"
@@ -66,7 +104,9 @@
                 "console_log_count",
                 "console_warn_count",
                 "console_error_count",
-                "size"
+                "size",
+                "event_count",
+                "message_count"
             ],
             "type": "object"
         }

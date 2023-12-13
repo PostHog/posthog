@@ -26,7 +26,7 @@ const replayEventsCounter = new Counter({
     help: 'Number of Replay events successfully ingested',
 })
 
-const invalidSchemaCounter = new Counter({
+export const invalidSchemaCounter = new Counter({
     name: 'replay_ingestion_invalid_schema',
     help: 'Number of Replay events with invalid schema',
     labelNames: ['type'],
@@ -34,7 +34,7 @@ const invalidSchemaCounter = new Counter({
 
 export class ReplayEventsIngester {
     producer?: RdKafkaProducer
-    private schemaValidate: ValidateFunction<unknown>
+    private schemaValidate: ValidateFunction
 
     constructor(
         private readonly serverConfig: PluginsServerConfig,

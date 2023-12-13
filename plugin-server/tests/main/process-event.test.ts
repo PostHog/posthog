@@ -11,7 +11,7 @@ import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../src/config/kafka-topics'
-import { SummarizedSessionRecordingEvent } from '../../src/schema/ingestion-schema'
+import { ConsoleLogEntry, SummarizedSessionRecordingEvent } from '../../src/schema/ingestion-schema'
 import {
     ClickHouseEvent,
     Database,
@@ -31,14 +31,12 @@ import { posthog } from '../../src/utils/posthog'
 import { castTimestampToClickhouseFormat, UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import {
-    ConsoleLogEntry,
     createPerformanceEvent,
     createSessionRecordingEvent,
     createSessionReplayEvent,
     EventsProcessor,
     gatherConsoleLogEvents,
     getTimestampsFrom,
-    SummarizedSessionRecordingEvent,
 } from '../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
@@ -2165,6 +2163,7 @@ describe('when handling $identify', () => {
         // completing before continuing with the first identify.
         const originalCreatePerson = hub.db.createPerson.bind(hub.db)
         const createPersonMock = jest.fn(async (...args) => {
+            // @ts-expect-error TS2556: A spread argument must either have a tuple type or be passed to a rest parameter.
             const result = await originalCreatePerson(...args)
 
             if (createPersonMock.mock.calls.length === 1) {

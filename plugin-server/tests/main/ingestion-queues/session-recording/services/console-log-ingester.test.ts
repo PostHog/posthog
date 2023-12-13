@@ -1,3 +1,5 @@
+import { captureException, captureMessage } from '@sentry/node'
+import ajv, { AnySchema } from 'ajv'
 import { HighLevelProducer } from 'node-rdkafka'
 
 import { defaultConfig } from '../../../../../src/config/config'
@@ -10,6 +12,20 @@ import { status } from '../../../../../src/utils/status'
 
 jest.mock('../../../../../src/utils/status')
 jest.mock('../../../../../src/kafka/producer')
+jest.mock('@sentry/node', () => ({
+    captureException: jest.fn(),
+    captureMessage: jest.fn(),
+    startTransaction: () => ({ finish: jest.fn() }),
+}))
+jest.mock('ajv', () => {
+    // Mock compile function
+    const mockCompile = jest.fn()
+
+    // Return mock Ajv class
+    return jest.fn().mockImplementation(() => {
+        return { compile: mockCompile }
+    })
+})
 
 const makeIncomingMessage = (
     data: Record<string, unknown>[],
@@ -80,6 +96,9 @@ describe('console log ingester', () => {
                     },
                 ],
             ])
+            // nothing to sentry
+            expect(captureException).not.toHaveBeenCalled()
+            expect(captureMessage).not.toHaveBeenCalled()
         })
 
         test('it handles multiple console logs', async () => {
@@ -193,6 +212,28 @@ describe('console log ingester', () => {
             await consoleLogIngester.consume(makeIncomingMessage([{ plugin: 'some-other-plugin' }], false))
             expect(jest.mocked(status.debug).mock.calls).toEqual([])
             expect(jest.mocked(produce)).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('schema validation', () => {
+        it('validates each console log event', async () => {
+            const schemaValidateMock = new ajv().compile(null as unknown as AnySchema)
+
+            const invalidConsoleLogEvent = makeIncomingMessage(
+                [
+                    {
+                        plugin: 'rrweb/console@1',
+                        payload: { message: 34 },
+                    },
+                ],
+                true
+            )
+            await consoleLogIngester.consume(invalidConsoleLogEvent)
+            expect(jest.mocked(status.debug).mock.calls).toEqual([])
+            // nothing produced?
+            expect(jest.mocked(produce).mock.calls).toEqual([])
+            // validation error to sentry
+            expect(schemaValidateMock).toHaveBeenCalled()
         })
     })
 })
