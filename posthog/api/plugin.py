@@ -351,13 +351,11 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def exports_unsubscribe_configs(self, request: request.Request, **kwargs):
         # return all the plugin_configs for the org that are not global transformation/filter plugins
-        allowed_plugins = Plugin.objects.filter(
-            is_global=True, capabilities__methods__contains=["processEvent"]
-        ) + Plugin.objects.filter(is_global=True, capabilities={})
+        allowed_plugins_q = Q(plugin__capabilities__methods__contains=["processEvent"]) | Q(plugin__capabilities={})
         plugin_configs = PluginConfig.objects.filter(
-            team__organization_id=self.organization_id, plugin__in=allowed_plugins
+            Q(team__organization_id=self.organization_id, plugin_config__enabled=True) & ~allowed_plugins_q
         )
-        return Response({PluginConfigSerializer(plugin_config).data for plugin_config in plugin_configs})
+        return Response(PluginConfigSerializer(plugin_configs, many=True).data)
 
     @action(methods=["GET"], detail=True)
     def check_for_updates(self, request: request.Request, **kwargs):

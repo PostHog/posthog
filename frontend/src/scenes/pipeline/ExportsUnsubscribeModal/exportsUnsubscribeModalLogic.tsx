@@ -1,30 +1,20 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 
-import { BatchExportConfiguration, PluginConfigTypeNew, PluginType } from '~/types'
+import { BatchExportConfiguration, PluginConfigTypeNew } from '~/types'
 
-export const exportsUnsubscribeModalLogic = kea([
+import type { exportsUnsubscribeModalLogicType } from './exportsUnsubscribeModalLogicType'
+
+export const exportsUnsubscribeModalLogic = kea<exportsUnsubscribeModalLogicType>([
     path(['scenes', 'pipeline', 'exportsUnsubscribeModalLogic']),
-    connect({}),
+    connect({ values: [pluginsLogic, ['plugins']] }),
     actions({
         openModal: true,
         closeModal: true,
     }),
     loaders(({ values }) => ({
-        plugins: [
-            {} as Record<number, PluginType>,
-            {
-                loadPlugins: async () => {
-                    const results: PluginType[] = await api.loadPaginatedResults(`api/organizations/@current/plugins`)
-                    const plugins: Record<number, PluginType> = {}
-                    for (const plugin of results) {
-                        plugins[plugin.id] = plugin
-                    }
-                    return plugins
-                },
-            },
-        ],
         pluginConfigs: [
             {} as Record<number, PluginConfigTypeNew>,
             {
@@ -44,15 +34,6 @@ export const exportsUnsubscribeModalLogic = kea([
                         }
                     }
                     return pluginConfigs
-                },
-                disablePlugin: async ({ id }) => {
-                    const { pluginConfigs } = values
-                    // const pluginConfig = pluginConfigs[id]
-                    // capturePluginEvent(`plugin disabled'}`, plugin, pluginConfig)
-                    const response = await api.update(`api/plugin_config/${id}`, {
-                        enabled: false,
-                    })
-                    return { ...pluginConfigs, [id]: response }
                 },
             },
         ],
@@ -81,5 +62,8 @@ export const exportsUnsubscribeModalLogic = kea([
                 closeModal: () => false,
             },
         ],
+    }),
+    afterMount(({ actions }) => {
+        actions.loadPluginConfigs()
     }),
 ])
