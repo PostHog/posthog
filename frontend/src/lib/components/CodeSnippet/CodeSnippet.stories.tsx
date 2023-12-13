@@ -1,6 +1,6 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 
-import { CodeSnippet, CodeSnippetProps } from './CodeSnippet'
+import { CodeSnippet, CodeSnippetProps, Language } from './CodeSnippet'
 
 type Story = StoryObj<typeof CodeSnippet>
 const meta: Meta<typeof CodeSnippet> = {
@@ -18,7 +18,7 @@ const BasicTemplate: StoryFn<typeof CodeSnippet> = (props: CodeSnippetProps) => 
 
 export const Default: Story = BasicTemplate.bind({})
 Default.args = {
-    children: 'Click me',
+    children: 'I am some code',
 }
 
 export const Compact: Story = BasicTemplate.bind({})
@@ -33,4 +33,11 @@ Wrap.args = {
     wrap: true,
     children:
         'This is some really long text.This is some really long text.This is some really long text.This is some really long text.This is some really long text.This is some really long text.This is some really long text.This is some really long text.',
+}
+
+export const JavaScript: Story = BasicTemplate.bind({})
+JavaScript.args = {
+    wrap: true,
+    children: 'const helloWorld = 1 + 3;',
+    language: Language.JavaScript,
 }
