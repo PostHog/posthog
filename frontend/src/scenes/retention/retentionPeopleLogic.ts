@@ -20,7 +20,8 @@ const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 export function wrapRetentionQuery(query: RetentionQuery, selectedInterval: number, offset = 0): PersonsQuery {
     return {
         kind: NodeKind.PersonsQuery,
-        select: ['person'],
+        select: ['person', 'appearances'],
+        orderBy: ['appearances_count DESC', 'actor_id'],
         source: {
             kind: NodeKind.InsightPersonsQuery,
             source: {
@@ -38,16 +39,32 @@ export function wrapRetentionQuery(query: RetentionQuery, selectedInterval: numb
 const hogQLInsightsRetentionFlagEnabled = (): boolean =>
     Boolean(featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION])
 
+function turnAppearancesTo_1s_0s(
+    appearances: number[],
+    totalIntervals: number,
+    selectedInterval: number | null
+): number[] {
+    const newTotalIntervals = totalIntervals - (selectedInterval ?? 0)
+    return Array.from({ length: newTotalIntervals }, (_, intervalNumber) =>
+        appearances.includes(intervalNumber) ? 1 : 0
+    )
+}
+
 async function hogqlRetentionQuery(
     values: retentionPeopleLogicType['values'],
     selectedInterval: number,
     offset: number = 0
 ): Promise<RetentionTablePeoplePayload> {
-    const newAppearanceQuery = wrapRetentionQuery(values.querySource as RetentionQuery, selectedInterval, offset)
+    const retentionQuery = values.querySource as RetentionQuery
+    const newAppearanceQuery = wrapRetentionQuery(retentionQuery, selectedInterval, offset)
     const response = await query(newAppearanceQuery)
     const result: RetentionTableAppearanceType[] = response.results.map((row) => ({
         person: row[0],
-        appearances: row[1],
+        appearances: turnAppearancesTo_1s_0s(
+            row[1],
+            retentionQuery.retentionFilter.total_intervals || 11,
+            selectedInterval
+        ),
     }))
     return {
         result,

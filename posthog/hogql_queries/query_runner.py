@@ -277,12 +277,6 @@ class QueryRunner(ABC):
         # TODO: add support for selecting and filtering by breakdowns
         raise NotImplementedError()
 
-    def to_persons_fields(self) -> List[List[str]]:
-        return []
-
-    def to_persons_post_process(self, result_row: List) -> List:
-        return result_row
-
     def to_hogql(self) -> str:
         with self.timings.measure("to_hogql"):
             return print_ast(

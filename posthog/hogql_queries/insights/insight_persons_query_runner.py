@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import cast, List
+from typing import cast
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -40,12 +40,6 @@ class InsightPersonsQueryRunner(QueryRunner):
 
     def to_persons_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         return self.to_query()
-
-    def to_persons_fields(self) -> List[List[str]]:
-        return self.source_runner.to_persons_fields()
-
-    def to_persons_post_process(self, result_row: List) -> List:
-        return self.source_runner.to_persons_post_process(result_row)
 
     def calculate(self) -> HogQLQueryResponse:
         return execute_hogql_query(

@@ -51,11 +51,6 @@ class PersonsQueryRunner(QueryRunner):
         columns = self.input_columns()
         # we added +1 before for pagination, remove the last element if there's more
         results = response.results[:-1] if has_more else response.results
-        if self.query.source:
-            source_query_runner = get_query_runner(self.query.source, self.team, self.timings)
-            offset = len(columns)
-            results = [row[:offset] + source_query_runner.to_persons_post_process(row[offset:]) for row in results]
-            columns += [chain[-1] for chain in source_query_runner.to_persons_fields()]
 
         return PersonsQueryResponse(
             results=results,
@@ -190,6 +185,12 @@ class PersonsQueryRunner(QueryRunner):
             if self.query.source:
                 source_query_runner = get_query_runner(self.query.source, self.team, self.timings)
                 source_query = source_query_runner.to_persons_query()
+                # Figure out the id column of the source query, first column that has id in the name
+                source_id_column = None
+                for column in source_query.select:
+                    if isinstance(column, ast.Field) and any("id" in part.lower() for part in column.chain):
+                        source_id_column = column.chain[-1]
+                        break
                 source_alias = "source"
                 join_expr = ast.JoinExpr(
                     table=ast.Field(chain=["persons"]),
@@ -201,15 +202,11 @@ class PersonsQueryRunner(QueryRunner):
                             expr=ast.CompareOperation(
                                 op=ast.CompareOperationOp.Eq,
                                 left=ast.Field(chain=["persons", "id"]),
-                                right=ast.Field(chain=[source_alias, "actor_id"]),
+                                right=ast.Field(chain=[source_alias, source_id_column]),
                             )
                         ),
                     ),
                 )
-                columns += [
-                    ast.Field(chain=[source_alias, *chain]) for chain in source_query_runner.to_persons_fields()
-                ]
-                order_by = source_query.order_by + order_by
             else:
                 join_expr = ast.JoinExpr(table=ast.Field(chain=["persons"]))
 
