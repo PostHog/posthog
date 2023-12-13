@@ -3208,6 +3208,15 @@ export type PromptFlag = {
     tooltipCSS?: Partial<CSSStyleDeclaration>
 }
 
+export type CommentType = {
+    id: string | null
+    content: string
+    created_at?: string
+    created_by?: UserBasicType | null
+    source_comment_id: string | null
+    scope: 'Notebook' | 'Dashboard'
+}
+
 export type NotebookListItemType = {
     // id: string
     short_id: string

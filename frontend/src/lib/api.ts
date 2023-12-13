@@ -14,6 +14,7 @@ import {
     BatchExportLogEntry,
     BatchExportRun,
     CohortType,
+    CommentType,
     DashboardCollaboratorType,
     DashboardTemplateEditorType,
     DashboardTemplateListParams,
@@ -282,6 +283,14 @@ class ApiRequest {
 
     public actionsDetail(actionId: ActionType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.actions(teamId).addPathComponent(actionId)
+    }
+
+    // # Comments
+    public comments(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('comments')
+    }
+    public comment(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.comments(teamId).addPathComponent(id)
     }
 
     // # Exports
@@ -847,6 +856,20 @@ const api = {
             return request !== null
                 ? request.withQueryString(toParams(pagingParameters)).get()
                 : Promise.resolve({ results: [], count: 0 })
+        },
+    },
+
+    comments: {
+        async create(
+            data: Partial<CommentType>,
+            params: Record<string, any> = {},
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+        ): Promise<CommentType> {
+            return new ApiRequest().comments(teamId).withQueryString(toParams(params)).create({ data })
+        },
+
+        async get(id: string, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<CommentType> {
+            return new ApiRequest().comment(id, teamId).get()
         },
     },
 

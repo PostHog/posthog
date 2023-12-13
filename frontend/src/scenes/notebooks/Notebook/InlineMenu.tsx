@@ -1,14 +1,17 @@
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { Editor, isTextSelection } from '@tiptap/core'
 import { BubbleMenu } from '@tiptap/react'
-import { IconBold, IconDelete, IconItalic, IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { useActions } from 'kea'
+import { IconBold, IconComment, IconDelete, IconItalic, IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { isURL } from 'lib/utils'
 import { useRef } from 'react'
 
+import { notebookCommentLogic } from './notebookCommentLogic'
 import NotebookIconHeading from './NotebookIconHeading'
 
 export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
     const { href, target } = editor.getAttributes('link')
+    const { setIsShowingComments } = useActions(notebookCommentLogic)
     const menuRef = useRef<HTMLDivElement>(null)
 
     const setLink = (href: string): void => {
@@ -108,6 +111,15 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
                         />
                     </>
                 )}
+                <LemonDivider vertical />
+                <LemonButton
+                    onClick={() => {
+                        setIsShowingComments(true)
+                    }}
+                    icon={<IconComment className="w-4 h-4" />}
+                    status="stealth"
+                    size="small"
+                />
             </div>
         </BubbleMenu>
     )
