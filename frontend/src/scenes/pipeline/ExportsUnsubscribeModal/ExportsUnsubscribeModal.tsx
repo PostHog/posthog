@@ -4,8 +4,8 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 
-import { exportsUnsubscribeModalLogic } from './exportsUnsubscibeModalLogic'
-import { RenderApp } from './utils'
+import { RenderApp } from '../utils'
+import { exportsUnsubscribeModalLogic } from './exportsUnsubscribeModalLogic'
 
 export function ExportsUnsubscribeModal(): JSX.Element {
     const { modalOpen, unsubscribeDisabled, loading, pluginConfigs, plugins } = useValues(exportsUnsubscribeModalLogic)
@@ -16,13 +16,8 @@ export function ExportsUnsubscribeModal(): JSX.Element {
             onClose={closeModal}
             isOpen={modalOpen}
             width={600}
-            title="Unsubscribe from exports"
-            description={
-                <p>
-                    To make sure there's no unexpected impact on your data, you'll need to explicitly disable all of the
-                    following apps before unsubscribing:
-                </p>
-            }
+            title="Disable remaining export apps"
+            description="To make sure there's no unexpected impact on your data, you need to explicitly disable the following apps before unsubscribing:"
             footer={
                 <>
                     <LemonButton type="secondary" onClick={closeModal}>
@@ -40,7 +35,7 @@ export function ExportsUnsubscribeModal(): JSX.Element {
             }
         >
             <LemonTable
-                dataSource={pluginConfigs}
+                dataSource={Object.values(pluginConfigs)}
                 size="xs"
                 loading={loading}
                 columns={[
