@@ -4,7 +4,7 @@ import api, { PaginatedResponse } from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, ExternalDataStripeSource } from '~/types'
+import { Breadcrumb, ExternalDataSourceSchema, ExternalDataStripeSource } from '~/types'
 
 import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
 
@@ -18,6 +18,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         deleteSource: (source: ExternalDataStripeSource) => ({ source }),
         reloadSource: (source: ExternalDataStripeSource) => ({ source }),
         loadingFinished: (source: ExternalDataStripeSource) => ({ source }),
+        updateSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
     }),
     loaders({
         dataWarehouseSources: [
@@ -48,6 +49,12 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             },
         ],
     }),
+    actions(({ actions }) => ({
+        updateSchema: async (schema: ExternalDataSourceSchema) => {
+            await api.externalDataSchemas.update(schema.id, schema)
+            actions.loadSources()
+        },
+    })),
     selectors({
         breadcrumbs: [
             () => [],

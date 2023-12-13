@@ -198,6 +198,8 @@ interface SchemaTableProps {
 }
 
 const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
+    const { updateSchema } = useActions(dataWarehouseSettingsLogic)
+
     return (
         <LemonTable
             dataSource={schemas}
@@ -213,7 +215,14 @@ const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
                     title: 'Enabled',
                     key: 'should_sync',
                     render: function RenderShouldSync(_, schema) {
-                        return <LemonSwitch checked={schema.should_sync} />
+                        return (
+                            <LemonSwitch
+                                checked={schema.should_sync}
+                                onChange={(active) => {
+                                    updateSchema({ ...schema, should_sync: active })
+                                }}
+                            />
+                        )
                     },
                 },
                 {

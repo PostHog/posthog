@@ -1,6 +1,12 @@
 from rest_framework import serializers
 from posthog.warehouse.models import ExternalDataSchema
 from typing import Optional
+from posthog.api.routing import StructuredViewSetMixin
+from rest_framework import viewsets, filters
+from rest_framework.permissions import IsAuthenticated
+from posthog.permissions import OrganizationMemberPermissions
+from rest_framework.exceptions import NotAuthenticated
+from posthog.models import User
 
 
 class ExternalDataSchemaSerializer(serializers.ModelSerializer):
@@ -15,3 +21,21 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         from posthog.warehouse.api.table import SimpleTableSerializer
 
         return SimpleTableSerializer(schema.table).data or None
+
+
+class ExternalDataSchemaViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
+    queryset = ExternalDataSchema.objects.all()
+    serializer_class = ExternalDataSchemaSerializer
+    permission_classes = [IsAuthenticated, OrganizationMemberPermissions]
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["name"]
+    ordering = "-created_at"
+
+    def get_queryset(self):
+        if not isinstance(self.request.user, User) or self.request.user.current_team is None:
+            raise NotAuthenticated()
+
+        if self.action == "list":
+            return self.queryset.filter(team_id=self.team_id).prefetch_related("created_by").order_by(self.ordering)
+
+        return self.queryset.filter(team_id=self.team_id).prefetch_related("created_by").order_by(self.ordering)
