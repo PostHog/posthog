@@ -1,6 +1,5 @@
 from datetime import timedelta
-from typing import List, cast, Literal, Dict, Any
-from django.db.models.query import Prefetch
+from typing import List, cast, Literal, Union
 
 from posthog.hogql import ast
 from posthog.hogql.constants import get_max_limit_for_context, get_default_limit_for_context
@@ -8,8 +7,8 @@ from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import property_to_expr, has_aggregation
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
+from posthog.queries.actor_base_query import SerializedGroup, SerializedPerson, get_groups, get_people
 from posthog.schema import PersonsQuery, PersonsQueryResponse
-from posthog.models.person import Person
 
 
 class PersonsQueryRunner(QueryRunner):
@@ -19,6 +18,39 @@ class PersonsQueryRunner(QueryRunner):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.paginator = HogQLHasMorePaginator(limit=self.query_limit(), offset=self.query.offset or 0)
+
+    def get_actors_from_result(self, result):
+        serialized_actors: Union[List[SerializedGroup], List[SerializedPerson]]
+
+        actor_ids = [row[0] for row in result]
+        value_per_actor_id = None
+
+        # TODO: Make sure group stuff is correct
+        if self.query.source.source.aggregation_group_type_index is not None:
+            _, serialized_actors = get_groups(
+                self.team.pk,
+                self.query.source.source.aggregation_group_type_index,
+                actor_ids,
+                value_per_actor_id,
+            )
+        else:
+            _, serialized_actors = get_people(self.team, actor_ids, value_per_actor_id)
+
+        return serialized_actors
+
+    def enrich_with_actors(self, actor_column_index):
+        serialized_actors = self.get_actors_from_result(self.paginator.results)
+        actors_lookup = {str(actor["id"]): actor for actor in serialized_actors}
+
+        enriched_results = []
+        for result in self.paginator.results:
+            new_row = list(result)
+            actor_id = str(result[actor_column_index])
+            actor = actors_lookup.get(actor_id)
+            new_row[actor_column_index] = actor if actor else {"id": actor_id}
+            enriched_results.append(new_row)
+        missing_actors_count = len(self.paginator.results) - len(actors_lookup)
+        return enriched_results, missing_actors_count
 
     def calculate(self) -> PersonsQueryResponse:
         response = self.paginator.execute_hogql_query(
@@ -33,30 +65,7 @@ class PersonsQueryRunner(QueryRunner):
         results = self.paginator.results
 
         if "person" in input_columns:
-            person_column_index = input_columns.index("person")
-            person_ids = [str(result[person_column_index]) for result in self.paginator.results]
-            pg_persons = {
-                str(p.uuid): p
-                for p in Person.objects.filter(team_id=self.team.pk, persondistinctid__team_id=self.team.pk)
-                .filter(uuid__in=person_ids)
-                .prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
-            }
-
-            results = []
-            for result in self.paginator.results:
-                new_row = list(result)
-                person_id = str(result[person_column_index])
-                person_result: Dict[str, Any] = {"id": person_id}
-                person = pg_persons.get(person_id)
-                if person:
-                    person_result["distinct_ids"] = person.distinct_ids
-                    person_result["properties"] = person.properties
-                    person_result["created_at"] = person.created_at
-                    person_result["is_identified"] = person.is_identified
-                new_row[person_column_index] = person_result
-                results.append(new_row)
-
-            missing_actors_count = len(person_ids) - len(pg_persons)
+            results, missing_actors_count = self.enrich_with_actors(input_columns.index("person"))
 
         return PersonsQueryResponse(
             results=results,
@@ -115,6 +124,12 @@ class PersonsQueryRunner(QueryRunner):
         return min(max_rows, default_rows if self.query.limit is None else self.query.limit)
 
     def to_query(self) -> ast.SelectQuery:
+        # TODO: Make sure this group stuff is correct
+        if self.query.source.source.aggregation_group_type_index is not None:
+            # Take shortcut and deliver the source query as is
+            source_query_runner = get_query_runner(self.query.source, self.team, self.timings)
+            return source_query_runner.to_persons_query()
+
         with self.timings.measure("columns"):
             columns = []
             group_by = []
