@@ -1,8 +1,8 @@
 import './AggregationColumn.scss'
 
+import { IconChevronDown } from '@posthog/icons'
 import { LemonMenu, LemonMenuItem } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconArrowDropDown } from 'lib/lemon-ui/icons'
 import { average, median } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -55,7 +55,7 @@ export function AggregationColumnTitle({
                 }}
             >
                 {CALC_COLUMN_LABELS[aggregation]}
-                <IconArrowDropDown className="text-lg" />
+                <IconChevronDown className="text-lg" />
             </span>
         </LemonMenu>
     )
