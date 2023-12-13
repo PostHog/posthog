@@ -31,7 +31,7 @@ def format_value(value):
         raise ValueError(f"Unknown value type {type(value)}")
 
 
-CHANNEL_DEFINITIONS_DATA_SQL = f"""
+CHANNEL_DEFINITION_DATA_SQL = f"""
 INSERT INTO channel_definition (domain, kind, domain_type, type_if_paid, type_if_organic) VALUES
 {
 ''',

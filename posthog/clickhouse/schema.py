@@ -11,7 +11,7 @@ from posthog.clickhouse.plugin_log_entries import *
 from posthog.models.app_metrics.sql import *
 from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_TABLE_SQL,
-    CHANNEL_DEFINITIONS_DATA_SQL,
+    CHANNEL_DEFINITION_DATA_SQL,
     CHANNEL_DEFINITION_DICTIONARY_SQL,
 )
 from posthog.models.cohort.sql import *
@@ -117,7 +117,7 @@ CREATE_TABLE_QUERIES = (
 
 CREATE_DICTIONARY_QUERIES = (PERSON_OVERRIDES_CREATE_DICTIONARY_SQL, CHANNEL_DEFINITION_DICTIONARY_SQL)
 
-CREATE_DATA_QUERIES = (CHANNEL_DEFINITIONS_DATA_SQL,)
+CREATE_DATA_QUERIES = (CHANNEL_DEFINITION_DATA_SQL,)
 
 build_query = lambda query: query if isinstance(query, str) else query()
 get_table_name = lambda query: re.findall(r"[\.\s]`?([a-z0-9_]+)`?\s+ON CLUSTER", build_query(query))[0]

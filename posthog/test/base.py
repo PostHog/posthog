@@ -39,7 +39,7 @@ from posthog.models.channel_type.sql import (
     DROP_CHANNEL_DEFINITION_TABLE_SQL,
     DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
     CHANNEL_DEFINITION_DICTIONARY_SQL,
-    CHANNEL_DEFINITIONS_DATA_SQL,
+    CHANNEL_DEFINITION_DATA_SQL,
 )
 from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import (
@@ -869,7 +869,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-                CHANNEL_DEFINITIONS_DATA_SQL,
+                CHANNEL_DEFINITION_DATA_SQL,
             ]
         )
 
@@ -903,7 +903,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-                CHANNEL_DEFINITIONS_DATA_SQL,
+                CHANNEL_DEFINITION_DATA_SQL,
             ]
         )
 
