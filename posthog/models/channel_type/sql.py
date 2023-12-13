@@ -1,18 +1,28 @@
 import json
 import os
 
+from posthog.clickhouse.table_engines import (
+    MergeTreeEngine,
+    ReplicationScheme,
+)
 from posthog.settings import CLICKHOUSE_CLUSTER
 
-CHANNEL_DEFINITION_TABLE_SQL = f"""
-CREATE TABLE IF NOT EXISTS channel_definition ON CLUSTER {CLICKHOUSE_CLUSTER} (
+CHANNEL_DEFINITION_TABLE_SQL = (
+    lambda: """
+CREATE TABLE IF NOT EXISTS channel_definition ON CLUSTER '{cluster}' (
     domain String NOT NULL,
     kind String NOT NULL,
     domain_type String NULL,
     type_if_paid String NULL,
-    type_if_organic String NULL,
-) ENGINE = MergeTree()
-ORDER BY domain, kind;
-"""
+    type_if_organic String NULL
+) ENGINE = {engine}
+ORDER BY (domain, kind);
+""".format(
+        engine=MergeTreeEngine("channel_definition", replication_scheme=ReplicationScheme.REPLICATED),
+        cluster=CLICKHOUSE_CLUSTER,
+    )
+)
+
 
 DROP_CHANNEL_DEFINITION_TABLE_SQL = f"DROP TABLE IF EXISTS channel_definition ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 
