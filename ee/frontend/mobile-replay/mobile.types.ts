@@ -224,9 +224,9 @@ export type wireframeText = wireframeBase & {
 export type wireframeImage = wireframeBase & {
     type: 'image'
     /**
-     * @description this will be used as base64 encoded image source, with no other attributes it is assumed to be a PNG
+     * @description this will be used as base64 encoded image source, with no other attributes it is assumed to be a PNG, if omitted a placeholder is rendered
      */
-    base64: string
+    base64?: string
 }
 
 export type wireframeRectangle = wireframeBase & {
