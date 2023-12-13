@@ -2,6 +2,7 @@ import './PlanComparison.scss'
 
 import { LemonButton, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconCheckmark, IconClose, IconWarning } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -108,6 +109,7 @@ export const PlanComparison = ({
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
     const { redirectPath, billing } = useValues(billingLogic)
     const { width, ref: planComparisonRef } = useResizeObserver()
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     const upgradeButtons = plans?.map((plan) => {
         return (
@@ -115,6 +117,7 @@ export const PlanComparison = ({
                 <LemonButton
                     to={getUpgradeProductLink(product, plan.plan_key || '', redirectPath, includeAddons)}
                     type={plan.current_plan ? 'secondary' : 'primary'}
+                    status={is3000 ? 'primary-alt' : 'primary'}
                     fullWidth
                     center
                     disableClientSideRouting
