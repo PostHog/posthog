@@ -33,6 +33,7 @@ from .event_property import EventProperty
 from .experiment import Experiment
 from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
+from .scheduled_change import ScheduledChange
 from .feedback.survey import Survey
 from .filters import Filter, RetentionFilter
 from .group import Group
@@ -140,4 +141,5 @@ __all__ = [
     "UserManager",
     "UserPromptState",
     "DataWarehouseTable",
+    "ScheduledChange",
 ]
