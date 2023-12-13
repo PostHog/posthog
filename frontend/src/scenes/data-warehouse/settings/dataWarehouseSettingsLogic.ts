@@ -8,7 +8,7 @@ import { Breadcrumb, ExternalDataSourceSchema, ExternalDataStripeSource } from '
 
 import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
 
-const REFRESH_INTERVAL = 5000
+const REFRESH_INTERVAL = 10000
 
 export interface DataWarehouseSource {}
 
