@@ -19,6 +19,13 @@ class PersonsQueryRunner(QueryRunner):
         super().__init__(*args, **kwargs)
         self.paginator = HogQLHasMorePaginator(limit=self.query_limit(), offset=self.query.offset or 0)
 
+    @property
+    def aggregation_group_type_index(self):
+        try:
+            return self.query.source.source.aggregation_group_type_index
+        except AttributeError:
+            return None
+
     def get_actors_from_result(self, result):
         serialized_actors: Union[List[SerializedGroup], List[SerializedPerson]]
 
@@ -26,10 +33,10 @@ class PersonsQueryRunner(QueryRunner):
         value_per_actor_id = None
 
         # TODO: Make sure group stuff is correct
-        if self.query.source.source.aggregation_group_type_index is not None:
+        if self.aggregation_group_type_index is not None:
             _, serialized_actors = get_groups(
                 self.team.pk,
-                self.query.source.source.aggregation_group_type_index,
+                self.aggregation_group_type_index,
                 actor_ids,
                 value_per_actor_id,
             )
@@ -125,7 +132,7 @@ class PersonsQueryRunner(QueryRunner):
 
     def to_query(self) -> ast.SelectQuery:
         # TODO: Make sure this group stuff is correct
-        if self.query.source.source.aggregation_group_type_index is not None:
+        if self.aggregation_group_type_index is not None:
             # Take shortcut and deliver the source query as is
             source_query_runner = get_query_runner(self.query.source, self.team, self.timings)
             return source_query_runner.to_persons_query()
@@ -201,10 +208,10 @@ class PersonsQueryRunner(QueryRunner):
                 source_query_runner = get_query_runner(self.query.source, self.team, self.timings)
                 source_query = source_query_runner.to_persons_query()
                 # Figure out the id column of the source query, first column that has id in the name
-                source_id_column = None
+                source_id_chain = None
                 for column in source_query.select:
                     if isinstance(column, ast.Field) and any("id" in part.lower() for part in column.chain):
-                        source_id_column = column.chain[-1]
+                        source_id_chain = column.chain
                         break
                 source_alias = "source"
                 join_expr = ast.JoinExpr(
@@ -217,7 +224,7 @@ class PersonsQueryRunner(QueryRunner):
                             expr=ast.CompareOperation(
                                 op=ast.CompareOperationOp.Eq,
                                 left=ast.Field(chain=["persons", "id"]),
-                                right=ast.Field(chain=[source_alias, source_id_column]),
+                                right=ast.Field(chain=[source_alias, *source_id_chain]),
                             )
                         ),
                     ),
