@@ -195,7 +195,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 run_external_data_job,
                 job_inputs,
                 start_to_close_timeout=dt.timedelta(minutes=90),
-                retry_policy=RetryPolicy(maximum_attempts=10),
+                retry_policy=RetryPolicy(maximum_attempts=5),
             )
 
             # check schema first
