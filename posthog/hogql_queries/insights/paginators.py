@@ -5,7 +5,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.schema import HogQLQueryResponse
 
 
-class HogQlHasMorePaginator:
+class HogQLHasMorePaginator:
     """
     Paginator that fetches one more result than requested to determine if there are more results.
     Takes care of setting the limit and offset on the query.
@@ -54,7 +54,7 @@ class HogQlHasMorePaginator:
         self.results = self.trim_results()
         return self.response
 
-    def response_kwargs(self):
+    def response_params(self):
         return {
             "hasMore": self.has_more(),
             "limit": self.limit,

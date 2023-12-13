@@ -6,7 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import get_max_limit_for_context, get_default_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import property_to_expr, has_aggregation
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
 from posthog.schema import PersonsQuery, PersonsQueryResponse
 from posthog.models.person import Person
@@ -16,8 +16,12 @@ class PersonsQueryRunner(QueryRunner):
     query: PersonsQuery
     query_type = PersonsQuery
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.paginator = HogQLHasMorePaginator(limit=self.query_limit(), offset=self.query.offset or 0)
+
     def calculate(self) -> PersonsQueryResponse:
-        response = execute_hogql_query(
+        response = self.paginator.execute_hogql_query(
             query_type="PersonsQuery",
             query=self.to_query(),
             team=self.team,
@@ -26,10 +30,11 @@ class PersonsQueryRunner(QueryRunner):
         )
         input_columns = self.input_columns()
         missing_actors_count = None
+        results = self.paginator.results
 
         if "person" in input_columns:
             person_column_index = input_columns.index("person")
-            person_ids = [str(result[person_column_index]) for result in response.results]
+            person_ids = [str(result[person_column_index]) for result in self.paginator.results]
             pg_persons = {
                 str(p.uuid): p
                 for p in Person.objects.filter(team_id=self.team.pk, persondistinctid__team_id=self.team.pk)
@@ -37,35 +42,30 @@ class PersonsQueryRunner(QueryRunner):
                 .prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
             }
 
-            for index, result in enumerate(response.results):
-                response.results[index] = list(result)
+            results = []
+            for result in self.paginator.results:
+                new_row = list(result)
                 person_id = str(result[person_column_index])
-                new_result: Dict[str, Any] = {"id": person_id}
+                person_result: Dict[str, Any] = {"id": person_id}
                 person = pg_persons.get(person_id)
                 if person:
-                    new_result["distinct_ids"] = person.distinct_ids
-                    new_result["properties"] = person.properties
-                    new_result["created_at"] = person.created_at
-                    new_result["is_identified"] = person.is_identified
-                response.results[index][person_column_index] = new_result
+                    person_result["distinct_ids"] = person.distinct_ids
+                    person_result["properties"] = person.properties
+                    person_result["created_at"] = person.created_at
+                    person_result["is_identified"] = person.is_identified
+                new_row[person_column_index] = person_result
+                results.append(new_row)
 
             missing_actors_count = len(person_ids) - len(pg_persons)
-
-        has_more = len(response.results) > self.query_limit()
-        columns = self.input_columns()
-        # we added +1 before for pagination, remove the last element if there's more
-        results = response.results[:-1] if has_more else response.results
 
         return PersonsQueryResponse(
             results=results,
             timings=response.timings,
             types=[type for _, type in response.types],
-            columns=columns,
+            columns=input_columns,
             hogql=response.hogql,
-            hasMore=has_more,
             missing_actors_count=missing_actors_count,
-            limit=self.query_limit(),
-            offset=self.query.offset or 0,
+            **self.paginator.response_params(),
         )
 
     def filter_conditions(self) -> List[ast.Expr]:
@@ -181,11 +181,6 @@ class PersonsQueryRunner(QueryRunner):
             else:
                 order_by = []
 
-        with self.timings.measure("limit"):
-            # adding +1 to the limit to check if there's a "next page" after the requested results
-            limit = self.query_limit() + 1
-            offset = 0 if self.query.offset is None else self.query.offset
-
         with self.timings.measure("select"):
             if self.query.source:
                 source_query_runner = get_query_runner(self.query.source, self.team, self.timings)
@@ -222,8 +217,6 @@ class PersonsQueryRunner(QueryRunner):
                 having=having,
                 group_by=group_by if has_any_aggregation else None,
                 order_by=order_by,
-                limit=ast.Constant(value=limit),
-                offset=ast.Constant(value=offset),
             )
 
         return stmt
