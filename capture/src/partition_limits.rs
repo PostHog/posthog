@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 use governor::{clock, state::keyed::DefaultKeyedStateStore, Quota, RateLimiter};
 use metrics::gauge;
+use rand::Rng;
 
 // See: https://docs.rs/governor/latest/governor/_guide/index.html#usage-in-multiple-threads
 #[derive(Clone)]
@@ -47,6 +48,23 @@ impl PartitionLimiter {
         loop {
             interval.tick().await;
             gauge!("partition_limits_key_count", self.limiter.len() as f64);
+        }
+    }
+
+    /// Clean up the rate limiter state, once per minute. Ensure we don't use more memory than
+    /// necessary.
+    pub async fn clean_state(&self) {
+        // Give a small amount of randomness to the interval to ensure we don't have all replicas
+        // locking at the same time. The lock isn't going to be held for long, but this will reduce
+        // impact regardless.
+        let interval_secs = rand::thread_rng().gen_range(60..70);
+
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(interval_secs));
+        loop {
+            interval.tick().await;
+
+            self.limiter.retain_recent();
+            self.limiter.shrink_to_fit();
         }
     }
 }

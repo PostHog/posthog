@@ -55,6 +55,17 @@ where
                 partition.report_metrics().await;
             });
         }
+
+        {
+            // Ensure that the rate limiter state does not grow unbounded
+
+            let partition = partition.clone();
+
+            tokio::spawn(async move {
+                partition.clean_state().await;
+            });
+        }
+
         let sink = sink::KafkaSink::new(config.kafka, sink_liveness, partition)
             .expect("failed to start Kafka sink");
 
