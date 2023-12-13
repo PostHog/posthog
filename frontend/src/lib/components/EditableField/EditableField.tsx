@@ -81,8 +81,10 @@ export function EditableField({
 
     useEffect(() => {
         // We always want to focus when switching to edit mode, but can't use autoFocus, because we don't want this to
-        // happen when the component is _initially_ rendered in edit mode.
-        if (inputRef.current && previousIsEditing.current === false && localIsEditing === true) {
+        // happen when the component is _initially_ rendered in edit mode. The `previousIsEditing.current === false`
+        // check is important for this, because only `false` means that the component was previously rendered in view
+        // mode. `undefined` means that the component was never rendered before.
+        if (inputRef.current && previousIsEditing.current === false && localIsEditing) {
             const endOfInput = inputRef.current.value.length
             inputRef.current.setSelectionRange(endOfInput, endOfInput)
             inputRef.current.focus()
