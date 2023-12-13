@@ -10,7 +10,7 @@ export interface SiteLogicProps {
 }
 
 export const siteLogic = kea<siteLogicType>([
-    path(['scenes', 'sites', 'siteLogic']),
+    path(['scenes', 'site', 'siteLogic']),
     props({} as SiteLogicProps),
     selectors({
         breadcrumbs: [
