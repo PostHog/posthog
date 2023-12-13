@@ -2428,6 +2428,23 @@ export interface UserBlastRadiusType {
     total_users: number
 }
 
+export enum ScheduledChangeModels {
+    FeatureFlag = 'FeatureFlag',
+}
+
+export interface ScheduledChangeType {
+    id: number
+    team_id: number
+    record_id: number | string
+    model_name: ScheduledChangeModels
+    payload: Record<string, any>
+    scheduled_at: string
+    executed_at: string | null
+    failure_reason: string | null
+    created_at: string | null
+    created_by: UserBasicType
+}
+
 export interface PrevalidatedInvite {
     id: string
     target_email: string
