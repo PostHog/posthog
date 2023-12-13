@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS channel_definition ON CLUSTER {CLICKHOUSE_CLUSTER} (
     type_if_paid String NULL,
     type_if_organic String NULL,
 ) ENGINE = MergeTree()
-ORDER BY domain;
+ORDER BY domain, kind;
 """
 
 DROP_CHANNEL_DEFINITION_TABLE_SQL = f"DROP TABLE IF EXISTS channel_definition ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
