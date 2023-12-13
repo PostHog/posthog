@@ -49,12 +49,6 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             },
         ],
     }),
-    actions(({ actions }) => ({
-        updateSchema: async (schema: ExternalDataSourceSchema) => {
-            await api.externalDataSchemas.update(schema.id, schema)
-            actions.loadSources()
-        },
-    })),
     selectors({
         breadcrumbs: [
             () => [],
@@ -89,6 +83,10 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             await api.externalDataSources.reload(source.id)
             actions.loadSources()
             actions.loadingFinished(source)
+        },
+        updateSchema: async ({ schema }) => {
+            await api.externalDataSchemas.update(schema.id, schema)
+            actions.loadSources()
         },
     })),
     afterMount(({ actions }) => {

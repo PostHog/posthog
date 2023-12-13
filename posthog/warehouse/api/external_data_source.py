@@ -59,7 +59,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
 
         return latest_completed_run.created_at if latest_completed_run else None
 
-    def get_schemas(self, instance: ExternalDataSource) -> list[ExternalDataSchema]:
+    def get_schemas(self, instance: ExternalDataSource):
         schemas = instance.schemas.order_by("name").all()
         return ExternalDataSchemaSerializer(schemas, many=True, read_only=True).data
 
