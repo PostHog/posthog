@@ -871,6 +871,15 @@ const api = {
         async get(id: string, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<CommentType> {
             return new ApiRequest().comment(id, teamId).get()
         },
+
+        async list(
+            params: {
+                scope?: CommentType['scope']
+                item_id?: CommentType['item_id']
+            } = {}
+        ): Promise<CountedPaginatedResponse<CommentType>> {
+            return new ApiRequest().comments().withQueryString(params).get()
+        },
     },
 
     exports: {

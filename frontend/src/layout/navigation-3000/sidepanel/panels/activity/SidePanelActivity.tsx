@@ -11,6 +11,7 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/activity/notificationsLogic'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
+import { SidePanelComments } from './SidePanelComments'
 
 const SCROLL_TRIGGER_OFFSET = 100
 
@@ -56,9 +57,9 @@ export const SidePanelActivity = (): JSX.Element => {
     }
 
     return (
-        <div className="flex flex-col overflow-hidden">
+        <div className="flex flex-col overflow-hidden flex-1">
             <SidePanelPaneHeader title="Activity" />
-            <div className="flex flex-col overflow-hidden">
+            <div className="flex flex-col overflow-hidden flex-1">
                 <div className="shrink-0 mx-2">
                     <LemonTabs
                         activeKey={activeTab as SidePanelActivityTab}
@@ -71,6 +72,10 @@ export const SidePanelActivity = (): JSX.Element => {
                             {
                                 key: SidePanelActivityTab.All,
                                 label: 'All activity',
+                            },
+                            {
+                                key: SidePanelActivityTab.Comments,
+                                label: 'Comments',
                             },
                         ]}
                     />
@@ -109,7 +114,7 @@ export const SidePanelActivity = (): JSX.Element => {
                                 <p>You're all caught up!</p>
                             )}
                         </div>
-                    ) : (
+                    ) : activeTab === SidePanelActivityTab.All ? (
                         <div className="flex-1 overflow-y-auto space-y-px" ref={contentRef} onScroll={handleScroll}>
                             {allActivityResponseLoading && !allActivity.length ? (
                                 <LemonSkeleton className="my-2 h-12" repeat={10} fade />
@@ -142,7 +147,9 @@ export const SidePanelActivity = (): JSX.Element => {
                                 <p>You're all caught up!</p>
                             )}
                         </div>
-                    )}
+                    ) : activeTab === SidePanelActivityTab.Comments ? (
+                        <SidePanelComments />
+                    ) : null}
                 </div>
             </div>
         </div>

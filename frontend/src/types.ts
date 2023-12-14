@@ -3215,6 +3215,7 @@ export type CommentType = {
     created_by?: UserBasicType | null
     source_comment_id: string | null
     scope: 'Notebook' | 'Dashboard'
+    item_id?: string
 }
 
 export type NotebookListItemType = {
