@@ -7,9 +7,12 @@ from posthog.clickhouse.table_engines import (
 )
 from posthog.settings import CLICKHOUSE_CLUSTER
 
+CHANNEL_DEFINITION_TABLE_NAME = "channel_definition"
+CHANNEL_DEFINITION_DICTIONARY_NAME = "channel_definition_dict"
+
 CHANNEL_DEFINITION_TABLE_SQL = (
     lambda: """
-CREATE TABLE IF NOT EXISTS channel_definition ON CLUSTER '{cluster}' (
+CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}' (
     domain String NOT NULL,
     kind String NOT NULL,
     domain_type String NULL,
@@ -18,15 +21,21 @@ CREATE TABLE IF NOT EXISTS channel_definition ON CLUSTER '{cluster}' (
 ) ENGINE = {engine}
 ORDER BY (domain, kind);
 """.format(
+        table_name=CHANNEL_DEFINITION_TABLE_NAME,
         engine=MergeTreeEngine("channel_definition", replication_scheme=ReplicationScheme.REPLICATED),
         cluster=CLICKHOUSE_CLUSTER,
     )
 )
 
 
-DROP_CHANNEL_DEFINITION_TABLE_SQL = f"DROP TABLE IF EXISTS channel_definition ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+DROP_CHANNEL_DEFINITION_TABLE_SQL = (
+    f"DROP TABLE IF EXISTS {CHANNEL_DEFINITION_TABLE_NAME} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+)
 
-TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS channel_definition ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+
+TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL = (
+    f"TRUNCATE TABLE IF EXISTS {CHANNEL_DEFINITION_TABLE_NAME} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+)
 
 with open(os.path.join(os.path.dirname(__file__), "channel_definitions.json"), "r") as f:
     CHANNEL_DEFINITIONS = json.loads(f.read())
@@ -50,8 +59,8 @@ INSERT INTO channel_definition (domain, kind, domain_type, type_if_paid, type_if
 """
 
 # Use COMPLEX_KEY_HASHED, as we have a composite key
-CHANNEL_DEFINITION_DICTIONARY_SQL = """
-CREATE DICTIONARY IF NOT EXISTS channel_definition_dict (
+CHANNEL_DEFINITION_DICTIONARY_SQL = f"""
+CREATE DICTIONARY IF NOT EXISTS {CHANNEL_DEFINITION_DICTIONARY_NAME} ON CLUSTER '{CLICKHOUSE_CLUSTER}' (
     domain String,
     kind String,
     domain_type Nullable(String),
@@ -59,11 +68,11 @@ CREATE DICTIONARY IF NOT EXISTS channel_definition_dict (
     type_if_organic Nullable(String)
 )
 PRIMARY KEY domain, kind
-SOURCE(CLICKHOUSE(TABLE 'channel_definition'))
+SOURCE(CLICKHOUSE(TABLE '{CHANNEL_DEFINITION_TABLE_NAME}'))
 LIFETIME(MIN 3000 MAX 3600)
 LAYOUT(COMPLEX_KEY_HASHED())
 """
 
 DROP_CHANNEL_DEFINITION_DICTIONARY_SQL = (
-    f"DROP DICTIONARY IF EXISTS channel_definition_dict ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+    f"DROP DICTIONARY IF EXISTS {CHANNEL_DEFINITION_DICTIONARY_NAME} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 )
