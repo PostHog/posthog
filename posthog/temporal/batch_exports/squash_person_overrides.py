@@ -411,35 +411,6 @@ class PostgresPersonOverridesManager:
     def __init__(self, connection):
         self.connection = connection
 
-    SELECT_ID_FROM_OVERRIDE_UUID = """
-        SELECT
-            id
-        FROM
-            posthog_personoverridemapping
-        WHERE
-            team_id = %(team_id)s
-            AND uuid = %(uuid)s;
-    """
-
-    DELETE_FROM_PERSON_OVERRIDES = """
-        DELETE FROM
-            posthog_personoverride
-        WHERE
-            team_id = %(team_id)s
-            AND old_person_id = %(old_person_id)s
-            AND override_person_id = %(override_person_id)s
-            AND version = %(latest_version)s
-        RETURNING
-            old_person_id;
-    """
-
-    DELETE_FROM_PERSON_OVERRIDE_MAPPINGS = """
-        DELETE FROM
-            posthog_personoverridemapping
-        WHERE
-            id = %(id)s;
-    """
-
     def fetchall(self, team_id: int):
         with self.connection.cursor() as cursor:
             cursor.execute(
@@ -508,8 +479,18 @@ class PostgresPersonOverridesManager:
 
     def delete(self, person_override: SerializablePersonOverrideToDelete, dry_run: bool = False) -> None:
         with self.connection.cursor() as cursor:
+            SELECT_ID_FROM_OVERRIDE_UUID = """
+                SELECT
+                    id
+                FROM
+                    posthog_personoverridemapping
+                WHERE
+                    team_id = %(team_id)s
+                    AND uuid = %(uuid)s;
+            """
+
             cursor.execute(
-                self.SELECT_ID_FROM_OVERRIDE_UUID,
+                SELECT_ID_FROM_OVERRIDE_UUID,
                 {
                     "team_id": person_override.team_id,
                     "uuid": person_override.old_person_id,
@@ -522,7 +503,7 @@ class PostgresPersonOverridesManager:
             old_person_id = row[0]
 
             cursor.execute(
-                self.SELECT_ID_FROM_OVERRIDE_UUID,
+                SELECT_ID_FROM_OVERRIDE_UUID,
                 {
                     "team_id": person_override.team_id,
                     "uuid": person_override.override_person_id,
@@ -533,6 +514,18 @@ class PostgresPersonOverridesManager:
                 return
 
             override_person_id = row[0]
+
+            DELETE_FROM_PERSON_OVERRIDES = """
+                DELETE FROM
+                    posthog_personoverride
+                WHERE
+                    team_id = %(team_id)s
+                    AND old_person_id = %(old_person_id)s
+                    AND override_person_id = %(override_person_id)s
+                    AND version = %(latest_version)s
+                RETURNING
+                    old_person_id;
+            """
 
             parameters = {
                 "team_id": person_override.team_id,
@@ -545,12 +538,12 @@ class PostgresPersonOverridesManager:
                 activity.logger.info("This is a DRY RUN so nothing will be deleted.")
                 activity.logger.info(
                     "Would have run query: %s with parameters %s",
-                    self.DELETE_FROM_PERSON_OVERRIDES,
+                    DELETE_FROM_PERSON_OVERRIDES,
                     parameters,
                 )
                 return
 
-            cursor.execute(self.DELETE_FROM_PERSON_OVERRIDES, parameters)
+            cursor.execute(DELETE_FROM_PERSON_OVERRIDES, parameters)
             row = cursor.fetchone()
             if not row:
                 # There is no existing mapping for this (old_person_id, override_person_id) pair.
@@ -559,10 +552,17 @@ class PostgresPersonOverridesManager:
 
             deleted_id = row[0]
 
+            DELETE_FROM_PERSON_OVERRIDE_MAPPINGS = """
+                DELETE FROM
+                    posthog_personoverridemapping
+                WHERE
+                    id = %(deleted_id)s;
+            """
+
             cursor.execute(
-                self.DELETE_FROM_PERSON_OVERRIDE_MAPPINGS,
+                DELETE_FROM_PERSON_OVERRIDE_MAPPINGS,
                 {
-                    "id": deleted_id,
+                    "deleted_id": deleted_id,
                 },
             )
 
