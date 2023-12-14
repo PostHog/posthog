@@ -578,6 +578,89 @@ class PostgresPersonOverridesManager:
             )
 
 
+class FlatPostgresPersonOverridesManager:
+    def __init__(self, connection):
+        self.connection = connection
+
+    def fetchall(self, team_id: int):
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    team_id,
+                    old_person_id,
+                    override_person_id
+                FROM posthog_flatpersonoverride
+                WHERE team_id = %(team_id)s
+                """,
+                {"team_id": team_id},
+            )
+            return cursor.fetchall()
+
+    def insert(self, team_id: int, old_person_id: UUID, override_person_id: UUID) -> None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO posthog_flatpersonoverride(
+                    team_id,
+                    old_person_id,
+                    override_person_id,
+                    oldest_event,
+                    version
+                )
+                VALUES (
+                    %(team_id)s,
+                    %(old_person_id)s,
+                    %(override_person_id)s,
+                    NOW(),
+                    1
+                );
+                """,
+                {
+                    "team_id": team_id,
+                    "old_person_id": old_person_id,
+                    "override_person_id": override_person_id,
+                },
+            )
+
+    def delete(self, person_override: SerializablePersonOverrideToDelete, dry_run: bool = False) -> None:
+        query = """
+            DELETE FROM
+                posthog_flatpersonoverride
+            WHERE
+                team_id = %(team_id)s
+                AND old_person_id = %(old_person_id)s
+                AND override_person_id = %(override_person_id)s
+                AND version = %(latest_version)s
+        """
+
+        parameters = {
+            "team_id": person_override.team_id,
+            "old_person_id": person_override.old_person_id,
+            "override_person_id": person_override.override_person_id,
+            "latest_version": person_override.latest_version,
+        }
+
+        if dry_run is True:
+            activity.logger.info("This is a DRY RUN so nothing will be deleted.")
+            activity.logger.info(
+                "Would have run query: %s with parameters %s",
+                query,
+                parameters,
+            )
+            return
+
+        with self.connection.cursor() as cursor:
+            cursor.execute(query, parameters)
+
+    def clear(self, team_id: int) -> None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM posthog_flatpersonoverride WHERE team_id = %s",
+                [team_id],
+            )
+
+
 @activity.defn
 async def delete_squashed_person_overrides_from_postgres(inputs: QueryInputs) -> None:
     """Execute the query to delete from Postgres persons that have been squashed.
