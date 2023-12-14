@@ -1,6 +1,6 @@
 """Stripe analytics source helpers"""
 
-from typing import Any, Dict, Optional, Union, Iterable
+from typing import Any, Dict, Optional, Union, Iterable, Tuple
 
 import stripe
 import dlt
@@ -89,25 +89,26 @@ def stripe_pagination(
 @dlt.source
 def stripe_source(
     api_key: str,
-    endpoint: str,
+    endpoints: Tuple[str, ...],
     start_date: Optional[Any] = None,
     end_date: Optional[Any] = None,
     starting_after: Optional[str] = None,
 ) -> Iterable[DltResource]:
-    return dlt.resource(
-        stripe_pagination,
-        name=endpoint,
-        write_disposition="append",
-        columns={
-            "metadata": {
-                "data_type": "complex",
-                "nullable": True,
-            }
-        },
-    )(
-        api_key=api_key,
-        endpoint=endpoint,
-        start_date=start_date,
-        end_date=end_date,
-        starting_after=starting_after,
-    )
+    for endpoint in endpoints:
+        yield dlt.resource(
+            stripe_pagination,
+            name=endpoint,
+            write_disposition="append",
+            columns={
+                "metadata": {
+                    "data_type": "complex",
+                    "nullable": True,
+                }
+            },
+        )(
+            api_key=api_key,
+            endpoint=endpoint,
+            start_date=start_date,
+            end_date=end_date,
+            starting_after=starting_after,
+        )

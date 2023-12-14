@@ -10,7 +10,7 @@ from posthog.warehouse.models import ExternalDataSource
 from posthog.temporal.data_imports.pipelines.stripe.helpers import stripe_source
 from posthog.temporal.data_imports.pipelines.stripe.settings import ENDPOINTS
 from posthog.temporal.common.logger import bind_temporal_worker_logger
-
+import asyncio
 import os
 
 
@@ -59,6 +59,11 @@ def create_pipeline(inputs: PipelineInputs):
     )
 
 
+def _run_pipeline(pipeline, key, endpoints):
+    source = stripe_source(key, endpoints)
+    pipeline.run(source, loader_file_format="parquet")
+
+
 # a temporal activity
 async def run_stripe_pipeline(inputs: StripeJobInputs) -> None:
     logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
@@ -67,14 +72,12 @@ async def run_stripe_pipeline(inputs: StripeJobInputs) -> None:
         logger.info(f"No schemas found for source id {inputs.source_id}")
         return
 
-    for endpoint in schemas:
-        pipeline = create_pipeline(inputs)
-        try:
-            source = stripe_source(inputs.stripe_secret_key, endpoint)
-            pipeline.run(source, table_name=endpoint.lower(), loader_file_format="parquet")
-        except PipelineStepFailed:
-            logger.error(f"Data import failed for endpoint {endpoint}")
-            raise
+    pipeline = create_pipeline(inputs)
+    try:
+        await asyncio.to_thread(_run_pipeline, pipeline, inputs.stripe_secret_key, schemas)
+    except PipelineStepFailed:
+        logger.error(f"Data import failed for endpoint")
+        raise
 
 
 PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING = {ExternalDataSource.Type.STRIPE: ENDPOINTS}
