@@ -408,9 +408,8 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) 
 
 
 class PostgresPersonOverridesManager:
-    def __init__(self, connection, dry_run: bool):
+    def __init__(self, connection):
         self.connection = connection
-        self.dry_run = dry_run
 
     SELECT_ID_FROM_OVERRIDE_UUID = """
         SELECT
@@ -441,7 +440,52 @@ class PostgresPersonOverridesManager:
             id = %(id)s;
     """
 
-    def delete(self, person_override: SerializablePersonOverrideToDelete) -> None:
+    def insert(self, team_id: int, old_person_id: UUID, override_person_id: UUID) -> None:
+        with self.connection.cursor() as cursor:
+            person_ids = []
+            for person_uuid in (override_person_id, old_person_id):
+                cursor.execute(
+                    """
+                    INSERT INTO posthog_personoverridemapping(
+                        team_id,
+                        uuid
+                    )
+                    VALUES (
+                        %(team_id)s,
+                        %(uuid)s
+                    )
+                    ON CONFLICT("team_id", "uuid") DO NOTHING
+                    RETURNING id
+                    """,
+                    {"team_id": team_id, "uuid": person_uuid},
+                )
+                person_ids.append(cursor.fetchone())
+
+            cursor.execute(
+                """
+                INSERT INTO posthog_personoverride(
+                    team_id,
+                    old_person_id,
+                    override_person_id,
+                    oldest_event,
+                    version
+                )
+                VALUES (
+                    %(team_id)s,
+                    %(old_person_id)s,
+                    %(override_person_id)s,
+                    NOW(),
+                    1
+                );
+                """,
+                {
+                    "team_id": team_id,
+                    "old_person_id": person_ids[1],
+                    "override_person_id": person_ids[0],
+                },
+            )
+
+    def delete(self, person_override: SerializablePersonOverrideToDelete, dry_run: bool = False) -> None:
         with self.connection.cursor() as cursor:
             cursor.execute(
                 self.SELECT_ID_FROM_OVERRIDE_UUID,
@@ -476,7 +520,7 @@ class PostgresPersonOverridesManager:
                 "latest_version": person_override.latest_version,
             }
 
-            if self.dry_run is True:
+            if dry_run is True:
                 activity.logger.info("This is a DRY RUN so nothing will be deleted.")
                 activity.logger.info(
                     "Would have run query: %s with parameters %s",
@@ -501,6 +545,17 @@ class PostgresPersonOverridesManager:
                 },
             )
 
+    def clear(self, team_id: int) -> None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM posthog_personoverride WHERE team_id = %s",
+                [team_id],
+            )
+            cursor.execute(
+                "DELETE FROM posthog_personoverridemapping WHERE team_id = %s",
+                [team_id],
+            )
+
 
 @activity.defn
 async def delete_squashed_person_overrides_from_postgres(inputs: QueryInputs) -> None:
@@ -520,10 +575,10 @@ async def delete_squashed_person_overrides_from_postgres(inputs: QueryInputs) ->
         port=settings.DATABASES["default"]["PORT"],
         **settings.DATABASES["default"].get("SSL_OPTIONS", {}),
     ) as connection:
-        person_overrides_manager = PostgresPersonOverridesManager(connection, inputs.dry_run)
+        person_overrides_manager = PostgresPersonOverridesManager(connection)
         for person_override_to_delete in inputs.iter_person_overides_to_delete():
             activity.logger.debug("%s", person_override_to_delete)
-            person_overrides_manager.delete(person_override_to_delete)
+            person_overrides_manager.delete(person_override_to_delete, inputs.dry_run)
 
 
 @contextlib.asynccontextmanager

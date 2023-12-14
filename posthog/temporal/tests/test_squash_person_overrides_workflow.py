@@ -23,6 +23,7 @@ from posthog.models.person_overrides.sql import (
     PERSON_OVERRIDES_CREATE_TABLE_SQL,
 )
 from posthog.temporal.batch_exports.squash_person_overrides import (
+    PostgresPersonOverridesManager,
     QueryInputs,
     SerializablePersonOverrideToDelete,
     SquashPersonOverridesInputs,
@@ -950,62 +951,16 @@ def person_overrides(query_inputs, team_id, pg_connection):
     person_override = PersonOverrideTuple(old_person_id, override_person_id)
 
     with pg_connection:
-        with pg_connection.cursor() as cursor:
-            person_ids = []
-            for person_uuid in (override_person_id, old_person_id):
-                cursor.execute(
-                    """
-                    INSERT INTO posthog_personoverridemapping(
-                        team_id,
-                        uuid
-                    )
-                    VALUES (
-                        %(team_id)s,
-                        %(uuid)s
-                    )
-                    ON CONFLICT("team_id", "uuid") DO NOTHING
-                    RETURNING id
-                    """,
-                    {"team_id": team_id, "uuid": person_uuid},
-                )
-                person_ids.append(cursor.fetchone())
-
-            cursor.execute(
-                """
-                INSERT INTO posthog_personoverride(
-                    team_id,
-                    old_person_id,
-                    override_person_id,
-                    oldest_event,
-                    version
-                )
-                VALUES (
-                    %(team_id)s,
-                    %(old_person_id)s,
-                    %(override_person_id)s,
-                    NOW(),
-                    1
-                );
-                """,
-                {
-                    "team_id": team_id,
-                    "old_person_id": person_ids[1],
-                    "override_person_id": person_ids[0],
-                },
-            )
+        PostgresPersonOverridesManager(pg_connection).insert(
+            team_id,
+            old_person_id=person_override.old_person_id,
+            override_person_id=person_override.override_person_id,
+        )
 
     yield person_override
 
     with pg_connection:
-        with pg_connection.cursor() as cursor:
-            cursor.execute(
-                "DELETE FROM posthog_personoverride WHERE team_id = %s AND old_person_id = %s",
-                [team_id, person_ids[1]],
-            )
-            cursor.execute(
-                "DELETE FROM posthog_personoverridemapping WHERE team_id = %s AND (uuid = %s OR uuid = %s)",
-                [team_id, old_person_id, override_person_id],
-            )
+        PostgresPersonOverridesManager(pg_connection).clear(team_id)
 
 
 @pytest.mark.django_db
