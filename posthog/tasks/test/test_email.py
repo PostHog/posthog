@@ -107,7 +107,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         mock_capture.assert_called_once_with(
             user.distinct_id,
             "verification email sent",
-            properties={"email address": user.email},
             groups={"organization": str(user.current_organization_id)},
         )
         assert len(mocked_email_messages) == 1
