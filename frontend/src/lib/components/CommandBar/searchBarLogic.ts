@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -46,7 +47,12 @@ export const searchBarLogic = kea<searchBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'searchBarLogic']),
     connect({
         values: [commandBarLogic, ['initialQuery', 'barStatus'], groupsModel, ['groupTypes', 'aggregationLabel']],
-        actions: [commandBarLogic, ['hideCommandBar', 'setCommandBar', 'clearInitialQuery']],
+        actions: [
+            commandBarLogic,
+            ['hideCommandBar', 'setCommandBar', 'clearInitialQuery'],
+            eventUsageLogic,
+            ['reportCommandBarSearch', 'reportCommandBarSearchResultOpened'],
+        ],
     }),
     actions({
         search: true,
@@ -59,12 +65,14 @@ export const searchBarLogic = kea<searchBarLogicType>([
         setIsAutoScrolling: (scrolling: boolean) => ({ scrolling }),
         openResult: (index: number) => ({ index }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         rawSearchResponse: [
             null as SearchResponse | null,
             {
                 loadSearchResponse: async (_, breakpoint) => {
                     await breakpoint(DEBOUNCE_MS)
+
+                    actions.reportCommandBarSearch(values.searchQuery.length)
 
                     if (clickhouseTabs.includes(values.activeTab)) {
                         // prevent race conditions when switching tabs quickly
@@ -424,6 +432,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
             const result = values.combinedSearchResults![index]
             router.actions.push(urlForResult(result))
             actions.hideCommandBar()
+            actions.reportCommandBarSearchResultOpened(result.type)
         },
     })),
     subscriptions(({ values, actions }) => ({
