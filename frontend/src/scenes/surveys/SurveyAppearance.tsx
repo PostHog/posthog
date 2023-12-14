@@ -234,7 +234,7 @@ export function Customization({ appearance, surveyQuestionItem, onAppearanceChan
 export function WidgetCustomization({ appearance, onAppearanceChange }: WidgetCustomizationProps): JSX.Element {
     return (
         <>
-            <div className="mt-2">Widget type</div>
+            <div className="mt-2">Feedback button type</div>
             <LemonSelect
                 value={appearance.widgetType}
                 onChange={(widgetType) => onAppearanceChange({ ...appearance, widgetType })}
@@ -245,21 +245,21 @@ export function WidgetCustomization({ appearance, onAppearanceChange }: WidgetCu
             />
             {appearance.widgetType === 'selector' ? (
                 <>
-                    <div className="mt-2">Widget selector</div>
+                    <div className="mt-2">Class or ID selector</div>
                     <LemonInput
                         value={appearance.widgetSelector}
                         onChange={(widgetSelector) => onAppearanceChange({ ...appearance, widgetSelector })}
-                        placeholder="ex: .feedback-button"
+                        placeholder="ex: .feedback-button, #feedback-button"
                     />
                 </>
             ) : (
                 <>
-                    <div className="mt-2">Widget label</div>
+                    <div className="mt-2">Label</div>
                     <LemonInput
                         value={appearance.widgetLabel}
                         onChange={(widgetLabel) => onAppearanceChange({ ...appearance, widgetLabel })}
                     />
-                    <div className="mt-2">Widget color</div>
+                    <div className="mt-2">Background color</div>
                     <LemonInput
                         value={appearance.widgetColor}
                         onChange={(widgetColor) => onAppearanceChange({ ...appearance, widgetColor })}

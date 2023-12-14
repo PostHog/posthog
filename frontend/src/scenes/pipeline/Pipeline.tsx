@@ -8,6 +8,7 @@ import { urls } from 'scenes/urls'
 import { PipelineTabs } from '~/types'
 
 import { AppsManagement } from './AppsManagement'
+import { Destinations } from './Destinations'
 import { NewButton } from './NewButton'
 import { humanFriendlyTabName, pipelineLogic } from './pipelineLogic'
 import { Transformations } from './Transformations'
@@ -18,7 +19,7 @@ export function Pipeline(): JSX.Element {
     const tab_to_content: Record<PipelineTabs, JSX.Element> = {
         [PipelineTabs.Filters]: <div>Coming soon</div>,
         [PipelineTabs.Transformations]: <Transformations />,
-        [PipelineTabs.Destinations]: <div>Coming soon</div>,
+        [PipelineTabs.Destinations]: <Destinations />,
         [PipelineTabs.AppsManagement]: <AppsManagement />,
     }
 

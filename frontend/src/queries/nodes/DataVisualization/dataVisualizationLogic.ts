@@ -41,7 +41,14 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
     key((props) => props.key),
     path(['queries', 'nodes', 'DataVisualization', 'dataVisualizationLogic']),
     connect({
-        values: [teamLogic, ['currentTeamId'], insightSceneLogic, ['insightMode'], dataNodeLogic, ['response']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            insightSceneLogic,
+            ['insightMode'],
+            dataNodeLogic,
+            ['response', 'responseLoading'],
+        ],
         actions: [dataNodeLogic, ['loadDataSuccess']],
     }),
     props({ query: {} } as DataVisualizationLogicProps),
