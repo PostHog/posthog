@@ -749,7 +749,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             }
         )
         self.assertEqual(len(result), 1, result)
-        self.assertEqual(result[0][0]["id"], str(person1.uuid), person1.uuid)
+        self.assertEqual(result[0][0]["id"], person1.uuid, person1.uuid)
 
     def test_retention_people_first_time(self):
         _, _, p3, _ = self._create_first_time_retention_events()
@@ -768,7 +768,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(len(result), 1)
-        self.assertIn(result[0][0]["id"], [str(p3.uuid), str(p3.pk)])
+        self.assertEqual(result[0][0]["id"], p3.uuid)
 
         result = self.run_actors_query(
             query={
@@ -850,10 +850,10 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         )
 
         # should be descending order on number of appearances
-        self.assertIn(result[0][0]["id"], [str(person2.pk), str(person2.uuid)])
+        self.assertEqual(result[0][0]["id"], person2.uuid)
         self.assertCountEqual(result[0][1], [0, 1, 4, 5])
 
-        self.assertIn(result[1][0]["id"], [str(person1.pk), str(person1.uuid)])
+        self.assertEqual(result[1][0]["id"], person1.uuid)
         self.assertCountEqual(result[1][1], [0, 3, 4])
 
     def test_retention_people_in_period_first_time(self):
@@ -871,7 +871,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             }
         )
         self.assertEqual(len(result), 1)
-        self.assertTrue(result[0][0]["id"] == str(p3.pk) or result[0][0]["id"] == str(p3.uuid))
+        self.assertEqual(result[0][0]["id"], p3.uuid)
         self.assertCountEqual(result[0][1], [0, 1, 3, 4, 5])
 
     def test_retention_multiple_events(self):
