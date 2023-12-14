@@ -3455,6 +3455,7 @@ export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user
     // provides when creating the export.
     id: string
+    team_id: number
     name: string
     destination: BatchExportDestination
     interval: 'hour' | 'day' | 'every 5 minutes'

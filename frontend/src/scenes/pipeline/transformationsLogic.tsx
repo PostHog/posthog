@@ -52,21 +52,11 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
             {} as Record<number, PluginConfigTypeNew>,
             {
                 loadPluginConfigs: async () => {
-                    const pluginConfigs: Record<number, PluginConfigTypeNew> = {}
-                    const results = await api.loadPaginatedResults(
+                    const res: PluginConfigTypeNew[] = await api.loadPaginatedResults(
                         `api/projects/${values.currentTeamId}/pipeline_transformations_configs`
                     )
 
-                    for (const pluginConfig of results) {
-                        pluginConfigs[pluginConfig.id] = {
-                            ...pluginConfig,
-                            // If this pluginConfig doesn't have a name of desciption, use the plugin's
-                            // note that this will get saved to the db on certain actions and that's fine
-                            name: pluginConfig.name || values.plugins[pluginConfig.plugin]?.name || 'Unknown app',
-                            description: pluginConfig.description || values.plugins[pluginConfig.plugin]?.description,
-                        }
-                    }
-                    return pluginConfigs
+                    return Object.fromEntries(res.map((pluginConfig) => [pluginConfig.id, pluginConfig]))
                 },
                 savePluginConfigsOrder: async ({ newOrders }) => {
                     if (!values.canConfigurePlugins) {

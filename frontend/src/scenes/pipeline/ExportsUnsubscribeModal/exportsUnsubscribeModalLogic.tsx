@@ -1,10 +1,10 @@
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { batchExportsListLogic } from 'scenes/batch_exports/batchExportsListLogic'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { PluginConfigTypeNew } from '~/types'
+import { BatchExportConfiguration, PluginConfigTypeNew } from '~/types'
 
 import { pipelineTransformationsLogic } from '../transformationsLogic'
 import type { exportsUnsubscribeModalLogicType } from './exportsUnsubscribeModalLogicType'
@@ -12,14 +12,7 @@ import type { exportsUnsubscribeModalLogicType } from './exportsUnsubscribeModal
 export const exportsUnsubscribeModalLogic = kea<exportsUnsubscribeModalLogicType>([
     path(['scenes', 'pipeline', 'exportsUnsubscribeModalLogic']),
     connect({
-        values: [
-            pluginsLogic,
-            ['plugins'],
-            batchExportsListLogic,
-            ['batchExportConfigs', 'batchExportConfigsLoading'],
-            pipelineTransformationsLogic,
-            ['canConfigurePlugins'],
-        ],
+        values: [pluginsLogic, ['plugins'], pipelineTransformationsLogic, ['canConfigurePlugins'], userLogic, ['user']],
     }),
 
     actions({
@@ -52,6 +45,16 @@ export const exportsUnsubscribeModalLogic = kea<exportsUnsubscribeModalLogicType
                 },
             },
         ],
+        // todo batch exports api.get with the path
+        batchExportConfigs: [
+            {} as Record<BatchExportConfiguration['id'], BatchExportConfiguration>,
+            {
+                loadBatchExportConfigs: async () => {
+                    const res = await api.get<BatchExportConfiguration[]>(`api/organizations/@current/batch_exports`)
+                    return Object.fromEntries(res.map((batchExportConfig) => [batchExportConfig.id, batchExportConfig]))
+                },
+            },
+        ],
     })),
     selectors({
         loading: [
@@ -61,10 +64,7 @@ export const exportsUnsubscribeModalLogic = kea<exportsUnsubscribeModalLogicType
         unsubscribeDisabledReason: [
             (s) => [s.loading, s.pluginConfigsToDisable, s.batchExportConfigs],
             (loading, pluginConfigsToDisable, batchExports) => {
-                // pluginConfigsToDisable || batchExports,
-                // loop through pluginConfigsToDisable and check if any of them are enabled
-                // if so, return false
-                // else, return true
+                // TODO: check for permissions first - that the user has access to all the projects for this org
                 return loading
                     ? 'Loading...'
                     : Object.values(pluginConfigsToDisable).some((pluginConfig) => pluginConfig.enabled)
@@ -87,5 +87,6 @@ export const exportsUnsubscribeModalLogic = kea<exportsUnsubscribeModalLogicType
     // TODO: add a listener in the billing page to load plugins and open modal or go directly
     afterMount(({ actions }) => {
         actions.loadPluginConfigs()
+        actions.loadBatchExportConfigs()
     }),
 ])
