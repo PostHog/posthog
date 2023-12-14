@@ -4,13 +4,20 @@ from django.utils import timezone
 
 from .utils import generate_random_token
 
+# Fixed iteration count for PBKDF2PasswordHasher hasher.
+# This is the iteration count used by PostHog since the beginning of time.
+# Changing this would break all existing personal API keys.
+PERSONAL_API_KEY_ITERATIONS = 260000
+
 # A constant salt is not nearly as good as user-specific, but we must be able to look up a personal API key
 # by itself. Some salt is slightly better than none though.
 PERSONAL_API_KEY_SALT = "posthog_personal_api_key"
 
 
 def hash_key_value(value: str) -> str:
-    return get_hasher().encode(value, PERSONAL_API_KEY_SALT)
+    hasher = get_hasher("pbkdf2_sha256")
+    hasher.iterations = PERSONAL_API_KEY_ITERATIONS
+    return hasher.encode(value, PERSONAL_API_KEY_SALT)
 
 
 class PersonalAPIKey(models.Model):
