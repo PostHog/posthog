@@ -175,7 +175,7 @@ async def test_run_stripe_job(activity_environment, team, **kwargs):
     ) as mock_create_pipeline:  # noqa: B015
         await activity_environment.run(run_external_data_job, inputs)
 
-        assert mock_create_pipeline.call_count == 5
+        assert mock_create_pipeline.call_count == 1
 
         mock_create_pipeline.assert_called_with(
             StripeJobInputs(
