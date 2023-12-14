@@ -29,10 +29,10 @@ export enum OnboardingStepKey {
 export type AllOnboardingSteps = OnboardingStep[]
 export type OnboardingStep = JSX.Element
 
-export const getProductUri = (productKey: ProductKey, flags: FeatureFlagsSet): string => {
+export const getProductUri = (productKey: ProductKey, featureFlags: FeatureFlagsSet): string => {
     switch (productKey) {
         case ProductKey.PRODUCT_ANALYTICS:
-            return flags[FEATURE_FLAGS.REDIRECT_INGESTION_PRODUCT_ANALYTICS_ONBOARDING] === 'test'
+            return featureFlags[FEATURE_FLAGS.REDIRECT_INGESTION_PRODUCT_ANALYTICS_ONBOARDING] === 'test'
                 ? urls.insights()
                 : combineUrl(urls.events(), { onboarding_completed: true }).url
         case ProductKey.SESSION_REPLAY:
@@ -89,14 +89,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 setStepKey: (_, { stepKey }) => stepKey,
             },
         ],
-        onCompleteOnboardingRedirectUrl: [
-            urls.default(),
-            {
-                setProductKey: (_, { productKey }) => {
-                    return productKey ? getProductUri(productKey as ProductKey) : urls.default()
-                },
-            },
-        ],
         subscribedDuringOnboarding: [
             false,
             {
@@ -105,6 +97,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
         ],
     })),
     selectors({
+        onCompleteOnboardingRedirectUrl: [
+            (s) => [s.featureFlags, s.productKey],
+            (featureFlags: FeatureFlagsSet, productKey: string | null) => {
+                return productKey ? getProductUri(productKey as ProductKey, featureFlags) : urls.default()
+            },
+        ],
         totalOnboardingSteps: [
             (s) => [s.allOnboardingSteps],
             (allOnboardingSteps: AllOnboardingSteps) => allOnboardingSteps.length,
