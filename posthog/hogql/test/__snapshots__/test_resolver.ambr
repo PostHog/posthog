@@ -3132,6 +3132,7 @@
                 join_function: <function>,
                 join_table: {
                   fields: {
+                    $virt_initial_channel_type: {},
                     created_at: {},
                     id: {},
                     is_identified: {},
@@ -3267,6 +3268,7 @@
                 join_function: <function>,
                 join_table: {
                   fields: {
+                    $virt_initial_channel_type: {},
                     created_at: {},
                     id: {},
                     is_identified: {},
@@ -3604,6 +3606,7 @@
                 join_function: <function>,
                 join_table: {
                   fields: {
+                    $virt_initial_channel_type: {},
                     created_at: {},
                     id: {},
                     is_identified: {},
