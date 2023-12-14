@@ -134,8 +134,8 @@ export default function SurveyEdit(): JSX.Element {
                                                     <PresentationTypeCard
                                                         active={value === SurveyType.Widget}
                                                         onClick={() => onChange(SurveyType.Widget)}
-                                                        title="Widget (beta)"
-                                                        description="Set up a survey based on your own custom button or our prebuilt tab widget"
+                                                        title="Feedback button (beta)"
+                                                        description="Set up a survey based on your own custom button or our prebuilt feedback tab"
                                                         value={SurveyType.Widget}
                                                     >
                                                         <LemonTag type="warning" className="uppercase ml-2">
@@ -354,7 +354,9 @@ export default function SurveyEdit(): JSX.Element {
                                                   <>
                                                       {survey.type === SurveyType.Widget && (
                                                           <>
-                                                              <div className="font-bold">Widget customization</div>
+                                                              <div className="font-bold">
+                                                                  Feedback button customization
+                                                              </div>
                                                               <WidgetCustomization
                                                                   appearance={value || defaultSurveyAppearance}
                                                                   onAppearanceChange={(appearance) => {
