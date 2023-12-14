@@ -30,18 +30,18 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>([
     })),
     actions(() => ({
         clearPeople: true,
-        loadMorePeople: (rowIndex: number) => rowIndex,
+        loadMorePeople: (selectedInterval: number) => selectedInterval,
         loadMorePeopleSuccess: (payload: RetentionTablePeoplePayload) => ({ payload }),
     })),
     loaders(({ values }) => ({
         people: {
             __default: {} as RetentionTablePeoplePayload,
-            loadPeople: async (rowIndex: number) => {
+            loadPeople: async (selectedInterval: number) => {
                 if (hogQLInsightsRetentionFlagEnabled() && values.querySource?.kind === NodeKind.RetentionQuery) {
-                    return await queryForActors(values.querySource, rowIndex)
+                    return await queryForActors(values.querySource, selectedInterval)
                 }
 
-                const urlParams = toParams({ ...values.apiFilters, selected_interval: rowIndex })
+                const urlParams = toParams({ ...values.apiFilters, selected_interval: selectedInterval })
                 return api.get<RetentionTablePeoplePayload>(`api/person/retention/?${urlParams}`)
             },
         },
@@ -68,16 +68,16 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>([
             // clear people when changing the insight filters
             actions.clearPeople()
         },
-        loadMorePeople: async (rowIndex) => {
+        loadMorePeople: async (selectedInterval) => {
             if (values.people.next || values.people.offset) {
                 let peopleResult: RetentionTablePeoplePayload
                 if (values.people.offset && values.querySource?.kind === NodeKind.RetentionQuery) {
-                    peopleResult = await queryForActors(values.querySource, rowIndex, values.people.offset)
+                    peopleResult = await queryForActors(values.querySource, selectedInterval, values.people.offset)
                 } else {
                     peopleResult = await api.get<RetentionTablePeoplePayload>(values.people.next as string)
                 }
                 const newPayload: RetentionTablePeoplePayload = {
-                    results: [...(values.people.results || []), ...(peopleResult.results || [])],
+                    result: [...(values.people.result || []), ...(peopleResult.result || [])],
                     next: peopleResult.next,
                     offset: peopleResult.offset,
                     missing_persons: (peopleResult.missing_persons || 0) + (values.people.missing_persons || 0),

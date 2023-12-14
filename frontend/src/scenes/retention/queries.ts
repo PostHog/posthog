@@ -42,7 +42,7 @@ export async function queryForActors(
         appearances: appearances_1s_0s(row[1], retentionQuery.retentionFilter.total_intervals || 11, selectedInterval),
     }))
     return {
-        results: results,
+        result: results,
         offset: response.hasMore ? response.offset + response.limit : undefined,
         missing_persons: response.missing_actors_count,
     }

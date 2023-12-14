@@ -25,14 +25,14 @@ export function RetentionModal(): JSX.Element | null {
     const { results } = useValues(retentionLogic(insightProps))
     const { people, peopleLoading, peopleLoadingMore } = useValues(retentionPeopleLogic(insightProps))
     const { loadMorePeople } = useActions(retentionPeopleLogic(insightProps))
-    const { aggregationTargetLabel, selectedRow, exploreUrl } = useValues(retentionModalLogic(insightProps))
+    const { aggregationTargetLabel, selectedInterval, exploreUrl } = useValues(retentionModalLogic(insightProps))
     const { closeModal } = useActions(retentionModalLogic(insightProps))
 
-    if (!results || selectedRow === null) {
+    if (!results || selectedInterval === null) {
         return null
     }
 
-    const row = results[selectedRow]
+    const row = results[selectedInterval]
     const isEmpty = row.values[0]?.count === 0
     return (
         <LemonModal
@@ -101,8 +101,8 @@ export function RetentionModal(): JSX.Element | null {
                                         </th>
                                     ))}
                                 </tr>
-                                {people.results &&
-                                    people.results.map((personAppearances: RetentionTableAppearanceType) => (
+                                {people.result &&
+                                    people.result.map((personAppearances: RetentionTableAppearanceType) => (
                                         <tr key={personAppearances.person.id}>
                                             {/* eslint-disable-next-line react/forbid-dom-props */}
                                             <td style={{ minWidth: 200 }}>
@@ -153,7 +153,7 @@ export function RetentionModal(): JSX.Element | null {
                             <div className="m-4 flex justify-center">
                                 <LemonButton
                                     type="primary"
-                                    onClick={() => loadMorePeople(selectedRow)}
+                                    onClick={() => loadMorePeople(selectedInterval)}
                                     loading={peopleLoadingMore}
                                 >
                                     Load more {aggregationTargetLabel.plural}

@@ -27,7 +27,7 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
         closeModal: true,
     })),
     reducers({
-        selectedRow: [
+        selectedInterval: [
             null as number | null,
             {
                 openModal: (_, { rowIndex }) => rowIndex,
@@ -47,12 +47,12 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
             },
         ],
         personsQuery: [
-            (s) => [s.querySource, s.selectedRow],
-            (querySource: RetentionQuery, selectedRow): PersonsQuery | null => {
+            (s) => [s.querySource, s.selectedInterval],
+            (querySource: RetentionQuery, selectedInterval): PersonsQuery | null => {
                 if (!querySource) {
                     return null
                 }
-                return retentionToActorsQuery(querySource, selectedRow ?? 0)
+                return retentionToActorsQuery(querySource, selectedInterval ?? 0)
             },
         ],
         exploreUrl: [
