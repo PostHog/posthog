@@ -1,5 +1,7 @@
 import { LemonDivider } from '@posthog/lemon-ui'
 import { BindLogic, useValues } from 'kea'
+import { AnimationType } from 'lib/animations/animations'
+import { Animation } from 'lib/components/Animation/Animation'
 import { useCallback, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -52,7 +54,7 @@ export function DataTableVisualization(props: DataTableVisualizationProps): JSX.
         cachedResults: props.cachedResults,
     }
 
-    const { query, visualizationType, showEditingUI, showResultControls, sourceFeatures } =
+    const { query, visualizationType, showEditingUI, showResultControls, sourceFeatures, response, responseLoading } =
         useValues(builtDataVisualizationLogic)
 
     const setQuerySource = useCallback(
@@ -61,7 +63,13 @@ export function DataTableVisualization(props: DataTableVisualizationProps): JSX.
     )
 
     let component: JSX.Element | null = null
-    if (visualizationType === ChartDisplayType.ActionsTable) {
+    if (!response && responseLoading) {
+        return (
+            <div className="flex flex-col flex-1 justify-center items-center border rounded">
+                <Animation type={AnimationType.LaptopHog} />
+            </div>
+        )
+    } else if (visualizationType === ChartDisplayType.ActionsTable) {
         component = (
             <DataTable
                 uniqueKey={key}
