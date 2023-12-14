@@ -10,7 +10,7 @@ annotated-types==0.5.0
     #   pydantic
 argcomplete==2.0.0
     # via datamodel-code-generator
-asgiref==3.7.2
+asgiref==3.3.2
     # via
     #   -c requirements.txt
     #   django
@@ -69,7 +69,7 @@ cryptography==37.0.2
     #   urllib3
 datamodel-code-generator==0.21.5
     # via -r requirements-dev.in
-django==4.1.13
+django==3.2.19
     # via
     #   -c requirements.txt
     #   django-stubs
@@ -166,7 +166,7 @@ pathable==0.4.3
     # via jsonschema-spec
 pathspec==0.9.0
     # via black
-pip-tools==7.3.0
+pip-tools==6.13.0
     # via -r requirements-dev.in
 platformdirs==2.5.2
     # via black
@@ -241,6 +241,10 @@ python-dateutil==2.8.2
     #   -r requirements-dev.in
     #   faker
     #   freezegun
+pytz==2023.3
+    # via
+    #   -c requirements.txt
+    #   django
 pyyaml==6.0
     # via
     #   -c requirements.txt
@@ -294,7 +298,6 @@ tomli==1.2.3
     #   black
     #   build
     #   mypy
-    #   pip-tools
     #   pyproject-hooks
     #   pytest
 types-freezegun==1.1.10
@@ -318,7 +321,6 @@ types-retry==0.9.9.4
 typing-extensions==4.7.1
     # via
     #   -c requirements.txt
-    #   asgiref
     #   django-stubs
     #   django-stubs-ext
     #   djangorestframework-stubs
