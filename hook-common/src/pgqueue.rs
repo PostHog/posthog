@@ -1,8 +1,6 @@
 //! # PgQueue
 //!
 //! A job queue implementation backed by a PostgreSQL table.
-
-use std::default::Default;
 use std::str::FromStr;
 use std::time;
 
@@ -172,7 +170,6 @@ pub struct PgJob<J, M> {
     pub job: Job<J, M>,
     pub table: String,
     pub connection: sqlx::pool::PoolConnection<sqlx::postgres::Postgres>,
-    pub retry_policy: RetryPolicy,
 }
 
 #[async_trait]
@@ -259,9 +256,6 @@ RETURNING
             });
         }
         let retryable_job = self.job.retry(error);
-        let retry_interval = self
-            .retry_policy
-            .time_until_next_retry(&retryable_job, preferred_retry_interval);
 
         let base_query = format!(
             r#"
@@ -304,7 +298,6 @@ pub struct PgTransactionJob<'c, J, M> {
     pub job: Job<J, M>,
     pub table: String,
     pub transaction: sqlx::Transaction<'c, sqlx::postgres::Postgres>,
-    pub retry_policy: RetryPolicy,
 }
 
 #[async_trait]
@@ -408,9 +401,6 @@ RETURNING
             });
         }
         let retryable_job = self.job.retry(error);
-        let retry_interval = self
-            .retry_policy
-            .time_until_next_retry(&retryable_job, preferred_retry_interval);
 
         let base_query = format!(
             r#"
@@ -509,61 +499,6 @@ impl<J, M> NewJob<J, M> {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
-/// The retry policy that PgQueue will use to determine how to set scheduled_at when enqueuing a retry.
-pub struct RetryPolicy {
-    /// Coefficient to multiply initial_interval with for every past attempt.
-    backoff_coefficient: u32,
-    /// The backoff interval for the first retry.
-    initial_interval: time::Duration,
-    /// The maximum possible backoff between retries.
-    maximum_interval: Option<time::Duration>,
-}
-
-impl RetryPolicy {
-    pub fn new(
-        backoff_coefficient: u32,
-        initial_interval: time::Duration,
-        maximum_interval: Option<time::Duration>,
-    ) -> Self {
-        Self {
-            backoff_coefficient,
-            initial_interval,
-            maximum_interval,
-        }
-    }
-
-    /// Calculate the time until the next retry for a given RetryableJob.
-    pub fn time_until_next_retry<J>(
-        &self,
-        job: &RetryableJob<J>,
-        preferred_retry_interval: Option<time::Duration>,
-    ) -> time::Duration {
-        let candidate_interval =
-            self.initial_interval * self.backoff_coefficient.pow(job.attempt as u32);
-
-        match (preferred_retry_interval, self.maximum_interval) {
-            (Some(duration), Some(max_interval)) => std::cmp::min(
-                std::cmp::max(std::cmp::min(candidate_interval, max_interval), duration),
-                max_interval,
-            ),
-            (Some(duration), None) => std::cmp::max(candidate_interval, duration),
-            (None, Some(max_interval)) => std::cmp::min(candidate_interval, max_interval),
-            (None, None) => candidate_interval,
-        }
-    }
-}
-
-impl Default for RetryPolicy {
-    fn default() -> Self {
-        Self {
-            backoff_coefficient: 2,
-            initial_interval: time::Duration::from_secs(1),
-            maximum_interval: None,
-        }
-    }
-}
-
 /// A queue implemented on top of a PostgreSQL table.
 #[derive(Clone)]
 pub struct PgQueue {
@@ -571,8 +506,6 @@ pub struct PgQueue {
     name: String,
     /// A connection pool used to connect to the PostgreSQL database.
     pool: PgPool,
-    /// The retry policy to be assigned to Jobs in this PgQueue.
-    retry_policy: RetryPolicy,
     /// The identifier of the PostgreSQL table this queue runs on.
     table: String,
 }
@@ -588,25 +521,14 @@ impl PgQueue {
     /// * `table_name`: The name for the table the queue will use in PostgreSQL.
     /// * `url`: A URL pointing to where the PostgreSQL database is hosted.
     /// * `worker_name`: The name of the worker that is operating with this queue.
-    /// * `retry_policy`: A retry policy to pass to jobs from this queue.
-    pub async fn new(
-        queue_name: &str,
-        table_name: &str,
-        url: &str,
-        retry_policy: RetryPolicy,
-    ) -> PgQueueResult<Self> {
+    pub async fn new(queue_name: &str, table_name: &str, url: &str) -> PgQueueResult<Self> {
         let name = queue_name.to_owned();
         let table = table_name.to_owned();
         let pool = PgPoolOptions::new()
             .connect_lazy(url)
             .map_err(|error| PgQueueError::PoolCreationError { error })?;
 
-        Ok(Self {
-            name,
-            pool,
-            retry_policy,
-            table,
-        })
+        Ok(Self { name, pool, table })
     }
 
     /// Dequeue a Job from this PgQueue to work on it.
@@ -669,7 +591,6 @@ RETURNING
                 job,
                 table: self.table.to_owned(),
                 connection,
-                retry_policy: self.retry_policy,
             })),
 
             // Although connection would be closed once it goes out of scope, sqlx recommends explicitly calling close().
@@ -749,7 +670,6 @@ RETURNING
                 job,
                 table: self.table.to_owned(),
                 transaction: tx,
-                retry_policy: self.retry_policy,
             })),
 
             // Transaction is rolledback on drop.
@@ -801,6 +721,7 @@ VALUES
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::retry::RetryPolicy;
 
     #[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug)]
     struct JobMetadata {
@@ -858,7 +779,6 @@ mod tests {
             "test_can_dequeue_job",
             "job_queue",
             "postgres://posthog:posthog@localhost:15432/test_database",
-            RetryPolicy::default(),
         )
         .await
         .expect("failed to connect to local test postgresql database");
@@ -887,7 +807,6 @@ mod tests {
             "test_dequeue_returns_none_on_no_jobs",
             "job_queue",
             "postgres://posthog:posthog@localhost:15432/test_database",
-            RetryPolicy::default(),
         )
         .await
         .expect("failed to connect to local test postgresql database");
@@ -912,7 +831,6 @@ mod tests {
             "test_can_dequeue_tx_job",
             "job_queue",
             "postgres://posthog:posthog@localhost:15432/test_database",
-            RetryPolicy::default(),
         )
         .await
         .expect("failed to connect to local test postgresql database");
@@ -942,7 +860,6 @@ mod tests {
             "test_dequeue_tx_returns_none_on_no_jobs",
             "job_queue",
             "postgres://posthog:posthog@localhost:15432/test_database",
-            RetryPolicy::default(),
         )
         .await
         .expect("failed to connect to local test postgresql database");
@@ -972,7 +889,6 @@ mod tests {
             "test_can_retry_job_with_remaining_attempts",
             "job_queue",
             "postgres://posthog:posthog@localhost:15432/test_database",
-            retry_policy,
         )
         .await
         .expect("failed to connect to local test postgresql database");
@@ -983,8 +899,9 @@ mod tests {
             .await
             .expect("failed to dequeue job")
             .expect("didn't find a job to dequeue");
+        let retry_interval = retry_policy.time_until_next_retry(job.job.attempt as u32, None);
         let _ = job
-            .retry("a very reasonable failure reason", None)
+            .retry("a very reasonable failure reason", retry_interval)
             .await
             .expect("failed to retry job");
         let retried_job: PgJob<JobParameters, JobMetadata> = queue
@@ -1023,7 +940,6 @@ mod tests {
             "test_cannot_retry_job_without_remaining_attempts",
             "job_queue",
             "postgres://posthog:posthog@localhost:15432/test_database",
-            retry_policy,
         )
         .await
         .expect("failed to connect to local test postgresql database");
@@ -1035,7 +951,8 @@ mod tests {
             .await
             .expect("failed to dequeue job")
             .expect("didn't find a job to dequeue");
-        job.retry("a very reasonable failure reason", None)
+        let retry_interval = retry_policy.time_until_next_retry(job.job.attempt as u32, None);
+        job.retry("a very reasonable failure reason", retry_interval)
             .await
             .expect("failed to retry job");
     }
