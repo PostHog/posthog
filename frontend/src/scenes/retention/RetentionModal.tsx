@@ -39,23 +39,22 @@ export function RetentionModal(): JSX.Element | null {
             isOpen // always open, as we simply don't mount otherwise
             onClose={closeModal}
             footer={
-                <>
-                    <LemonButton type="secondary" onClick={closeModal}>
-                        Close
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        onClick={() =>
-                            void triggerExport({
-                                export_format: ExporterFormat.CSV,
-                                export_context: {
-                                    path: row?.people_url,
-                                },
-                            })
-                        }
-                    >
-                        Export to CSV
-                    </LemonButton>
+                <div className="flex justify-between gap-2 w-full">
+                    <div className="flex gap-2">
+                        <LemonButton
+                            type="secondary"
+                            onClick={() =>
+                                void triggerExport({
+                                    export_format: ExporterFormat.CSV,
+                                    export_context: {
+                                        path: row?.people_url,
+                                    },
+                                })
+                            }
+                        >
+                            Download CSV
+                        </LemonButton>
+                    </div>
                     {exploreUrl && (
                         <LemonButton
                             type="primary"
@@ -65,10 +64,10 @@ export function RetentionModal(): JSX.Element | null {
                                 closeModal()
                             }}
                         >
-                            Explore {aggregationTargetLabel.plural}
+                            Explore
                         </LemonButton>
                     )}
-                </>
+                </div>
             }
             width={isEmpty ? undefined : '90%'}
             title={`${dayjs(row.date).format('MMMM D, YYYY')} Cohort`}
