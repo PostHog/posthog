@@ -435,6 +435,9 @@ export const DEFAULT_DECIMAL_PLACES = 2
 
 /** Format number with comma as the thousands separator. */
 export function humanFriendlyNumber(d: number, precision: number = DEFAULT_DECIMAL_PLACES): string {
+    if (isNaN(precision) || precision < 0) {
+        precision = DEFAULT_DECIMAL_PLACES
+    }
     return d.toLocaleString('en-US', { maximumFractionDigits: precision })
 }
 
