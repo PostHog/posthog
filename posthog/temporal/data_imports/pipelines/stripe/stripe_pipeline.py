@@ -59,8 +59,9 @@ def create_pipeline(inputs: PipelineInputs):
     )
 
 
-def _run_pipeline(pipeline, key, endpoints):
-    source = stripe_source(key, endpoints)
+def _run_pipeline(inputs: StripeJobInputs):
+    pipeline = create_pipeline(inputs)
+    source = stripe_source(inputs.stripe_secret_key, tuple(inputs.schemas))
     pipeline.run(source, loader_file_format="parquet")
 
 
@@ -72,9 +73,8 @@ async def run_stripe_pipeline(inputs: StripeJobInputs) -> None:
         logger.info(f"No schemas found for source id {inputs.source_id}")
         return
 
-    pipeline = create_pipeline(inputs)
     try:
-        await asyncio.to_thread(_run_pipeline, pipeline, inputs.stripe_secret_key, schemas)
+        await asyncio.to_thread(_run_pipeline, inputs)
     except PipelineStepFailed:
         logger.error(f"Data import failed for endpoint")
         raise
