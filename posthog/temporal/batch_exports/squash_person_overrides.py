@@ -87,35 +87,6 @@ WHERE
     AND created_at >= 0;
 """
 
-SELECT_ID_FROM_OVERRIDE_UUID = """
-SELECT
-    id
-FROM
-    posthog_personoverridemapping
-WHERE
-    team_id = %(team_id)s
-    AND uuid = %(uuid)s;
-"""
-
-DELETE_FROM_PERSON_OVERRIDES = """
-DELETE FROM
-    posthog_personoverride
-WHERE
-    team_id = %(team_id)s
-    AND old_person_id = %(old_person_id)s
-    AND override_person_id = %(override_person_id)s
-    AND version = %(latest_version)s
-RETURNING
-    old_person_id;
-"""
-
-DELETE_FROM_PERSON_OVERRIDE_MAPPINGS = """
-DELETE FROM
-    posthog_personoverridemapping
-WHERE
-    id = %(id)s;
-"""
-
 
 class PersonOverrideToDelete(NamedTuple):
     """A person override that should be deleted after squashing.
@@ -436,6 +407,101 @@ async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) 
     sync_execute(query.format(database=settings.CLICKHOUSE_DATABASE), parameters)
 
 
+class PostgresPersonOverridesManager:
+    def __init__(self, connection, dry_run: bool):
+        self.connection = connection
+        self.dry_run = dry_run
+
+    SELECT_ID_FROM_OVERRIDE_UUID = """
+        SELECT
+            id
+        FROM
+            posthog_personoverridemapping
+        WHERE
+            team_id = %(team_id)s
+            AND uuid = %(uuid)s;
+    """
+
+    DELETE_FROM_PERSON_OVERRIDES = """
+        DELETE FROM
+            posthog_personoverride
+        WHERE
+            team_id = %(team_id)s
+            AND old_person_id = %(old_person_id)s
+            AND override_person_id = %(override_person_id)s
+            AND version = %(latest_version)s
+        RETURNING
+            old_person_id;
+    """
+
+    DELETE_FROM_PERSON_OVERRIDE_MAPPINGS = """
+        DELETE FROM
+            posthog_personoverridemapping
+        WHERE
+            id = %(id)s;
+    """
+
+    def delete(self, person_override: SerializablePersonOverrideToDelete) -> None:
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                self.SELECT_ID_FROM_OVERRIDE_UUID,
+                {
+                    "team_id": person_override.team_id,
+                    "uuid": person_override.old_person_id,
+                },
+            )
+            row = cursor.fetchone()
+            if not row:
+                return
+
+            old_person_id = row[0]
+
+            cursor.execute(
+                self.SELECT_ID_FROM_OVERRIDE_UUID,
+                {
+                    "team_id": person_override.team_id,
+                    "uuid": person_override.override_person_id,
+                },
+            )
+            row = cursor.fetchone()
+            if not row:
+                return
+
+            override_person_id = row[0]
+
+            parameters = {
+                "team_id": person_override.team_id,
+                "old_person_id": old_person_id,
+                "override_person_id": override_person_id,
+                "latest_version": person_override.latest_version,
+            }
+
+            if self.dry_run is True:
+                activity.logger.info("This is a DRY RUN so nothing will be deleted.")
+                activity.logger.info(
+                    "Would have run query: %s with parameters %s",
+                    self.DELETE_FROM_PERSON_OVERRIDES,
+                    parameters,
+                )
+                return
+
+            cursor.execute(self.DELETE_FROM_PERSON_OVERRIDES, parameters)
+            row = cursor.fetchone()
+            if not row:
+                # There is no existing mapping for this (old_person_id, override_person_id) pair.
+                # It could be that a newer one was added (with a later version).
+                return
+
+            deleted_id = row[0]
+
+            cursor.execute(
+                self.DELETE_FROM_PERSON_OVERRIDE_MAPPINGS,
+                {
+                    "id": deleted_id,
+                },
+            )
+
+
 @activity.defn
 async def delete_squashed_person_overrides_from_postgres(inputs: QueryInputs) -> None:
     """Execute the query to delete from Postgres persons that have been squashed.
@@ -454,68 +520,10 @@ async def delete_squashed_person_overrides_from_postgres(inputs: QueryInputs) ->
         port=settings.DATABASES["default"]["PORT"],
         **settings.DATABASES["default"].get("SSL_OPTIONS", {}),
     ) as connection:
-        with connection.cursor() as cursor:
-            for person_override_to_delete in inputs.iter_person_overides_to_delete():
-                activity.logger.debug("%s", person_override_to_delete)
-
-                cursor.execute(
-                    SELECT_ID_FROM_OVERRIDE_UUID,
-                    {
-                        "team_id": person_override_to_delete.team_id,
-                        "uuid": person_override_to_delete.old_person_id,
-                    },
-                )
-
-                row = cursor.fetchone()
-                if not row:
-                    continue
-                old_person_id = row[0]
-
-                cursor.execute(
-                    SELECT_ID_FROM_OVERRIDE_UUID,
-                    {
-                        "team_id": person_override_to_delete.team_id,
-                        "uuid": person_override_to_delete.override_person_id,
-                    },
-                )
-
-                row = cursor.fetchone()
-                if not row:
-                    continue
-
-                override_person_id = row[0]
-
-                parameters = {
-                    "team_id": person_override_to_delete.team_id,
-                    "old_person_id": old_person_id,
-                    "override_person_id": override_person_id,
-                    "latest_version": person_override_to_delete.latest_version,
-                }
-
-                if inputs.dry_run is True:
-                    activity.logger.info("This is a DRY RUN so nothing will be deleted.")
-                    activity.logger.info(
-                        "Would have run query: %s with parameters %s",
-                        DELETE_FROM_PERSON_OVERRIDES,
-                        parameters,
-                    )
-                    continue
-
-                cursor.execute(DELETE_FROM_PERSON_OVERRIDES, parameters)
-
-                row = cursor.fetchone()
-                if not row:
-                    # There is no existing mapping for this (old_person_id, override_person_id) pair.
-                    # It could be that a newer one was added (with a later version).
-                    continue
-                deleted_id = row[0]
-
-                cursor.execute(
-                    DELETE_FROM_PERSON_OVERRIDE_MAPPINGS,
-                    {
-                        "id": deleted_id,
-                    },
-                )
+        person_overrides_manager = PostgresPersonOverridesManager(connection, inputs.dry_run)
+        for person_override_to_delete in inputs.iter_person_overides_to_delete():
+            activity.logger.debug("%s", person_override_to_delete)
+            person_overrides_manager.delete(person_override_to_delete)
 
 
 @contextlib.asynccontextmanager
