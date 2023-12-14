@@ -1,4 +1,4 @@
-from django.contrib.auth.hashers import get_hasher
+from django.contrib.auth.hashers import PBKDF2PasswordHasher
 from django.db import models
 from django.utils import timezone
 
@@ -15,9 +15,8 @@ PERSONAL_API_KEY_SALT = "posthog_personal_api_key"
 
 
 def hash_key_value(value: str) -> str:
-    hasher = get_hasher("pbkdf2_sha256")
-    hasher.iterations = PERSONAL_API_KEY_ITERATIONS
-    return hasher.encode(value, PERSONAL_API_KEY_SALT)
+    hasher = PBKDF2PasswordHasher()
+    return hasher.encode(value, PERSONAL_API_KEY_SALT, iterations=PERSONAL_API_KEY_ITERATIONS)
 
 
 class PersonalAPIKey(models.Model):
