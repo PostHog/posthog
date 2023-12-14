@@ -1,9 +1,18 @@
 import api from 'lib/api'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import posthog from 'posthog-js'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 
-import { PluginType } from '~/types'
+import { PluginConfigTypeNew, PluginType } from '~/types'
+
+export function capturePluginEvent(event: string, plugin: PluginType, pluginConfig: PluginConfigTypeNew): void {
+    posthog.capture(event, {
+        plugin_id: plugin.id,
+        plugin_name: plugin.name,
+        plugin_config_id: pluginConfig.id,
+    })
+}
 
 const PAGINATION_DEFAULT_MAX_PAGES = 10
 export async function loadPaginatedResults(

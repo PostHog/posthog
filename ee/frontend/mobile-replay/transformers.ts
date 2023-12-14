@@ -12,11 +12,13 @@ import {
     textNode,
     wireframe,
     wireframeButton,
+    wireframeCheckBox,
     wireframeDiv,
     wireframeImage,
     wireframeInputComponent,
     wireframePlaceholder,
     wireframeProgress,
+    wireframeRadio,
     wireframeRadioGroup,
     wireframeRectangle,
     wireframeSelect,
@@ -527,6 +529,29 @@ function makeToggleElement(wireframe: wireframeToggle): (elementNode & { id: num
     }
 }
 
+function makeLabelledInput(
+    wireframe: wireframeCheckBox | wireframeRadio | wireframeToggle,
+    theInputElement: serializedNodeWithId
+): serializedNodeWithId {
+    const theLabel: serializedNodeWithId = {
+        type: NodeType.Text,
+        textContent: wireframe.label || '',
+        id: idSequence.next().value,
+    }
+
+    const orderedChildren = wireframe.inputType === 'toggle' ? [theLabel, theInputElement] : [theInputElement, theLabel]
+
+    return {
+        type: NodeType.Element,
+        tagName: 'label',
+        attributes: {
+            style: makeStylesString(wireframe),
+        },
+        id: idSequence.next().value,
+        childNodes: orderedChildren,
+    }
+}
+
 function makeInputElement(
     wireframe: wireframeInputComponent,
     children: serializedNodeWithId[]
@@ -547,7 +572,7 @@ function makeInputElement(
         return makeProgressElement(wireframe, children)
     }
 
-    const theInputElement: (elementNode & { id: number }) | null =
+    const theInputElement: serializedNodeWithId | null =
         wireframe.inputType === 'toggle'
             ? makeToggleElement(wireframe)
             : {
@@ -557,27 +582,13 @@ function makeInputElement(
                   id: wireframe.id,
                   childNodes: children,
               }
+
     if (!theInputElement) {
         return null
     }
 
     if ('label' in wireframe) {
-        return {
-            type: NodeType.Element,
-            tagName: 'label',
-            attributes: {
-                style: makeStylesString(wireframe),
-            },
-            id: idSequence.next().value,
-            childNodes: [
-                theInputElement,
-                {
-                    type: NodeType.Text,
-                    textContent: wireframe.label || '',
-                    id: idSequence.next().value,
-                },
-            ],
-        }
+        return makeLabelledInput(wireframe, theInputElement)
     } else {
         return {
             ...theInputElement,
