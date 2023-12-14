@@ -98,7 +98,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].html_body
 
     @patch("posthoganalytics.capture")
-    def test_send_email_verification(self, mock_capture, MockEmailMessage: MagicMock) -> None:
+    def test_send_email_verification(self, mock_capture: MagicMock, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
         token = email_verification_token_generator.make_token(self.user)
