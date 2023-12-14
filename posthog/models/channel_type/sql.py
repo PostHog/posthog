@@ -5,7 +5,7 @@ from posthog.clickhouse.table_engines import (
     MergeTreeEngine,
     ReplicationScheme,
 )
-from posthog.settings import CLICKHOUSE_CLUSTER
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_PASSWORD
 
 CHANNEL_DEFINITION_TABLE_NAME = "channel_definition"
 CHANNEL_DEFINITION_DICTIONARY_NAME = "channel_definition_dict"
@@ -68,7 +68,7 @@ CREATE DICTIONARY IF NOT EXISTS {CHANNEL_DEFINITION_DICTIONARY_NAME} ON CLUSTER 
     type_if_organic Nullable(String)
 )
 PRIMARY KEY domain, kind
-SOURCE(CLICKHOUSE(TABLE '{CHANNEL_DEFINITION_TABLE_NAME}'))
+SOURCE(CLICKHOUSE(TABLE '{CHANNEL_DEFINITION_TABLE_NAME}' PASSWORD '{CLICKHOUSE_PASSWORD}'))
 LIFETIME(MIN 3000 MAX 3600)
 LAYOUT(COMPLEX_KEY_HASHED())
 """
