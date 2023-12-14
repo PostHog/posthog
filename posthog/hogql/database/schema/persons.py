@@ -15,6 +15,7 @@ from posthog.hogql.database.models import (
     LazyJoin,
     FieldOrTable,
 )
+from posthog.hogql.database.schema.channel_type import create_initial_channel_type
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.database.schema.persons_pdi import PersonsPDITable, persons_pdi_join
 from posthog.schema import HogQLQueryModifiers, PersonsArgMaxVersion
@@ -29,6 +30,9 @@ PERSONS_FIELDS: Dict[str, FieldOrTable] = {
         from_field="id",
         join_table=PersonsPDITable(),
         join_function=persons_pdi_join,
+    ),
+    "$virt_initial_channel_type": create_initial_channel_type(
+        "$virt_initial_channel_type", properties="person.properties"
     ),
 }
 
