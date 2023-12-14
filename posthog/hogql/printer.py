@@ -236,39 +236,28 @@ class _Printer(Visitor):
             next_join = next_join.next_join
 
         if node.select:
-            # Only for ClickHouse: Gather all visible aliases, and/or the last hidden alias for
-            # each unique alias name. Then make the last hidden aliases visible.
             if self.dialect == "clickhouse":
-                visible_aliases = {}
+                # Gather all visible aliases, and/or the last hidden alias for each unique alias name.
+                found_aliases = {}
                 for alias in reversed(node.select):
                     if isinstance(alias, ast.Alias):
-                        if not visible_aliases.get(alias.alias, None) or not alias.hidden:
-                            visible_aliases[alias.alias] = alias
+                        if not found_aliases.get(alias.alias, None) or not alias.hidden:
+                            found_aliases[alias.alias] = alias
 
                 columns = []
                 for column in node.select:
                     if isinstance(column, ast.Alias):
-                        # It's either a visible alias, or the last hidden alias for this name.
-                        if visible_aliases.get(column.alias) == column:
+                        # It's either a visible alias, or the last hidden alias with this name.
+                        if found_aliases.get(column.alias) == column:
                             if column.hidden:
-                                if (
-                                    isinstance(column.expr, ast.Field)
-                                    and isinstance(column.expr.type, ast.FieldType)
-                                    and column.expr.type.name == column.alias
-                                ):
-                                    # Hide the hidden alias only if it's a simple field,
-                                    # and we're using the same name for the field and the alias
-                                    # E.g. events.event AS event --> events.evnet.
-                                    column = column.expr
-                                else:
-                                    # Make the hidden alias visible
-                                    column = cast(ast.Alias, clone_expr(column))
-                                    column.hidden = False
+                                # Make the hidden alias visible
+                                column = cast(ast.Alias, clone_expr(column))
+                                column.hidden = False
                             else:
                                 # Always print visible aliases.
                                 pass
                         else:
-                            # This is not the alias for this unique alias name. Skip it.
+                            # Non-unique hidden alias. Skip.
                             column = column.expr
                     columns.append(self.visit(column))
             else:

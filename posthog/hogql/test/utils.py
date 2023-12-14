@@ -1,9 +1,27 @@
 import dataclasses
 import json
+from typing import Any
+
 from pydantic import BaseModel
 
 
 def pretty_print_in_tests(query: str, team_id: int) -> str:
+    return (
+        query.replace("SELECT", "\nSELECT")
+        .replace("FROM", "\nFROM")
+        .replace("WHERE", "\nWHERE")
+        .replace("GROUP", "\nGROUP")
+        .replace("HAVING", "\nHAVING")
+        .replace("LIMIT", "\nLIMIT")
+        .replace("SETTINGS", "\nSETTINGS")
+        .replace(f"team_id, {team_id})", "team_id, 420)")
+    )
+
+
+def pretty_print_response_in_tests(response: Any, team_id: int) -> str:
+    clickhouse = response.clickhouse
+    hogql = response.hogql
+    query = "-- ClickHouse\n" + clickhouse + "\n\n-- HogQL\n" + hogql
     return (
         query.replace("SELECT", "\nSELECT")
         .replace("FROM", "\nFROM")
