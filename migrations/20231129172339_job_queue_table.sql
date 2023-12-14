@@ -10,7 +10,6 @@ CREATE TABLE job_queue(
     attempt INT NOT NULL DEFAULT 0,
     attempted_at TIMESTAMPTZ DEFAULT NULL,
     attempted_by TEXT[] DEFAULT ARRAY[]::TEXT[],
-    completed_at TIMESTAMPTZ DEFAULT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     errors jsonb[],
     max_attempts INT NOT NULL DEFAULT 1,
@@ -21,3 +20,9 @@ CREATE TABLE job_queue(
     status job_status NOT NULL DEFAULT 'available'::job_status,
     target TEXT NOT NULL
 );
+
+-- Needed for `dequeue` queries
+CREATE INDEX idx_queue_scheduled_at ON job_queue(queue, status, scheduled_at);
+
+-- Needed for UPDATE-ing incomplete jobs with a specific target (i.e. slow destinations)
+CREATE INDEX idx_queue_target ON job_queue(queue, status, target);
