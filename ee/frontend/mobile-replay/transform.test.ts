@@ -453,6 +453,27 @@ describe('replay/transform', () => {
                 ).toMatchSnapshot()
             })
 
+            test('progress rating', () => {
+                expect(
+                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                        type: 2,
+                        data: {
+                            wireframes: [
+                                {
+                                    id: 12365,
+                                    width: 100,
+                                    height: 30,
+                                    type: 'progress',
+                                    max: '12',
+                                    value: '6', // i.e 50%
+                                },
+                            ],
+                        },
+                        timestamp: 1,
+                    })
+                ).toMatchSnapshot()
+            })
+
             test('radio_group', () => {
                 expect(
                     posthogEEModule.mobileReplay?.transformEventToWeb({

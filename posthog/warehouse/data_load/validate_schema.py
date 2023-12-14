@@ -6,6 +6,7 @@ from posthog.warehouse.models import (
     get_table_by_url_pattern_and_source,
     DataWarehouseTable,
     DataWarehouseCredential,
+    get_schema_if_exists,
 )
 from posthog.warehouse.models.external_data_job import ExternalDataJob
 from posthog.temporal.common.logger import bind_temporal_worker_logger
@@ -102,6 +103,13 @@ def validate_schema_and_update_table(run_id: str, team_id: int, schemas: list[st
 
         table_created.columns = table_created.get_columns()
         table_created.save()
+
+        # schema could have been deleted by this point
+        schema_model = get_schema_if_exists(schema_name=_schema_name, team_id=job.team_id, source_id=job.pipeline.id)
+
+        if schema_model:
+            schema_model.table = table_created
+            schema_model.save()
 
     if last_successful_job:
         try:

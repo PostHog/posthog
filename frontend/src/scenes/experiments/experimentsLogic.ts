@@ -81,6 +81,11 @@ export const experimentsLogic = kea<experimentsLogicType>([
                     lemonToast.info('Experiment removed')
                     return values.experiments.filter((experiment) => experiment.id !== id)
                 },
+                archiveExperiment: async (id: number) => {
+                    await api.update(`api/projects/${values.currentTeamId}/experiments/${id}`, { archived: true })
+                    lemonToast.info('Experiment archived')
+                    return values.experiments.filter((experiment) => experiment.id !== id)
+                },
                 addToExperiments: (experiment: Experiment) => {
                     return [...values.experiments, experiment]
                 },

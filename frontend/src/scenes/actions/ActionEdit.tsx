@@ -126,7 +126,7 @@ export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): 
                                     />
                                 )}
                             </Field>
-                            <Field name="tags">
+                            <Field name="tags" className="mt-2">
                                 {({ value, onChange }) => (
                                     <ObjectTags
                                         tags={value ?? []}
