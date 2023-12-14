@@ -15,12 +15,16 @@ use thiserror::Error;
 /// Errors that can originate from sqlx and are wrapped by us to provide additional context.
 #[derive(Error, Debug)]
 pub enum PgQueueError {
+    #[error("pool creation failed with: {error}")]
+    PoolCreationError { error: sqlx::Error },
     #[error("connection failed with: {error}")]
     ConnectionError { error: sqlx::Error },
     #[error("{command} query failed with: {error}")]
     QueryError { command: String, error: sqlx::Error },
     #[error("{0} is not a valid JobStatus")]
     ParseJobStatusError(String),
+    #[error("{0} is not a valid HttpMethod")]
+    ParseHttpMethodError(String),
 }
 
 #[derive(Error, Debug)]
@@ -528,6 +532,7 @@ impl Default for RetryPolicy {
 }
 
 /// A queue implemented on top of a PostgreSQL table.
+#[derive(Clone)]
 pub struct PgQueue {
     /// A name to identify this PgQueue as multiple may share a table.
     name: String,
@@ -560,9 +565,8 @@ impl PgQueue {
         let name = queue_name.to_owned();
         let table = table_name.to_owned();
         let pool = PgPoolOptions::new()
-            .connect(url)
-            .await
-            .map_err(|error| PgQueueError::ConnectionError { error })?;
+            .connect_lazy(url)
+            .map_err(|error| PgQueueError::PoolCreationError { error })?;
 
         Ok(Self {
             name,
