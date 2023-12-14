@@ -69,9 +69,6 @@ export const actionEditLogic = kea<actionEditLogicType>([
     forms(({ actions, props }) => ({
         action: {
             defaults: { ...props.action } as ActionEditType,
-            errors: ({ name }) => ({
-                name: !name ? 'You need to set a name' : null,
-            }),
             submit: (action) => {
                 actions.saveAction(action)
             },

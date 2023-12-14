@@ -153,6 +153,9 @@ export function InsightsTable({
             ),
             key: 'breakdown',
             sorter: (a, b) => {
+                if (typeof a.breakdown_value === 'number' && typeof b.breakdown_value === 'number') {
+                    return a.breakdown_value - b.breakdown_value
+                }
                 const labelA = formatItemBreakdownLabel(a)
                 const labelB = formatItemBreakdownLabel(b)
                 return labelA.localeCompare(labelB)
