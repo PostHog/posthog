@@ -31,7 +31,8 @@ export function AppsManagement(): JSX.Element {
         localPlugins,
     } = useValues(appsManagementLogic)
     const { isDev, isCloudOrDev } = useValues(preflightLogic)
-    const { openModal } = useActions(exportsUnsubscribeModalLogic)
+    const { startUnsubscribe } = useActions(exportsUnsubscribeModalLogic)
+    const { loading } = useValues(exportsUnsubscribeModalLogic)
 
     if (!canInstallPlugins || !canGloballyManagePlugins) {
         return <>You don't have permission to manage apps.</>
@@ -40,7 +41,9 @@ export function AppsManagement(): JSX.Element {
     return (
         <div className="pipeline-apps-management-scene">
             <ExportsUnsubscribeModal />
-            <LemonButton onClick={openModal}>Unsubscribe from batch exports</LemonButton>
+            <LemonButton loading={loading} onClick={startUnsubscribe}>
+                Unsubscribe from batch exports
+            </LemonButton>
             {isCloudOrDev &&
                 (missingGlobalPlugins.length > 0 ||
                     shouldBeGlobalPlugins.length > 0 ||

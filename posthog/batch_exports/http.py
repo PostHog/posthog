@@ -240,15 +240,10 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     serializer_class = BatchExportSerializer
 
     def get_queryset(self):
-        if not isinstance(self.request.user, User) or self.request.user.current_team is None:
+        if not isinstance(self.request.user, User):
             raise NotAuthenticated()
 
-        return (
-            self.queryset.filter(team_id=self.team_id)
-            .exclude(deleted=True)
-            .order_by("-created_at")
-            .prefetch_related("destination")
-        )
+        return super().get_queryset().exclude(deleted=True).order_by("-created_at").prefetch_related("destination")
 
     @action(methods=["POST"], detail=True)
     def backfill(self, request: request.Request, *args, **kwargs) -> response.Response:
@@ -279,14 +274,14 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["POST"], detail=True)
     def pause(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Pause a BatchExport."""
-        if not isinstance(request.user, User) or request.user.current_team is None:
+        if not isinstance(request.user, User):
             raise NotAuthenticated()
 
+        batch_export = self.get_object()
         user_id = request.user.distinct_id
-        team_id = request.user.current_team.id
+        team_id = batch_export.team_id
         note = f"Pause requested by user {user_id} from team {team_id}"
 
-        batch_export = self.get_object()
         temporal = sync_connect()
 
         try:
@@ -349,10 +344,8 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 cancel_running_batch_export_backfill(temporal, backfill.workflow_id)
 
 
-class BatchExportOrganizationViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+class BatchExportOrganizationViewSet(BatchExportViewSet):
     permission_classes = [IsAuthenticated, OrganizationMemberPermissions]
-    serializer_class = BatchExportSerializer
-    queryset = BatchExport.objects.select_related("team")
     filter_rewrite_rules = {"organization_id": "team__organization_id"}
 
 

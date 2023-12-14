@@ -13,8 +13,6 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useEffect } from 'react'
-import { ExportsUnsubscribeModal } from 'scenes/pipeline/ExportsUnsubscribeModal'
-import { exportsUnsubscribeModalLogic } from 'scenes/pipeline/ExportsUnsubscribeModal/exportsUnsubscribeModalLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -45,7 +43,6 @@ export function Billing(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const cloudOrDev = preflight?.cloud || preflight?.is_debug
     const { openSupportForm } = useActions(supportLogic)
-    const { openModal } = useActions(exportsUnsubscribeModalLogic)
 
     useEffect(() => {
         if (billing) {
@@ -130,7 +127,6 @@ export function Billing(): JSX.Element {
         <div ref={ref}>
             {!isOnboarding && (
                 <div className="flex justify-between">
-                    <ExportsUnsubscribeModal />
                     <BillingPageHeader />
                     {billing?.has_active_subscription && (
                         <div>
@@ -143,7 +139,6 @@ export function Billing(): JSX.Element {
                             >
                                 Manage card details
                             </LemonButton>
-                            <LemonButton onClick={openModal}>Unsubscribe from batch exports</LemonButton>
                         </div>
                     )}
                 </div>
