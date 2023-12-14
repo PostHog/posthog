@@ -22,6 +22,7 @@ from posthog.test.base import (
     _create_event,
 )
 from freezegun import freeze_time
+from django.test import override_settings
 
 
 class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -72,8 +73,6 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
             where=None,
-            limit=ast.Constant(value=101),
-            offset=ast.Constant(value=0),
             order_by=[ast.OrderExpr(expr=ast.Field(chain=["created_at"]), order="DESC")],
         )
         assert clear_locations(query) == expected
@@ -178,7 +177,21 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results, [[f"jacob7@{self.random_uuid}.posthog.com"]])
         self.assertEqual(response.hasMore, True)
 
-    def test_source_hogql_query(self):
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    def test_source_hogql_query_poe_on(self):
+        self.random_uuid = self._create_random_persons()
+        source_query = HogQLQuery(query="SELECT distinct person_id FROM events WHERE event='clicky-4'")
+        query = PersonsQuery(
+            select=["properties.email"],
+            orderBy=["properties.email DESC"],
+            source=source_query,
+        )
+        runner = self._create_runner(query)
+        response = runner.calculate()
+        self.assertEqual(response.results, [[f"jacob4@{self.random_uuid}.posthog.com"]])
+
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_source_hogql_query_poe_off(self):
         self.random_uuid = self._create_random_persons()
         source_query = HogQLQuery(query="SELECT distinct person_id FROM events WHERE event='clicky-4'")
         query = PersonsQuery(
