@@ -35,7 +35,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 )
         return person_result
 
-    def _run_web_overview_query(self, date_from, date_to):
+    def _run_web_stats_table_query(self, date_from, date_to):
         query = WebStatsTableQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to), properties=[], breakdownBy=WebStatsBreakdown.Page
         )
@@ -43,8 +43,8 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         return runner.calculate()
 
     def test_no_crash_when_no_data(self):
-        results = self._run_web_overview_query("2023-12-08", "2023-12-15").results
-        self.assertEqual(5, len(results))
+        results = self._run_web_stats_table_query("2023-12-08", "2023-12-15").results
+        self.assertEqual([], results)
 
     def test_increase_in_users(self):
         self._create_events(
@@ -54,7 +54,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        results = self._run_web_overview_query("2023-12-01", "2023-12-11").results
+        results = self._run_web_stats_table_query("2023-12-01", "2023-12-11").results
 
         self.assertEqual(
             [
@@ -72,7 +72,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ]
         )
 
-        results = self._run_web_overview_query("all", "2023-12-15").results
+        results = self._run_web_stats_table_query("all", "2023-12-15").results
 
         self.assertEqual(
             [
@@ -87,7 +87,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Create 1 test account
         self._create_events([("test", [("2023-12-02", "s1", "/"), ("2023-12-03", "s1", "/login")])])
 
-        results = self._run_web_overview_query("2023-12-01", "2023-12-03").results
+        results = self._run_web_stats_table_query("2023-12-01", "2023-12-03").results
 
         self.assertEqual(
             [],
