@@ -351,7 +351,9 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False)
     def exports_unsubscribe_configs(self, request: request.Request, **kwargs):
         # return all the plugin_configs for the org that are not global transformation/filter plugins
-        allowed_plugins_q = Q(plugin__capabilities__methods__contains=["processEvent"]) | Q(plugin__capabilities={})
+        allowed_plugins_q = Q(plugin__is_global=True) & (
+            Q(plugin__capabilities__methods__contains=["processEvent"]) | Q(plugin__capabilities={})
+        )
         plugin_configs = PluginConfig.objects.filter(
             Q(team__organization_id=self.organization_id, enabled=True) & ~allowed_plugins_q
         )
