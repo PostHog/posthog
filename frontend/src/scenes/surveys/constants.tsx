@@ -54,7 +54,7 @@ export const defaultSurveyFieldValues = {
             },
         ],
         appearance: {
-            thankYouMessageHeader: 'Redirecting ...',
+            thankYouMessageHeader: 'Thank you for your feedback!',
         },
     },
     [SurveyQuestionType.Rating]: {
