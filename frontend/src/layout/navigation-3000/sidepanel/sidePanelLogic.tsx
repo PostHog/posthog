@@ -125,7 +125,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
     }),
 
     afterMount(({ values }) => {
-        if (values.shouldShowWelcomeAnnouncement) {
+        if (!values.sidePanelOpen && values.shouldShowWelcomeAnnouncement) {
             sidePanelStateLogic.findMounted()?.actions.openSidePanel(SidePanelTab.Welcome)
         }
     }),
