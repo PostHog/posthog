@@ -419,6 +419,20 @@
   
   '
 ---
+# name: test_create_table_query[channel_definition]
+  '
+  
+  CREATE TABLE IF NOT EXISTS channel_definition ON CLUSTER 'posthog' (
+      domain String NOT NULL,
+      kind String NOT NULL,
+      domain_type String NULL,
+      type_if_paid String NULL,
+      type_if_organic String NULL
+  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.channel_definition', '{replica}-{shard}')
+  ORDER BY (domain, kind);
+  
+  '
+---
 # name: test_create_table_query[cohortpeople]
   '
   
@@ -1879,6 +1893,20 @@
   , _partition UInt64
   
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_performance_events', sipHash64(session_id))
+  
+  '
+---
+# name: test_create_table_query_replicated_and_storage[channel_definition]
+  '
+  
+  CREATE TABLE IF NOT EXISTS channel_definition ON CLUSTER 'posthog' (
+      domain String NOT NULL,
+      kind String NOT NULL,
+      domain_type String NULL,
+      type_if_paid String NULL,
+      type_if_organic String NULL
+  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.channel_definition', '{replica}-{shard}')
+  ORDER BY (domain, kind);
   
   '
 ---
