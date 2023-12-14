@@ -137,6 +137,35 @@ class PersonsQueryRunner(QueryRunner):
         default_rows = get_default_limit_for_context(self.limit_context)
         return min(max_rows, default_rows if self.query.limit is None else self.query.limit)
 
+    def source_id_column(self, source_query: ast.SelectQuery) -> List[str]:
+        # Figure out the id column of the source query, first column that has id in the name
+        for column in source_query.select:
+            if isinstance(column, ast.Field) and any("id" in part.lower() for part in column.chain):
+                return column.chain
+        raise ValueError("Source query must have an id column")
+
+    def source_table_join(self) -> ast.JoinExpr:
+        source_query_runner = get_query_runner(self.query.source, self.team, self.timings)
+        source_query = source_query_runner.to_persons_query()
+        source_id_chain = self.source_id_column(source_query)
+        source_alias = "source"
+
+        return ast.JoinExpr(
+            table=ast.Field(chain=["persons"]),
+            next_join=ast.JoinExpr(
+                table=source_query,
+                join_type="INNER JOIN",
+                alias=source_alias,
+                constraint=ast.JoinConstraint(
+                    expr=ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["persons", "id"]),
+                        right=ast.Field(chain=[source_alias, *source_id_chain]),
+                    )
+                ),
+            ),
+        )
+
     def to_query(self) -> ast.SelectQuery:
         # TODO: Make sure this group stuff is correct
         if self.aggregation_group_type_index is not None:
@@ -212,30 +241,7 @@ class PersonsQueryRunner(QueryRunner):
 
         with self.timings.measure("select"):
             if self.query.source:
-                source_query_runner = get_query_runner(self.query.source, self.team, self.timings)
-                source_query = source_query_runner.to_persons_query()
-                # Figure out the id column of the source query, first column that has id in the name
-                source_id_chain = []
-                for column in source_query.select:
-                    if isinstance(column, ast.Field) and any("id" in part.lower() for part in column.chain):
-                        source_id_chain = column.chain
-                        break
-                source_alias = "source"
-                join_expr = ast.JoinExpr(
-                    table=ast.Field(chain=["persons"]),
-                    next_join=ast.JoinExpr(
-                        table=source_query,
-                        join_type="INNER JOIN",
-                        alias=source_alias,
-                        constraint=ast.JoinConstraint(
-                            expr=ast.CompareOperation(
-                                op=ast.CompareOperationOp.Eq,
-                                left=ast.Field(chain=["persons", "id"]),
-                                right=ast.Field(chain=[source_alias, *source_id_chain]),
-                            )
-                        ),
-                    ),
-                )
+                join_expr = self.source_table_join()
             else:
                 join_expr = ast.JoinExpr(table=ast.Field(chain=["persons"]))
 
