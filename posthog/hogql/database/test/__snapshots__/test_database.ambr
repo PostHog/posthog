@@ -285,7 +285,8 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_channel_type"
               ]
           }
       ],
@@ -427,7 +428,8 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_channel_type"
               ]
           }
       ],
@@ -450,7 +452,8 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_channel_type"
               ]
           }
       ],
@@ -636,7 +639,8 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_channel_type"
               ]
           },
           {
@@ -725,7 +729,8 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_channel_type"
               ]
           },
           {
@@ -1054,7 +1059,8 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_channel_type"
               ]
           }
       ],
@@ -1196,7 +1202,8 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_channel_type"
               ]
           }
       ],
@@ -1219,7 +1226,8 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_channel_type"
               ]
           }
       ],
@@ -1405,7 +1413,8 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_channel_type"
               ]
           },
           {
@@ -1494,7 +1503,8 @@
                   "team_id",
                   "properties",
                   "is_identified",
-                  "pdi"
+                  "pdi",
+                  "$virt_initial_channel_type"
               ]
           },
           {
