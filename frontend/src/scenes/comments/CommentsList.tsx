@@ -20,7 +20,7 @@ export const CommentsList = (props: CommentsLogicProps): JSX.Element => {
                     <LemonSkeleton className="h-10 w-full" />
                 </div>
             ) : !comments?.length ? (
-                <p>No comments</p>
+                <div className="rounded p-4 text-center">No discussion here yet...</div>
             ) : null}
 
             <div className="space-y-2">
