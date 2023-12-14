@@ -8,6 +8,7 @@ import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { DEFAULT_DECIMAL_PLACES } from 'lib/utils'
 import posthog from 'posthog-js'
 import { ReactNode } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -184,8 +185,6 @@ function ConfigFilter({ children }: { children: ReactNode }): JSX.Element {
     return <span className="space-x-2 flex items-center text-sm">{children}</span>
 }
 
-export const DEFAULT_decimal_places = 2
-
 function DecimalPrecisionInput(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { trendsFilter } = useValues(insightVizDataLogic(insightProps))
@@ -204,7 +203,7 @@ function DecimalPrecisionInput(): JSX.Element {
             step={1}
             min={0}
             max={5}
-            defaultValue={DEFAULT_decimal_places}
+            defaultValue={DEFAULT_DECIMAL_PLACES}
             value={trendsFilter?.decimal_places}
             onChange={(value) => {
                 updateInsightFilter({
