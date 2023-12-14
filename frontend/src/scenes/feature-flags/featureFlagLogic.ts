@@ -230,7 +230,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         triggerFeatureFlagUpdate: (payload: Partial<FeatureFlagType>) => ({ payload }),
         generateUsageDashboard: true,
         enrichUsageDashboard: true,
-        setId: (id: number | null) => ({ id }),
+        setFeatureFlagId: (id: number | null) => ({ id }),
         setCopyDestinationProject: (id: number | null) => ({ id }),
         setScheduleDateMarker: (dateMarker: any) => ({ dateMarker }),
         setScheduledChangeField: (changeType: string | null) => ({ changeType }),
@@ -445,7 +445,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         surveys: [...(state.surveys || []), newSurvey],
                     }
                 },
-                setId: (state, { id }) => ({ ...state, id }),
+                setFeatureFlagId: (state, { id }) => ({ ...state, id }),
             },
         ],
         featureFlagMissing: [false, { setFeatureFlagMissing: () => true }],
