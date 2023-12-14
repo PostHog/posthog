@@ -124,7 +124,6 @@ export const billingLogic = kea<billingLogicType>([
                     lemonToast.success('Billing limits updated')
                     return parseBillingResponse(response)
                 },
-
                 deactivateProduct: async (key: string) => {
                     const response = await api.get('api/billing-v2/deactivate?products=' + key)
                     lemonToast.success('Product unsubscribed')

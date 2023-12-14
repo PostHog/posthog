@@ -17,9 +17,10 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, compactNumber } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { ExportsUnsubscribeModal, exportsUnsubscribeModalLogic } from 'scenes/pipeline/ExportsUnsubscribeModal'
 import { getProductIcon } from 'scenes/products/Products'
 
-import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
+import { AvailableFeature, BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
 
 import { convertLargeNumberToWords, getUpgradeProductLink, summarizeUsage } from './billing-utils'
 import { BillingGauge, BillingGauge3000 } from './BillingGauge'
@@ -45,9 +46,32 @@ export const getTierDescription = (
         : `> ${summarizeUsage(tiers?.[i - 1].up_to || null)}`
 }
 
+const RemoveAddOnButton = (addon: BillingProductV2AddonType): JSX.Element => {
+    // Some products require extra steps before unsubscribing
+    if (addon.type === AvailableFeature.DATA_PIPELINES) {
+        const { startUnsubscribe } = useActions(exportsUnsubscribeModalLogic)
+        const { loading } = useValues(exportsUnsubscribeModalLogic)
+        return (
+            <>
+                <ExportsUnsubscribeModal />
+                <LemonButton status="stealth" fullWidth loading={loading} onClick={() => startUnsubscribe}>
+                    Remove addon
+                </LemonButton>
+            </>
+        )
+    }
+
+    // Default unsubscribe path
+    const { deactivateProduct } = useActions(billingLogic)
+    return (
+        <LemonButton status="stealth" fullWidth onClick={() => deactivateProduct(addon.type)}>
+            Remove addon
+        </LemonButton>
+    )
+}
+
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
     const { billing, redirectPath } = useValues(billingLogic)
-    const { deactivateProduct } = useActions(billingLogic)
     const { isPricingModalOpen, currentAndUpgradePlans } = useValues(billingProductLogic({ product: addon }))
     const { toggleIsPricingModalOpen } = useActions(billingProductLogic({ product: addon }))
 
@@ -87,19 +111,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                     )}
                     {addon.subscribed ? (
                         <>
-                            <More
-                                overlay={
-                                    <>
-                                        <LemonButton
-                                            status="stealth"
-                                            fullWidth
-                                            onClick={() => deactivateProduct(addon.type)}
-                                        >
-                                            Remove addon
-                                        </LemonButton>
-                                    </>
-                                }
-                            />
+                            <More overlay={RemoveAddOnButton(addon)} />
                         </>
                     ) : addon.included_with_main_product ? (
                         <LemonTag type="completion" icon={<IconCheckmark />}>

@@ -91,6 +91,7 @@ export enum AvailableFeature {
     SURVEYS_STYLING = 'surveys_styling',
     SURVEYS_TEXT_HTML = 'surveys_text_html',
     SURVEYS_MULTIPLE_QUESTIONS = 'surveys_multiple_questions',
+    DATA_PIPELINES = 'data_pipelines',
 }
 
 export enum ProductKey {

@@ -87,7 +87,7 @@ export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2T
                                 textAreaNotEmpty
                                     ? reportSurveySent(surveyID, surveyResponse)
                                     : reportSurveyDismissed(surveyID)
-                                deactivateProduct(product.type)
+                                deactivateProduct(product.type) // TODO: Not sure if this needs to be changed for data pipelines unsubscribe too or not
                             }}
                         >
                             Unsubscribe

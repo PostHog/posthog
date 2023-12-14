@@ -1,12 +1,12 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { IconDatabase } from 'lib/lemon-ui/icons'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { BatchExportConfiguration, PluginConfigTypeNew } from '~/types'
+import { AvailableFeature, BatchExportConfiguration, PluginConfigTypeNew } from '~/types'
 
 import { pipelineTransformationsLogic } from '../transformationsLogic'
 import { RenderApp } from '../utils'
@@ -26,6 +26,7 @@ export const exportsUnsubscribeModalLogic = kea<exportsUnsubscribeModalLogicType
     path(['scenes', 'pipeline', 'exportsUnsubscribeModalLogic']),
     connect({
         values: [pluginsLogic, ['plugins'], pipelineTransformationsLogic, ['canConfigurePlugins'], userLogic, ['user']],
+        actions: [billingLogic, ['deactivateProduct']],
     }),
 
     actions({
@@ -134,13 +135,6 @@ export const exportsUnsubscribeModalLogic = kea<exportsUnsubscribeModalLogicType
         ],
     }),
     listeners(({ actions, values }) => ({
-        // Usage guide:
-        // const { startUnsubscribe } = useActions(exportsUnsubscribeModalLogic)
-        // const { loading } = useValues(exportsUnsubscribeModalLogic)
-        // return (<>
-        //   <ExportsUnsubscribeModal />
-        //   <LemonButton loading={loading} onClick={startUnsubscribe}>Unsubscribe from data pipelines</LemonButton>
-        // </>)
         startUnsubscribe() {
             if (values.loading || values.unsubscribeDisabledReason) {
                 actions.openModal()
@@ -150,8 +144,7 @@ export const exportsUnsubscribeModalLogic = kea<exportsUnsubscribeModalLogicType
         },
         completeUnsubscribe() {
             actions.closeModal()
-            lemonToast.success('Successfully unsubscribed from all data pipelines')
-            // TODO: whatever needs to happen for the actual unsubscription
+            actions.deactivateProduct(AvailableFeature.DATA_PIPELINES)
         },
     })),
     afterMount(({ actions }) => {
