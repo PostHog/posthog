@@ -154,6 +154,7 @@ class QueryInputs:
     person_overrides_to_delete: list[SerializablePersonOverrideToDelete] = field(default_factory=list)
     dictionary_name: str = "person_overrides_join_dict"
     dry_run: bool = True
+    overrides_manager: str = "mappings"  # XXX
     _latest_created_at: str | datetime | None = None
 
     def __post_init__(self) -> None:
@@ -182,6 +183,9 @@ class QueryInputs:
         """
         for person_override_to_delete in self.person_overrides_to_delete:
             yield SerializablePersonOverrideToDelete(*person_override_to_delete)
+
+    def get_overrides_manager(self, connection):
+        return PERSON_OVERRIDES_MANAGERS[self.overrides_manager](connection)
 
 
 @activity.defn
@@ -661,6 +665,12 @@ class FlatPostgresPersonOverridesManager:
             )
 
 
+PERSON_OVERRIDES_MANAGERS = {
+    "mappings": PostgresPersonOverridesManager,
+    "flat": FlatPostgresPersonOverridesManager,
+}
+
+
 @activity.defn
 async def delete_squashed_person_overrides_from_postgres(inputs: QueryInputs) -> None:
     """Execute the query to delete from Postgres persons that have been squashed.
@@ -679,7 +689,7 @@ async def delete_squashed_person_overrides_from_postgres(inputs: QueryInputs) ->
         port=settings.DATABASES["default"]["PORT"],
         **settings.DATABASES["default"].get("SSL_OPTIONS", {}),
     ) as connection:
-        person_overrides_manager = PostgresPersonOverridesManager(connection)
+        person_overrides_manager = inputs.get_overrides_manager(connection)
         for person_override_to_delete in inputs.iter_person_overides_to_delete():
             activity.logger.debug("%s", person_override_to_delete)
             person_overrides_manager.delete(person_override_to_delete, inputs.dry_run)
@@ -746,6 +756,7 @@ class SquashPersonOverridesInputs:
     dictionary_name: str = "person_overrides_join_dict"
     last_n_months: int = 1
     dry_run: bool = True
+    overrides_manager: str = "mappings"
 
     def iter_partition_ids(self) -> Iterator[str]:
         """Iterate over configured partition ids.
@@ -865,6 +876,7 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
             dictionary_name=inputs.dictionary_name,
             team_ids=inputs.team_ids,
             dry_run=inputs.dry_run,
+            overrides_manager=inputs.overrides_manager,
         )
 
         async with person_overrides_dictionary(
