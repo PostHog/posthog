@@ -1,6 +1,7 @@
 import './SidePanel.scss'
 
 import {
+    IconChat,
     IconConfetti,
     IconEllipsis,
     IconFeatures,
@@ -21,6 +22,7 @@ import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
 import { SidePanelTab } from '~/types'
 
 import { SidePanelActivity } from './panels/activity/SidePanelActivity'
+import { SidePanelDiscussion } from './panels/discussion/SidePanelDiscussion'
 import { SidePanelActivation, SidePanelActivationIcon } from './panels/SidePanelActivation'
 import { SidePanelDocs } from './panels/SidePanelDocs'
 import { SidePanelFeaturePreviews } from './panels/SidePanelFeaturePreviews'
@@ -68,6 +70,11 @@ export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; C
         label: 'Activity',
         Icon: IconNotification,
         Content: SidePanelActivity,
+    },
+    [SidePanelTab.Discussion]: {
+        label: 'Discussion',
+        Icon: IconChat,
+        Content: SidePanelDiscussion,
     },
     [SidePanelTab.Welcome]: {
         label: "What's new?",

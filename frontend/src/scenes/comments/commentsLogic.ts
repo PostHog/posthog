@@ -17,6 +17,7 @@ export const commentsLogic = kea<commentsLogicType>([
     key((props) => `${props.scope}-${props.item_id || ''}`),
     actions({
         loadComments: true,
+        loadCommentCount: true,
         setComposedComment: (content: string) => ({ content }),
         sendComposedContent: true,
     }),
@@ -31,6 +32,17 @@ export const commentsLogic = kea<commentsLogicType>([
         ],
     }),
     loaders(({ props, values }) => ({
+        commentCount: [
+            0,
+            {
+                loadCommentCount: async () => {
+                    return await api.comments.getCount({
+                        scope: props.scope,
+                        item_id: props.item_id,
+                    })
+                },
+            },
+        ],
         comments: [
             null as CommentType[] | null,
             {
@@ -57,6 +69,6 @@ export const commentsLogic = kea<commentsLogicType>([
     })),
 
     afterMount(({ actions }) => {
-        actions.loadComments()
+        actions.loadCommentCount()
     }),
 ])

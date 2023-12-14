@@ -95,3 +95,10 @@ class CommentViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelV
     @action(methods=["GET"], detail=True)
     def thread(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self.list(request, *args, **kwargs)
+
+    @action(methods=["GET"], detail=False)
+    def count(self, request: Request, **kwargs) -> Response:
+        queryset = self.get_queryset()
+        count = queryset.count()
+
+        return Response({"count": count})

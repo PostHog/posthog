@@ -1,11 +1,17 @@
 import { LemonSkeleton } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { Comment } from './Comment'
 import { commentsLogic, CommentsLogicProps } from './commentsLogic'
 
 export const CommentsList = (props: CommentsLogicProps): JSX.Element => {
     const { comments, commentsLoading } = useValues(commentsLogic(props))
+    const { loadComments } = useActions(commentsLogic(props))
+
+    useEffect(() => {
+        loadComments()
+    }, [])
 
     return (
         <div className="flex flex-col">

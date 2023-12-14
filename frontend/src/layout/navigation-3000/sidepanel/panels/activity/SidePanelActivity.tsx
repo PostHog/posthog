@@ -11,7 +11,6 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/activity/notificationsLogic'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
-import { SidePanelComments } from './SidePanelComments'
 
 const SCROLL_TRIGGER_OFFSET = 100
 
@@ -72,10 +71,6 @@ export const SidePanelActivity = (): JSX.Element => {
                             {
                                 key: SidePanelActivityTab.All,
                                 label: 'All activity',
-                            },
-                            {
-                                key: SidePanelActivityTab.Comments,
-                                label: 'Comments',
                             },
                         ]}
                     />
@@ -147,8 +142,6 @@ export const SidePanelActivity = (): JSX.Element => {
                                 <p>You're all caught up!</p>
                             )}
                         </div>
-                    ) : activeTab === SidePanelActivityTab.Comments ? (
-                        <SidePanelComments />
                     ) : null}
                 </div>
             </div>

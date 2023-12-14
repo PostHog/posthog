@@ -27,7 +27,6 @@ export interface ChangesResponse {
 export enum SidePanelActivityTab {
     Unread = 'unread',
     All = 'all',
-    Comments = 'comments',
 }
 
 export const notificationsLogic = kea<notificationsLogicType>([

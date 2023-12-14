@@ -17,6 +17,7 @@ const ALWAYS_EXTRA_TABS = [
     SidePanelTab.FeaturePreviews,
     SidePanelTab.Activity,
     SidePanelTab.Welcome,
+    SidePanelTab.Discussion,
 ]
 
 export const sidePanelLogic = kea<sidePanelLogicType>([
@@ -90,6 +91,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 if (isReady && !hasCompletedAllTasks) {
                     tabs.push(SidePanelTab.Activation)
                 }
+                tabs.push(SidePanelTab.Discussion)
                 tabs.push(SidePanelTab.Activity)
                 tabs.push(SidePanelTab.FeaturePreviews)
                 tabs.push(SidePanelTab.Welcome)

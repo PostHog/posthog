@@ -872,6 +872,7 @@ const api = {
             return new ApiRequest().comment(id, teamId).get()
         },
 
+        // TODO: Abstract params between list and getCount
         async list(
             params: {
                 scope?: CommentType['scope']
@@ -879,6 +880,10 @@ const api = {
             } = {}
         ): Promise<CountedPaginatedResponse<CommentType>> {
             return new ApiRequest().comments().withQueryString(params).get()
+        },
+
+        async getCount(params: { scope?: CommentType['scope']; item_id?: CommentType['item_id'] }): Promise<number> {
+            return (await new ApiRequest().comments().withAction('count').withQueryString(params).get()).count
         },
     },
 

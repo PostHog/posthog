@@ -3214,7 +3214,7 @@ export type CommentType = {
     created_at?: string
     created_by?: UserBasicType | null
     source_comment_id: string | null
-    scope: 'Notebook' | 'Dashboard'
+    scope: 'Misc' | 'Notebook' | 'Dashboard' | 'Person' | 'FeatureFlag' | 'Experiment' | 'Replay' | 'Insight' | 'Cohort'
     item_id?: string
 }
 
@@ -3521,4 +3521,5 @@ export enum SidePanelTab {
     Welcome = 'welcome',
     FeaturePreviews = 'feature-previews',
     Activity = 'activity',
+    Discussion = 'discussion',
 }
