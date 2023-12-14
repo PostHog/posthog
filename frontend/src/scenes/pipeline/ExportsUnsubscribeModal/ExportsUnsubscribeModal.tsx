@@ -4,16 +4,13 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 
-import { RenderApp } from '../utils'
 import { exportsUnsubscribeModalLogic } from './exportsUnsubscribeModalLogic'
 
 export function ExportsUnsubscribeModal(): JSX.Element {
-    const { plugins } = useValues(pluginsLogic)
-    const { modalOpen, unsubscribeDisabledReason, loading, pluginConfigsToDisable } =
-        useValues(exportsUnsubscribeModalLogic)
-    const { closeModal, disablePlugin } = useActions(exportsUnsubscribeModalLogic)
+    const { modalOpen, unsubscribeDisabledReason, loading, itemsToDisable } = useValues(exportsUnsubscribeModalLogic)
+    const { closeModal, disablePlugin, pauseBatchExport, completeUnsubscribe } =
+        useActions(exportsUnsubscribeModalLogic)
     const { currentOrganization } = useValues(organizationLogic)
 
     if (!currentOrganization) {
@@ -35,7 +32,7 @@ export function ExportsUnsubscribeModal(): JSX.Element {
                     <LemonButton
                         loading={loading}
                         type="primary"
-                        onClick={() => {}} // TODO: replace with the real unsubscribe callback
+                        onClick={completeUnsubscribe}
                         disabledReason={unsubscribeDisabledReason}
                     >
                         Unsubscribe
@@ -44,30 +41,30 @@ export function ExportsUnsubscribeModal(): JSX.Element {
             }
         >
             <LemonTable
-                dataSource={Object.values(pluginConfigsToDisable)}
+                dataSource={itemsToDisable}
                 size="xs"
                 loading={loading}
                 columns={[
                     {
                         title: 'Team',
-                        render: function RenderTeam(_, pluginConfig) {
-                            return currentOrganization.teams.find((team) => team.id === pluginConfig.team_id)?.name
+                        render: function RenderTeam(_, item) {
+                            return currentOrganization.teams.find((team) => team.id === item.team_id)?.name
                         },
                     },
                     {
-                        render: function RenderAppInfo(_, pluginConfig) {
-                            return <RenderApp plugin={plugins[pluginConfig.plugin]} />
+                        render: function RenderAppInfo(_, item) {
+                            return item.icon
                         },
                     },
                     {
                         title: 'Name',
-                        render: function RenderPluginName(_, pluginConfig) {
+                        render: function RenderPluginName(_, item) {
                             return (
                                 <>
-                                    <span className="row-name">{pluginConfig.name}</span>
-                                    {pluginConfig.description && (
+                                    <span className="row-name">{item.name}</span>
+                                    {item.description && (
                                         <LemonMarkdown className="row-description" lowKeyHeadings>
-                                            {pluginConfig.description}
+                                            {item.description}
                                         </LemonMarkdown>
                                     )}
                                 </>
@@ -76,12 +73,18 @@ export function ExportsUnsubscribeModal(): JSX.Element {
                     },
                     {
                         title: '',
-                        render: function RenderPluginDisable(_, pluginConfig) {
+                        render: function RenderPluginDisable(_, item) {
                             return (
                                 <LemonButton
                                     type="secondary"
-                                    onClick={() => disablePlugin(pluginConfig.id)}
-                                    disabledReason={pluginConfig.enabled ? null : 'Already disabled'}
+                                    onClick={() => {
+                                        if (item.plugin_config_id !== undefined) {
+                                            disablePlugin(item.plugin_config_id)
+                                        } else if (item.batch_export_id !== undefined) {
+                                            pauseBatchExport(item.batch_export_id)
+                                        }
+                                    }}
+                                    disabledReason={item.disabled ? 'Already disabled' : null}
                                 >
                                     Disable
                                 </LemonButton>
@@ -90,7 +93,6 @@ export function ExportsUnsubscribeModal(): JSX.Element {
                     },
                 ]}
             />
-            {/* "Show a table with team(project), plugin/export and disable" */}
         </LemonModal>
     )
 }
