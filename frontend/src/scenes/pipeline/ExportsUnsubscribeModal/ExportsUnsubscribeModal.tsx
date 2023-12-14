@@ -3,12 +3,14 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 
 import { RenderApp } from '../utils'
 import { exportsUnsubscribeModalLogic } from './exportsUnsubscribeModalLogic'
 
 export function ExportsUnsubscribeModal(): JSX.Element {
-    const { modalOpen, unsubscribeDisabled, loading, pluginConfigs, plugins } = useValues(exportsUnsubscribeModalLogic)
+    const { plugins } = useValues(pluginsLogic)
+    const { modalOpen, unsubscribeDisabled, loading, pluginConfigsToDisable } = useValues(exportsUnsubscribeModalLogic)
     const { closeModal } = useActions(exportsUnsubscribeModalLogic)
 
     return (
@@ -35,10 +37,15 @@ export function ExportsUnsubscribeModal(): JSX.Element {
             }
         >
             <LemonTable
-                dataSource={Object.values(pluginConfigs)}
+                dataSource={pluginConfigsToDisable}
                 size="xs"
                 loading={loading}
                 columns={[
+                    {
+                        render: function RenderAppInfo(_, pluginConfig) {
+                            return <RenderApp plugin={plugins[pluginConfig.plugin]} />
+                        },
+                    },
                     {
                         title: 'Name',
                         sticky: true,
@@ -52,12 +59,6 @@ export function ExportsUnsubscribeModal(): JSX.Element {
                                     )}
                                 </>
                             )
-                        },
-                    },
-                    {
-                        title: 'App',
-                        render: function RenderAppInfo(_, pluginConfig) {
-                            return <RenderApp plugin={plugins[pluginConfig.plugin]} />
                         },
                     },
                 ]}
