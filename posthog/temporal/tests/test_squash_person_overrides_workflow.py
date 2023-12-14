@@ -976,14 +976,9 @@ async def test_delete_squashed_person_overrides_from_postgres(
     # These are sanity checks to ensure the fixtures are working properly.
     # If any assertions fail here, its likely a test setup issue.
     with pg_connection:
-        with pg_connection.cursor() as cursor:
-            cursor.execute("SELECT id, team_id, uuid FROM posthog_personoverridemapping")
-            mappings = cursor.fetchall()
-            assert len(mappings) == 2
-
-            cursor.execute("SELECT * FROM posthog_personoverride")
-            overrides = cursor.fetchall()
-            assert len(overrides) == 1
+        assert PostgresPersonOverridesManager(pg_connection).fetchall(team_id) == [
+            (team_id, person_overrides.old_person_id, person_overrides.override_person_id)
+        ]
 
     person_overrides_to_delete = [
         SerializablePersonOverrideToDelete(
@@ -1001,15 +996,7 @@ async def test_delete_squashed_person_overrides_from_postgres(
     await activity_environment.run(delete_squashed_person_overrides_from_postgres, query_inputs)
 
     with pg_connection:
-        with pg_connection.cursor() as cursor:
-            cursor.execute("SELECT team_id, uuid FROM posthog_personoverridemapping")
-            mappings = cursor.fetchall()
-            assert len(mappings) == 1
-            assert mappings[0][1] == person_overrides.override_person_id
-
-            cursor.execute("SELECT * FROM posthog_personoverride")
-            overrides = cursor.fetchall()
-            assert len(overrides) == 0
+        assert PostgresPersonOverridesManager(pg_connection).fetchall(team_id) == []
 
 
 @pytest.mark.django_db
@@ -1021,14 +1008,9 @@ async def test_delete_squashed_person_overrides_from_postgres_dry_run(
     # These are sanity checks to ensure the fixtures are working properly.
     # If any assertions fail here, its likely a test setup issue.
     with pg_connection:
-        with pg_connection.cursor() as cursor:
-            cursor.execute("SELECT id, team_id, uuid FROM posthog_personoverridemapping")
-            mappings = cursor.fetchall()
-            assert len(mappings) == 2
-
-            cursor.execute("SELECT * FROM posthog_personoverride")
-            overrides = cursor.fetchall()
-            assert len(overrides) == 1
+        assert PostgresPersonOverridesManager(pg_connection).fetchall(team_id) == [
+            (team_id, person_overrides.old_person_id, person_overrides.override_person_id)
+        ]
 
     person_overrides_to_delete = [
         SerializablePersonOverrideToDelete(
@@ -1046,15 +1028,9 @@ async def test_delete_squashed_person_overrides_from_postgres_dry_run(
     await activity_environment.run(delete_squashed_person_overrides_from_postgres, query_inputs)
 
     with pg_connection:
-        with pg_connection.cursor() as cursor:
-            cursor.execute("SELECT team_id, uuid FROM posthog_personoverridemapping")
-            mappings = cursor.fetchall()
-            assert len(mappings) == 2
-            assert mappings[0][1] == person_overrides.override_person_id
-
-            cursor.execute("SELECT * FROM posthog_personoverride")
-            overrides = cursor.fetchall()
-            assert len(overrides) == 1
+        assert PostgresPersonOverridesManager(pg_connection).fetchall(team_id) == [
+            (team_id, person_overrides.old_person_id, person_overrides.override_person_id)
+        ]
 
 
 @pytest.mark.django_db

@@ -440,6 +440,27 @@ class PostgresPersonOverridesManager:
             id = %(id)s;
     """
 
+    def fetchall(self, team_id: int):
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT
+                    override.team_id,
+                    old_person.uuid,
+                    override_person.uuid
+                FROM posthog_personoverride override
+                LEFT OUTER JOIN
+                    posthog_personoverridemapping old_person
+                    ON override.team_id = old_person.team_id AND override.old_person_id = old_person.id
+                LEFT OUTER JOIN
+                    posthog_personoverridemapping override_person
+                    ON override.team_id = override_person.team_id AND override.override_person_id = override_person.id
+                WHERE override.team_id = %(team_id)s
+                """,
+                {"team_id": team_id},
+            )
+            return cursor.fetchall()
+
     def insert(self, team_id: int, old_person_id: UUID, override_person_id: UUID) -> None:
         with self.connection.cursor() as cursor:
             person_ids = []
