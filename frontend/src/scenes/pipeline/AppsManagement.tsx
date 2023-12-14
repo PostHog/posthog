@@ -11,6 +11,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { PluginInstallationType, PluginType } from '~/types'
 
 import { appsManagementLogic } from './appsManagementLogic'
+import { ExportsUnsubscribeModal, exportsUnsubscribeModalLogic } from './ExportsUnsubscribeModal'
 import { RenderApp } from './utils'
 
 export const scene: SceneExport = {
@@ -29,6 +30,7 @@ export function AppsManagement(): JSX.Element {
         localPlugins,
     } = useValues(appsManagementLogic)
     const { isDev, isCloudOrDev } = useValues(preflightLogic)
+    const { openModal } = useActions(exportsUnsubscribeModalLogic)
 
     if (!canInstallPlugins || !canGloballyManagePlugins) {
         return <>You don't have permission to manage apps.</>
@@ -36,6 +38,8 @@ export function AppsManagement(): JSX.Element {
 
     return (
         <div className="pipeline-apps-management-scene">
+            <ExportsUnsubscribeModal />
+            <LemonButton onClick={openModal}>Unsubscribe from batch exports</LemonButton>
             {isCloudOrDev &&
                 (missingGlobalPlugins.length > 0 ||
                     shouldBeGlobalPlugins.length > 0 ||

@@ -230,7 +230,7 @@ export interface OrganizationType extends OrganizationBasicType {
     created_at: string
     updated_at: string
     plugins_access_level: PluginsAccessLevel
-    teams: TeamBasicType[] | null
+    teams: TeamBasicType[]
     available_features: AvailableFeature[]
     available_product_features: BillingV2FeatureType[]
     is_member_join_email_enabled: boolean
