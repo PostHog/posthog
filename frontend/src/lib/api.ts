@@ -1,7 +1,7 @@
 import { decompressSync, strFromU8 } from 'fflate'
 import { encodeParams } from 'kea-router'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
-import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
@@ -10,6 +10,7 @@ import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { QuerySchema, QueryStatus } from '~/queries/schema'
 import {
     ActionType,
+    ActivityScope,
     BatchExportConfiguration,
     BatchExportLogEntry,
     BatchExportRun,

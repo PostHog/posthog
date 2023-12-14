@@ -1,7 +1,6 @@
 import {
     ActivityChange,
     ActivityLogItem,
-    ActivityScope,
     ChangeMapping,
     Description,
     detectBoolean,
@@ -14,6 +13,8 @@ import { IconVerifiedEvent } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
+
+import { ActivityScope } from '~/types'
 
 const dataManagementActionsMapping: Record<
     string,

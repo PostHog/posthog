@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 
-import { CommentType } from '~/types'
+import { ActivityScope, CommentType } from '~/types'
 
 import type { notebookCommentLogicType } from './notebookCommentLogicType'
 import { notebookLogic } from './notebookLogic'
@@ -55,7 +55,10 @@ export const notebookCommentLogic = kea<notebookCommentLogicType>([
                     return await api.comments.get(commentId)
                 },
                 saveComment: async () => {
-                    const comment = await api.comments.create({ content: values.localContent, scope: 'Notebook' })
+                    const comment = await api.comments.create({
+                        content: values.localContent,
+                        scope: ActivityScope.NOTEBOOK,
+                    })
                     values.editor?.chain().focus().setMark('comment', { id: comment.id }).run()
                     return comment
                 },

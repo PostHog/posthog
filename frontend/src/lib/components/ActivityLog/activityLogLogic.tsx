@@ -4,7 +4,6 @@ import { router, urlToAction } from 'kea-router'
 import api, { ActivityLogPaginatedResponse } from 'lib/api'
 import {
     ActivityLogItem,
-    ActivityScope,
     Describer,
     humanize,
     HumanizedActivityLogItem,
@@ -18,6 +17,8 @@ import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { pluginActivityDescriber } from 'scenes/plugins/pluginActivityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { urls } from 'scenes/urls'
+
+import { ActivityScope } from '~/types'
 
 import type { activityLogLogicType } from './activityLogLogicType'
 

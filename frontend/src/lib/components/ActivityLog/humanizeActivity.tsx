@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { InsightShortId, PersonType } from '~/types'
+import { ActivityScope, InsightShortId, PersonType } from '~/types'
 
 export interface ActivityChange {
     type: 'FeatureFlag' | 'Person' | 'Insight' | 'Plugin' | 'PluginConfig' | 'Notebook'
@@ -36,18 +36,6 @@ export interface ActivityUser {
     email: string | null
     first_name: string
     is_system?: boolean
-}
-
-export enum ActivityScope {
-    FEATURE_FLAG = 'FeatureFlag',
-    PERSON = 'Person',
-    INSIGHT = 'Insight',
-    PLUGIN = 'Plugin',
-    PLUGIN_CONFIG = 'PluginConfig',
-    DATA_MANAGEMENT = 'DataManagement',
-    EVENT_DEFINITION = 'EventDefinition',
-    PROPERTY_DEFINITION = 'PropertyDefinition',
-    NOTEBOOK = 'Notebook',
 }
 
 export type ActivityLogItem = {

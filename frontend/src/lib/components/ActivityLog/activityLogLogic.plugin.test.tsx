@@ -2,7 +2,8 @@ import '@testing-library/jest-dom'
 
 import { render } from '@testing-library/react'
 import { makeTestSetup } from 'lib/components/ActivityLog/activityLogLogic.test.setup'
-import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+
+import { ActivityScope } from '~/types'
 
 describe('the activity log logic', () => {
     describe('humanizing plugins', () => {

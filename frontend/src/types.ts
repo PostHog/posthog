@@ -3208,13 +3208,30 @@ export type PromptFlag = {
     tooltipCSS?: Partial<CSSStyleDeclaration>
 }
 
+// Should be kept in sync with "posthog/models/activity_logging/activity_log.py"
+export enum ActivityScope {
+    FEATURE_FLAG = 'FeatureFlag',
+    PERSON = 'Person',
+    INSIGHT = 'Insight',
+    PLUGIN = 'Plugin',
+    PLUGIN_CONFIG = 'PluginConfig',
+    DATA_MANAGEMENT = 'DataManagement',
+    EVENT_DEFINITION = 'EventDefinition',
+    PROPERTY_DEFINITION = 'PropertyDefinition',
+    NOTEBOOK = 'Notebook',
+    DASHBOARD = 'Dashboard',
+    REPLAY = 'Replay',
+    EXPERIMENT = 'Experiment',
+    Misc = 'Misc',
+}
+
 export type CommentType = {
     id: string | null
     content: string
     created_at?: string
     created_by?: UserBasicType | null
     source_comment_id: string | null
-    scope: 'Misc' | 'Notebook' | 'Dashboard' | 'Person' | 'FeatureFlag' | 'Experiment' | 'Replay' | 'Insight' | 'Cohort'
+    scope: ActivityScope
     item_id?: string
 }
 

@@ -1,6 +1,6 @@
-import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 
-import { InsightShortId } from '~/types'
+import { ActivityScope, InsightShortId } from '~/types'
 
 export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
     {
