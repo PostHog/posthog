@@ -9,6 +9,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SidePanelTab } from '~/types'
 
 import { notificationsLogic } from './panels/activity/notificationsLogic'
+import { sidePanelDiscussionLogic } from './panels/discussion/sidePanelDiscussionLogic'
 import type { sidePanelLogicType } from './sidePanelLogicType'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
@@ -17,7 +18,6 @@ const ALWAYS_EXTRA_TABS = [
     SidePanelTab.FeaturePreviews,
     SidePanelTab.Activity,
     SidePanelTab.Welcome,
-    SidePanelTab.Discussion,
 ]
 
 export const sidePanelLogic = kea<sidePanelLogicType>([
@@ -35,6 +35,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             // We need to mount this to ensure that marking as read works when the panel closes
             notificationsLogic,
             ['unreadCount'],
+            sidePanelDiscussionLogic,
+            ['commentCount', 'commentCountLoading'],
         ],
         actions: [sidePanelStateLogic, ['closeSidePanel', 'openSidePanel']],
     }),
@@ -101,11 +103,15 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         ],
 
         visibleTabs: [
-            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.isReady, s.hasCompletedAllTasks],
-            (enabledTabs, selectedTab, sidePanelOpen): SidePanelTab[] => {
+            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.commentCount],
+            (enabledTabs, selectedTab, sidePanelOpen, commentCount): SidePanelTab[] => {
                 return enabledTabs.filter((tab: any) => {
                     if (tab === selectedTab && sidePanelOpen) {
                         return true
+                    }
+
+                    if (tab === SidePanelTab.Discussion) {
+                        return commentCount > 0
                     }
 
                     // Hide certain tabs unless they are selected

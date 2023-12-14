@@ -1,21 +1,24 @@
+import { IconChat } from '@posthog/icons'
 import { useValues } from 'kea'
-import { router } from 'kea-router'
+import { IconWithCount } from 'lib/lemon-ui/icons'
 import { CommentComposer } from 'scenes/comments/CommentComposer'
 import { CommentsList } from 'scenes/comments/CommentsList'
-import { CommentsLogicProps } from 'scenes/comments/commentsLogic'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
+import { sidePanelDiscussionLogic } from './sidePanelDiscussionLogic'
 
-const urlToComments = (path: string): CommentsLogicProps => {
-    return {
-        scope: 'Misc',
-        item_id: path,
-    }
+export const SidePanelDiscussionIcon = (props: { className?: string }): JSX.Element => {
+    const { commentCount } = useValues(sidePanelDiscussionLogic)
+
+    return (
+        <IconWithCount count={commentCount} {...props}>
+            <IconChat />
+        </IconWithCount>
+    )
 }
 
 export const SidePanelDiscussion = (): JSX.Element => {
-    const { location } = useValues(router)
-    const logicProps = urlToComments(location.pathname)
+    const { commentsLogicProps } = useValues(sidePanelDiscussionLogic)
 
     return (
         <div className="flex flex-col overflow-hidden flex-1">
@@ -23,11 +26,11 @@ export const SidePanelDiscussion = (): JSX.Element => {
 
             <div className="flex flex-col flex-1">
                 <div className="flex-1 overflow-y-auto p-2">
-                    <CommentsList {...logicProps} />
+                    <CommentsList {...commentsLogicProps} />
                 </div>
 
                 <div className="border-t p-2">
-                    <CommentComposer {...logicProps} />
+                    <CommentComposer {...commentsLogicProps} />
                 </div>
             </div>
         </div>
