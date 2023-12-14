@@ -929,7 +929,7 @@ def team_id(query_inputs, organization_uuid, pg_connection):
                 """,
                 {"organization_uuid": organization_uuid},
             )
-            team_id = cursor.fetchone()
+            [team_id] = cursor.fetchone()
 
     yield team_id
 
