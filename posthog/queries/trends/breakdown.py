@@ -460,7 +460,7 @@ class TrendsBreakdown:
         elif self.filter.breakdown_type == "session" and self.filter.breakdown == "$session_duration":
             # Not adding "Other" for the custom session duration filter.
             pass
-        else:
+        elif not self.filter.breakdown_hide_other_aggregation:
             all_values_are_numeric = all(isinstance(value, int) or isinstance(value, float) for value in values_arr)
             all_values_are_string = all(isinstance(value, str) for value in values_arr)
 

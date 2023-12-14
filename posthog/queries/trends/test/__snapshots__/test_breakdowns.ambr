@@ -660,12 +660,12 @@
   ORDER BY breakdown_value
   '
 ---
-# name: TestBreakdowns.test_breakdown_numeric_hogql_to_string
+# name: TestBreakdowns.test_breakdown_string_hogql
   '
   
   SELECT groupArray(value)
   FROM
-    (SELECT length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')) AS value,
+    (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      WHERE team_id = 2
@@ -678,7 +678,7 @@
      OFFSET 0)
   '
 ---
-# name: TestBreakdowns.test_breakdown_numeric_hogql_to_string.1
+# name: TestBreakdowns.test_breakdown_string_hogql.1
   '
   
   SELECT groupArray(day_start) as date,
@@ -701,13 +701,13 @@
            CROSS JOIN
              (SELECT breakdown_value
               FROM
-                (SELECT [1, 2] as breakdown_value) ARRAY
+                (SELECT ['https://example.com', 'https://example.com/'] as breakdown_value) ARRAY
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            transform(length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')), ([19, 20]), ([19, 20]), 9007199254740991) as breakdown_value
+                            transform(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), (['https://example.com', 'https://example.com/']), (['https://example.com', 'https://example.com/']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = 'watched movie'
