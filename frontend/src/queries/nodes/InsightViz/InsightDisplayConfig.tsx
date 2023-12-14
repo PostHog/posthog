@@ -202,7 +202,7 @@ function DecimalPrecisionInput(): JSX.Element {
             size="small"
             step={1}
             min={0}
-            max={5}
+            max={9}
             defaultValue={DEFAULT_DECIMAL_PLACES}
             value={trendsFilter?.decimal_places}
             onChange={(value) => {
