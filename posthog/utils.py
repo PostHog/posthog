@@ -457,7 +457,7 @@ def get_self_capture_api_token(request: Optional[HttpRequest]) -> Optional[str]:
     return None
 
 
-def get_default_event_name(team: Team):
+def get_default_event_name(team: "Team"):
     from posthog.models import EventDefinition
 
     if EventDefinition.objects.filter(team=team, name="$pageview").exists():
