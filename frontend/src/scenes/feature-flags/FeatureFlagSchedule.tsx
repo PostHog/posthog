@@ -37,7 +37,9 @@ export default function FeatureFlagSchedule(): JSX.Element {
     const featureFlagId = useValues(featureFlagLogic).featureFlag.id
 
     useEffect(() => {
+        // Set the feature flag ID from the main flag logic to the current logic
         setId(featureFlagId)
+
         loadScheduledChanges()
     }, [])
 
