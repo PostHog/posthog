@@ -12,8 +12,9 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { EventDefinitionType, ProductKey, TeamBasicType } from '~/types'
+import { EventDefinitionType, ProductKey, SidePanelTab, TeamBasicType } from '~/types'
 
 import type { activationLogicType } from './activationLogicType'
 
@@ -67,6 +68,8 @@ export const activationLogic = kea<activationLogicType>([
             ['loadPluginsSuccess', 'loadPluginsFailure'],
             navigationLogic,
             ['toggleActivationSideBar', 'showActivationSideBar', 'hideActivationSideBar'],
+            sidePanelStateLogic,
+            ['openSidePanel'],
             eventUsageLogic,
             ['reportActivationSideBarShown'],
             savedInsightsLogic,
@@ -373,6 +376,7 @@ export const activationLogic = kea<activationLogicType>([
         '*': (_, params) => {
             if (params?.onboarding_completed && !values.hasCompletedAllTasks) {
                 actions.toggleActivationSideBar()
+                actions.openSidePanel(SidePanelTab.Activation)
             } else {
                 actions.hideActivationSideBar()
             }
