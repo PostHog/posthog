@@ -5,11 +5,13 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { CommentsLogicProps } from 'scenes/comments/commentsLogic'
 
+import { ActivityScope } from '~/types'
+
 import type { sidePanelDiscussionLogicType } from './sidePanelDiscussionLogicType'
 
 export const urlToCommentsLogicProps = (path: string): CommentsLogicProps => {
     return {
-        scope: 'Misc',
+        scope: ActivityScope.MISC,
         item_id: path,
     }
 }

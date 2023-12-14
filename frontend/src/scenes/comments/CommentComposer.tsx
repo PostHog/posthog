@@ -7,10 +7,17 @@ export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
     const { composedComment, commentsLoading } = useValues(commentsLogic(props))
     const { setComposedComment, sendComposedContent } = useActions(commentsLogic(props))
 
+    const placeholder =
+        props.scope !== 'Misc'
+            ? `Comment on ${props.scope}/${props.item_id ?? 'general'}`
+            : props.item_id
+            ? `Comment on ${props.item_id}`
+            : `Comment`
+
     return (
         <div className="space-y-2">
             <LemonTextArea
-                placeholder="Message"
+                placeholder={placeholder}
                 value={composedComment}
                 onChange={setComposedComment}
                 disabled={commentsLoading}

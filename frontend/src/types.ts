@@ -3222,7 +3222,7 @@ export enum ActivityScope {
     DASHBOARD = 'Dashboard',
     REPLAY = 'Replay',
     EXPERIMENT = 'Experiment',
-    Misc = 'Misc',
+    MISC = 'Misc',
 }
 
 export type CommentType = {

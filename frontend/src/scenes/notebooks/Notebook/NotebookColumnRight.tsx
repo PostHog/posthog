@@ -9,8 +9,8 @@ import { NotebookComments } from './NotebookComments'
 import { notebookLogic } from './notebookLogic'
 
 export const NotebookColumnRight = (): JSX.Element | null => {
-    const { isShowingLeftColumn, nodeLogicsWithChildren } = useValues(notebookLogic)
-    const { isShowingComments } = useValues(notebookCommentLogic)
+    const { shortId, isShowingLeftColumn, nodeLogicsWithChildren } = useValues(notebookLogic)
+    const { isShowingComments } = useValues(notebookCommentLogic({ shortId }))
     const isShowing = (nodeLogicsWithChildren.length || isShowingComments) && !isShowingLeftColumn
 
     return (
