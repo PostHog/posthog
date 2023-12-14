@@ -45,6 +45,7 @@ from posthog.models import (
     User,
 )
 from posthog.permissions import (
+    OrganizationMemberPermissions,
     ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
@@ -163,6 +164,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
         model = BatchExport
         fields = [
             "id",
+            "team_id",
             "name",
             "destination",
             "interval",
@@ -174,7 +176,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "end_at",
             "latest_runs",
         ]
-        read_only_fields = ["id", "created_at", "last_updated_at", "latest_runs"]
+        read_only_fields = ["id", "team_id", "created_at", "last_updated_at", "latest_runs"]
 
     def create(self, validated_data: dict) -> BatchExport:
         """Create a BatchExport."""
@@ -347,6 +349,13 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 cancel_running_batch_export_backfill(temporal, backfill.workflow_id)
 
 
+class BatchExportOrganizationViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated, OrganizationMemberPermissions]
+    serializer_class = BatchExportSerializer
+    queryset = BatchExport.objects.select_related("team")
+    filter_rewrite_rules = {"organization_id": "team__organization_id"}
+
+
 class BatchExportLogEntrySerializer(DataclassSerializer):
     class Meta:
         dataclass = BatchExportLogEntry
@@ -392,3 +401,28 @@ class BatchExportLogViewSet(StructuredViewSetMixin, mixins.ListModelMixin, views
             limit=limit,
             level_filter=level_filter,
         )
+
+
+#     queryset = BatchExport.objects.all()
+#     serializer_class = BatchExportSerializer
+#     permission_classes = [
+#         IsAuthenticated,
+#         ProjectMembershipNecessaryPermissions,
+#         OrganizationMemberPermissions,
+#     ]
+#     permission_classes = [
+#         IsAuthenticated,
+#         ProjectMembershipNecessaryPermissions,
+#         TeamMemberAccessPermission,
+#     ]
+
+#     def get_queryset(self):
+#         if not isinstance(self.request.user, User) or self.request.user.current_team is None:
+#             raise NotAuthenticated()
+
+#         return (
+#             self.queryset.filter(team_id=self.team_id)
+#             .exclude(deleted=True)
+#             .order_by("-created_at")
+#             .prefetch_related("destination")
+# )
