@@ -98,6 +98,12 @@ def stripe_source(
         stripe_pagination,
         name=endpoint,
         write_disposition="append",
+        columns={
+            "metadata": {
+                "data_type": "complex",
+                "nullable": True,
+            }
+        },
     )(
         api_key=api_key,
         endpoint=endpoint,

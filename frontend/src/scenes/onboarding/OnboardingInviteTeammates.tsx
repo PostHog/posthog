@@ -1,6 +1,7 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { PhonePairHogs } from 'lib/components/hedgehogs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { InviteTeamMatesComponent } from 'scenes/settings/organization/InviteModal'
 
 import { ProductKey } from '~/types'
@@ -11,6 +12,7 @@ import { OnboardingStep } from './OnboardingStep'
 export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element => {
     const { preflight } = useValues(preflightLogic)
     const { product } = useValues(onboardingLogic)
+    const { inviteTeamMembers } = useActions(inviteLogic)
 
     const titlePrefix = (): string => {
         switch (product?.type) {
@@ -47,6 +49,7 @@ export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStep
             title={`${titlePrefix()} better with friends.`}
             stepKey={stepKey}
             hedgehog={<PhonePairHogs height={120} width={288} />}
+            continueAction={() => preflight?.email_service_available && inviteTeamMembers()}
         >
             <div className="mb-6">
                 <p>

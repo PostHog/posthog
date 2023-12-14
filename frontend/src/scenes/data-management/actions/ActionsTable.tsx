@@ -47,7 +47,7 @@ export function ActionsTable(): JSX.Element {
                 return (
                     <>
                         <Link data-attr={'action-link-' + index} to={urls.action(action.id)} className="row-name">
-                            {name || <i>Unnamed action</i>}
+                            {name || <i>Unnamed</i>}
                         </Link>
                         {action.description && (
                             <LemonMarkdown className="row-description" lowKeyHeadings>

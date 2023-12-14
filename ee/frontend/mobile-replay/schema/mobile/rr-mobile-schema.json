@@ -350,7 +350,7 @@
             "additionalProperties": false,
             "properties": {
                 "base64": {
-                    "description": "this will be used as base64 encoded image source, with no other attributes it is assumed to be a PNG",
+                    "description": "this will be used as base64 encoded image source, with no other attributes it is assumed to be a PNG, if omitted a placeholder is rendered",
                     "type": "string"
                 },
                 "childWireframes": {
@@ -382,7 +382,7 @@
                     "type": "number"
                 }
             },
-            "required": ["base64", "height", "id", "type", "width", "x", "y"],
+            "required": ["height", "id", "type", "width", "x", "y"],
             "type": "object"
         },
         "wireframeInput": {

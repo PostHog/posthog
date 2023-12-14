@@ -74,6 +74,18 @@ class TableSerializer(serializers.ModelSerializer):
         return table
 
 
+class SimpleTableSerializer(serializers.ModelSerializer):
+    columns = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = DataWarehouseTable
+        fields = ["id", "name", "columns"]
+        read_only_fields = ["id", "name", "columns"]
+
+    def get_columns(self, table: DataWarehouseTable) -> List[SerializedField]:
+        return serialize_fields(table.hogql_definition().fields)
+
+
 class TableViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
