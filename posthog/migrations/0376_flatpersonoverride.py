@@ -20,4 +20,8 @@ class Migration(migrations.Migration):
                 ("version", models.BigIntegerField(blank=True, null=True)),
             ],
         ),
+        migrations.AddIndex(
+            model_name="flatpersonoverride",
+            index=models.Index(fields=["team_id", "override_person_id"], name="posthog_fla_team_id_224253_idx"),
+        ),
     ]

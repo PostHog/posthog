@@ -195,6 +195,11 @@ class FlatPersonOverride(models.Model):
     oldest_event = models.DateTimeField()
     version = models.BigIntegerField(null=True, blank=True)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=["team_id", "override_person_id"]),
+        ]
+
 
 def get_distinct_ids_for_subquery(person: Person | None, team: Team) -> List[str]:
     """_summary_
