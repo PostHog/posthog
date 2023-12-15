@@ -46,6 +46,11 @@ BUCKET_NAME = "test-external-data-jobs"
 SESSION = aioboto3.Session()
 create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
 
+AWS_BUCKET_MOCK_SETTINGS = {
+    "AIRBYTE_BUCKET_KEY": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+    "AIRBYTE_BUCKET_SECRET": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+}
+
 
 async def delete_all_from_s3(minio_client, bucket_name: str, key_prefix: str):
     """Delete all objects in bucket_name under key_prefix."""
@@ -315,7 +320,9 @@ async def test_validate_schema_and_update_table_activity(activity_environment, t
         rows_synced=0,
     )
 
-    with mock.patch("posthog.warehouse.models.table.DataWarehouseTable.get_columns") as mock_get_columns:
+    with mock.patch(
+        "posthog.warehouse.models.table.DataWarehouseTable.get_columns"
+    ) as mock_get_columns, override_settings(**AWS_BUCKET_MOCK_SETTINGS):
         mock_get_columns.return_value = {"id": "string"}
         await activity_environment.run(
             validate_schema_activity,
@@ -347,7 +354,9 @@ async def test_create_schema_activity(activity_environment, team, **kwargs):
         rows_synced=0,
     )
 
-    with mock.patch("posthog.warehouse.models.table.DataWarehouseTable.get_columns") as mock_get_columns:
+    with mock.patch(
+        "posthog.warehouse.models.table.DataWarehouseTable.get_columns"
+    ) as mock_get_columns, override_settings(**AWS_BUCKET_MOCK_SETTINGS):
         mock_get_columns.return_value = {"id": "string"}
         await activity_environment.run(
             validate_schema_activity,

@@ -58,7 +58,7 @@ def create_pipeline(inputs: PipelineInputs):
                 "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
                 "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT if TEST else None,
             },
-            bucket_url=settings.BUCKET_URL,
+            bucket_url=settings.BUCKET_URL,  # type: ignore
         ),
         dataset_name=inputs.dataset_name,
     )
