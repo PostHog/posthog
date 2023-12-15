@@ -287,6 +287,16 @@
             "enum": ["cohort", "person", "event", "group", "session", "hogql"],
             "type": "string"
         },
+        "ChartAxis": {
+            "additionalProperties": false,
+            "properties": {
+                "column": {
+                    "type": "string"
+                }
+            },
+            "required": ["column"],
+            "type": "object"
+        },
         "ChartDisplayType": {
             "enum": [
                 "ActionsLineGraph",
@@ -523,15 +533,12 @@
                             },
                             "type": "array"
                         },
-                        "xAxisIndex": {
-                            "items": {
-                                "type": "number"
-                            },
-                            "type": "array"
+                        "xAxis": {
+                            "$ref": "#/definitions/ChartAxis"
                         },
-                        "yAxisIndex": {
+                        "yAxis": {
                             "items": {
-                                "type": "number"
+                                "$ref": "#/definitions/ChartAxis"
                             },
                             "type": "array"
                         }

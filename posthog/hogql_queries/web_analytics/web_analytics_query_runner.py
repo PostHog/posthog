@@ -100,7 +100,11 @@ class WebAnalyticsQueryRunner(QueryRunner, ABC):
                 parse_expr(
                     "events.timestamp >= {date_from}",
                     placeholders={"date_from": self.query_date_range.date_from_as_hogql()},
-                )
+                ),
+                parse_expr(
+                    "events.timestamp < {date_to}",
+                    placeholders={"date_to": self.query_date_range.date_to_as_hogql()},
+                ),
             ]
             + self.query.properties
             + self._test_account_filters
