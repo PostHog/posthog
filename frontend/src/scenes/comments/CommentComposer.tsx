@@ -1,5 +1,7 @@
-import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonTextAreaMarkdown } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 import { commentsLogic, CommentsLogicProps } from './commentsLogic'
 
@@ -16,11 +18,13 @@ export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
 
     return (
         <div className="space-y-2">
-            <LemonTextArea
+            <LemonTextAreaMarkdown
+                data-attr={'comment-composer'}
                 placeholder={placeholder}
                 value={composedComment}
                 onChange={setComposedComment}
                 disabled={commentsLoading}
+                onPressCmdEnter={sendComposedContent}
             />
             <div className="flex justify-between items-center gap-2">
                 <div className="flex-1" />
@@ -28,6 +32,7 @@ export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
                     type="primary"
                     onClick={sendComposedContent}
                     disabledReason={!composedComment ? 'No message' : null}
+                    sideIcon={<KeyboardShortcut command enter />}
                 >
                     Add comment
                 </LemonButton>

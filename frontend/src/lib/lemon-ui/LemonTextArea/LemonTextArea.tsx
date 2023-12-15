@@ -38,6 +38,7 @@ export interface LemonTextAreaProps
     rows?: number
     /** Whether to stop propagation of events from the input */
     stopPropagation?: boolean
+    'data-attr'?: string
 }
 
 /** A `textarea` component for multi-line text. */
@@ -74,14 +75,7 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
     )
 })
 
-interface LemonTextAreaMarkdownProps {
-    value?: string
-    onChange?: (s: string) => void
-    placeholder?: string
-    'data-attr'?: string
-}
-
-export function LemonTextAreaMarkdown({ value, onChange, ...editAreaProps }: LemonTextAreaMarkdownProps): JSX.Element {
+export function LemonTextAreaMarkdown({ value, onChange, ...editAreaProps }: LemonTextAreaProps): JSX.Element {
     const { objectStorageAvailable } = useValues(preflightLogic)
 
     const [isPreviewShown, setIsPreviewShown] = useState(false)

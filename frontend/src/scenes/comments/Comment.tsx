@@ -1,5 +1,6 @@
 import { TZLabel } from '@posthog/apps-common'
 import { ProfilePicture } from '@posthog/lemon-ui'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import { CommentType } from '~/types'
 
@@ -8,7 +9,7 @@ export type CommentProps = {
 }
 
 export const Comment = ({ comment }: CommentProps): JSX.Element => {
-    return (
+    return (    
         <div className="border rounded bg-bg-light flex justify-start p-2 gap-2 ">
             <ProfilePicture size="xl" name={comment.created_by?.first_name} email={comment.created_by?.email} />
 
@@ -21,7 +22,7 @@ export const Comment = ({ comment }: CommentProps): JSX.Element => {
                         </span>
                     ) : null}
                 </div>
-                <div>{comment.content}</div>
+                <LemonMarkdown lowKeyHeadings>{comment.content}</LemonMarkdown>
             </div>
         </div>
     )
