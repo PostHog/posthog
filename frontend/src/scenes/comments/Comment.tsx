@@ -21,12 +21,17 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
     return (
         <div
             className={clsx(
-                'border rounded bg-bg-light',
+                'border rounded-lg bg-bg-light',
                 (replyingCommentId === comment.id || editingComment?.id === comment.id) && 'border-primary-3000'
             )}
         >
             <div className="flex-1 flex justify-start p-2 gap-2">
-                <ProfilePicture size="xl" name={comment.created_by?.first_name} email={comment.created_by?.email} />
+                <ProfilePicture
+                    className="mt-1"
+                    size="xl"
+                    name={comment.created_by?.first_name}
+                    email={comment.created_by?.email}
+                />
 
                 <div className="flex flex-col flex-1">
                     <div className="flex items-center gap-2">

@@ -1,5 +1,6 @@
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import { BindLogic, useValues } from 'kea'
+import { PhonePairHogs } from 'lib/components/hedgehogs'
 
 import { CommentWithReplies } from './Comment'
 import { commentsLogic, CommentsLogicProps } from './commentsLogic'
@@ -15,7 +16,16 @@ export const CommentsList = (props: CommentsLogicProps): JSX.Element => {
                         <LemonSkeleton className="h-10 w-full" />
                     </div>
                 ) : !commentsWithReplies?.length ? (
-                    <div className="rounded p-4 text-center">No discussion here yet...</div>
+                    <div className="mx-auto p-8 max-w-160 mt-8 space-y-4">
+                        <div className="max-w-120 mx-auto">
+                            <PhonePairHogs className="w-full h-full" />
+                        </div>
+                        <h2>Start the discussion!</h2>
+                        <p>
+                            You can add comments about this page for your team members to see. Great for sharing context
+                            or ideas without getting in the way of the thing you are commenting on
+                        </p>
+                    </div>
                 ) : null}
 
                 <div className="space-y-2">
