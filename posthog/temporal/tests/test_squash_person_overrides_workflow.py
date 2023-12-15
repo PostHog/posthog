@@ -1,6 +1,6 @@
 import operator
 import random
-from collections import defaultdict, namedtuple
+from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import NamedTuple, TypedDict
 from uuid import UUID, uuid4
@@ -24,6 +24,7 @@ from posthog.models.person_overrides.sql import (
 )
 from posthog.temporal.batch_exports.squash_person_overrides import (
     POSTGRES_PERSON_OVERRIDES_MANAGERS,
+    PersonOverrideTuple,
     PostgresPersonOverridesManager,
     QueryInputs,
     SerializablePersonOverrideToDelete,
@@ -83,9 +84,6 @@ def person_overrides_table(query_inputs):
     sync_execute(DROP_KAFKA_PERSON_OVERRIDES_TABLE_SQL)
     sync_execute(DROP_PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL)
     sync_execute("DROP TABLE person_overrides")
-
-
-PersonOverrideTuple = namedtuple("PersonOverrideTuple", ("old_person_id", "override_person_id"))
 
 
 OVERRIDES_CREATED_AT = datetime.fromisoformat("2020-01-02T00:00:00.123123+00:00")
@@ -961,18 +959,12 @@ def person_override_fixtures(request, query_inputs: QueryInputs, team_id, pg_con
     # isn't good, but this code should be short-lived, right? (... right???)
     query_inputs.postgres_person_overrides_manager = request.param
 
-    old_person_id = uuid4()
-    override_person_id = uuid4()
-    person_override = PersonOverrideTuple(old_person_id, override_person_id)
+    override = PersonOverrideTuple(uuid4(), uuid4())
 
     with pg_connection:
-        query_inputs.get_postgres_person_overrides_manager(pg_connection).insert(
-            team_id,
-            old_person_id=person_override.old_person_id,
-            override_person_id=person_override.override_person_id,
-        )
+        query_inputs.get_postgres_person_overrides_manager(pg_connection).insert(team_id, override)
 
-    yield PostgresPersonOverrideFixtures(request.param, person_override)
+    yield PostgresPersonOverrideFixtures(request.param, override)
 
     with pg_connection:
         query_inputs.get_postgres_person_overrides_manager(pg_connection).clear(team_id)
@@ -988,20 +980,18 @@ async def test_delete_squashed_person_overrides_from_postgres(
     For the purposes of this unit test, we take the person overrides as given. A
     comprehensive test will cover the entire worflow end-to-end.
     """
-    person_override = person_override_fixtures.override
+    override = person_override_fixtures.override
 
     # These are sanity checks to ensure the fixtures are working properly.
     # If any assertions fail here, its likely a test setup issue.
     with pg_connection:
-        assert query_inputs.get_postgres_person_overrides_manager(pg_connection).fetchall(team_id) == [
-            (team_id, person_override.old_person_id, person_override.override_person_id)
-        ]
+        assert query_inputs.get_postgres_person_overrides_manager(pg_connection).fetchall(team_id) == [override]
 
     person_overrides_to_delete = [
         SerializablePersonOverrideToDelete(
             team_id,
-            person_override.old_person_id,
-            person_override.override_person_id,
+            override.old_person_id,
+            override.override_person_id,
             OVERRIDES_CREATED_AT.isoformat(),
             1,
             OLDEST_EVENT_AT.isoformat(),
@@ -1022,20 +1012,18 @@ async def test_delete_squashed_person_overrides_from_postgres_dry_run(
     query_inputs, activity_environment, team_id, person_override_fixtures: PostgresPersonOverrideFixtures, pg_connection
 ):
     """Test we do not delete person overrides when dry_run=True."""
-    person_override = person_override_fixtures.override
+    override = person_override_fixtures.override
 
     # These are sanity checks to ensure the fixtures are working properly.
     # If any assertions fail here, its likely a test setup issue.
     with pg_connection:
-        assert query_inputs.get_postgres_person_overrides_manager(pg_connection).fetchall(team_id) == [
-            (team_id, person_override.old_person_id, person_override.override_person_id)
-        ]
+        assert query_inputs.get_postgres_person_overrides_manager(pg_connection).fetchall(team_id) == [override]
 
     person_overrides_to_delete = [
         SerializablePersonOverrideToDelete(
             team_id,
-            person_override.old_person_id,
-            person_override.override_person_id,
+            override.old_person_id,
+            override.override_person_id,
             OVERRIDES_CREATED_AT.isoformat(),
             1,
             OLDEST_EVENT_AT.isoformat(),
@@ -1047,9 +1035,7 @@ async def test_delete_squashed_person_overrides_from_postgres_dry_run(
     await activity_environment.run(delete_squashed_person_overrides_from_postgres, query_inputs)
 
     with pg_connection:
-        assert query_inputs.get_postgres_person_overrides_manager(pg_connection).fetchall(team_id) == [
-            (team_id, person_override.old_person_id, person_override.override_person_id)
-        ]
+        assert query_inputs.get_postgres_person_overrides_manager(pg_connection).fetchall(team_id) == [override]
 
 
 @pytest.mark.django_db
@@ -1062,7 +1048,7 @@ async def test_delete_squashed_person_overrides_from_postgres_with_newer_overrid
     For the purposes of this unit test, we take the person overrides as given. A
     comprehensive test will cover the entire worflow end-to-end.
     """
-    person_override = person_override_fixtures.override
+    override = person_override_fixtures.override
 
     # These are sanity checks to ensure the fixtures are working properly.
     # If any assertions fail here, its likely a test setup issue.
@@ -1094,9 +1080,7 @@ async def test_delete_squashed_person_overrides_from_postgres_with_newer_overrid
                 """,
                 {
                     "team_id": team_id,
-                    "old_person_id": [
-                        mapping[0] for mapping in mappings if mapping[2] == person_override.old_person_id
-                    ][0],
+                    "old_person_id": [mapping[0] for mapping in mappings if mapping[2] == override.old_person_id][0],
                 },
             )
 
@@ -1104,8 +1088,8 @@ async def test_delete_squashed_person_overrides_from_postgres_with_newer_overrid
         # We are schedulling for deletion an override with lower version number, so nothing should happen.
         SerializablePersonOverrideToDelete(
             team_id,
-            person_override.old_person_id,
-            person_override.override_person_id,
+            override.old_person_id,
+            override.override_person_id,
             OVERRIDES_CREATED_AT.isoformat(),
             1,
             OLDEST_EVENT_AT.isoformat(),
@@ -1123,8 +1107,8 @@ async def test_delete_squashed_person_overrides_from_postgres_with_newer_overrid
 
             # Nothing was deleted from mappings table
             assert len(mappings) == 2
-            assert person_override.override_person_id in [mapping[2] for mapping in mappings]
-            assert person_override.old_person_id in [mapping[2] for mapping in mappings]
+            assert override.override_person_id in [mapping[2] for mapping in mappings]
+            assert override.old_person_id in [mapping[2] for mapping in mappings]
 
             cursor.execute("SELECT team_id, old_person_id, override_person_id, version FROM posthog_personoverride")
             overrides = cursor.fetchall()
@@ -1134,12 +1118,10 @@ async def test_delete_squashed_person_overrides_from_postgres_with_newer_overrid
 
             team_id, old_person_id, override_person_id, version = overrides[0]
             assert team_id == team_id
-            assert (
-                old_person_id == [mapping[0] for mapping in mappings if mapping[2] == person_override.old_person_id][0]
-            )
+            assert old_person_id == [mapping[0] for mapping in mappings if mapping[2] == override.old_person_id][0]
             assert (
                 override_person_id
-                == [mapping[0] for mapping in mappings if mapping[2] == person_override.override_person_id][0]
+                == [mapping[0] for mapping in mappings if mapping[2] == override.override_person_id][0]
             )
             assert version == 2
 

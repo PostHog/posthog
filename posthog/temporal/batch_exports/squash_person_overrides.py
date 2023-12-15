@@ -3,7 +3,7 @@ import json
 from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import AsyncIterator, Iterable, NamedTuple
+from typing import AsyncIterator, Iterable, NamedTuple, Sequence
 from uuid import UUID
 
 import psycopg2
@@ -132,16 +132,20 @@ class SerializablePersonOverrideToDelete(NamedTuple):
     oldest_event_at: str
 
 
+class PersonOverrideTuple(NamedTuple):
+    old_person_id: UUID
+    override_person_id: UUID
+
+
 class PostgresPersonOverridesManager:
     def __init__(self, connection):
         self.connection = connection
 
-    def fetchall(self, team_id: int):
+    def fetchall(self, team_id: int) -> Sequence[PersonOverrideTuple]:
         with self.connection.cursor() as cursor:
             cursor.execute(
                 """
                 SELECT
-                    override.team_id,
                     old_person.uuid,
                     override_person.uuid
                 FROM posthog_personoverride override
@@ -155,12 +159,12 @@ class PostgresPersonOverridesManager:
                 """,
                 {"team_id": team_id},
             )
-            return cursor.fetchall()
+            return [PersonOverrideTuple(*row) for row in cursor.fetchall()]
 
-    def insert(self, team_id: int, old_person_id: UUID, override_person_id: UUID) -> None:
+    def insert(self, team_id: int, override: PersonOverrideTuple) -> None:
         with self.connection.cursor() as cursor:
-            person_ids = []
-            for person_uuid in (override_person_id, old_person_id):
+            mapping_ids = []
+            for person_uuid in (override.override_person_id, override.old_person_id):
                 cursor.execute(
                     """
                     INSERT INTO posthog_personoverridemapping(
@@ -176,7 +180,7 @@ class PostgresPersonOverridesManager:
                     """,
                     {"team_id": team_id, "uuid": person_uuid},
                 )
-                person_ids.append(cursor.fetchone())
+                mapping_ids.append(cursor.fetchone())
 
             cursor.execute(
                 """
@@ -197,8 +201,8 @@ class PostgresPersonOverridesManager:
                 """,
                 {
                     "team_id": team_id,
-                    "old_person_id": person_ids[1],
-                    "override_person_id": person_ids[0],
+                    "old_person_id": mapping_ids[1],
+                    "override_person_id": mapping_ids[0],
                 },
             )
 
@@ -307,12 +311,11 @@ class FlatPostgresPersonOverridesManager:
     def __init__(self, connection):
         self.connection = connection
 
-    def fetchall(self, team_id: int):
+    def fetchall(self, team_id: int) -> Sequence[PersonOverrideTuple]:
         with self.connection.cursor() as cursor:
             cursor.execute(
                 """
                 SELECT
-                    team_id,
                     old_person_id,
                     override_person_id
                 FROM posthog_flatpersonoverride
@@ -320,9 +323,9 @@ class FlatPostgresPersonOverridesManager:
                 """,
                 {"team_id": team_id},
             )
-            return cursor.fetchall()
+            return [PersonOverrideTuple(*row) for row in cursor.fetchall()]
 
-    def insert(self, team_id: int, old_person_id: UUID, override_person_id: UUID) -> None:
+    def insert(self, team_id: int, override: PersonOverrideTuple) -> None:
         with self.connection.cursor() as cursor:
             cursor.execute(
                 """
@@ -343,8 +346,8 @@ class FlatPostgresPersonOverridesManager:
                 """,
                 {
                     "team_id": team_id,
-                    "old_person_id": old_person_id,
-                    "override_person_id": override_person_id,
+                    "old_person_id": override.old_person_id,
+                    "override_person_id": override.override_person_id,
                 },
             )
 
