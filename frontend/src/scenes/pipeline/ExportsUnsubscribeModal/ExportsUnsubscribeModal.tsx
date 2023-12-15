@@ -22,7 +22,7 @@ export function ExportsUnsubscribeModal(): JSX.Element {
             onClose={closeModal}
             isOpen={modalOpen}
             width={600}
-            title="Disable remaining export apps"
+            title="Disable remaining data pipelines apps"
             description="To make sure there's no unexpected impact on your data, you need to explicitly disable the following apps before unsubscribing:"
             footer={
                 <>

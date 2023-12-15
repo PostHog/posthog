@@ -394,28 +394,3 @@ class BatchExportLogViewSet(StructuredViewSetMixin, mixins.ListModelMixin, views
             limit=limit,
             level_filter=level_filter,
         )
-
-
-#     queryset = BatchExport.objects.all()
-#     serializer_class = BatchExportSerializer
-#     permission_classes = [
-#         IsAuthenticated,
-#         ProjectMembershipNecessaryPermissions,
-#         OrganizationMemberPermissions,
-#     ]
-#     permission_classes = [
-#         IsAuthenticated,
-#         ProjectMembershipNecessaryPermissions,
-#         TeamMemberAccessPermission,
-#     ]
-
-#     def get_queryset(self):
-#         if not isinstance(self.request.user, User) or self.request.user.current_team is None:
-#             raise NotAuthenticated()
-
-#         return (
-#             self.queryset.filter(team_id=self.team_id)
-#             .exclude(deleted=True)
-#             .order_by("-created_at")
-#             .prefetch_related("destination")
-# )
