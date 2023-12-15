@@ -65,7 +65,11 @@ export function InsightDisplayConfig(): JSX.Element {
         (!display || display === ChartDisplayType.ActionsLineGraph) &&
         featureFlags[FEATURE_FLAGS.SMOOTHING_INTERVAL]
 
-    const { showPercentStackView: isPercentStackViewOn, showValueOnSeries } = useValues(trendsDataLogic(insightProps))
+    const {
+        showPercentStackView: isPercentStackViewOn,
+        showValueOnSeries,
+        mightContainFractionalNumbers,
+    } = useValues(trendsDataLogic(insightProps))
 
     const advancedOptions: LemonMenuItems = [
         ...(supportsValueOnSeries || showPercentStackView || hasLegend
@@ -88,7 +92,7 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
-        ...(isTrends
+        ...(mightContainFractionalNumbers && isTrends
             ? [
                   {
                       title: 'Decimal places',
