@@ -1,7 +1,7 @@
 .ScrollableShadows {
     position: relative;
-    overflow: hidden;
     display: flex;
+    overflow: hidden;
 
     &::before,
     &::after {
@@ -25,6 +25,7 @@
         .ScrollableShadows__inner {
             overflow-x: auto;
         }
+
         &::before {
             box-shadow: 16px 0 16px -16px rgb(0 0 0 / 25%) inset;
         }
@@ -38,6 +39,7 @@
         .ScrollableShadows__inner {
             overflow-y: auto;
         }
+
         &::before {
             box-shadow: 0 16px 16px -16px rgb(0 0 0 / 25%) inset;
         }
