@@ -2,7 +2,7 @@ import operator
 import random
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import NamedTuple, TypedDict
+from typing import Iterator, NamedTuple, TypedDict
 from uuid import UUID, uuid4
 
 import psycopg2
@@ -943,7 +943,7 @@ class PostgresPersonOverrideFixtures(NamedTuple):
 @pytest.fixture(params=POSTGRES_PERSON_OVERRIDES_MANAGERS.keys())
 def postgres_person_override_fixtures(
     request, query_inputs: QueryInputs, team_id, pg_connection
-) -> PersonOverrideTuple:
+) -> Iterator[PostgresPersonOverrideFixtures]:
     """Create a PersonOverrideMapping and a PersonOverride.
 
     We cannot use the Django ORM safely in an async context, so we INSERT INTO directly
