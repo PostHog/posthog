@@ -145,7 +145,7 @@ export class GraphileWorker {
                 parsedCronItems: this.crontab,
             })
             status.info('✅', 'Graphile worker runner created.')
-            this.runner.events.on('worker:stop', ({ error }) => {
+            this.runner.events?.on('worker:stop', ({ error }) => {
                 if (this.started) {
                     status.error('💀', `Graphile worker loop stopped unexpectedly`)
                     process.emit('uncaughtException', error ?? new Error(`Graphile worker loop stopped with no error`))
