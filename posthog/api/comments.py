@@ -75,7 +75,7 @@ class CommentViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         if params.get("user"):
             queryset = queryset.filter(user=params.get("user"))
 
-        if self.action == "list" and params.get("deleted", "false") == "false":
+        if params.get("deleted", "false") == "false":
             queryset = queryset.filter(deleted=False)
 
         if params.get("scope"):

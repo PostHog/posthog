@@ -12,10 +12,18 @@ export type CommentsLogicProps = {
     item_id?: CommentType['item_id']
 }
 
+export type CommentWithRepliesType = {
+    id: CommentType['id']
+    comment?: CommentType // It may have been deleted
+    replies: CommentType[]
+}
+
 export const commentsLogic = kea<commentsLogicType>([
     path(() => ['scenes', 'notebooks', 'Notebook', 'notebookCommentLogic']),
     props({} as CommentsLogicProps),
     key((props) => `${props.scope}-${props.item_id || ''}`),
+
+    // TODO: Connect to sidePanelDiscussionLogic and update the commentCount
     actions({
         loadComments: true,
         setComposedComment: (content: string) => ({ content }),
@@ -111,6 +119,37 @@ export const commentsLogic = kea<commentsLogicType>([
             (s) => [s.comments],
             (comments) => {
                 return comments?.sort((a, b) => (a.created_at > b.created_at ? 1 : -1)) ?? []
+            },
+        ],
+
+        commentsWithReplies: [
+            (s) => [s.sortedComments],
+            (sortedComments) => {
+                // NOTE: We build a tree of comments and replies here.
+                // Comments may have been deleted so if we have a reply to a comment that no longer exists,
+                // we still create the CommentWithRepliesType but with a null comment.
+
+                const commentsById: Record<string, CommentWithRepliesType> = {}
+
+                for (const comment of sortedComments ?? []) {
+                    let commentsWithReplies = commentsById[comment.source_comment_id ?? comment.id]
+
+                    if (!commentsWithReplies) {
+                        commentsById[comment.source_comment_id ?? comment.id] = commentsWithReplies = {
+                            id: comment.source_comment_id ?? comment.id,
+                            comment: undefined,
+                            replies: [],
+                        }
+                    }
+
+                    if (commentsWithReplies.id === comment.id) {
+                        commentsWithReplies.comment = comment
+                    } else {
+                        commentsWithReplies.replies.push(comment)
+                    }
+                }
+
+                return Object.values(commentsById)
             },
         ],
     }),

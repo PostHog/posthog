@@ -8,17 +8,15 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { CommentType } from '~/types'
 
-import { commentsLogic } from './commentsLogic'
+import { commentsLogic, CommentWithRepliesType } from './commentsLogic'
 
 export type CommentProps = {
-    comment: CommentType
+    commentWithReplies: CommentWithRepliesType
 }
 
-export const Comment = ({ comment }: CommentProps): JSX.Element => {
+const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
     const { editingComment, commentsLoading, replyingCommentId } = useValues(commentsLogic)
     const { deleteComment, setEditingComment, persistEditedComment, setReplyingComment } = useActions(commentsLogic)
-
-    // TODO: Permissions
 
     return (
         <div
@@ -102,5 +100,36 @@ export const Comment = ({ comment }: CommentProps): JSX.Element => {
                 </div>
             ) : null}
         </div>
+    )
+}
+
+export const CommentWithReplies = ({ commentWithReplies }: CommentProps): JSX.Element => {
+    const { comment, replies } = commentWithReplies
+
+    // TODO: Permissions
+
+    return (
+        <>
+            {comment ? (
+                <Comment comment={comment} />
+            ) : (
+                <div className="border rounded border-dashed p-2 font-semibold italic bg-bg-accent-3000 text-muted-alt">
+                    Deleted comment
+                </div>
+            )}
+
+            <div className="pl-8 space-y-2">
+                {replies?.map((x) => (
+                    <CommentWithReplies
+                        key={x.id}
+                        commentWithReplies={{
+                            id: x.id,
+                            comment: x,
+                            replies: [],
+                        }}
+                    />
+                ))}
+            </div>
+        </>
     )
 }
