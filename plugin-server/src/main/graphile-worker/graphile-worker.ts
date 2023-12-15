@@ -145,6 +145,14 @@ export class GraphileWorker {
                 parsedCronItems: this.crontab,
             })
             status.info('✅', 'Graphile worker runner created.')
+            this.runner.events.on('worker:stop', () => {
+                if (this.started) {
+                    status.error('💀', `Graphile worker loop stopped unexpectedly`)
+                    process.emit('uncaughtException', new Error(`Graphile worker loop stopped unexpectedly`))
+                } else {
+                    status.info('🛑', 'Graphile worker loop stopped')
+                }
+            })
             return
         }
 
