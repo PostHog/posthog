@@ -842,7 +842,7 @@ class _Printer(Visitor):
             validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
             args = [self.visit(arg) for arg in node.args]
 
-            if self.dialect == "clickhouse":
+            if self.dialect in ("hogql", "clickhouse"):
                 if node.name == "hogql_lookupDomainType":
                     return f"dictGetOrNull('channel_definition_dict', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source'))"
                 elif node.name == "hogql_lookupPaidDomainType":
