@@ -823,7 +823,7 @@
   FROM (
   SELECT count(*) AS count, event 
   FROM events 
-  WHERE equals(properties.random_uuid, '016f8cc0-2400-0000-7d8d-821184ddca20') 
+  WHERE equals(properties.random_uuid, '016f8cc0-2400-0000-8ad4-0cf056db4062') 
   GROUP BY event) AS c 
   GROUP BY count, event 
   LIMIT 100
