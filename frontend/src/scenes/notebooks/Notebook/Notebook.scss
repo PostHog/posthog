@@ -287,10 +287,23 @@
     }
 
     .NotebookComment {
-        padding: 0 0.125rem;
-        color: var(--bg-light);
-        background-color: var(--primary-3000);
-        border-radius: calc(var(--radius) / 2);
+        --notebook-comment-background-opacity: 0.25;
+
+        position: relative;
+        transform-style: preserve-3d;
+
+        &:hover {
+            --notebook-comment-background-opacity: 0.5;
+        }
+
+        &::after {
+            position: absolute;
+            inset: 0;
+            z-index: -1;
+            content: '';
+            background: var(--primary-3000);
+            opacity: var(--notebook-comment-background-opacity);
+        }
     }
 
     // Overrides for insight controls

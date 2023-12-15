@@ -1,8 +1,5 @@
 import { Mark, mergeAttributes } from '@tiptap/core'
-import { Plugin, PluginKey } from '@tiptap/pm/state'
 import clsx from 'clsx'
-
-import { notebookCommentLogic } from '../Notebook/notebookCommentLogic'
 
 export const NotebookMarkComment = Mark.create({
     name: 'comment',
@@ -12,8 +9,21 @@ export const NotebookMarkComment = Mark.create({
 
     addAttributes() {
         return {
-            id: { default: null },
+            commentId: {
+                default: null,
+                parseHTML: (el) => (el as HTMLSpanElement).dataset.commentId,
+                renderHTML: (attrs) => ({ 'data-comment-id': attrs.commentId }),
+            },
         }
+    },
+
+    parseHTML() {
+        return [
+            {
+                tag: 'span[data-comment-id]',
+                getAttrs: (el) => !!(el as HTMLSpanElement).dataset.commentId?.trim() && null,
+            },
+        ]
     },
 
     renderHTML({ HTMLAttributes }) {
@@ -23,23 +33,6 @@ export const NotebookMarkComment = Mark.create({
                 class: clsx('NotebookComment'),
             }),
             0,
-        ]
-    },
-
-    addProseMirrorPlugins() {
-        return [
-            new Plugin({
-                key: new PluginKey('handleLinkClick'),
-                props: {
-                    handleDOMEvents: {
-                        click(_, event) {
-                            const comment = event.target as HTMLAnchorElement
-                            const logic = notebookCommentLogic.findMounted()
-                            logic?.actions.setCommentId(comment.id)
-                        },
-                    },
-                },
-            }),
         ]
     },
 })
