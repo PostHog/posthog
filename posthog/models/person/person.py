@@ -180,6 +180,33 @@ class PersonOverride(models.Model):
 
 
 class PendingPersonOverride(models.Model):
+    """
+    The pending person overrides model/table contains records of merges that
+    have occurred, but have not yet been integrated into the person overrides
+    table.
+
+    This table should generally be considered as log table or queue. When a
+    merge occurs, it is recorded to the log (added to the queue) as part of the
+    merge transaction. Later, another process comes along, reading from the
+    other end of the log (popping from the queue) and applying the necessary
+    updates to the person overrides table as part of secondary transaction that
+    does not adversely impact the ingestion pipeline.
+
+    This approach allows us to decouple the set of operations that must occur as
+    part of an atomic transactional unit during person merging (moving distinct
+    IDs, merging properties, deleting the subsumed person, etc.) from those that
+    are more tolerant to eventual consistency (updating person overrides in
+    Postgres and subsequently relaying those updates to ClickHouse in various
+    forms to update the person associated with an event.) This decoupling helps
+    us to minimize the overhead of the primary merge transaction by reducing the
+    degree of contention within the ingestion pipeline caused by long-running
+    transactions. This decoupling also allows us to serialize the execution of
+    all updates to the person overrides table through a single writer, which
+    allows us to safely update the person overrides table while handling tricky
+    cases like applying transitive updates without the need for expensive table
+    constraints to ensure their validity.
+    """
+
     id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
     team_id = models.BigIntegerField()
     old_person_id = models.UUIDField()
