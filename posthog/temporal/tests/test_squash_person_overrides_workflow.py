@@ -72,7 +72,7 @@ def activity_environment():
 
 
 @pytest.fixture
-def person_overrides_table(query_inputs):
+def person_overrides_table():
     """Manage person_overrides tables for testing."""
     sync_execute(PERSON_OVERRIDES_CREATE_TABLE_SQL)
     sync_execute(KAFKA_PERSON_OVERRIDES_TABLE_SQL)
@@ -129,9 +129,7 @@ def person_overrides_data(person_overrides_table):
 @pytest.fixture
 def query_inputs():
     """A default set of QueryInputs to use in all tests."""
-    query_inputs = QueryInputs()
-
-    return query_inputs
+    return QueryInputs()
 
 
 @pytest.mark.django_db
@@ -1129,7 +1127,6 @@ async def test_delete_squashed_person_overrides_from_postgres_with_newer_overrid
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_squash_person_overrides_workflow(
-    query_inputs,
     events_to_override,
     person_overrides_data,
     person_override_fixtures: PostgresPersonOverrideFixtures,
@@ -1179,7 +1176,6 @@ async def test_squash_person_overrides_workflow(
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_squash_person_overrides_workflow_with_newer_overrides(
-    query_inputs,
     events_to_override,
     person_overrides_data,
     person_override_fixtures: PostgresPersonOverrideFixtures,
@@ -1226,7 +1222,6 @@ async def test_squash_person_overrides_workflow_with_newer_overrides(
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_squash_person_overrides_workflow_with_limited_team_ids(
-    query_inputs,
     events_to_override,
     person_overrides_data,
     person_override_fixtures: PostgresPersonOverrideFixtures,
