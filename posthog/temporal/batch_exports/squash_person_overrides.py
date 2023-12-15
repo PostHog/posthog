@@ -132,285 +132,6 @@ class SerializablePersonOverrideToDelete(NamedTuple):
     oldest_event_at: str
 
 
-@dataclass
-class QueryInputs:
-    """Inputs for activities that run queries in the SquashPersonOverrides workflow.
-
-    Attributes:
-        clickhouse: Inputs required to connect to ClickHouse.
-        postgres: Inputs required to connect to Postgres.
-        partition_ids: When necessary, the partition ids this query should run on.
-        person_overrides_to_delete: For delete queries, a list of PersonOverrideToDelete.
-        database: The database where the query is supposed to run.
-        user: Database username required to create a dictionary.
-        password: Database password required to create a dictionary.
-        dictionary_name: The name for a dictionary used in the join.
-        _latest_merged_at: A timestamp representing an upper bound for events to squash. Obtained
-            as the latest timestamp of a person merge.
-    """
-
-    partition_ids: list[str] = field(default_factory=list)
-    team_ids: list[int] = field(default_factory=list)
-    person_overrides_to_delete: list[SerializablePersonOverrideToDelete] = field(default_factory=list)
-    dictionary_name: str = "person_overrides_join_dict"
-    dry_run: bool = True
-    overrides_manager: str = "mappings"  # XXX
-    _latest_created_at: str | datetime | None = None
-
-    def __post_init__(self) -> None:
-        if isinstance(self._latest_created_at, datetime):
-            self.latest_created_at = self._latest_created_at
-
-    @property
-    def latest_created_at(self) -> datetime | None:
-        if isinstance(self._latest_created_at, str):
-            return datetime.fromisoformat(self._latest_created_at)
-        return self._latest_created_at
-
-    @latest_created_at.setter
-    def latest_created_at(self, v: datetime | str | None) -> None:
-        if isinstance(v, datetime):
-            self._latest_created_at = v.isoformat()
-        else:
-            self._latest_created_at = v
-
-    def iter_person_overides_to_delete(self) -> Iterable[SerializablePersonOverrideToDelete]:
-        """Iterate over SerializablePersonOverrideToDelete ensuring they are of that type.
-
-        Looking at the types, this seems pointless, just iterate over person_overrides_to_delete!
-        However, as Temporal passes inputs to and from activities, namedtuples will be cast to
-        lists. This method thus exists to transform them back into namedtuples.
-        """
-        for person_override_to_delete in self.person_overrides_to_delete:
-            yield SerializablePersonOverrideToDelete(*person_override_to_delete)
-
-    def get_overrides_manager(self, connection):
-        return PERSON_OVERRIDES_MANAGERS[self.overrides_manager](connection)
-
-
-@activity.defn
-async def prepare_person_overrides(inputs: QueryInputs) -> None:
-    """Prepare the person_overrides table to be used in a squash.
-
-    This activity executes an OPTIMIZE TABLE query to ensure we assign the latest overrides for each old_person_id.
-    """
-    from django.conf import settings
-
-    activity.logger.info("Preparing person_overrides table for squashing")
-
-    optimize_query = "OPTIMIZE TABLE {database}.person_overrides ON CLUSTER {cluster} FINAL SETTINGS mutations_sync = 2"
-
-    if inputs.dry_run is True:
-        activity.logger.info("This is a DRY RUN so nothing will be detached or optimized.")
-        activity.logger.info("Would have run query: %s", optimize_query)
-        return
-
-    activity.logger.info("Optimizing person_overrides")
-
-    sync_execute(optimize_query.format(database=settings.CLICKHOUSE_DATABASE, cluster=settings.CLICKHOUSE_CLUSTER))
-
-
-@activity.defn
-async def prepare_dictionary(inputs: QueryInputs) -> str:
-    """Prepare the DICTIONARY to be used in the squash workflow.
-
-    We also lock in the latest merged_at to ensure we do not process overrides that arrive after
-    we have started the job.
-    """
-    from django.conf import settings
-
-    activity.logger.info("Preparing DICTIONARY %s", inputs.dictionary_name)
-    latest_created_at = sync_execute(SELECT_LATEST_CREATED_AT_QUERY.format(database=settings.CLICKHOUSE_DATABASE))[0][0]
-
-    activity.logger.info("Creating DICTIONARY %s", inputs.dictionary_name)
-    sync_execute(
-        CREATE_DICTIONARY_QUERY.format(
-            database=settings.CLICKHOUSE_DATABASE,
-            dictionary_name=inputs.dictionary_name,
-            user=settings.CLICKHOUSE_USER,
-            password=settings.CLICKHOUSE_PASSWORD,
-            cluster_name=settings.CLICKHOUSE_CLUSTER,
-        )
-    )
-
-    return latest_created_at.isoformat()
-
-
-@activity.defn
-async def drop_dictionary(inputs: QueryInputs) -> None:
-    """DROP the DICTIONARY used in the squash workflow."""
-    from django.conf import settings
-
-    activity.logger.info("Dropping DICTIONARY %s", inputs.dictionary_name)
-    sync_execute(
-        DROP_DICTIONARY_QUERY.format(
-            database=settings.CLICKHOUSE_DATABASE,
-            dictionary_name=inputs.dictionary_name,
-        )
-    )
-
-
-@activity.defn
-async def select_persons_to_delete(inputs: QueryInputs) -> list[SerializablePersonOverrideToDelete]:
-    """Select the persons we'll override to lock them in and safely delete afterwards
-
-    New overrides may come in while we are executing this workflow, so we need to
-    preemptively select which persons we are going to override to ignore any new ones
-    coming in.
-
-    It's important that we only select those persons for which the first partition_id
-    in which they appear is covered by the current squash workflow. Otherwise, if there
-    is an override in an older partition that is not covered by the current workflow
-    we want to keep the override as there could still be events to squash.
-
-    The output of this activity is a dictionary that maps integer team_ids to sets of
-    person ids that are safe to delete. Team_id is used as a filter in later queries.
-    """
-    from django.conf import settings
-
-    latest_created_at = inputs.latest_created_at.timestamp() if inputs.latest_created_at else inputs.latest_created_at
-    to_delete_rows = sync_execute(
-        SELECT_PERSONS_TO_DELETE_QUERY.format(database=settings.CLICKHOUSE_DATABASE),
-        # We pass this as a timestamp ourselves as clickhouse-driver will drop any microseconds from the datetime.
-        # This would cause the latest merge event to be ignored.
-        # See: https://github.com/mymarilyn/clickhouse-driver/issues/306
-        {"latest_created_at": latest_created_at},
-    )
-
-    if not isinstance(to_delete_rows, list):
-        # Could return None if no results or int if this were an insert.
-        # Mostly to appease type checker
-        return []
-
-    # We need to be absolutely sure which is the oldest event for a given person
-    # as we cannot delete persons that have events in the past that aren't being
-    # squashed by this workflow.
-    persons_to_delete = []
-    older_persons_to_delete = []
-    for row in to_delete_rows:
-        person_to_delete = PersonOverrideToDelete._make(row)
-        person_oldest_event_at = person_to_delete.oldest_event_at
-
-        try:
-            absolute_oldest_event_at = sync_execute(
-                SELECT_CREATED_AT_FOR_PERSON_EVENT_QUERY.format(database=settings.CLICKHOUSE_DATABASE),
-                {
-                    "team_id": person_to_delete.team_id,
-                    "old_person_id": person_to_delete.old_person_id,
-                    "oldest_event_at": person_oldest_event_at,
-                },
-            )[0][0]
-
-        except IndexError:
-            # Let's be safe and treat this as no rows found.
-            absolute_oldest_event_at = EPOCH
-
-        # ClickHouse min() likes to return the epoch when no rows found.
-        # Granted, I'm assuming that we were not ingesting events in 1970...
-        if absolute_oldest_event_at != EPOCH:
-            min_oldest_event_at = min(
-                person_oldest_event_at,
-                absolute_oldest_event_at,
-            )
-        else:
-            min_oldest_event_at = person_oldest_event_at
-
-        person_to_delete = person_to_delete._replace(oldest_event_at=min_oldest_event_at)
-
-        if person_to_delete.is_in_partitions(inputs.partition_ids):
-            persons_to_delete.append(person_to_delete._make_serializable())
-        else:
-            older_persons_to_delete.append(person_to_delete)
-
-    # There could be older overrides that we haven't cleaned up yet.
-    # As the squash logic will always prefer new ones, there is no reason to keep the
-    # older ones around if we schedule the old ones to be deleted.
-    # So, let's delete those too.
-    persons_to_delete_ids = set(person.old_person_id for person in persons_to_delete)
-    persons_to_delete.extend(
-        (
-            older_person._make_serializable()
-            for older_person in older_persons_to_delete
-            if older_person.old_person_id in persons_to_delete_ids
-        )
-    )
-
-    return persons_to_delete
-
-
-@activity.defn
-async def squash_events_partition(inputs: QueryInputs) -> None:
-    """Execute the squash query for a given partition_id and persons to_override.
-
-    As ClickHouse doesn't support an UPDATE ... FROM statement ala PostgreSQL, we must
-    do this in 4 basic steps:
-
-    1. Stop ingesting data into person_overrides.
-    2. Build a DICTIONARY from person_overrides.
-    3. Perform ALTER TABLE UPDATE using dictGet to query the DICTIONARY.
-    4. Clean up the DICTIONARY once done.
-    """
-    from django.conf import settings
-
-    query = SQUASH_EVENTS_QUERY
-
-    latest_created_at = inputs.latest_created_at.timestamp() if inputs.latest_created_at else inputs.latest_created_at
-
-    for partition_id in inputs.partition_ids:
-        activity.logger.info("Executing squash query on partition %s", partition_id)
-
-        parameters = {
-            "partition_id": partition_id,
-            "team_ids": inputs.team_ids,
-            # We pass this as a timestamp ourselves as clickhouse-driver will drop any microseconds from the datetime.
-            # This would cause the latest merge event to be ignored.
-            # See: https://github.com/mymarilyn/clickhouse-driver/issues/306
-            "latest_created_at": latest_created_at,
-        }
-
-        if inputs.dry_run is True:
-            activity.logger.info("This is a DRY RUN so nothing will be squashed.")
-            activity.logger.info("Would have run query: %s with parameters %s", query, parameters)
-            continue
-
-        sync_execute(
-            query.format(
-                database=settings.CLICKHOUSE_DATABASE,
-                dictionary_name=inputs.dictionary_name,
-                team_id_filter="AND team_id in %(team_ids)s" if inputs.team_ids else "",
-            ),
-            parameters,
-        )
-
-
-@activity.defn
-async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) -> None:
-    """Execute the query to delete persons from ClickHouse that have been squashed."""
-    from django.conf import settings
-
-    activity.logger.info("Deleting squashed persons from ClickHouse")
-
-    old_person_ids_to_delete = tuple(person.old_person_id for person in inputs.iter_person_overides_to_delete())
-    activity.logger.debug("%s", old_person_ids_to_delete)
-
-    query = DELETE_SQUASHED_PERSON_OVERRIDES_QUERY
-    latest_created_at = inputs.latest_created_at.timestamp() if inputs.latest_created_at else inputs.latest_created_at
-    parameters = {
-        "old_person_ids": old_person_ids_to_delete,
-        # We pass this as a timestamp ourselves as clickhouse-driver will drop any microseconds from the datetime.
-        # This would cause the latest merge event to be ignored.
-        # See: https://github.com/mymarilyn/clickhouse-driver/issues/306
-        "latest_created_at": latest_created_at,
-    }
-
-    if inputs.dry_run is True:
-        activity.logger.info("This is a DRY RUN so nothing will be deleted.")
-        activity.logger.info("Would have run query: %s with parameters %s", query, parameters)
-        return
-
-    sync_execute(query.format(database=settings.CLICKHOUSE_DATABASE), parameters)
-
-
 class PostgresPersonOverridesManager:
     def __init__(self, connection):
         self.connection = connection
@@ -665,10 +386,292 @@ class FlatPostgresPersonOverridesManager:
             )
 
 
-PERSON_OVERRIDES_MANAGERS = {
+POSTGRES_PERSON_OVERRIDES_MANAGERS = {
     "mappings": PostgresPersonOverridesManager,
     "flat": FlatPostgresPersonOverridesManager,
 }
+
+DEFAULT_POSTGRES_PERSON_OVERRIDES_MANAGER = "mappings"
+assert DEFAULT_POSTGRES_PERSON_OVERRIDES_MANAGER in POSTGRES_PERSON_OVERRIDES_MANAGERS
+
+
+@dataclass
+class QueryInputs:
+    """Inputs for activities that run queries in the SquashPersonOverrides workflow.
+
+    Attributes:
+        clickhouse: Inputs required to connect to ClickHouse.
+        postgres: Inputs required to connect to Postgres.
+        partition_ids: When necessary, the partition ids this query should run on.
+        person_overrides_to_delete: For delete queries, a list of PersonOverrideToDelete.
+        database: The database where the query is supposed to run.
+        user: Database username required to create a dictionary.
+        password: Database password required to create a dictionary.
+        dictionary_name: The name for a dictionary used in the join.
+        _latest_merged_at: A timestamp representing an upper bound for events to squash. Obtained
+            as the latest timestamp of a person merge.
+    """
+
+    partition_ids: list[str] = field(default_factory=list)
+    team_ids: list[int] = field(default_factory=list)
+    person_overrides_to_delete: list[SerializablePersonOverrideToDelete] = field(default_factory=list)
+    dictionary_name: str = "person_overrides_join_dict"
+    dry_run: bool = True
+    _latest_created_at: str | datetime | None = None
+    postgres_person_overrides_manager: str = DEFAULT_POSTGRES_PERSON_OVERRIDES_MANAGER
+
+    def __post_init__(self) -> None:
+        if isinstance(self._latest_created_at, datetime):
+            self.latest_created_at = self._latest_created_at
+
+    @property
+    def latest_created_at(self) -> datetime | None:
+        if isinstance(self._latest_created_at, str):
+            return datetime.fromisoformat(self._latest_created_at)
+        return self._latest_created_at
+
+    @latest_created_at.setter
+    def latest_created_at(self, v: datetime | str | None) -> None:
+        if isinstance(v, datetime):
+            self._latest_created_at = v.isoformat()
+        else:
+            self._latest_created_at = v
+
+    def iter_person_overides_to_delete(self) -> Iterable[SerializablePersonOverrideToDelete]:
+        """Iterate over SerializablePersonOverrideToDelete ensuring they are of that type.
+
+        Looking at the types, this seems pointless, just iterate over person_overrides_to_delete!
+        However, as Temporal passes inputs to and from activities, namedtuples will be cast to
+        lists. This method thus exists to transform them back into namedtuples.
+        """
+        for person_override_to_delete in self.person_overrides_to_delete:
+            yield SerializablePersonOverrideToDelete(*person_override_to_delete)
+
+    def get_postgres_person_overrides_manager(self, connection):
+        return POSTGRES_PERSON_OVERRIDES_MANAGERS[self.postgres_person_overrides_manager](connection)
+
+
+@activity.defn
+async def prepare_person_overrides(inputs: QueryInputs) -> None:
+    """Prepare the person_overrides table to be used in a squash.
+
+    This activity executes an OPTIMIZE TABLE query to ensure we assign the latest overrides for each old_person_id.
+    """
+    from django.conf import settings
+
+    activity.logger.info("Preparing person_overrides table for squashing")
+
+    optimize_query = "OPTIMIZE TABLE {database}.person_overrides ON CLUSTER {cluster} FINAL SETTINGS mutations_sync = 2"
+
+    if inputs.dry_run is True:
+        activity.logger.info("This is a DRY RUN so nothing will be detached or optimized.")
+        activity.logger.info("Would have run query: %s", optimize_query)
+        return
+
+    activity.logger.info("Optimizing person_overrides")
+
+    sync_execute(optimize_query.format(database=settings.CLICKHOUSE_DATABASE, cluster=settings.CLICKHOUSE_CLUSTER))
+
+
+@activity.defn
+async def prepare_dictionary(inputs: QueryInputs) -> str:
+    """Prepare the DICTIONARY to be used in the squash workflow.
+
+    We also lock in the latest merged_at to ensure we do not process overrides that arrive after
+    we have started the job.
+    """
+    from django.conf import settings
+
+    activity.logger.info("Preparing DICTIONARY %s", inputs.dictionary_name)
+    latest_created_at = sync_execute(SELECT_LATEST_CREATED_AT_QUERY.format(database=settings.CLICKHOUSE_DATABASE))[0][0]
+
+    activity.logger.info("Creating DICTIONARY %s", inputs.dictionary_name)
+    sync_execute(
+        CREATE_DICTIONARY_QUERY.format(
+            database=settings.CLICKHOUSE_DATABASE,
+            dictionary_name=inputs.dictionary_name,
+            user=settings.CLICKHOUSE_USER,
+            password=settings.CLICKHOUSE_PASSWORD,
+            cluster_name=settings.CLICKHOUSE_CLUSTER,
+        )
+    )
+
+    return latest_created_at.isoformat()
+
+
+@activity.defn
+async def drop_dictionary(inputs: QueryInputs) -> None:
+    """DROP the DICTIONARY used in the squash workflow."""
+    from django.conf import settings
+
+    activity.logger.info("Dropping DICTIONARY %s", inputs.dictionary_name)
+    sync_execute(
+        DROP_DICTIONARY_QUERY.format(
+            database=settings.CLICKHOUSE_DATABASE,
+            dictionary_name=inputs.dictionary_name,
+        )
+    )
+
+
+@activity.defn
+async def select_persons_to_delete(inputs: QueryInputs) -> list[SerializablePersonOverrideToDelete]:
+    """Select the persons we'll override to lock them in and safely delete afterwards
+
+    New overrides may come in while we are executing this workflow, so we need to
+    preemptively select which persons we are going to override to ignore any new ones
+    coming in.
+
+    It's important that we only select those persons for which the first partition_id
+    in which they appear is covered by the current squash workflow. Otherwise, if there
+    is an override in an older partition that is not covered by the current workflow
+    we want to keep the override as there could still be events to squash.
+
+    The output of this activity is a dictionary that maps integer team_ids to sets of
+    person ids that are safe to delete. Team_id is used as a filter in later queries.
+    """
+    from django.conf import settings
+
+    latest_created_at = inputs.latest_created_at.timestamp() if inputs.latest_created_at else inputs.latest_created_at
+    to_delete_rows = sync_execute(
+        SELECT_PERSONS_TO_DELETE_QUERY.format(database=settings.CLICKHOUSE_DATABASE),
+        # We pass this as a timestamp ourselves as clickhouse-driver will drop any microseconds from the datetime.
+        # This would cause the latest merge event to be ignored.
+        # See: https://github.com/mymarilyn/clickhouse-driver/issues/306
+        {"latest_created_at": latest_created_at},
+    )
+
+    if not isinstance(to_delete_rows, list):
+        # Could return None if no results or int if this were an insert.
+        # Mostly to appease type checker
+        return []
+
+    # We need to be absolutely sure which is the oldest event for a given person
+    # as we cannot delete persons that have events in the past that aren't being
+    # squashed by this workflow.
+    persons_to_delete = []
+    older_persons_to_delete = []
+    for row in to_delete_rows:
+        person_to_delete = PersonOverrideToDelete._make(row)
+        person_oldest_event_at = person_to_delete.oldest_event_at
+
+        try:
+            absolute_oldest_event_at = sync_execute(
+                SELECT_CREATED_AT_FOR_PERSON_EVENT_QUERY.format(database=settings.CLICKHOUSE_DATABASE),
+                {
+                    "team_id": person_to_delete.team_id,
+                    "old_person_id": person_to_delete.old_person_id,
+                    "oldest_event_at": person_oldest_event_at,
+                },
+            )[0][0]
+
+        except IndexError:
+            # Let's be safe and treat this as no rows found.
+            absolute_oldest_event_at = EPOCH
+
+        # ClickHouse min() likes to return the epoch when no rows found.
+        # Granted, I'm assuming that we were not ingesting events in 1970...
+        if absolute_oldest_event_at != EPOCH:
+            min_oldest_event_at = min(
+                person_oldest_event_at,
+                absolute_oldest_event_at,
+            )
+        else:
+            min_oldest_event_at = person_oldest_event_at
+
+        person_to_delete = person_to_delete._replace(oldest_event_at=min_oldest_event_at)
+
+        if person_to_delete.is_in_partitions(inputs.partition_ids):
+            persons_to_delete.append(person_to_delete._make_serializable())
+        else:
+            older_persons_to_delete.append(person_to_delete)
+
+    # There could be older overrides that we haven't cleaned up yet.
+    # As the squash logic will always prefer new ones, there is no reason to keep the
+    # older ones around if we schedule the old ones to be deleted.
+    # So, let's delete those too.
+    persons_to_delete_ids = set(person.old_person_id for person in persons_to_delete)
+    persons_to_delete.extend(
+        (
+            older_person._make_serializable()
+            for older_person in older_persons_to_delete
+            if older_person.old_person_id in persons_to_delete_ids
+        )
+    )
+
+    return persons_to_delete
+
+
+@activity.defn
+async def squash_events_partition(inputs: QueryInputs) -> None:
+    """Execute the squash query for a given partition_id and persons to_override.
+
+    As ClickHouse doesn't support an UPDATE ... FROM statement ala PostgreSQL, we must
+    do this in 4 basic steps:
+
+    1. Stop ingesting data into person_overrides.
+    2. Build a DICTIONARY from person_overrides.
+    3. Perform ALTER TABLE UPDATE using dictGet to query the DICTIONARY.
+    4. Clean up the DICTIONARY once done.
+    """
+    from django.conf import settings
+
+    query = SQUASH_EVENTS_QUERY
+
+    latest_created_at = inputs.latest_created_at.timestamp() if inputs.latest_created_at else inputs.latest_created_at
+
+    for partition_id in inputs.partition_ids:
+        activity.logger.info("Executing squash query on partition %s", partition_id)
+
+        parameters = {
+            "partition_id": partition_id,
+            "team_ids": inputs.team_ids,
+            # We pass this as a timestamp ourselves as clickhouse-driver will drop any microseconds from the datetime.
+            # This would cause the latest merge event to be ignored.
+            # See: https://github.com/mymarilyn/clickhouse-driver/issues/306
+            "latest_created_at": latest_created_at,
+        }
+
+        if inputs.dry_run is True:
+            activity.logger.info("This is a DRY RUN so nothing will be squashed.")
+            activity.logger.info("Would have run query: %s with parameters %s", query, parameters)
+            continue
+
+        sync_execute(
+            query.format(
+                database=settings.CLICKHOUSE_DATABASE,
+                dictionary_name=inputs.dictionary_name,
+                team_id_filter="AND team_id in %(team_ids)s" if inputs.team_ids else "",
+            ),
+            parameters,
+        )
+
+
+@activity.defn
+async def delete_squashed_person_overrides_from_clickhouse(inputs: QueryInputs) -> None:
+    """Execute the query to delete persons from ClickHouse that have been squashed."""
+    from django.conf import settings
+
+    activity.logger.info("Deleting squashed persons from ClickHouse")
+
+    old_person_ids_to_delete = tuple(person.old_person_id for person in inputs.iter_person_overides_to_delete())
+    activity.logger.debug("%s", old_person_ids_to_delete)
+
+    query = DELETE_SQUASHED_PERSON_OVERRIDES_QUERY
+    latest_created_at = inputs.latest_created_at.timestamp() if inputs.latest_created_at else inputs.latest_created_at
+    parameters = {
+        "old_person_ids": old_person_ids_to_delete,
+        # We pass this as a timestamp ourselves as clickhouse-driver will drop any microseconds from the datetime.
+        # This would cause the latest merge event to be ignored.
+        # See: https://github.com/mymarilyn/clickhouse-driver/issues/306
+        "latest_created_at": latest_created_at,
+    }
+
+    if inputs.dry_run is True:
+        activity.logger.info("This is a DRY RUN so nothing will be deleted.")
+        activity.logger.info("Would have run query: %s with parameters %s", query, parameters)
+        return
+
+    sync_execute(query.format(database=settings.CLICKHOUSE_DATABASE), parameters)
 
 
 @activity.defn
@@ -689,10 +692,10 @@ async def delete_squashed_person_overrides_from_postgres(inputs: QueryInputs) ->
         port=settings.DATABASES["default"]["PORT"],
         **settings.DATABASES["default"].get("SSL_OPTIONS", {}),
     ) as connection:
-        person_overrides_manager = inputs.get_overrides_manager(connection)
+        overrides_manager = inputs.get_postgres_person_overrides_manager(connection)
         for person_override_to_delete in inputs.iter_person_overides_to_delete():
             activity.logger.debug("%s", person_override_to_delete)
-            person_overrides_manager.delete(person_override_to_delete, inputs.dry_run)
+            overrides_manager.delete(person_override_to_delete, inputs.dry_run)
 
 
 @contextlib.asynccontextmanager
@@ -756,7 +759,7 @@ class SquashPersonOverridesInputs:
     dictionary_name: str = "person_overrides_join_dict"
     last_n_months: int = 1
     dry_run: bool = True
-    overrides_manager: str = "mappings"
+    postgres_person_overrides_manager: str = DEFAULT_POSTGRES_PERSON_OVERRIDES_MANAGER
 
     def iter_partition_ids(self) -> Iterator[str]:
         """Iterate over configured partition ids.
@@ -876,7 +879,7 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
             dictionary_name=inputs.dictionary_name,
             team_ids=inputs.team_ids,
             dry_run=inputs.dry_run,
-            overrides_manager=inputs.overrides_manager,
+            postgres_person_overrides_manager=inputs.postgres_person_overrides_manager,
         )
 
         async with person_overrides_dictionary(
