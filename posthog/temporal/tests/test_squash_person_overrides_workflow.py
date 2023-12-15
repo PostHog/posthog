@@ -2,7 +2,7 @@ import operator
 import random
 from collections import defaultdict, namedtuple
 from datetime import datetime, timedelta
-from typing import TypedDict
+from typing import NamedTuple, TypedDict
 from uuid import UUID, uuid4
 
 import psycopg2
@@ -939,16 +939,13 @@ def team_id(query_inputs, organization_uuid, pg_connection):
             cursor.execute("DELETE FROM posthog_team WHERE id = %s", [team_id])
 
 
+class PostgresPersonOverrideFixtures(NamedTuple):
+    manager: str
+    override: PersonOverrideTuple
+
+
 @pytest.fixture(params=POSTGRES_PERSON_OVERRIDES_MANAGERS.keys())
-def overrides_manager(request):
-    yield request.param
-
-
-PostgresPersonOverrideFixtures = PersonOverrideTuple
-
-
-@pytest.fixture
-def person_overrides(query_inputs: QueryInputs, team_id, pg_connection, overrides_manager) -> PersonOverrideTuple:
+def person_override_fixtures(request, query_inputs: QueryInputs, team_id, pg_connection) -> PersonOverrideTuple:
     """Create a PersonOverrideMapping and a PersonOverride.
 
     We cannot use the Django ORM safely in an async context, so we INSERT INTO directly
@@ -962,7 +959,7 @@ def person_overrides(query_inputs: QueryInputs, team_id, pg_connection, override
     # them don't use Postgres overrides at all. To ensure that whenever Postgres
     # overrides *are* used, we need to update the fixture here. This indirection
     # isn't good, but this code should be short-lived, right? (... right???)
-    query_inputs.postgres_person_overrides_manager = overrides_manager
+    query_inputs.postgres_person_overrides_manager = request.param
 
     old_person_id = uuid4()
     override_person_id = uuid4()
@@ -975,7 +972,7 @@ def person_overrides(query_inputs: QueryInputs, team_id, pg_connection, override
             override_person_id=person_override.override_person_id,
         )
 
-    yield person_override
+    yield PostgresPersonOverrideFixtures(request.param, person_override)
 
     with pg_connection:
         query_inputs.get_postgres_person_overrides_manager(pg_connection).clear(team_id)
@@ -984,25 +981,27 @@ def person_overrides(query_inputs: QueryInputs, team_id, pg_connection, override
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_delete_squashed_person_overrides_from_postgres(
-    query_inputs, activity_environment, team_id, person_overrides: PostgresPersonOverrideFixtures, pg_connection
+    query_inputs, activity_environment, team_id, person_override_fixtures: PostgresPersonOverrideFixtures, pg_connection
 ):
     """Test we can delete person overrides that have already been squashed.
 
     For the purposes of this unit test, we take the person overrides as given. A
     comprehensive test will cover the entire worflow end-to-end.
     """
+    person_override = person_override_fixtures.override
+
     # These are sanity checks to ensure the fixtures are working properly.
     # If any assertions fail here, its likely a test setup issue.
     with pg_connection:
         assert query_inputs.get_postgres_person_overrides_manager(pg_connection).fetchall(team_id) == [
-            (team_id, person_overrides.old_person_id, person_overrides.override_person_id)
+            (team_id, person_override.old_person_id, person_override.override_person_id)
         ]
 
     person_overrides_to_delete = [
         SerializablePersonOverrideToDelete(
             team_id,
-            person_overrides.old_person_id,
-            person_overrides.override_person_id,
+            person_override.old_person_id,
+            person_override.override_person_id,
             OVERRIDES_CREATED_AT.isoformat(),
             1,
             OLDEST_EVENT_AT.isoformat(),
@@ -1020,21 +1019,23 @@ async def test_delete_squashed_person_overrides_from_postgres(
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_delete_squashed_person_overrides_from_postgres_dry_run(
-    query_inputs, activity_environment, team_id, person_overrides: PostgresPersonOverrideFixtures, pg_connection
+    query_inputs, activity_environment, team_id, person_override_fixtures: PostgresPersonOverrideFixtures, pg_connection
 ):
     """Test we do not delete person overrides when dry_run=True."""
+    person_override = person_override_fixtures.override
+
     # These are sanity checks to ensure the fixtures are working properly.
     # If any assertions fail here, its likely a test setup issue.
     with pg_connection:
         assert query_inputs.get_postgres_person_overrides_manager(pg_connection).fetchall(team_id) == [
-            (team_id, person_overrides.old_person_id, person_overrides.override_person_id)
+            (team_id, person_override.old_person_id, person_override.override_person_id)
         ]
 
     person_overrides_to_delete = [
         SerializablePersonOverrideToDelete(
             team_id,
-            person_overrides.old_person_id,
-            person_overrides.override_person_id,
+            person_override.old_person_id,
+            person_override.override_person_id,
             OVERRIDES_CREATED_AT.isoformat(),
             1,
             OLDEST_EVENT_AT.isoformat(),
@@ -1047,20 +1048,21 @@ async def test_delete_squashed_person_overrides_from_postgres_dry_run(
 
     with pg_connection:
         assert query_inputs.get_postgres_person_overrides_manager(pg_connection).fetchall(team_id) == [
-            (team_id, person_overrides.old_person_id, person_overrides.override_person_id)
+            (team_id, person_override.old_person_id, person_override.override_person_id)
         ]
 
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
 async def test_delete_squashed_person_overrides_from_postgres_with_newer_override(
-    query_inputs, activity_environment, team_id, person_overrides: PostgresPersonOverrideFixtures, pg_connection
+    query_inputs, activity_environment, team_id, person_override_fixtures: PostgresPersonOverrideFixtures, pg_connection
 ):
     """Test we do not delete a newer mapping from Postgres.
 
     For the purposes of this unit test, we take the person overrides as given. A
     comprehensive test will cover the entire worflow end-to-end.
     """
+    person_override = person_override_fixtures.override
 
     # These are sanity checks to ensure the fixtures are working properly.
     # If any assertions fail here, its likely a test setup issue.
@@ -1093,7 +1095,7 @@ async def test_delete_squashed_person_overrides_from_postgres_with_newer_overrid
                 {
                     "team_id": team_id,
                     "old_person_id": [
-                        mapping[0] for mapping in mappings if mapping[2] == person_overrides.old_person_id
+                        mapping[0] for mapping in mappings if mapping[2] == person_override.old_person_id
                     ][0],
                 },
             )
@@ -1102,8 +1104,8 @@ async def test_delete_squashed_person_overrides_from_postgres_with_newer_overrid
         # We are schedulling for deletion an override with lower version number, so nothing should happen.
         SerializablePersonOverrideToDelete(
             team_id,
-            person_overrides.old_person_id,
-            person_overrides.override_person_id,
+            person_override.old_person_id,
+            person_override.override_person_id,
             OVERRIDES_CREATED_AT.isoformat(),
             1,
             OLDEST_EVENT_AT.isoformat(),
@@ -1121,8 +1123,8 @@ async def test_delete_squashed_person_overrides_from_postgres_with_newer_overrid
 
             # Nothing was deleted from mappings table
             assert len(mappings) == 2
-            assert person_overrides.override_person_id in [mapping[2] for mapping in mappings]
-            assert person_overrides.old_person_id in [mapping[2] for mapping in mappings]
+            assert person_override.override_person_id in [mapping[2] for mapping in mappings]
+            assert person_override.old_person_id in [mapping[2] for mapping in mappings]
 
             cursor.execute("SELECT team_id, old_person_id, override_person_id, version FROM posthog_personoverride")
             overrides = cursor.fetchall()
@@ -1133,11 +1135,11 @@ async def test_delete_squashed_person_overrides_from_postgres_with_newer_overrid
             team_id, old_person_id, override_person_id, version = overrides[0]
             assert team_id == team_id
             assert (
-                old_person_id == [mapping[0] for mapping in mappings if mapping[2] == person_overrides.old_person_id][0]
+                old_person_id == [mapping[0] for mapping in mappings if mapping[2] == person_override.old_person_id][0]
             )
             assert (
                 override_person_id
-                == [mapping[0] for mapping in mappings if mapping[2] == person_overrides.override_person_id][0]
+                == [mapping[0] for mapping in mappings if mapping[2] == person_override.override_person_id][0]
             )
             assert version == 2
 
@@ -1148,9 +1150,8 @@ async def test_squash_person_overrides_workflow(
     query_inputs,
     events_to_override,
     person_overrides_data,
-    person_overrides: PostgresPersonOverrideFixtures,
+    person_override_fixtures: PostgresPersonOverrideFixtures,
     person_overrides_table,
-    overrides_manager,
 ):
     """Test the squash_person_overrides workflow end-to-end."""
     client = await Client.connect(
@@ -1162,7 +1163,7 @@ async def test_squash_person_overrides_workflow(
     inputs = SquashPersonOverridesInputs(
         partition_ids=["202001"],
         dry_run=False,
-        postgres_person_overrides_manager=overrides_manager,
+        postgres_person_overrides_manager=person_override_fixtures.manager,
     )
 
     async with Worker(
@@ -1199,9 +1200,8 @@ async def test_squash_person_overrides_workflow_with_newer_overrides(
     query_inputs,
     events_to_override,
     person_overrides_data,
-    person_overrides: PostgresPersonOverrideFixtures,
+    person_override_fixtures: PostgresPersonOverrideFixtures,
     newer_overrides,
-    overrides_manager,
 ):
     """Test the squash_person_overrides workflow end-to-end with newer overrides."""
     client = await Client.connect(
@@ -1213,7 +1213,7 @@ async def test_squash_person_overrides_workflow_with_newer_overrides(
     inputs = SquashPersonOverridesInputs(
         partition_ids=["202001"],
         dry_run=False,
-        postgres_person_overrides_manager=overrides_manager,
+        postgres_person_overrides_manager=person_override_fixtures.manager,
     )
 
     async with Worker(
@@ -1247,8 +1247,7 @@ async def test_squash_person_overrides_workflow_with_limited_team_ids(
     query_inputs,
     events_to_override,
     person_overrides_data,
-    person_overrides: PostgresPersonOverrideFixtures,
-    overrides_manager,
+    person_override_fixtures: PostgresPersonOverrideFixtures,
 ):
     """Test the squash_person_overrides workflow end-to-end."""
     client = await Client.connect(
@@ -1261,7 +1260,7 @@ async def test_squash_person_overrides_workflow_with_limited_team_ids(
     inputs = SquashPersonOverridesInputs(
         partition_ids=["202001"],
         team_ids=[random_team],
-        postgres_person_overrides_manager=overrides_manager,
+        postgres_person_overrides_manager=person_override_fixtures.manager,
         dry_run=False,
     )
 
