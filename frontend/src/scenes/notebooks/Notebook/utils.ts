@@ -98,6 +98,8 @@ export interface NotebookEditor {
     getEndPosition: () => number
     getSelectedNode: () => Node | null
     getCurrentPosition: () => number
+    getSelectedCommentId: () => string
+    updateCommentAttributes: ({ id }: { id: string | null }) => void
     getAdjacentNodes: (pos: number) => { previous: Node | null; next: Node | null }
     setEditable: (editable: boolean) => void
     setContent: (content: JSONContent) => void

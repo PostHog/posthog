@@ -3,7 +3,7 @@ from rest_framework import decorators, exceptions
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
-from posthog.warehouse.api import external_data_source, saved_query, table, view_link
+from posthog.warehouse.api import external_data_source, saved_query, table, view_link, external_data_schema
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
 from . import (
     activity_log,
@@ -35,6 +35,7 @@ from . import (
     property_definition,
     query,
     search,
+    scheduled_change,
     sharing,
     survey,
     tagged_item,
@@ -82,6 +83,12 @@ pipeline_transformations_configs_router = projects_router.register(
     "pipeline_transformations_configs",
     ["team_id"],
 )
+pipeline_destinations_configs_router = projects_router.register(
+    r"pipeline_destinations_configs",
+    plugin.PipelineDestinationsConfigsViewSet,
+    "pipeline_destinations_configs",
+    ["team_id"],
+)
 
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["team_id"])
 projects_router.register(
@@ -127,6 +134,13 @@ projects_router.register(
     r"data_management",
     DataManagementViewSet,
     "data_management",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"scheduled_changes",
+    scheduled_change.ScheduledChangeViewSet,
+    "scheduled_changes",
     ["team_id"],
 )
 
@@ -185,6 +199,12 @@ organization_pipeline_transformations_router = organizations_router.register(
     "organization_pipeline_transformations",
     ["organization_id"],
 )
+organization_pipeline_destinations_router = organizations_router.register(
+    r"pipeline_destinations",
+    plugin.PipelineDestinationsViewSet,
+    "organization_pipeline_destinations",
+    ["organization_id"],
+)
 organizations_router.register(
     r"members",
     organization_member.OrganizationMemberViewSet,
@@ -236,6 +256,13 @@ projects_router.register(
     r"external_data_sources",
     external_data_source.ExternalDataSourceViewSet,
     "project_external_data_sources",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"external_data_schemas",
+    external_data_schema.ExternalDataSchemaViewset,
+    "project_external_data_schemas",
     ["team_id"],
 )
 

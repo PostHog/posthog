@@ -2,19 +2,45 @@ import { useLayoutEffect, useRef, useState } from 'react'
 
 import { useResizeObserver } from './useResizeObserver'
 
-/** Determine whether an element is horizontally scrollable, on the left and on the right respectively. */
-export function useScrollable(): [React.RefObject<HTMLDivElement>, [boolean, boolean]] {
-    const [isScrollable, setIsScrollable] = useState<[boolean, boolean]>([false, false])
-    const scrollRef = useRef<HTMLDivElement>(null)
+type ScrollableDirections = {
+    isScrollableLeft: boolean
+    isScrollableRight: boolean
+    isScrollableTop: boolean
+    isScrollableBottom: boolean
+}
 
-    const { width } = useResizeObserver({
+/** Determine whether an element is horizontally scrollable, on the left and on the right respectively. */
+export function useScrollable(): { ref: React.MutableRefObject<HTMLDivElement | null> } & ScrollableDirections {
+    const [isScrollable, setIsScrollable] = useState<ScrollableDirections>({
+        isScrollableLeft: false,
+        isScrollableRight: false,
+        isScrollableTop: false,
+        isScrollableBottom: false,
+    })
+
+    // We use a ref to simplify the reference to the current value of isScrollable
+    const isScrollableRef = useRef(isScrollable)
+    isScrollableRef.current = isScrollable
+
+    const scrollRef = useRef<HTMLDivElement | null>(null)
+
+    const { width, height } = useResizeObserver({
         ref: scrollRef,
     })
 
     function updateIsScrollable(element: HTMLElement): void {
-        const left = element.scrollLeft > 0
-        const right = Math.floor(element.scrollWidth) > Math.ceil(element.scrollLeft + element.clientWidth)
-        setIsScrollable([left, right])
+        const newScrollable = {
+            isScrollableLeft: element.scrollLeft > 0,
+            isScrollableTop: element.scrollTop > 0,
+            isScrollableRight: Math.floor(element.scrollWidth) > Math.ceil(element.scrollLeft + element.clientWidth),
+            isScrollableBottom: Math.floor(element.scrollHeight) > Math.ceil(element.scrollTop + element.clientHeight),
+        }
+
+        const hasChanged = Object.keys(newScrollable).some((key) => newScrollable[key] !== isScrollableRef.current[key])
+
+        if (hasChanged) {
+            setIsScrollable(newScrollable)
+        }
     }
 
     useLayoutEffect(() => {
@@ -40,7 +66,10 @@ export function useScrollable(): [React.RefObject<HTMLDivElement>, [boolean, boo
         if (element) {
             updateIsScrollable(element)
         }
-    }, [width])
+    }, [width, height])
 
-    return [scrollRef, isScrollable]
+    return {
+        ...isScrollable,
+        ref: scrollRef,
+    }
 }

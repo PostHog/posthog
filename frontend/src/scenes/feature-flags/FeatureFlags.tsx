@@ -2,7 +2,6 @@ import { LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { FeatureFlagHog } from 'lib/components/hedgehogs'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -29,7 +28,14 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
-import { AnyPropertyFilter, AvailableFeature, FeatureFlagFilters, FeatureFlagType, ProductKey } from '~/types'
+import {
+    ActivityScope,
+    AnyPropertyFilter,
+    AvailableFeature,
+    FeatureFlagFilters,
+    FeatureFlagType,
+    ProductKey,
+} from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import { featureFlagsLogic, FeatureFlagsTab } from './featureFlagsLogic'
@@ -258,7 +264,7 @@ export function OverViewTab({
             {!shouldShowEmptyState && (
                 <>
                     <div>
-                        <div className="flex justify-between mb-4">
+                        <div className="flex justify-between mb-4 gap-2 flex-wrap">
                             <LemonInput
                                 className="w-60"
                                 type="search"

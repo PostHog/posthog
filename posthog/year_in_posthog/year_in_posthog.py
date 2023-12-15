@@ -29,7 +29,7 @@ human_badge = {
     "deep_diver": "Deep Diver",
     "curator": "Curator",
     "flag_raiser": "Flag Raiser",
-    "popcorn_muncher": "Popcorn muncher",
+    "popcorn_muncher": "Popcorn Muncher",
     "scientist": "Scientist",
     "reporter": "Reporter",
     "champion": "Champion",
@@ -58,7 +58,7 @@ explanation = {
 }
 
 
-def stats_for_badge(data: Dict, badge: str) -> List[Dict[str, Union[int, str]]]:
+def stats_for_user(data: Dict) -> List[Dict[str, Union[int, str]]]:
     stats = data["stats"]
 
     return [
@@ -92,30 +92,28 @@ def render_2023(request, user_uuid: str) -> HttpResponse:
         data = calculate_year_in_posthog_2023(user_uuid)
 
         badge = sort_list_based_on_preference(data.get("badges") or ["astronaut"])
-        stats = stats_for_badge(data, badge)
+        stats = stats_for_user(data)
 
-        badge_images = {}
+        unlocked_achievements = {}
         for b in data.get("badges", {}):
-            if b != badge:
-                badge_images[b] = {
-                    "badge": b,
-                    "human_badge": human_badge.get(b),
-                    "image_png": f"year_in_hog/badges/2023_{b}.png",
-                    "image_webp": f"year_in_hog/badges/2023_{b}.webp",
-                    "highlight_color": highlight_color.get(b),
-                    "explanation": explanation.get(b),
-                }
+            unlocked_achievements[b] = {
+                "badge": b,
+                "human_badge": human_badge.get(b),
+                "image_png": f"year_in_hog/badges/2023_{b}.png",
+                "image_webp": f"year_in_hog/badges/2023_{b}.webp",
+                "highlight_color": highlight_color.get(b),
+                "explanation": explanation.get(b),
+            }
 
-        achievements_count = len(data.get("badges") or [])
-        if achievements_count >= 3:
-            achievements_count += 1
+        achievements_count = len(unlocked_achievements.items())
 
         context = {
             "debug": settings.DEBUG,
             "api_token": os.environ.get("DEBUG_API_TOKEN", "unknown") if settings.DEBUG else "sTMFPsFhdP1Ssg",
             "badge": badge,
-            "badges": badge_images if len(badge_images.items()) > 1 else {},
+            "badges": unlocked_achievements if len(unlocked_achievements.items()) > 1 else {},
             "achievements_count": achievements_count,
+            "max_achievements": len(badge_preference),
             "human_badge": human_badge.get(badge),
             "highlight_color": highlight_color.get(badge),
             "image_png": f"year_in_hog/badges/2023_{badge}.png",

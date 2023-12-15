@@ -1,7 +1,6 @@
 import {
     ActivityChange,
     ActivityLogItem,
-    ActivityScope,
     ChangeMapping,
     Description,
     HumanizedChange,
@@ -10,6 +9,8 @@ import {
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
+
+import { ActivityScope } from '~/types'
 
 const notebookActionsMapping: Record<
     string,

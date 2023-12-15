@@ -7,7 +7,6 @@ import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { promptLogic } from 'lib/logic/promptLogic'
 import { getEventNamesForAction, objectsEqual, sum, toParams } from 'lib/utils'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
@@ -95,7 +94,7 @@ export const insightLogic = kea<insightLogicType>([
             ['user'],
         ],
         actions: [tagsModel, ['loadTags']],
-        logic: [eventUsageLogic, dashboardsModel, promptLogic({ key: `save-as-insight` })],
+        logic: [eventUsageLogic, dashboardsModel],
     })),
 
     actions({
@@ -121,7 +120,6 @@ export const insightLogic = kea<insightLogicType>([
             insight,
             options,
         }),
-        saveAs: true,
         saveAsNamingSuccess: (name: string) => ({ name }),
         cancelChanges: true,
         setInsightDescription: (description: string) => ({ description }),
@@ -683,19 +681,11 @@ export const insightLogic = kea<insightLogicType>([
                 router.actions.push(urls.insightEdit(savedInsight.short_id))
             }
         },
-        saveAs: async () => {
-            promptLogic({ key: `save-as-insight` }).actions.prompt({
-                title: 'Save as new insight',
-                placeholder: 'Please enter the new name',
-                value: `${values.insight.name || values.insight.derived_name} (copy)`,
-                error: 'You must enter a name',
-                success: actions.saveAsNamingSuccess,
-            })
-        },
         saveAsNamingSuccess: async ({ name }) => {
             const insight: InsightModel = await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/`, {
                 name,
                 filters: values.filters,
+                query: values.insight.query,
                 saved: true,
             })
             lemonToast.info(`You're now working on a copy of ${values.insight.name ?? values.insight.derived_name}`)

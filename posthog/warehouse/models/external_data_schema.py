@@ -22,6 +22,11 @@ class ExternalDataSchema(CreatedMetaFields, UUIDModel):
     __repr__ = sane_repr("name")
 
 
+def get_schema_if_exists(schema_name: str, team_id: int, source_id: uuid.UUID) -> ExternalDataSchema | None:
+    schema = ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, name=schema_name).first()
+    return schema
+
+
 def get_active_schemas_for_source_id(source_id: uuid.UUID, team_id: int):
     schemas = ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, should_sync=True).values().all()
     return [val["name"] for val in schemas]

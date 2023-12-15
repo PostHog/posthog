@@ -286,6 +286,13 @@
         max-height: 22px;
     }
 
+    .NotebookComment {
+        padding: 0 0.125rem;
+        color: var(--bg-light);
+        background-color: var(--primary-3000);
+        border-radius: calc(var(--radius) / 2);
+    }
+
     // Overrides for insight controls
 
     .InsightVizDisplay {

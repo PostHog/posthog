@@ -109,6 +109,7 @@ export enum ProductKey {
     EARLY_ACCESS_FEATURES = 'early_access_features',
     PRODUCT_ANALYTICS = 'product_analytics',
     PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
+    PIPELINE_DESTINATIONS = 'pipeline_destinations',
 }
 
 export enum LicensePlan {
@@ -1576,10 +1577,10 @@ export interface PluginConfigTypeNew {
     team_id: number
     enabled: boolean
     order: number
-    error?: PluginErrorType
     name: string
     description?: string
     updated_at: string
+    delivery_rate_24h?: number | null
 }
 
 export interface PluginConfigWithPluginInfo extends PluginConfigType {
@@ -2239,7 +2240,7 @@ export enum SurveyUrlMatchType {
 
 export enum SurveyType {
     Popover = 'popover',
-    Button = 'button',
+    Widget = 'widget',
     FullScreen = 'full_screen',
     Email = 'email',
     API = 'api',
@@ -2260,6 +2261,11 @@ export interface SurveyAppearance {
     thankYouMessageDescription?: string
     autoDisappear?: boolean
     position?: string
+    // widget only
+    widgetType?: 'button' | 'tab' | 'selector'
+    widgetSelector?: string
+    widgetLabel?: string
+    widgetColor?: string
 }
 
 export interface SurveyQuestionBase {
@@ -3208,6 +3214,34 @@ export type PromptFlag = {
     tooltipCSS?: Partial<CSSStyleDeclaration>
 }
 
+// Should be kept in sync with "posthog/models/activity_logging/activity_log.py"
+export enum ActivityScope {
+    FEATURE_FLAG = 'FeatureFlag',
+    PERSON = 'Person',
+    INSIGHT = 'Insight',
+    PLUGIN = 'Plugin',
+    PLUGIN_CONFIG = 'PluginConfig',
+    DATA_MANAGEMENT = 'DataManagement',
+    EVENT_DEFINITION = 'EventDefinition',
+    PROPERTY_DEFINITION = 'PropertyDefinition',
+    NOTEBOOK = 'Notebook',
+    DASHBOARD = 'Dashboard',
+    REPLAY = 'Replay',
+    EXPERIMENT = 'Experiment',
+    MISC = 'Misc',
+}
+
+export type CommentType = {
+    id: string
+    content: string
+    version: number
+    created_at: string
+    created_by: UserBasicType | null
+    source_comment_id?: string | null
+    scope: ActivityScope
+    item_id?: string
+}
+
 export type NotebookListItemType = {
     // id: string
     short_id: string
@@ -3311,6 +3345,20 @@ export interface ExternalDataStripeSource {
     source_type: string
     prefix: string
     last_run_at?: Dayjs
+    schemas: ExternalDataSourceSchema[]
+}
+
+export interface ExternalDataSourceSchema {
+    id: string
+    name: string
+    should_sync: boolean
+    table?: SimpleDataWarehouseTable
+}
+
+export interface SimpleDataWarehouseTable {
+    id: string
+    name: string
+    columns: DatabaseSchemaQueryResponseField[]
 }
 
 export type BatchExportDestinationS3 = {
@@ -3511,4 +3559,5 @@ export enum SidePanelTab {
     Welcome = 'welcome',
     FeaturePreviews = 'feature-previews',
     Activity = 'activity',
+    Discussion = 'discussion',
 }

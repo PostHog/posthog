@@ -14,6 +14,7 @@ import { useCallback, useMemo, useRef } from 'react'
 
 import { NotebookNodeType } from '~/types'
 
+import { NotebookMarkComment } from '../Marks/NotebookMarkComment'
 import { NotebookMarkLink } from '../Marks/NotebookMarkLink'
 import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
 import { NotebookNodeCohort } from '../Nodes/NotebookNodeCohort'
@@ -99,6 +100,7 @@ export function Editor(): JSX.Element {
                 nested: true,
             }),
             NotebookMarkLink,
+            NotebookMarkComment,
             NotebookNodeBacklink,
             NotebookNodeQuery,
             NotebookNodeRecording,
@@ -235,6 +237,8 @@ export function Editor(): JSX.Element {
                 getEndPosition: () => editor.state.doc.content.size,
                 getSelectedNode: () => editor.state.doc.nodeAt(editor.state.selection.$anchor.pos),
                 getCurrentPosition: () => editor.state.selection.$anchor.pos,
+                getSelectedCommentId: () => editor.getAttributes('comment').id,
+                updateCommentAttributes: (attributes) => editor.commands.updateAttributes('comment', attributes),
                 getAdjacentNodes: (pos: number) => getAdjacentNodes(editor, pos),
                 setEditable: (editable: boolean) => queueMicrotask(() => editor.setEditable(editable, false)),
                 setContent: (content: JSONContent) => queueMicrotask(() => editor.commands.setContent(content, false)),

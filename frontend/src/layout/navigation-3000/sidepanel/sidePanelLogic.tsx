@@ -9,6 +9,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SidePanelTab } from '~/types'
 
 import { notificationsLogic } from './panels/activity/notificationsLogic'
+import { sidePanelDiscussionLogic } from './panels/discussion/sidePanelDiscussionLogic'
 import type { sidePanelLogicType } from './sidePanelLogicType'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
@@ -34,6 +35,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             // We need to mount this to ensure that marking as read works when the panel closes
             notificationsLogic,
             ['unreadCount'],
+            sidePanelDiscussionLogic,
+            ['commentCount', 'commentCountLoading'],
         ],
         actions: [sidePanelStateLogic, ['closeSidePanel', 'openSidePanel']],
     }),
@@ -77,8 +80,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         ],
 
         enabledTabs: [
-            (s) => [s.isCloudOrDev, s.isReady, s.hasCompletedAllTasks],
-            (isCloudOrDev, isReady, hasCompletedAllTasks) => {
+            (s) => [s.isCloudOrDev, s.isReady, s.hasCompletedAllTasks, s.featureFlags],
+            (isCloudOrDev, isReady, hasCompletedAllTasks, featureflags) => {
                 const tabs: SidePanelTab[] = []
 
                 tabs.push(SidePanelTab.Notebooks)
@@ -90,6 +93,9 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 if (isReady && !hasCompletedAllTasks) {
                     tabs.push(SidePanelTab.Activation)
                 }
+                if (featureflags[FEATURE_FLAGS.DISCUSSIONS]) {
+                    tabs.push(SidePanelTab.Discussion)
+                }
                 tabs.push(SidePanelTab.Activity)
                 tabs.push(SidePanelTab.FeaturePreviews)
                 tabs.push(SidePanelTab.Welcome)
@@ -99,11 +105,15 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         ],
 
         visibleTabs: [
-            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.isReady, s.hasCompletedAllTasks],
-            (enabledTabs, selectedTab, sidePanelOpen): SidePanelTab[] => {
+            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.commentCount],
+            (enabledTabs, selectedTab, sidePanelOpen, commentCount): SidePanelTab[] => {
                 return enabledTabs.filter((tab: any) => {
                     if (tab === selectedTab && sidePanelOpen) {
                         return true
+                    }
+
+                    if (tab === SidePanelTab.Discussion) {
+                        return commentCount > 0
                     }
 
                     // Hide certain tabs unless they are selected
@@ -125,7 +135,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
     }),
 
     afterMount(({ values }) => {
-        if (values.shouldShowWelcomeAnnouncement) {
+        if (!values.sidePanelOpen && values.shouldShowWelcomeAnnouncement) {
             sidePanelStateLogic.findMounted()?.actions.openSidePanel(SidePanelTab.Welcome)
         }
     }),

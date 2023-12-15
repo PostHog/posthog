@@ -1,11 +1,15 @@
 import { TZLabel } from '@posthog/apps-common'
-import { LemonButton, LemonDialog, LemonTable, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonSwitch, LemonTable, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { DataTableNode, NodeKind } from '~/queries/schema'
+import { ExternalDataSourceSchema, ExternalDataStripeSource } from '~/types'
 
 import { dataWarehouseSceneLogic } from '../external/dataWarehouseSceneLogic'
 import SourceModal from '../external/SourceModal'
@@ -30,6 +34,18 @@ export function DataWarehouseSettingsScene(): JSX.Element {
     const { toggleSourceModal } = useActions(dataWarehouseSceneLogic)
     const { isSourceModalOpen } = useValues(dataWarehouseSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    const renderExpandable = (source: ExternalDataStripeSource): JSX.Element => {
+        return (
+            <div className="px-4 py-3">
+                <div className="flex flex-col">
+                    <div className="mt-2">
+                        <SchemaTable schemas={source.schemas} />
+                    </div>
+                </div>
+            </div>
+        )
+    }
 
     return (
         <div>
@@ -166,8 +182,78 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                         },
                     },
                 ]}
+                expandable={{
+                    expandedRowRender: renderExpandable,
+                    rowExpandable: () => true,
+                    noIndent: true,
+                }}
             />
             <SourceModal isOpen={isSourceModalOpen} onClose={() => toggleSourceModal(false)} />
         </div>
+    )
+}
+
+interface SchemaTableProps {
+    schemas: ExternalDataSourceSchema[]
+}
+
+const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
+    const { updateSchema } = useActions(dataWarehouseSettingsLogic)
+
+    return (
+        <LemonTable
+            dataSource={schemas}
+            columns={[
+                {
+                    title: 'Schema Name',
+                    key: 'name',
+                    render: function RenderName(_, schema) {
+                        return schema.name
+                    },
+                },
+                {
+                    title: 'Enabled',
+                    key: 'should_sync',
+                    render: function RenderShouldSync(_, schema) {
+                        return (
+                            <LemonSwitch
+                                checked={schema.should_sync}
+                                onChange={(active) => {
+                                    updateSchema({ ...schema, should_sync: active })
+                                }}
+                            />
+                        )
+                    },
+                },
+                {
+                    title: 'Synced Table',
+                    key: 'table',
+                    render: function RenderTable(_, schema) {
+                        if (schema.table) {
+                            const query: DataTableNode = {
+                                kind: NodeKind.DataTableNode,
+                                full: true,
+                                source: {
+                                    kind: NodeKind.HogQLQuery,
+                                    // TODO: Use `hogql` tag?
+                                    query: `SELECT ${schema.table.columns
+                                        .filter(({ table, fields, chain }) => !table && !fields && !chain)
+                                        .map(({ key }) => key)} FROM ${
+                                        schema.table.name === 'numbers' ? 'numbers(0, 10)' : schema.table.name
+                                    } LIMIT 100`,
+                                },
+                            }
+                            return (
+                                <Link to={urls.insightNew(undefined, undefined, JSON.stringify(query))}>
+                                    <code>{schema.table.name}</code>
+                                </Link>
+                            )
+                        } else {
+                            return <div>Not yet synced</div>
+                        }
+                    },
+                },
+            ]}
+        />
     )
 }

@@ -58,7 +58,8 @@ ON
 WHERE
     {where_breakdown}
 ORDER BY
-    "context.columns.views" DESC
+    "context.columns.views" DESC,
+    "context.columns.breakdown_value" DESC
 LIMIT 10
                 """,
                 timings=self.timings,

@@ -1,11 +1,8 @@
-import {
-    ActivityLogItem,
-    ActivityScope,
-    HumanizedChange,
-    userNameForLogItem,
-} from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityLogItem, HumanizedChange, userNameForLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { dayjs } from 'lib/dayjs'
+
+import { ActivityScope } from '~/types'
 
 import { SECRET_FIELD_VALUE } from './utils'
 

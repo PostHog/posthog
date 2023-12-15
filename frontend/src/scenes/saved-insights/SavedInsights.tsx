@@ -15,7 +15,6 @@ import {
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -59,7 +58,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { NodeKind } from '~/queries/schema'
 import { isInsightVizNode } from '~/queries/utils'
-import { InsightModel, InsightType, LayoutView, SavedInsightsTabs } from '~/types'
+import { ActivityScope, InsightModel, InsightType, LayoutView, SavedInsightsTabs } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
@@ -555,7 +554,7 @@ export function SavedInsights(): JSX.Element {
                 <>
                     <SavedInsightsFilters />
                     <LemonDivider className="my-4" />
-                    <div className="flex justify-between mb-4 mt-2 items-center">
+                    <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
                         <span className="text-muted-alt">
                             {count
                                 ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${

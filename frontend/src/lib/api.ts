@@ -1,7 +1,7 @@
 import { decompressSync, strFromU8 } from 'fflate'
 import { encodeParams } from 'kea-router'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
-import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
@@ -10,10 +10,12 @@ import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { QuerySchema, QueryStatus } from '~/queries/schema'
 import {
     ActionType,
+    ActivityScope,
     BatchExportConfiguration,
     BatchExportLogEntry,
     BatchExportRun,
     CohortType,
+    CommentType,
     DashboardCollaboratorType,
     DashboardTemplateEditorType,
     DashboardTemplateListParams,
@@ -29,6 +31,7 @@ import {
     EventType,
     Experiment,
     ExportedAssetType,
+    ExternalDataSourceSchema,
     ExternalDataStripeSource,
     ExternalDataStripeSourceCreatePayload,
     FeatureFlagAssociatedRoleType,
@@ -282,6 +285,14 @@ class ApiRequest {
 
     public actionsDetail(actionId: ActionType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.actions(teamId).addPathComponent(actionId)
+    }
+
+    // # Comments
+    public comments(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('comments')
+    }
+    public comment(id: CommentType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.comments(teamId).addPathComponent(id)
     }
 
     // # Exports
@@ -656,6 +667,14 @@ class ApiRequest {
         return this.externalDataSources(teamId).addPathComponent(sourceId)
     }
 
+    public externalDataSchemas(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('external_data_schemas')
+    }
+
+    public externalDataSourceSchema(schemaId: ExternalDataSourceSchema['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.externalDataSchemas(teamId).addPathComponent(schemaId)
+    }
+
     // Request finalization
     public async get(options?: ApiMethodOptions): Promise<any> {
         return await api.get(this.assembleFullUrl(), options)
@@ -847,6 +866,43 @@ const api = {
             return request !== null
                 ? request.withQueryString(toParams(pagingParameters)).get()
                 : Promise.resolve({ results: [], count: 0 })
+        },
+    },
+
+    comments: {
+        async create(
+            data: Partial<CommentType>,
+            params: Record<string, any> = {},
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+        ): Promise<CommentType> {
+            return new ApiRequest().comments(teamId).withQueryString(toParams(params)).create({ data })
+        },
+
+        async update(
+            id: CommentType['id'],
+            data: Partial<CommentType>,
+            params: Record<string, any> = {},
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+        ): Promise<CommentType> {
+            return new ApiRequest().comment(id, teamId).withQueryString(toParams(params)).update({ data })
+        },
+
+        async get(id: CommentType['id'], teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<CommentType> {
+            return new ApiRequest().comment(id, teamId).get()
+        },
+
+        // TODO: Abstract params between list and getCount
+        async list(
+            params: {
+                scope?: CommentType['scope']
+                item_id?: CommentType['item_id']
+            } = {}
+        ): Promise<CountedPaginatedResponse<CommentType>> {
+            return new ApiRequest().comments().withQueryString(params).get()
+        },
+
+        async getCount(params: { scope?: CommentType['scope']; item_id?: CommentType['item_id'] }): Promise<number> {
+            return (await new ApiRequest().comments().withAction('count').withQueryString(params).get()).count
         },
     },
 
@@ -1713,6 +1769,15 @@ const api = {
         },
         async reload(sourceId: ExternalDataStripeSource['id']): Promise<void> {
             await new ApiRequest().externalDataSource(sourceId).withAction('reload').create()
+        },
+    },
+
+    externalDataSchemas: {
+        async update(
+            schemaId: ExternalDataSourceSchema['id'],
+            data: Partial<ExternalDataSourceSchema>
+        ): Promise<ExternalDataSourceSchema> {
+            return await new ApiRequest().externalDataSourceSchema(schemaId).update({ data })
         },
     },
 

@@ -29,7 +29,7 @@ export function YearInHogButton({ url }: { url: string | null }): JSX.Element | 
                 onMouseEnter={() => setIsHovering(true)}
                 onMouseLeave={() => setIsHovering(false)}
             >
-                PostHog unwrapped
+                PostHog Unwrapped
             </LemonButton>
         </div>
     ) : null
