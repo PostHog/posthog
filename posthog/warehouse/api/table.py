@@ -58,7 +58,7 @@ class TableSerializer(serializers.ModelSerializer):
     def get_columns(self, table: DataWarehouseTable) -> List[SerializedField]:
         return serialize_fields(table.hogql_definition().fields)
 
-    def get_external_schema(self, instance: DataWarehouseTable) -> str:
+    def get_external_schema(self, instance: DataWarehouseTable):
         from posthog.warehouse.api.external_data_schema import SimpleExternalDataSchemaSerializer
 
         return SimpleExternalDataSchemaSerializer(instance.externaldataschema_set.first(), read_only=True).data or None
