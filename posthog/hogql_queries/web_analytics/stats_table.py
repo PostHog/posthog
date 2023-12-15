@@ -226,7 +226,7 @@ multiIf(
     ),
 
     (
-        any(any(person.properties.$initial_referring_domain)) = '$direct'
+        any(person.properties.$initial_referring_domain) = '$direct'
         AND (any(person.properties.$initial_utm_medium) IS NULL OR any(person.properties.$initial_utm_medium) = '')
         AND (any(person.properties.$initial_utm_source) IS NULL OR any(person.properties.$initial_utm_source) IN ('', '(direct)', 'direct'))
     ),
