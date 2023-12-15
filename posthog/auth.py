@@ -72,7 +72,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         from posthog.models import PersonalAPIKey
 
         personal_api_key, source = personal_api_key_with_source
-        personal_api_key_object = False
+        personal_api_key_object = None
 
         for iterations in PERSONAL_API_KEY_ITERATIONS_TO_TRY:
             secure_value = hash_key_value(personal_api_key, iterations=iterations)
