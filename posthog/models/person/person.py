@@ -214,6 +214,38 @@ class PendingPersonOverride(models.Model):
 
 
 class FlatPersonOverride(models.Model):
+    """
+    The (flat) person overrides model/table contains a consolidated record of
+    all merges that have occurred, but have not yet been integrated into the
+    ClickHouse events table through a squash operation. Once the effects of a
+    merge have been integrated into the events table, the associated override
+    record can be deleted from this table.
+
+    This table is in some sense a materialized view over the pending person
+    overrides table (i.e. the merge log.) It differs from that base table in
+    that it should be maintained during updates to account for the effects of
+    transitive merges. For example, if person A is merged into person B, and
+    then person B is merged into person C, we'd expect the first record (A->B)
+    to be updated to reflect that person A has been merged into person C (A->C,
+    eliding the intermediate step.)
+
+    There are several important expectations about the nature of the data within
+    this table:
+
+    * A person should only appear as an "old" person at most once for a given
+      team (as appearing more than once would imply they were merged into
+      multiple people.)
+    * A person cannot be merged into themselves (i.e. be both the "old" and .
+      "override" person within a given row.)
+    * A person should only appear in a table as _either_ an "old" person or
+      "override" person for a given team -- but never both, as this would
+      indicate a failure to account for a transitive merge.
+
+    The "flat" in the table name is used to distinguish this table from a prior
+    approach that required multiple tables to maintain the same state but
+    otherwise has little significance of its own.
+    """
+
     id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
     team_id = models.BigIntegerField()
     old_person_id = models.UUIDField()
