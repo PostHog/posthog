@@ -1,17 +1,20 @@
-import { LemonInput, LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
+import SignupReferralSource from 'lib/components/SignupReferralSource'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 import { Field } from 'lib/forms/Field'
+import { useButtonStyle } from 'scenes/authentication/useButtonStyles'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
 import { signupLogic } from '../signupLogic'
-import SignupReferralSource from 'lib/components/SignupReferralSource'
 
 const UTM_TAGS = 'utm_campaign=in-product&utm_tag=signup-header'
 
 export function SignupPanel2(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { isSignupPanel2Submitting } = useValues(signupLogic)
+    const buttonStyles = useButtonStyle()
 
     return (
         <div className="space-y-4 Signup__panel__2">
@@ -44,6 +47,7 @@ export function SignupPanel2(): JSX.Element | null {
                     data-attr="signup-submit"
                     loading={isSignupPanel2Submitting}
                     disabled={isSignupPanel2Submitting}
+                    {...buttonStyles}
                 >
                     {!preflight?.demo
                         ? 'Create account'

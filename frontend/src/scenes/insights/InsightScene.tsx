@@ -1,9 +1,9 @@
-import { SceneExport } from 'scenes/sceneTypes'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { useValues } from 'kea'
-import { Insight } from 'scenes/insights/Insight'
-import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { NotFound } from 'lib/components/NotFound'
+import { Insight } from 'scenes/insights/Insight'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
+import { SceneExport } from 'scenes/sceneTypes'
 
 export function InsightScene(): JSX.Element {
     const { insightId, insight, insightLogicRef } = useValues(insightSceneLogic)

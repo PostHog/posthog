@@ -1,14 +1,15 @@
 import { actions, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
-
-import type { htmlElementsDisplayLogicType } from './htmlElementsDisplayLogicType'
-import { ElementType } from '~/types'
-import { objectsEqual } from 'lib/utils'
+import { subscriptions } from 'kea-subscriptions'
 import {
     ParsedCSSSelector,
     parsedSelectorToSelectorString,
     preselect,
 } from 'lib/components/HTMLElementsDisplay/preselectWithCSS'
-import { subscriptions } from 'kea-subscriptions'
+import { objectsEqual } from 'lib/utils'
+
+import { ElementType } from '~/types'
+
+import type { htmlElementsDisplayLogicType } from './htmlElementsDisplayLogicType'
 
 export interface HtmlElementDisplayLogicProps {
     checkUniqueness: boolean

@@ -1,13 +1,13 @@
+import time
 from datetime import datetime, timedelta
 
 import json
-from typing import Any, List, Type, cast
+from typing import Any, List, Type, cast, Dict, Tuple
 from django.conf import settings
 
 import posthoganalytics
 import requests
 from django.contrib.auth.models import AnonymousUser
-from django.db.models import Prefetch
 from django.http import JsonResponse, HttpResponse
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
@@ -16,7 +16,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from posthog.api.person import PersonSerializer
+from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import SharingAccessTokenAuthentication
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
@@ -59,10 +59,35 @@ SNAPSHOT_SOURCE_REQUESTED = Counter(
 )
 
 
+# context manager for gathering a sequence of server timings
+class ServerTimingsGathered:
+    # Class level dictionary to store timings
+    timings_dict: Dict[str, float] = {}
+
+    def __call__(self, name):
+        self.name = name
+        return self
+
+    def __enter__(self):
+        # timings are assumed to be in milliseconds when reported
+        # but are gathered by time.perf_counter which is fractional seconds 🫠
+        # so each value is multiplied by 1000 at collection
+        self.start_time = time.perf_counter() * 1000
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        end_time = time.perf_counter() * 1000
+        elapsed_time = end_time - self.start_time
+        ServerTimingsGathered.timings_dict[self.name] = elapsed_time
+
+    @classmethod
+    def get_all_timings(cls):
+        return cls.timings_dict
+
+
 class SessionRecordingSerializer(serializers.ModelSerializer):
     id = serializers.CharField(source="session_id", read_only=True)
     recording_duration = serializers.IntegerField(source="duration", read_only=True)
-    person = PersonSerializer(required=False)
+    person = MinimalPersonSerializer(required=False)
 
     class Meta:
         model = SessionRecording
@@ -138,6 +163,17 @@ class SessionRecordingSnapshotsSerializer(serializers.Serializer):
     snapshots = serializers.ListField(required=False)
 
 
+def list_recordings_response(
+    filter: SessionRecordingsFilter, request: request.Request, serializer_context: Dict[str, Any]
+) -> Response:
+    (recordings, timings) = list_recordings(filter, request, context=serializer_context)
+    response = Response(recordings)
+    response.headers["Server-Timing"] = ", ".join(
+        f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
+    )
+    return response
+
+
 class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     permission_classes = [
         IsAuthenticated,
@@ -177,8 +213,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionRecordingsFilter(request=request, team=self.team)
-        recordings = list_recordings(filter, request, context=self.get_serializer_context())
-        return Response(recordings)
+        return list_recordings_response(filter, request, self.get_serializer_context())
 
     @extend_schema(
         description="""
@@ -436,7 +471,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         return Response({"results": session_recording_serializer.data})
 
 
-def list_recordings(filter: SessionRecordingsFilter, request: request.Request, context: dict[str, Any]) -> dict:
+def list_recordings(
+    filter: SessionRecordingsFilter, request: request.Request, context: Dict[str, Any]
+) -> Tuple[Dict, Dict]:
     """
     As we can store recordings in S3 or in Clickhouse we need to do a few things here
 
@@ -453,39 +490,42 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, c
     more_recordings_available = False
     team = context["get_team"]()
 
-    if all_session_ids:
-        # If we specify the session ids (like from pinned recordings) we can optimise by only going to Postgres
-        sorted_session_ids = sorted(all_session_ids)
+    timer = ServerTimingsGathered()
 
-        persisted_recordings_queryset = SessionRecording.objects.filter(
-            team=team, session_id__in=sorted_session_ids
-        ).exclude(object_storage_path=None)
+    with timer("load_recordings_from_clickhouse"):
+        if all_session_ids:
+            # If we specify the session ids (like from pinned recordings) we can optimise by only going to Postgres
+            sorted_session_ids = sorted(all_session_ids)
 
-        persisted_recordings = persisted_recordings_queryset.all()
+            persisted_recordings_queryset = SessionRecording.objects.filter(
+                team=team, session_id__in=sorted_session_ids
+            ).exclude(object_storage_path=None)
 
-        recordings = recordings + list(persisted_recordings)
+            persisted_recordings = persisted_recordings_queryset.all()
 
-        remaining_session_ids = list(set(all_session_ids) - {x.session_id for x in persisted_recordings})
-        filter = filter.shallow_clone({SESSION_RECORDINGS_FILTER_IDS: remaining_session_ids})
+            recordings = recordings + list(persisted_recordings)
 
-    if (all_session_ids and filter.session_ids) or not all_session_ids:
-        # Only go to clickhouse if we still have remaining specified IDs, or we are not specifying IDs
-        (
-            ch_session_recordings,
-            more_recordings_available,
-        ) = SessionRecordingListFromReplaySummary(filter=filter, team=team).run()
+            remaining_session_ids = list(set(all_session_ids) - {x.session_id for x in persisted_recordings})
+            filter = filter.shallow_clone({SESSION_RECORDINGS_FILTER_IDS: remaining_session_ids})
 
-        recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
-        recordings = recordings + recordings_from_clickhouse
+        if (all_session_ids and filter.session_ids) or not all_session_ids:
+            # Only go to clickhouse if we still have remaining specified IDs, or we are not specifying IDs
+            (
+                ch_session_recordings,
+                more_recordings_available,
+            ) = SessionRecordingListFromReplaySummary(filter=filter, team=team).run()
 
-    recordings = [x for x in recordings if not x.deleted]
+            recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
+            recordings = recordings + recordings_from_clickhouse
 
-    # If we have specified session_ids we need to sort them by the order they were specified
-    if all_session_ids:
-        recordings = sorted(
-            recordings,
-            key=lambda x: cast(List[str], all_session_ids).index(x.session_id),
-        )
+        recordings = [x for x in recordings if not x.deleted]
+
+        # If we have specified session_ids we need to sort them by the order they were specified
+        if all_session_ids:
+            recordings = sorted(
+                recordings,
+                key=lambda x: cast(List[str], all_session_ids).index(x.session_id),
+            )
 
     if not request.user.is_authenticated:  # for mypy
         raise exceptions.NotAuthenticated()
@@ -495,23 +535,29 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, c
         SessionRecordingViewed.objects.filter(team=team, user=request.user).values_list("session_id", flat=True)
     )
 
-    # Get the related persons for all the recordings
-    distinct_ids = sorted([x.distinct_id for x in recordings])
-    person_distinct_ids = (
-        PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team)
-        .select_related("person")
-        .prefetch_related(Prefetch("person__persondistinctid_set", to_attr="distinct_ids_cache"))
-    )
+    with timer("load_persons"):
+        # Get the related persons for all the recordings
+        distinct_ids = sorted([x.distinct_id for x in recordings])
+        person_distinct_ids = PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team).select_related(
+            "person"
+        )
 
-    distinct_id_to_person = {}
-    for person_distinct_id in person_distinct_ids:
-        distinct_id_to_person[person_distinct_id.distinct_id] = person_distinct_id.person
+    with timer("process_persons"):
+        distinct_id_to_person = {}
+        for person_distinct_id in person_distinct_ids:
+            person_distinct_id.person._distinct_ids = [
+                person_distinct_id.distinct_id
+            ]  # Stop the person from loading all distinct ids
+            distinct_id_to_person[person_distinct_id.distinct_id] = person_distinct_id.person
 
-    for recording in recordings:
-        recording.viewed = recording.session_id in viewed_session_recordings
-        recording.person = distinct_id_to_person.get(recording.distinct_id)
+        for recording in recordings:
+            recording.viewed = recording.session_id in viewed_session_recordings
+            recording.person = distinct_id_to_person.get(recording.distinct_id)
 
     session_recording_serializer = SessionRecordingSerializer(recordings, context=context, many=True)
     results = session_recording_serializer.data
 
-    return {"results": results, "has_next": more_recordings_available, "version": 3}
+    return (
+        {"results": results, "has_next": more_recordings_available, "version": 3},
+        timer.get_all_timings(),
+    )

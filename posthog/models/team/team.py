@@ -34,7 +34,7 @@ from posthog.utils import GenericEmails, PersonOnEventsMode
 
 from .team_caching import get_team_in_cache, set_team_in_cache
 
-TIMEZONES = [(tz, tz) for tz in pytz.common_timezones]
+TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
 
 # TODO: DEPRECATED; delete when these attributes can be fully removed from `Team` model
 DEPRECATED_ATTRS = (
@@ -175,12 +175,13 @@ class Team(UUIDClassicModel):
         decimal_places=2,
         validators=[MinValueValidator(Decimal(0)), MaxValueValidator(Decimal(1))],
     )
-    session_recording_minimum_duration_milliseconds: (models.IntegerField) = models.IntegerField(
+    session_recording_minimum_duration_milliseconds: models.IntegerField = models.IntegerField(
         null=True,
         blank=True,
         validators=[MinValueValidator(0), MaxValueValidator(15000)],
     )
     session_recording_linked_flag: models.JSONField = models.JSONField(null=True, blank=True)
+    session_recording_network_payload_capture_config: models.JSONField = models.JSONField(null=True, blank=True)
     capture_console_log_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     capture_performance_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     surveys_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
@@ -245,6 +246,8 @@ class Team(UUIDClassicModel):
     event_properties: models.JSONField = models.JSONField(default=list, blank=True)
     event_properties_with_usage: models.JSONField = models.JSONField(default=list, blank=True)
     event_properties_numerical: models.JSONField = models.JSONField(default=list, blank=True)
+    external_data_workspace_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    external_data_workspace_last_synced_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
 
     objects: TeamManager = TeamManager()
 
@@ -357,7 +360,7 @@ class Team(UUIDClassicModel):
             {"team_id": self.pk, "group_type_index": group_type_index},
         )[0][0]
 
-    @cached_property
+    @property
     def timezone_info(self) -> ZoneInfo:
         return ZoneInfo(self.timezone)
 

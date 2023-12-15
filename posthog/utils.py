@@ -53,6 +53,7 @@ from sentry_sdk.api import capture_exception
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import RequestParsingError
+from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
 
 if TYPE_CHECKING:
@@ -173,7 +174,7 @@ def relative_date_parse_with_delta_mapping(
     *,
     always_truncate: bool = False,
     now: Optional[datetime.datetime] = None,
-) -> Tuple[datetime.datetime, Optional[Dict[str, int]]]:
+) -> Tuple[datetime.datetime, Optional[Dict[str, int]], str | None]:
     """Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string."""
     try:
         try:
@@ -191,14 +192,14 @@ def relative_date_parse_with_delta_mapping(
             parsed_dt = parsed_dt.replace(tzinfo=timezone_info)
         else:
             parsed_dt = parsed_dt.astimezone(timezone_info)
-        return parsed_dt, None
+        return parsed_dt, None, None
 
     regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
     match = re.search(regex, input)
     parsed_dt = (now or dt.datetime.now()).astimezone(timezone_info)
     delta_mapping: Dict[str, int] = {}
     if not match:
-        return parsed_dt, delta_mapping
+        return parsed_dt, delta_mapping, None
     if match.group("type") == "h":
         delta_mapping["hours"] = int(match.group("number"))
     elif match.group("type") == "d":
@@ -244,7 +245,7 @@ def relative_date_parse_with_delta_mapping(
             parsed_dt = parsed_dt.replace(minute=0, second=0, microsecond=0)
         else:
             parsed_dt = parsed_dt.replace(hour=0, minute=0, second=0, microsecond=0)
-    return parsed_dt, delta_mapping
+    return parsed_dt, delta_mapping, match.group("position") or None
 
 
 def relative_date_parse(
@@ -344,12 +345,15 @@ def render_template(
     context["js_kea_verbose_logging"] = settings.KEA_VERBOSE_LOGGING
     context["js_url"] = get_js_url(request)
 
-    if settings.MAPLIBRE_STYLE_URL:
-        context["js_maplibre_style_url"] = settings.MAPLIBRE_STYLE_URL
+    try:
+        year_in_hog_url = f"/year_in_posthog/2023/{str(request.user.uuid)}"  # type: ignore
+    except:
+        year_in_hog_url = None
 
     posthog_app_context: Dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         "anonymous": not request.user or not request.user.is_authenticated,
+        "year_in_hog_url": year_in_hog_url,
     }
 
     posthog_bootstrap: Dict[str, Any] = {}
@@ -367,7 +371,7 @@ def render_template(
             "current_user": None,
             "current_team": None,
             "preflight": json.loads(preflight_check(request).getvalue()),
-            "default_event_name": get_default_event_name(),
+            "default_event_name": "$pageview",
             "switched_team": getattr(request, "switched_team", None),
             **posthog_app_context,
         }
@@ -395,6 +399,7 @@ def render_template(
                 )
                 posthog_app_context["current_team"] = team_serialized.data
                 posthog_app_context["frontend_apps"] = get_frontend_apps(user.team.pk)
+                posthog_app_context["default_event_name"] = get_default_event_name(user.team)
 
     context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
 
@@ -452,12 +457,12 @@ def get_self_capture_api_token(request: Optional[HttpRequest]) -> Optional[str]:
     return None
 
 
-def get_default_event_name():
+def get_default_event_name(team: "Team"):
     from posthog.models import EventDefinition
 
-    if EventDefinition.objects.filter(name="$pageview").exists():
+    if EventDefinition.objects.filter(team=team, name="$pageview").exists():
         return "$pageview"
-    elif EventDefinition.objects.filter(name="$screen").exists():
+    elif EventDefinition.objects.filter(team=team, name="$screen").exists():
         return "$screen"
     return "$pageview"
 
@@ -553,6 +558,7 @@ def get_compare_period_dates(
     date_from_delta_mapping: Optional[Dict[str, int]],
     date_to_delta_mapping: Optional[Dict[str, int]],
     interval: str,
+    ignore_date_from_alignment: bool = False,  # New HogQL trends no longer requires the adjustment
 ) -> Tuple[datetime.datetime, datetime.datetime]:
     diff = date_to - date_from
     new_date_from = date_from - diff
@@ -571,6 +577,7 @@ def get_compare_period_dates(
             and date_from_delta_mapping.get("days", None)
             and date_from_delta_mapping["days"] % 7 == 0
             and not date_to_delta_mapping
+            and not ignore_date_from_alignment
         ):
             # KLUDGE: Unfortunately common relative date ranges such as "Last 7 days" (-7d) or "Last 14 days" (-14d)
             # are wrong because they treat the current ongoing day as an _extra_ one. This means that those ranges
@@ -626,6 +633,7 @@ def decompress(data: Any, compression: str):
             raise RequestParsingError("Failed to decompress data. %s" % (str(error)))
 
     if compression == "lz64":
+        KLUDGES_COUNTER.labels(kludge="lz64_compression").inc()
         if not isinstance(data, str):
             data = data.decode()
         data = data.replace(" ", "+")
@@ -640,6 +648,7 @@ def decompress(data: Any, compression: str):
     base64_decoded = None
     try:
         base64_decoded = base64_decode(data)
+        KLUDGES_COUNTER.labels(kludge="base64_after_decompression_" + compression).inc()
     except Exception:
         pass
 
@@ -654,7 +663,9 @@ def decompress(data: Any, compression: str):
     except (json.JSONDecodeError, UnicodeDecodeError) as error_main:
         if compression == "":
             try:
-                return decompress(data, "gzip")
+                fallback = decompress(data, "gzip")
+                KLUDGES_COUNTER.labels(kludge="unspecified_gzip_fallback").inc()
+                return fallback
             except Exception as inner:
                 # re-trying with compression set didn't succeed, throw original error
                 raise RequestParsingError("Invalid JSON: %s" % (str(error_main))) from inner
@@ -674,6 +685,8 @@ def load_data_from_request(request):
             data = request.POST.get("data")
     else:
         data = request.GET.get("data")
+        if data:
+            KLUDGES_COUNTER.labels(kludge="data_in_get_param").inc()
 
     # add the data in sentry's scope in case there's an exception
     with configure_scope() as scope:
@@ -1005,8 +1018,6 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
             offset = pytz.timezone(tz).utcoffset(now)
         except Exception:
             offset = pytz.timezone(tz).utcoffset(now + dt.timedelta(hours=2))
-        if offset is None:
-            continue
         offset_hours = int(offset.total_seconds()) / 3600
         result[tz] = offset_hours
     return result

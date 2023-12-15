@@ -1,10 +1,24 @@
-import { LemonButton, LemonDivider, LemonInput, LemonSkeleton, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSkeleton, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { PageHeader } from 'lib/components/PageHeader'
-import { Field, PureField } from 'lib/forms/Field'
-import { SceneExport } from 'scenes/sceneTypes'
-import { earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
 import { Form } from 'kea-forms'
+import { router } from 'kea-router'
+import { FlagSelector } from 'lib/components/FlagSelector'
+import { NotFound } from 'lib/components/NotFound'
+import { PageHeader } from 'lib/components/PageHeader'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { Field, PureField } from 'lib/forms/Field'
+import { IconClose, IconFlag, IconHelpOutline } from 'lib/lemon-ui/icons'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { personsLogic, PersonsLogicProps } from 'scenes/persons/personsLogic'
+import { PersonsSearch } from 'scenes/persons/PersonsSearch'
+import { PersonsTable } from 'scenes/persons/PersonsTable'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
 import {
     EarlyAccessFeatureStage,
     EarlyAccessFeatureTabs,
@@ -13,21 +27,9 @@ import {
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
-import { urls } from 'scenes/urls'
-import { IconClose, IconFlag, IconHelpOutline } from 'lib/lemon-ui/icons'
-import { router } from 'kea-router'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
-import { personsLogic, PersonsLogicProps } from 'scenes/persons/personsLogic'
-import clsx from 'clsx'
+
+import { earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
 import { InstructionsModal } from './InstructionsModal'
-import { PersonsTable } from 'scenes/persons/PersonsTable'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { PersonsSearch } from 'scenes/persons/PersonsSearch'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { NotFound } from 'lib/components/NotFound'
-import { FlagSelector } from 'lib/components/FlagSelector'
 
 export const scene: SceneExport = {
     component: EarlyAccessFeature,
@@ -64,9 +66,9 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     }
 
     return (
-        <Form formKey="earlyAccessFeature" logic={earlyAccessFeatureLogic}>
+        <Form id="early-access-feature" formKey="earlyAccessFeature" logic={earlyAccessFeatureLogic}>
             <PageHeader
-                title={isNewEarlyAccessFeature ? 'New Feature Release' : earlyAccessFeature.name}
+                title={isNewEarlyAccessFeature ? 'New feature release' : earlyAccessFeature.name}
                 buttons={
                     !earlyAccessFeatureLoading ? (
                         earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability &&
@@ -95,6 +97,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                         submitEarlyAccessFeatureRequest(earlyAccessFeature)
                                     }}
                                     loading={isEarlyAccessFeatureSubmitting}
+                                    form="early-access-feature"
                                 >
                                     {isNewEarlyAccessFeature ? 'Save as draft' : 'Save'}
                                 </LemonButton>
@@ -146,7 +149,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                         type="secondary"
                                         onClick={() => updateStage(EarlyAccessFeatureStage.Beta)}
                                     >
-                                        Reactivate Beta
+                                        Reactivate beta
                                     </LemonButton>
                                 )}
                                 {earlyAccessFeature.stage == EarlyAccessFeatureStage.Draft && (
@@ -155,7 +158,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                         tooltip={'Make beta feature available'}
                                         type="primary"
                                     >
-                                        Release Beta
+                                        Release beta
                                     </LemonButton>
                                 )}
                                 <LemonDivider vertical />
@@ -271,12 +274,12 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                         </Field>
                     ) : (
                         <div className="mb-2">
-                            <b>Documentation Url</b>
+                            <b>Documentation URL</b>
                             <div>
                                 {earlyAccessFeature.documentation_url ? (
                                     earlyAccessFeature.documentation_url
                                 ) : (
-                                    <span className="text-muted">No documentation url</span>
+                                    <span className="text-muted">No documentation URL</span>
                                 )}
                             </div>
                         </div>
@@ -326,9 +329,9 @@ export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element
                                 emptyState={
                                     <div>
                                         No manual opt-ins. Manually opted-in people will appear here. Start by{' '}
-                                        <a onClick={toggleImplementOptInInstructionsModal}>
+                                        <Link onClick={toggleImplementOptInInstructionsModal}>
                                             implementing public opt-in
-                                        </a>
+                                        </Link>
                                     </div>
                                 }
                             />
@@ -350,9 +353,9 @@ export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element
                                 emptyState={
                                     <div>
                                         No manual opt-outs. Manually opted-out people will appear here. Start by{' '}
-                                        <a onClick={toggleImplementOptInInstructionsModal}>
+                                        <Link onClick={toggleImplementOptInInstructionsModal}>
                                             implementing public opt-out
-                                        </a>
+                                        </Link>
                                     </div>
                                 }
                             />

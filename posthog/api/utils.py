@@ -1,18 +1,19 @@
-from ipaddress import ip_address
 import json
 import re
-from enum import Enum, auto
 import socket
+import urllib.parse
+from enum import Enum, auto
+from ipaddress import ip_address
 from typing import List, Literal, Optional, Union, Tuple
 from uuid import UUID
 
 import structlog
 from django.core.exceptions import RequestDataTooBig
 from django.db.models import QuerySet
+from prometheus_client import Counter
 from rest_framework import request, status
 from rest_framework.exceptions import ValidationError
 from statshog.defaults.django import statsd
-import urllib.parse
 
 from posthog.constants import EventDefinitionType
 from posthog.exceptions import RequestParsingError, generate_exception_response
@@ -230,11 +231,17 @@ def check_definition_ids_inclusion_field_sql(
 
 SURROGATE_REGEX = re.compile("([\ud800-\udfff])")
 
+SURROGATES_SUBSTITUTED_COUNTER = Counter(
+    "surrogates_substituted_total",
+    "Stray UTF16 surrogates detected and removed from user input.",
+)
+
 
 # keep in sync with posthog/plugin-server/src/utils/db/utils.ts::safeClickhouseString
 def safe_clickhouse_string(s: str) -> str:
     matches = SURROGATE_REGEX.findall(s or "")
     for match in matches:
+        SURROGATES_SUBSTITUTED_COUNTER.inc()
         s = s.replace(match, match.encode("unicode_escape").decode("utf8"))
     return s
 

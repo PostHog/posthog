@@ -1,11 +1,14 @@
-import { capitalizeFirstLetter } from 'lib/utils'
-import { Link } from 'lib/lemon-ui/Link'
 import './NotFound.scss'
-import { useActions, useValues } from 'kea'
-import { supportLogic } from '../Support/supportLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { useNotebookNode } from 'scenes/notebooks/Nodes/notebookNodeLogic'
+
 import { LemonButton } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { Link } from 'lib/lemon-ui/Link'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+import { supportLogic } from '../Support/supportLogic'
 
 interface NotFoundProps {
     object: string // Type of object that was not found (e.g. `dashboard`, `insight`, `action`, ...)
@@ -15,6 +18,7 @@ interface NotFoundProps {
 export function NotFound({ object, caption }: NotFoundProps): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     const nodeLogic = useNotebookNode()
 
@@ -35,8 +39,8 @@ export function NotFound({ object, caption }: NotFoundProps): JSX.Element {
                         with the person who sent you here
                         {preflight?.cloud ? (
                             <>
-                                , or <Link onClick={() => openSupportForm('support')}>contact support</Link> if you
-                                think this is a mistake
+                                , or <Link onClick={() => openSupportForm({ kind: 'support' })}>contact support</Link>{' '}
+                                if you think this is a mistake
                             </>
                         ) : null}
                         .
@@ -45,7 +49,11 @@ export function NotFound({ object, caption }: NotFoundProps): JSX.Element {
             </p>
             <div className="flex justify-center">
                 {nodeLogic && (
-                    <LemonButton type="primary" status="danger" onClick={() => nodeLogic.actions.deleteNode()}>
+                    <LemonButton
+                        type={is3000 ? 'secondary' : 'primary'}
+                        status="danger"
+                        onClick={() => nodeLogic.actions.deleteNode()}
+                    >
                         Remove from Notebook
                     </LemonButton>
                 )}

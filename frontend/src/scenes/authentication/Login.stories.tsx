@@ -1,13 +1,15 @@
 // Login.stories.tsx
-import { Meta } from '@storybook/react'
-import { Login } from './Login'
-import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
-import { useEffect } from 'react'
-import preflightJson from '../../mocks/fixtures/_preflight.json'
+import { Meta, StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
+import { useEffect } from 'react'
 import { urls } from 'scenes/urls'
-import { loginLogic } from './loginLogic'
+
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+
+import preflightJson from '../../mocks/fixtures/_preflight.json'
+import { Login } from './Login'
 import { Login2FA } from './Login2FA'
+import { loginLogic } from './loginLogic'
 
 const meta: Meta = {
     title: 'Scenes-Other/Login',
@@ -27,7 +29,8 @@ const meta: Meta = {
     ],
 }
 export default meta
-export const Cloud = (): JSX.Element => {
+
+export const Cloud: StoryFn = () => {
     useStorybookMocks({
         get: {
             '/_preflight': {
@@ -41,7 +44,8 @@ export const Cloud = (): JSX.Element => {
     })
     return <Login />
 }
-export const CloudEU = (): JSX.Element => {
+
+export const CloudEU: StoryFn = () => {
     useStorybookMocks({
         get: {
             '/_preflight': {
@@ -56,7 +60,8 @@ export const CloudEU = (): JSX.Element => {
     })
     return <Login />
 }
-export const CloudWithGoogleLoginEnforcement = (): JSX.Element => {
+
+export const CloudWithGoogleLoginEnforcement: StoryFn = () => {
     useStorybookMocks({
         get: {
             '/_preflight': {
@@ -78,7 +83,13 @@ export const CloudWithGoogleLoginEnforcement = (): JSX.Element => {
     }, [])
     return <Login />
 }
-export const SelfHosted = (): JSX.Element => {
+CloudWithGoogleLoginEnforcement.parameters = {
+    testOptions: {
+        waitForSelector: '[href^="/login/google-oauth2/"]',
+    },
+}
+
+export const SelfHosted: StoryFn = () => {
     useStorybookMocks({
         get: {
             '/_preflight': {
@@ -92,7 +103,7 @@ export const SelfHosted = (): JSX.Element => {
     return <Login />
 }
 
-export const SelfHostedWithSAML = (): JSX.Element => {
+export const SelfHostedWithSAML: StoryFn = () => {
     useStorybookMocks({
         get: {
             '/_preflight': {
@@ -105,8 +116,13 @@ export const SelfHostedWithSAML = (): JSX.Element => {
     })
     return <Login />
 }
+SelfHostedWithSAML.parameters = {
+    testOptions: {
+        waitForSelector: '[href^="/login/saml/"]',
+    },
+}
 
-export const SSOError = (): JSX.Element => {
+export const SSOError: StoryFn = () => {
     useStorybookMocks({
         get: {
             '/_preflight': preflightJson,
@@ -119,7 +135,7 @@ export const SSOError = (): JSX.Element => {
     return <Login />
 }
 
-export const SecondFactor = (): JSX.Element => {
+export const SecondFactor: StoryFn = () => {
     useEffect(() => {
         // Change the URL
         router.actions.push(urls.login2FA())

@@ -9,29 +9,22 @@ export enum Scene {
     ErrorProjectUnavailable = 'ProjectUnavailable',
     Dashboards = 'Dashboards',
     Dashboard = 'Dashboard',
-    Database = 'Database',
     Insight = 'Insight',
     WebAnalytics = 'WebAnalytics',
-    Cohorts = 'Cohorts',
     Cohort = 'Cohort',
     Events = 'Events',
     DataManagement = 'DataManagement',
-    EventDefinitions = 'EventDefinitionsTable',
     EventDefinition = 'EventDefinition',
-    PropertyDefinitions = 'PropertyDefinitionsTable',
     PropertyDefinition = 'PropertyDefinition',
-    DataManagementHistory = 'DataManagementHistory',
-    IngestionWarnings = 'IngestionWarnings',
     Replay = 'Replay',
     ReplaySingle = 'ReplaySingle',
     ReplayPlaylist = 'ReplayPlaylist',
+    PersonsManagement = 'PersonsManagement',
     Person = 'Person',
-    Persons = 'Persons',
     Pipeline = 'Pipeline',
-    Groups = 'Groups',
+    PipelineApp = 'PipelineApp',
     Group = 'Group',
     Action = 'Action',
-    Actions = 'ActionsTable',
     Experiments = 'Experiments',
     Experiment = 'Experiment',
     BatchExports = 'BatchExports',
@@ -49,16 +42,13 @@ export enum Scene {
     DataWarehouseExternal = 'DataWarehouseExternal',
     DataWarehouseSavedQueries = 'DataWarehouseSavedQueries',
     DataWarehouseTable = 'DataWarehouseTable',
-    OrganizationSettings = 'OrganizationSettings',
+    DataWarehouseSettings = 'DataWarehouseSettings',
     OrganizationCreateFirst = 'OrganizationCreate',
     ProjectHomepage = 'ProjectHomepage',
-    ProjectSettings = 'ProjectSettings',
     ProjectCreateFirst = 'ProjectCreate',
     SystemStatus = 'SystemStatus',
     AsyncMigrations = 'AsyncMigrations',
     DeadLetterQueue = 'DeadLetterQueue',
-    MySettings = 'MySettings',
-    Annotations = 'Annotations',
     Billing = 'Billing',
     Apps = 'Apps',
     FrontendAppScene = 'FrontendAppScene',
@@ -75,7 +65,6 @@ export enum Scene {
     PasswordReset = 'PasswordReset',
     PasswordResetComplete = 'PasswordResetComplete',
     PreflightCheck = 'PreflightCheck',
-    Ingestion = 'IngestionWizard',
     OrganizationCreationConfirm = 'OrganizationCreationConfirm',
     Unsubscribe = 'Unsubscribe',
     DebugQuery = 'DebugQuery',
@@ -86,6 +75,7 @@ export enum Scene {
     Canvas = 'Canvas',
     Products = 'Products',
     Onboarding = 'Onboarding',
+    Settings = 'Settings',
 }
 
 export type SceneProps = Record<string, any>
@@ -104,7 +94,7 @@ export interface SceneExport {
 }
 
 export interface LoadedScene extends SceneExport {
-    name: string
+    id: string
     sceneParams: SceneParams
 }
 

@@ -1,11 +1,11 @@
-import { ReactNode, useEffect, useRef, useState } from 'react'
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-import { LemonModal, LemonModalProps } from 'lib/lemon-ui/LemonModal'
-import ReactDOM from 'react-dom'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { LemonModal, LemonModalProps } from 'lib/lemon-ui/LemonModal'
+import { ReactNode, useEffect, useRef, useState } from 'react'
+import { createRoot } from 'react-dom/client'
 
-export type LemonDialogProps = Pick<LemonModalProps, 'title' | 'description' | 'width' | 'inline'> & {
+export type LemonDialogProps = Pick<LemonModalProps, 'title' | 'description' | 'width' | 'inline' | 'footer'> & {
     primaryButton?: LemonButtonProps | null
     secondaryButton?: LemonButtonProps | null
     tertiaryButton?: LemonButtonProps | null
@@ -23,6 +23,7 @@ export function LemonDialog({
     secondaryButton,
     content,
     closeOnNavigate = true,
+    footer,
     ...props
 }: LemonDialogProps): JSX.Element {
     const [isOpen, setIsOpen] = useState(true)
@@ -70,7 +71,9 @@ export function LemonDialog({
             onClose={() => setIsOpen(false)}
             onAfterClose={() => onAfterClose?.()}
             footer={
-                primaryButton || secondaryButton || tertiaryButton ? (
+                footer ? (
+                    footer
+                ) : primaryButton || secondaryButton || tertiaryButton ? (
                     <>
                         <div className="flex-1">{renderButton(tertiaryButton)}</div>
                         {renderButton(secondaryButton)}
@@ -86,14 +89,15 @@ export function LemonDialog({
 
 LemonDialog.open = (props: LemonDialogProps) => {
     const div = document.createElement('div')
+    const root = createRoot(div)
     function destroy(): void {
-        const unmountResult = ReactDOM.unmountComponentAtNode(div)
-        if (unmountResult && div.parentNode) {
+        root.unmount()
+        if (div.parentNode) {
             div.parentNode.removeChild(div)
         }
     }
 
     document.body.appendChild(div)
-    ReactDOM.render(<LemonDialog {...props} onAfterClose={destroy} />, div)
+    root.render(<LemonDialog {...props} onAfterClose={destroy} />)
     return
 }

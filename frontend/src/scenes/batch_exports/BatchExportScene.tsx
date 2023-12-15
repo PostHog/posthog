@@ -1,29 +1,38 @@
-import { Checkbox } from 'antd'
-import { SceneExport } from 'scenes/sceneTypes'
-import { PageHeader } from 'lib/components/PageHeader'
-import { LemonButton, LemonDivider, LemonTable, LemonTag, LemonInput, LemonTableColumns } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
-import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
-import { BatchExportLogicProps, batchExportLogic, BatchExportTab } from './batchExportLogic'
-import { BatchExportLogsProps, batchExportLogsLogic, LOGS_PORTION_LIMIT } from './batchExportLogsLogic'
-import { BatchExportRunIcon, BatchExportTag } from './components'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { IconEllipsis, IconRefresh } from 'lib/lemon-ui/icons'
-import { capitalizeFirstLetter, identifierToHuman } from 'lib/utils'
-import { BatchExportBackfillModal } from './BatchExportBackfillModal'
-import { humanizeDestination, intervalToFrequency, isRunInProgress } from './utils'
 import { TZLabel } from '@posthog/apps-common'
-import { Popover } from 'lib/lemon-ui/Popover'
-import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonDivider,
+    LemonInput,
+    LemonTable,
+    LemonTableColumns,
+    LemonTag,
+} from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { PageHeader } from 'lib/components/PageHeader'
 import { dayjs } from 'lib/dayjs'
-import { BatchExportLogEntryLevel, BatchExportLogEntry } from '~/types'
+import { IconEllipsis, IconRefresh } from 'lib/lemon-ui/icons'
+import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { Popover } from 'lib/lemon-ui/Popover'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { capitalizeFirstLetter, identifierToHuman } from 'lib/utils'
 import { pluralize } from 'lib/utils'
+import { useEffect, useState } from 'react'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { BatchExportLogEntry, BatchExportLogEntryLevel } from '~/types'
+
+import { BatchExportBackfillModal } from './BatchExportBackfillModal'
+import { batchExportLogic, BatchExportLogicProps, BatchExportTab } from './batchExportLogic'
+import { batchExportLogsLogic, BatchExportLogsProps, LOGS_PORTION_LIMIT } from './batchExportLogsLogic'
+import { BatchExportRunIcon, BatchExportTag } from './components'
+import { humanizeDestination, intervalToFrequency, isRunInProgress } from './utils'
 
 export const scene: SceneExport = {
     component: BatchExportScene,
@@ -101,7 +110,7 @@ export function RunsTab(): JSX.Element {
                                             onClick={loadNextBatchExportRuns}
                                             loading={batchExportRunsResponseLoading}
                                         >
-                                            Load more button in the footer!
+                                            Load more rows
                                         </LemonButton>
                                     </div>
                                 )
@@ -265,6 +274,7 @@ function BatchExportLogEntryLevelDisplay(type: BatchExportLogEntryLevel): JSX.El
         default:
             break
     }
+    // eslint-disable-next-line react/forbid-dom-props
     return <span style={{ color }}>{type}</span>
 }
 
@@ -324,14 +334,23 @@ export function LogsTab({ batchExportId }: BatchExportLogsProps): JSX.Element {
                 onChange={setSearchTerm}
                 allowClear
             />
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-4">
                 <span>Show logs of type:&nbsp;</span>
-                <Checkbox.Group
-                    options={Object.values(BatchExportLogEntryLevel)}
-                    value={batchExportLogsTypes}
-                    onChange={setBatchExportLogsTypes}
-                    style={{ marginLeft: '8px' }}
-                />
+                {Object.values(BatchExportLogEntryLevel).map((type) => {
+                    return (
+                        <LemonCheckbox
+                            key={type}
+                            label={type}
+                            checked={batchExportLogsTypes.includes(type)}
+                            onChange={(checked) => {
+                                const newBatchExportLogsTypes = checked
+                                    ? [...batchExportLogsTypes, type]
+                                    : batchExportLogsTypes.filter((t) => t != type)
+                                setBatchExportLogsTypes(newBatchExportLogsTypes)
+                            }}
+                        />
+                    )
+                })}
             </div>
             <LemonButton
                 onClick={revealBackground}
@@ -360,7 +379,7 @@ export function LogsTab({ batchExportId }: BatchExportLogsProps): JSX.Element {
                     type="secondary"
                     fullWidth
                     center
-                    disabledReason={!isThereMoreToLoad ? "There's nothing mote to load" : undefined}
+                    disabledReason={!isThereMoreToLoad ? "There's nothing more to load" : undefined}
                 >
                     {isThereMoreToLoad ? `Load up to ${LOGS_PORTION_LIMIT} older entries` : 'No older entries'}
                 </LemonButton>
@@ -501,7 +520,7 @@ export function BatchExportScene(): JSX.Element {
                         </div>
                     </>
                 ) : (
-                    <LemonSkeleton className="w-10" />
+                    <LemonSkeleton className="w-10 h-4" />
                 )}
             </div>
 

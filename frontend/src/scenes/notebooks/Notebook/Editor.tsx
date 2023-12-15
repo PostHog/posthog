@@ -1,46 +1,46 @@
-import posthog from 'posthog-js'
-import { useActions, useValues } from 'kea'
-import { useCallback, useMemo, useRef } from 'react'
-
+import { lemonToast } from '@posthog/lemon-ui'
 import { Editor as TTEditor } from '@tiptap/core'
-import { EditorContent, useEditor } from '@tiptap/react'
-import { FloatingMenu } from '@tiptap/extension-floating-menu'
-import StarterKit from '@tiptap/starter-kit'
-import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import ExtensionDocument from '@tiptap/extension-document'
+import { FloatingMenu } from '@tiptap/extension-floating-menu'
+import ExtensionPlaceholder from '@tiptap/extension-placeholder'
 import TaskItem from '@tiptap/extension-task-item'
 import TaskList from '@tiptap/extension-task-list'
+import { EditorContent, useEditor } from '@tiptap/react'
+import StarterKit from '@tiptap/starter-kit'
+import { useActions, useValues } from 'kea'
+import { sampleOne } from 'lib/utils'
+import posthog from 'posthog-js'
+import { useCallback, useMemo, useRef } from 'react'
 
-import { NotebookNodeFlagCodeExample } from '../Nodes/NotebookNodeFlagCodeExample'
-import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
+import { NotebookNodeType } from '~/types'
+
+import { NotebookMarkLink } from '../Marks/NotebookMarkLink'
+import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
+import { NotebookNodeCohort } from '../Nodes/NotebookNodeCohort'
+import { NotebookNodeEarlyAccessFeature } from '../Nodes/NotebookNodeEarlyAccessFeature'
+import { NotebookNodeEmbed } from '../Nodes/NotebookNodeEmbed'
 import { NotebookNodeExperiment } from '../Nodes/NotebookNodeExperiment'
+import { NotebookNodeFlag } from '../Nodes/NotebookNodeFlag'
+import { NotebookNodeFlagCodeExample } from '../Nodes/NotebookNodeFlagCodeExample'
+import { NotebookNodeGroup } from '../Nodes/NotebookNodeGroup'
+import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
+import { NotebookNodeMap } from '../Nodes/NotebookNodeMap'
+import { NotebookNodeMention } from '../Nodes/NotebookNodeMention'
+import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
+import { NotebookNodePersonFeed } from '../Nodes/NotebookNodePersonFeed/NotebookNodePersonFeed'
+import { NotebookNodePlaylist } from '../Nodes/NotebookNodePlaylist'
+import { NotebookNodeProperties } from '../Nodes/NotebookNodeProperties'
 import { NotebookNodeQuery } from '../Nodes/NotebookNodeQuery'
 import { NotebookNodeRecording } from '../Nodes/NotebookNodeRecording'
-import { NotebookNodePlaylist } from '../Nodes/NotebookNodePlaylist'
-import { NotebookNodePerson } from '../Nodes/NotebookNodePerson'
-import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
 import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
-import { NotebookMarkLink } from '../Marks/NotebookMarkLink'
-import { insertionSuggestionsLogic } from '../Suggestions/insertionSuggestionsLogic'
-import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
-import { lemonToast } from '@posthog/lemon-ui'
-import { NotebookNodeType } from '~/types'
-import { NotebookNodeImage } from '../Nodes/NotebookNodeImage'
-
-import { EditorFocusPosition, EditorRange, JSONContent, Node, textContent } from './utils'
-import { SlashCommandsExtension } from './SlashCommands'
-import { BacklinkCommandsExtension } from './BacklinkCommands'
-import { NotebookNodeEarlyAccessFeature } from '../Nodes/NotebookNodeEarlyAccessFeature'
 import { NotebookNodeSurvey } from '../Nodes/NotebookNodeSurvey'
+import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
+import { insertionSuggestionsLogic } from '../Suggestions/insertionSuggestionsLogic'
 import { InlineMenu } from './InlineMenu'
-import NodeGapInsertionExtension from './Extensions/NodeGapInsertion'
+import { MentionsExtension } from './MentionsExtension'
 import { notebookLogic } from './notebookLogic'
-import { sampleOne } from 'lib/utils'
-import { NotebookNodeGroup } from '../Nodes/NotebookNodeGroup'
-import { NotebookNodeCohort } from '../Nodes/NotebookNodeCohort'
-import { NotebookNodePersonFeed } from '../Nodes/NotebookNodePersonFeed/NotebookNodePersonFeed'
-import { NotebookNodeProperties } from '../Nodes/NotebookNodeProperties'
-import { NotebookNodeMap } from '../Nodes/NotebookNodeMap'
+import { SlashCommandsExtension } from './SlashCommands'
+import { EditorFocusPosition, EditorRange, JSONContent, Node, textContent } from './utils'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',
@@ -93,11 +93,6 @@ export function Editor(): JSX.Element {
                     updatePreviousNode()
                     resetSuggestions()
                 },
-                addKeyboardShortcuts() {
-                    return {
-                        Tab: () => true,
-                    }
-                },
             }),
             TaskList,
             TaskItem.configure({
@@ -119,9 +114,10 @@ export function Editor(): JSX.Element {
             NotebookNodeSurvey,
             NotebookNodeImage,
             NotebookNodeProperties,
+            NotebookNodeMention,
+            NotebookNodeEmbed,
             SlashCommandsExtension,
-            BacklinkCommandsExtension,
-            NodeGapInsertionExtension,
+            MentionsExtension,
             NotebookNodePersonFeed,
             NotebookNodeMap,
         ],
@@ -163,17 +159,7 @@ export function Editor(): JSX.Element {
                         return true
                     }
 
-                    if (!moved && event.dataTransfer.files && event.dataTransfer.files[0]) {
-                        // if dropping external files
-                        const file = event.dataTransfer.files[0] // the dropped file
-
-                        posthog.capture('notebook file dropped', { file_type: file.type })
-
-                        if (!file.type.startsWith('image/')) {
-                            lemonToast.warning('Only images can be added to Notebooks at this time.')
-                            return true
-                        }
-
+                    if (!moved && event.dataTransfer.files && event.dataTransfer.files.length > 0) {
                         const coordinates = view.posAtCoords({
                             left: event.clientX,
                             top: event.clientY,
@@ -184,23 +170,60 @@ export function Editor(): JSX.Element {
                             return true
                         }
 
-                        editor
-                            .chain()
-                            .focus()
-                            .setTextSelection(coordinates.pos)
-                            .insertContent({
-                                type: NotebookNodeType.Image,
-                                attrs: {
-                                    file,
-                                },
-                            })
-                            .run()
+                        // if dropping external files
+                        const fileList = Array.from(event.dataTransfer.files)
+                        const contentToAdd: any[] = []
+                        for (const file of fileList) {
+                            if (file.type.startsWith('image/')) {
+                                contentToAdd.push({
+                                    type: NotebookNodeType.Image,
+                                    attrs: { file },
+                                })
+                            } else {
+                                lemonToast.warning('Only images can be added to Notebooks at this time.')
+                            }
+                        }
+
+                        editor.chain().focus().setTextSelection(coordinates.pos).insertContent(contentToAdd).run()
+                        posthog.capture('notebook files dropped', {
+                            file_types: fileList.map((x) => x.type),
+                        })
 
                         return true
                     }
                 }
 
                 return false
+            },
+            handlePaste: (_view, event) => {
+                const editor = editorRef.current
+                if (!editor) {
+                    return false
+                }
+
+                // Special handling for pasting files such as images
+                if (event.clipboardData && event.clipboardData.files?.length > 0) {
+                    // iterate over the clipboard files and add any supported file types
+                    const fileList = Array.from(event.clipboardData.files)
+                    const contentToAdd: any[] = []
+                    for (const file of fileList) {
+                        if (file.type.startsWith('image/')) {
+                            contentToAdd.push({
+                                type: NotebookNodeType.Image,
+                                attrs: { file },
+                            })
+                        } else {
+                            lemonToast.warning('Only images can be added to Notebooks at this time.')
+                        }
+                    }
+
+                    editor.chain().focus().insertContent(contentToAdd).run()
+                    posthog.capture('notebook files pasted', {
+                        file_types: fileList.map((x) => x.type),
+                    })
+
+                    return true
+                }
             },
         },
         onCreate: ({ editor }) => {
@@ -211,12 +234,14 @@ export function Editor(): JSX.Element {
                 getText: () => textContent(editor.state.doc),
                 getEndPosition: () => editor.state.doc.content.size,
                 getSelectedNode: () => editor.state.doc.nodeAt(editor.state.selection.$anchor.pos),
+                getCurrentPosition: () => editor.state.selection.$anchor.pos,
                 getAdjacentNodes: (pos: number) => getAdjacentNodes(editor, pos),
                 setEditable: (editable: boolean) => queueMicrotask(() => editor.setEditable(editable, false)),
                 setContent: (content: JSONContent) => queueMicrotask(() => editor.commands.setContent(content, false)),
                 setSelection: (position: number) => editor.commands.setNodeSelection(position),
                 setTextSelection: (position: number | EditorRange) => editor.commands.setTextSelection(position),
-                focus: (position: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
+                focus: (position?: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
+                chain: () => editor.chain().focus(),
                 destroy: () => editor.destroy(),
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
                 insertContent: (content: JSONContent) => editor.chain().insertContent(content).focus().run(),
@@ -256,9 +281,10 @@ export function Editor(): JSX.Element {
 
     return (
         <>
-            <EditorContent editor={_editor} className="NotebookEditor flex flex-col flex-1" />
-            {_editor && <FloatingSuggestions editor={_editor} />}
-            {_editor && <InlineMenu editor={_editor} />}
+            <EditorContent editor={_editor} className="NotebookEditor flex flex-col flex-1">
+                {_editor && <FloatingSuggestions editor={_editor} />}
+                {_editor && <InlineMenu editor={_editor} />}
+            </EditorContent>
         </>
     )
 }

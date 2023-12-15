@@ -1,0 +1,1807 @@
+{
+    "id": 19,
+    "short_id": "ff3YKuwB",
+    "name": "AreaBreakdown",
+    "derived_name": "Pageview count by event's Browser",
+    "filters": {
+        "events": [
+            {
+                "id": "$pageview",
+                "name": "$pageview",
+                "type": "events",
+                "order": 0
+            }
+        ],
+        "actions": [],
+        "display": "ActionsAreaGraph",
+        "insight": "TRENDS",
+        "interval": "day",
+        "breakdown": "$browser",
+        "properties": [],
+        "breakdown_type": "event",
+        "filter_test_accounts": false,
+        "date_from": "-7d"
+    },
+    "filters_hash": "cache_791152196c17bdcdfe51f283a870825a",
+    "order": null,
+    "deleted": false,
+    "dashboards": [],
+    "last_refresh": null,
+    "refreshing": false,
+    "result": [
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "$pageview - Chrome",
+            "count": 872,
+            "data": [136, 150, 154, 137, 151, 117, 23, 4],
+            "labels": [
+                "16-Nov-2022",
+                "17-Nov-2022",
+                "18-Nov-2022",
+                "19-Nov-2022",
+                "20-Nov-2022",
+                "21-Nov-2022",
+                "22-Nov-2022",
+                "23-Nov-2022"
+            ],
+            "days": [
+                "2022-11-16",
+                "2022-11-17",
+                "2022-11-18",
+                "2022-11-19",
+                "2022-11-20",
+                "2022-11-21",
+                "2022-11-22",
+                "2022-11-23"
+            ],
+            "breakdown_value": "Chrome",
+            "persons_urls": [
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-16T00:00:00Z",
+                        "date_to": "2022-11-16T00:00:00Z",
+                        "breakdown_value": "Chrome",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-16T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-16T00%3A00%3A00%2B00%3A00&breakdown_value=Chrome"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-17T00:00:00Z",
+                        "date_to": "2022-11-17T00:00:00Z",
+                        "breakdown_value": "Chrome",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-17T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-17T00%3A00%3A00%2B00%3A00&breakdown_value=Chrome"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-18T00:00:00Z",
+                        "date_to": "2022-11-18T00:00:00Z",
+                        "breakdown_value": "Chrome",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-18T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-18T00%3A00%3A00%2B00%3A00&breakdown_value=Chrome"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-19T00:00:00Z",
+                        "date_to": "2022-11-19T00:00:00Z",
+                        "breakdown_value": "Chrome",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-19T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-19T00%3A00%3A00%2B00%3A00&breakdown_value=Chrome"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-20T00:00:00Z",
+                        "date_to": "2022-11-20T00:00:00Z",
+                        "breakdown_value": "Chrome",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-20T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-20T00%3A00%3A00%2B00%3A00&breakdown_value=Chrome"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-21T00:00:00Z",
+                        "date_to": "2022-11-21T00:00:00Z",
+                        "breakdown_value": "Chrome",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-21T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-21T00%3A00%3A00%2B00%3A00&breakdown_value=Chrome"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-22T00:00:00Z",
+                        "date_to": "2022-11-22T00:00:00Z",
+                        "breakdown_value": "Chrome",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-22T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-22T00%3A00%3A00%2B00%3A00&breakdown_value=Chrome"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-23T00:00:00Z",
+                        "date_to": "2022-11-23T00:00:00Z",
+                        "breakdown_value": "Chrome",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-23T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-23T00%3A00%3A00%2B00%3A00&breakdown_value=Chrome"
+                }
+            ],
+            "filter": {
+                "breakdown": "$browser",
+                "breakdown_attribution_type": "first_touch",
+                "breakdown_normalize_url": false,
+                "breakdown_type": "event",
+                "date_from": "-7d",
+                "display": "ActionsAreaGraph",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "custom_name": null,
+                        "math": null,
+                        "math_property": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    }
+                ],
+                "insight": "TRENDS",
+                "interval": "day",
+                "smoothing_intervals": 1
+            }
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "$pageview - Firefox",
+            "count": 360,
+            "data": [65, 48, 72, 65, 74, 36, 0, 0],
+            "labels": [
+                "16-Nov-2022",
+                "17-Nov-2022",
+                "18-Nov-2022",
+                "19-Nov-2022",
+                "20-Nov-2022",
+                "21-Nov-2022",
+                "22-Nov-2022",
+                "23-Nov-2022"
+            ],
+            "days": [
+                "2022-11-16",
+                "2022-11-17",
+                "2022-11-18",
+                "2022-11-19",
+                "2022-11-20",
+                "2022-11-21",
+                "2022-11-22",
+                "2022-11-23"
+            ],
+            "breakdown_value": "Firefox",
+            "persons_urls": [
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-16T00:00:00Z",
+                        "date_to": "2022-11-16T00:00:00Z",
+                        "breakdown_value": "Firefox",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-16T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-16T00%3A00%3A00%2B00%3A00&breakdown_value=Firefox"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-17T00:00:00Z",
+                        "date_to": "2022-11-17T00:00:00Z",
+                        "breakdown_value": "Firefox",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-17T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-17T00%3A00%3A00%2B00%3A00&breakdown_value=Firefox"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-18T00:00:00Z",
+                        "date_to": "2022-11-18T00:00:00Z",
+                        "breakdown_value": "Firefox",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-18T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-18T00%3A00%3A00%2B00%3A00&breakdown_value=Firefox"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-19T00:00:00Z",
+                        "date_to": "2022-11-19T00:00:00Z",
+                        "breakdown_value": "Firefox",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-19T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-19T00%3A00%3A00%2B00%3A00&breakdown_value=Firefox"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-20T00:00:00Z",
+                        "date_to": "2022-11-20T00:00:00Z",
+                        "breakdown_value": "Firefox",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-20T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-20T00%3A00%3A00%2B00%3A00&breakdown_value=Firefox"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-21T00:00:00Z",
+                        "date_to": "2022-11-21T00:00:00Z",
+                        "breakdown_value": "Firefox",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-21T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-21T00%3A00%3A00%2B00%3A00&breakdown_value=Firefox"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-22T00:00:00Z",
+                        "date_to": "2022-11-22T00:00:00Z",
+                        "breakdown_value": "Firefox",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-22T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-22T00%3A00%3A00%2B00%3A00&breakdown_value=Firefox"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-23T00:00:00Z",
+                        "date_to": "2022-11-23T00:00:00Z",
+                        "breakdown_value": "Firefox",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-23T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-23T00%3A00%3A00%2B00%3A00&breakdown_value=Firefox"
+                }
+            ],
+            "filter": {
+                "breakdown": "$browser",
+                "breakdown_attribution_type": "first_touch",
+                "breakdown_normalize_url": false,
+                "breakdown_type": "event",
+                "date_from": "-7d",
+                "display": "ActionsAreaGraph",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "custom_name": null,
+                        "math": null,
+                        "math_property": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    }
+                ],
+                "insight": "TRENDS",
+                "interval": "day",
+                "smoothing_intervals": 1
+            }
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "$pageview - Mobile Safari",
+            "count": 113,
+            "data": [21, 12, 19, 24, 24, 13, 0, 0],
+            "labels": [
+                "16-Nov-2022",
+                "17-Nov-2022",
+                "18-Nov-2022",
+                "19-Nov-2022",
+                "20-Nov-2022",
+                "21-Nov-2022",
+                "22-Nov-2022",
+                "23-Nov-2022"
+            ],
+            "days": [
+                "2022-11-16",
+                "2022-11-17",
+                "2022-11-18",
+                "2022-11-19",
+                "2022-11-20",
+                "2022-11-21",
+                "2022-11-22",
+                "2022-11-23"
+            ],
+            "breakdown_value": "Mobile Safari",
+            "persons_urls": [
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-16T00:00:00Z",
+                        "date_to": "2022-11-16T00:00:00Z",
+                        "breakdown_value": "Mobile Safari",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-16T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-16T00%3A00%3A00%2B00%3A00&breakdown_value=Mobile+Safari"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-17T00:00:00Z",
+                        "date_to": "2022-11-17T00:00:00Z",
+                        "breakdown_value": "Mobile Safari",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-17T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-17T00%3A00%3A00%2B00%3A00&breakdown_value=Mobile+Safari"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-18T00:00:00Z",
+                        "date_to": "2022-11-18T00:00:00Z",
+                        "breakdown_value": "Mobile Safari",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-18T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-18T00%3A00%3A00%2B00%3A00&breakdown_value=Mobile+Safari"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-19T00:00:00Z",
+                        "date_to": "2022-11-19T00:00:00Z",
+                        "breakdown_value": "Mobile Safari",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-19T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-19T00%3A00%3A00%2B00%3A00&breakdown_value=Mobile+Safari"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-20T00:00:00Z",
+                        "date_to": "2022-11-20T00:00:00Z",
+                        "breakdown_value": "Mobile Safari",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-20T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-20T00%3A00%3A00%2B00%3A00&breakdown_value=Mobile+Safari"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-21T00:00:00Z",
+                        "date_to": "2022-11-21T00:00:00Z",
+                        "breakdown_value": "Mobile Safari",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-21T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-21T00%3A00%3A00%2B00%3A00&breakdown_value=Mobile+Safari"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-22T00:00:00Z",
+                        "date_to": "2022-11-22T00:00:00Z",
+                        "breakdown_value": "Mobile Safari",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-22T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-22T00%3A00%3A00%2B00%3A00&breakdown_value=Mobile+Safari"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-23T00:00:00Z",
+                        "date_to": "2022-11-23T00:00:00Z",
+                        "breakdown_value": "Mobile Safari",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-23T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-23T00%3A00%3A00%2B00%3A00&breakdown_value=Mobile+Safari"
+                }
+            ],
+            "filter": {
+                "breakdown": "$browser",
+                "breakdown_attribution_type": "first_touch",
+                "breakdown_normalize_url": false,
+                "breakdown_type": "event",
+                "date_from": "-7d",
+                "display": "ActionsAreaGraph",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "custom_name": null,
+                        "math": null,
+                        "math_property": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    }
+                ],
+                "insight": "TRENDS",
+                "interval": "day",
+                "smoothing_intervals": 1
+            }
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "$pageview - Android Mobile",
+            "count": 101,
+            "data": [16, 11, 17, 18, 26, 13, 0, 0],
+            "labels": [
+                "16-Nov-2022",
+                "17-Nov-2022",
+                "18-Nov-2022",
+                "19-Nov-2022",
+                "20-Nov-2022",
+                "21-Nov-2022",
+                "22-Nov-2022",
+                "23-Nov-2022"
+            ],
+            "days": [
+                "2022-11-16",
+                "2022-11-17",
+                "2022-11-18",
+                "2022-11-19",
+                "2022-11-20",
+                "2022-11-21",
+                "2022-11-22",
+                "2022-11-23"
+            ],
+            "breakdown_value": "Android Mobile",
+            "persons_urls": [
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-16T00:00:00Z",
+                        "date_to": "2022-11-16T00:00:00Z",
+                        "breakdown_value": "Android Mobile",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-16T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-16T00%3A00%3A00%2B00%3A00&breakdown_value=Android+Mobile"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-17T00:00:00Z",
+                        "date_to": "2022-11-17T00:00:00Z",
+                        "breakdown_value": "Android Mobile",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-17T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-17T00%3A00%3A00%2B00%3A00&breakdown_value=Android+Mobile"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-18T00:00:00Z",
+                        "date_to": "2022-11-18T00:00:00Z",
+                        "breakdown_value": "Android Mobile",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-18T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-18T00%3A00%3A00%2B00%3A00&breakdown_value=Android+Mobile"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-19T00:00:00Z",
+                        "date_to": "2022-11-19T00:00:00Z",
+                        "breakdown_value": "Android Mobile",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-19T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-19T00%3A00%3A00%2B00%3A00&breakdown_value=Android+Mobile"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-20T00:00:00Z",
+                        "date_to": "2022-11-20T00:00:00Z",
+                        "breakdown_value": "Android Mobile",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-20T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-20T00%3A00%3A00%2B00%3A00&breakdown_value=Android+Mobile"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-21T00:00:00Z",
+                        "date_to": "2022-11-21T00:00:00Z",
+                        "breakdown_value": "Android Mobile",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-21T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-21T00%3A00%3A00%2B00%3A00&breakdown_value=Android+Mobile"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-22T00:00:00Z",
+                        "date_to": "2022-11-22T00:00:00Z",
+                        "breakdown_value": "Android Mobile",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-22T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-22T00%3A00%3A00%2B00%3A00&breakdown_value=Android+Mobile"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-23T00:00:00Z",
+                        "date_to": "2022-11-23T00:00:00Z",
+                        "breakdown_value": "Android Mobile",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-23T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-23T00%3A00%3A00%2B00%3A00&breakdown_value=Android+Mobile"
+                }
+            ],
+            "filter": {
+                "breakdown": "$browser",
+                "breakdown_attribution_type": "first_touch",
+                "breakdown_normalize_url": false,
+                "breakdown_type": "event",
+                "date_from": "-7d",
+                "display": "ActionsAreaGraph",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "custom_name": null,
+                        "math": null,
+                        "math_property": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    }
+                ],
+                "insight": "TRENDS",
+                "interval": "day",
+                "smoothing_intervals": 1
+            }
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "$pageview - Opera",
+            "count": 89,
+            "data": [11, 12, 18, 25, 12, 11, 0, 0],
+            "labels": [
+                "16-Nov-2022",
+                "17-Nov-2022",
+                "18-Nov-2022",
+                "19-Nov-2022",
+                "20-Nov-2022",
+                "21-Nov-2022",
+                "22-Nov-2022",
+                "23-Nov-2022"
+            ],
+            "days": [
+                "2022-11-16",
+                "2022-11-17",
+                "2022-11-18",
+                "2022-11-19",
+                "2022-11-20",
+                "2022-11-21",
+                "2022-11-22",
+                "2022-11-23"
+            ],
+            "breakdown_value": "Opera",
+            "persons_urls": [
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-16T00:00:00Z",
+                        "date_to": "2022-11-16T00:00:00Z",
+                        "breakdown_value": "Opera",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-16T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-16T00%3A00%3A00%2B00%3A00&breakdown_value=Opera"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-17T00:00:00Z",
+                        "date_to": "2022-11-17T00:00:00Z",
+                        "breakdown_value": "Opera",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-17T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-17T00%3A00%3A00%2B00%3A00&breakdown_value=Opera"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-18T00:00:00Z",
+                        "date_to": "2022-11-18T00:00:00Z",
+                        "breakdown_value": "Opera",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-18T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-18T00%3A00%3A00%2B00%3A00&breakdown_value=Opera"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-19T00:00:00Z",
+                        "date_to": "2022-11-19T00:00:00Z",
+                        "breakdown_value": "Opera",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-19T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-19T00%3A00%3A00%2B00%3A00&breakdown_value=Opera"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-20T00:00:00Z",
+                        "date_to": "2022-11-20T00:00:00Z",
+                        "breakdown_value": "Opera",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-20T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-20T00%3A00%3A00%2B00%3A00&breakdown_value=Opera"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-21T00:00:00Z",
+                        "date_to": "2022-11-21T00:00:00Z",
+                        "breakdown_value": "Opera",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-21T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-21T00%3A00%3A00%2B00%3A00&breakdown_value=Opera"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-22T00:00:00Z",
+                        "date_to": "2022-11-22T00:00:00Z",
+                        "breakdown_value": "Opera",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-22T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-22T00%3A00%3A00%2B00%3A00&breakdown_value=Opera"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-23T00:00:00Z",
+                        "date_to": "2022-11-23T00:00:00Z",
+                        "breakdown_value": "Opera",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-23T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-23T00%3A00%3A00%2B00%3A00&breakdown_value=Opera"
+                }
+            ],
+            "filter": {
+                "breakdown": "$browser",
+                "breakdown_attribution_type": "first_touch",
+                "breakdown_normalize_url": false,
+                "breakdown_type": "event",
+                "date_from": "-7d",
+                "display": "ActionsAreaGraph",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "custom_name": null,
+                        "math": null,
+                        "math_property": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    }
+                ],
+                "insight": "TRENDS",
+                "interval": "day",
+                "smoothing_intervals": 1
+            }
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "$pageview - Firefox iOS",
+            "count": 66,
+            "data": [19, 13, 17, 4, 9, 4, 0, 0],
+            "labels": [
+                "16-Nov-2022",
+                "17-Nov-2022",
+                "18-Nov-2022",
+                "19-Nov-2022",
+                "20-Nov-2022",
+                "21-Nov-2022",
+                "22-Nov-2022",
+                "23-Nov-2022"
+            ],
+            "days": [
+                "2022-11-16",
+                "2022-11-17",
+                "2022-11-18",
+                "2022-11-19",
+                "2022-11-20",
+                "2022-11-21",
+                "2022-11-22",
+                "2022-11-23"
+            ],
+            "breakdown_value": "Firefox iOS",
+            "persons_urls": [
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-16T00:00:00Z",
+                        "date_to": "2022-11-16T00:00:00Z",
+                        "breakdown_value": "Firefox iOS",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-16T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-16T00%3A00%3A00%2B00%3A00&breakdown_value=Firefox+iOS"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-17T00:00:00Z",
+                        "date_to": "2022-11-17T00:00:00Z",
+                        "breakdown_value": "Firefox iOS",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-17T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-17T00%3A00%3A00%2B00%3A00&breakdown_value=Firefox+iOS"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-18T00:00:00Z",
+                        "date_to": "2022-11-18T00:00:00Z",
+                        "breakdown_value": "Firefox iOS",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-18T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-18T00%3A00%3A00%2B00%3A00&breakdown_value=Firefox+iOS"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-19T00:00:00Z",
+                        "date_to": "2022-11-19T00:00:00Z",
+                        "breakdown_value": "Firefox iOS",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-19T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-19T00%3A00%3A00%2B00%3A00&breakdown_value=Firefox+iOS"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-20T00:00:00Z",
+                        "date_to": "2022-11-20T00:00:00Z",
+                        "breakdown_value": "Firefox iOS",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-20T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-20T00%3A00%3A00%2B00%3A00&breakdown_value=Firefox+iOS"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-21T00:00:00Z",
+                        "date_to": "2022-11-21T00:00:00Z",
+                        "breakdown_value": "Firefox iOS",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-21T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-21T00%3A00%3A00%2B00%3A00&breakdown_value=Firefox+iOS"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-22T00:00:00Z",
+                        "date_to": "2022-11-22T00:00:00Z",
+                        "breakdown_value": "Firefox iOS",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-22T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-22T00%3A00%3A00%2B00%3A00&breakdown_value=Firefox+iOS"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-23T00:00:00Z",
+                        "date_to": "2022-11-23T00:00:00Z",
+                        "breakdown_value": "Firefox iOS",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-23T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-23T00%3A00%3A00%2B00%3A00&breakdown_value=Firefox+iOS"
+                }
+            ],
+            "filter": {
+                "breakdown": "$browser",
+                "breakdown_attribution_type": "first_touch",
+                "breakdown_normalize_url": false,
+                "breakdown_type": "event",
+                "date_from": "-7d",
+                "display": "ActionsAreaGraph",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "custom_name": null,
+                        "math": null,
+                        "math_property": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    }
+                ],
+                "insight": "TRENDS",
+                "interval": "day",
+                "smoothing_intervals": 1
+            }
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "$pageview - Safari",
+            "count": 52,
+            "data": [12, 5, 9, 10, 13, 3, 0, 0],
+            "labels": [
+                "16-Nov-2022",
+                "17-Nov-2022",
+                "18-Nov-2022",
+                "19-Nov-2022",
+                "20-Nov-2022",
+                "21-Nov-2022",
+                "22-Nov-2022",
+                "23-Nov-2022"
+            ],
+            "days": [
+                "2022-11-16",
+                "2022-11-17",
+                "2022-11-18",
+                "2022-11-19",
+                "2022-11-20",
+                "2022-11-21",
+                "2022-11-22",
+                "2022-11-23"
+            ],
+            "breakdown_value": "Safari",
+            "persons_urls": [
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-16T00:00:00Z",
+                        "date_to": "2022-11-16T00:00:00Z",
+                        "breakdown_value": "Safari",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-16T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-16T00%3A00%3A00%2B00%3A00&breakdown_value=Safari"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-17T00:00:00Z",
+                        "date_to": "2022-11-17T00:00:00Z",
+                        "breakdown_value": "Safari",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-17T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-17T00%3A00%3A00%2B00%3A00&breakdown_value=Safari"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-18T00:00:00Z",
+                        "date_to": "2022-11-18T00:00:00Z",
+                        "breakdown_value": "Safari",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-18T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-18T00%3A00%3A00%2B00%3A00&breakdown_value=Safari"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-19T00:00:00Z",
+                        "date_to": "2022-11-19T00:00:00Z",
+                        "breakdown_value": "Safari",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-19T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-19T00%3A00%3A00%2B00%3A00&breakdown_value=Safari"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-20T00:00:00Z",
+                        "date_to": "2022-11-20T00:00:00Z",
+                        "breakdown_value": "Safari",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-20T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-20T00%3A00%3A00%2B00%3A00&breakdown_value=Safari"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-21T00:00:00Z",
+                        "date_to": "2022-11-21T00:00:00Z",
+                        "breakdown_value": "Safari",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-21T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-21T00%3A00%3A00%2B00%3A00&breakdown_value=Safari"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-22T00:00:00Z",
+                        "date_to": "2022-11-22T00:00:00Z",
+                        "breakdown_value": "Safari",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-22T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-22T00%3A00%3A00%2B00%3A00&breakdown_value=Safari"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-23T00:00:00Z",
+                        "date_to": "2022-11-23T00:00:00Z",
+                        "breakdown_value": "Safari",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-23T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-23T00%3A00%3A00%2B00%3A00&breakdown_value=Safari"
+                }
+            ],
+            "filter": {
+                "breakdown": "$browser",
+                "breakdown_attribution_type": "first_touch",
+                "breakdown_normalize_url": false,
+                "breakdown_type": "event",
+                "date_from": "-7d",
+                "display": "ActionsAreaGraph",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "custom_name": null,
+                        "math": null,
+                        "math_property": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    }
+                ],
+                "insight": "TRENDS",
+                "interval": "day",
+                "smoothing_intervals": 1
+            }
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "$pageview - Chrome iOS",
+            "count": 20,
+            "data": [1, 1, 1, 1, 11, 5, 0, 0],
+            "labels": [
+                "16-Nov-2022",
+                "17-Nov-2022",
+                "18-Nov-2022",
+                "19-Nov-2022",
+                "20-Nov-2022",
+                "21-Nov-2022",
+                "22-Nov-2022",
+                "23-Nov-2022"
+            ],
+            "days": [
+                "2022-11-16",
+                "2022-11-17",
+                "2022-11-18",
+                "2022-11-19",
+                "2022-11-20",
+                "2022-11-21",
+                "2022-11-22",
+                "2022-11-23"
+            ],
+            "breakdown_value": "Chrome iOS",
+            "persons_urls": [
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-16T00:00:00Z",
+                        "date_to": "2022-11-16T00:00:00Z",
+                        "breakdown_value": "Chrome iOS",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-16T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-16T00%3A00%3A00%2B00%3A00&breakdown_value=Chrome+iOS"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-17T00:00:00Z",
+                        "date_to": "2022-11-17T00:00:00Z",
+                        "breakdown_value": "Chrome iOS",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-17T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-17T00%3A00%3A00%2B00%3A00&breakdown_value=Chrome+iOS"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-18T00:00:00Z",
+                        "date_to": "2022-11-18T00:00:00Z",
+                        "breakdown_value": "Chrome iOS",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-18T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-18T00%3A00%3A00%2B00%3A00&breakdown_value=Chrome+iOS"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-19T00:00:00Z",
+                        "date_to": "2022-11-19T00:00:00Z",
+                        "breakdown_value": "Chrome iOS",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-19T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-19T00%3A00%3A00%2B00%3A00&breakdown_value=Chrome+iOS"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-20T00:00:00Z",
+                        "date_to": "2022-11-20T00:00:00Z",
+                        "breakdown_value": "Chrome iOS",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-20T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-20T00%3A00%3A00%2B00%3A00&breakdown_value=Chrome+iOS"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-21T00:00:00Z",
+                        "date_to": "2022-11-21T00:00:00Z",
+                        "breakdown_value": "Chrome iOS",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-21T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-21T00%3A00%3A00%2B00%3A00&breakdown_value=Chrome+iOS"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-22T00:00:00Z",
+                        "date_to": "2022-11-22T00:00:00Z",
+                        "breakdown_value": "Chrome iOS",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-22T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-22T00%3A00%3A00%2B00%3A00&breakdown_value=Chrome+iOS"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-23T00:00:00Z",
+                        "date_to": "2022-11-23T00:00:00Z",
+                        "breakdown_value": "Chrome iOS",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-23T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-23T00%3A00%3A00%2B00%3A00&breakdown_value=Chrome+iOS"
+                }
+            ],
+            "filter": {
+                "breakdown": "$browser",
+                "breakdown_attribution_type": "first_touch",
+                "breakdown_normalize_url": false,
+                "breakdown_type": "event",
+                "date_from": "-7d",
+                "display": "ActionsAreaGraph",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "custom_name": null,
+                        "math": null,
+                        "math_property": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    }
+                ],
+                "insight": "TRENDS",
+                "interval": "day",
+                "smoothing_intervals": 1
+            }
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "$pageview - Internet Explorer",
+            "count": 17,
+            "data": [0, 4, 6, 4, 3, 0, 0, 0],
+            "labels": [
+                "16-Nov-2022",
+                "17-Nov-2022",
+                "18-Nov-2022",
+                "19-Nov-2022",
+                "20-Nov-2022",
+                "21-Nov-2022",
+                "22-Nov-2022",
+                "23-Nov-2022"
+            ],
+            "days": [
+                "2022-11-16",
+                "2022-11-17",
+                "2022-11-18",
+                "2022-11-19",
+                "2022-11-20",
+                "2022-11-21",
+                "2022-11-22",
+                "2022-11-23"
+            ],
+            "breakdown_value": "Internet Explorer",
+            "persons_urls": [
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-16T00:00:00Z",
+                        "date_to": "2022-11-16T00:00:00Z",
+                        "breakdown_value": "Internet Explorer",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-16T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-16T00%3A00%3A00%2B00%3A00&breakdown_value=Internet+Explorer"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-17T00:00:00Z",
+                        "date_to": "2022-11-17T00:00:00Z",
+                        "breakdown_value": "Internet Explorer",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-17T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-17T00%3A00%3A00%2B00%3A00&breakdown_value=Internet+Explorer"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-18T00:00:00Z",
+                        "date_to": "2022-11-18T00:00:00Z",
+                        "breakdown_value": "Internet Explorer",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-18T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-18T00%3A00%3A00%2B00%3A00&breakdown_value=Internet+Explorer"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-19T00:00:00Z",
+                        "date_to": "2022-11-19T00:00:00Z",
+                        "breakdown_value": "Internet Explorer",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-19T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-19T00%3A00%3A00%2B00%3A00&breakdown_value=Internet+Explorer"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-20T00:00:00Z",
+                        "date_to": "2022-11-20T00:00:00Z",
+                        "breakdown_value": "Internet Explorer",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-20T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-20T00%3A00%3A00%2B00%3A00&breakdown_value=Internet+Explorer"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-21T00:00:00Z",
+                        "date_to": "2022-11-21T00:00:00Z",
+                        "breakdown_value": "Internet Explorer",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-21T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-21T00%3A00%3A00%2B00%3A00&breakdown_value=Internet+Explorer"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-22T00:00:00Z",
+                        "date_to": "2022-11-22T00:00:00Z",
+                        "breakdown_value": "Internet Explorer",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-22T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-22T00%3A00%3A00%2B00%3A00&breakdown_value=Internet+Explorer"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-23T00:00:00Z",
+                        "date_to": "2022-11-23T00:00:00Z",
+                        "breakdown_value": "Internet Explorer",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-23T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-23T00%3A00%3A00%2B00%3A00&breakdown_value=Internet+Explorer"
+                }
+            ],
+            "filter": {
+                "breakdown": "$browser",
+                "breakdown_attribution_type": "first_touch",
+                "breakdown_normalize_url": false,
+                "breakdown_type": "event",
+                "date_from": "-7d",
+                "display": "ActionsAreaGraph",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "custom_name": null,
+                        "math": null,
+                        "math_property": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    }
+                ],
+                "insight": "TRENDS",
+                "interval": "day",
+                "smoothing_intervals": 1
+            }
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "$pageview - Microsoft Edge",
+            "count": 17,
+            "data": [0, 1, 6, 1, 7, 2, 0, 0],
+            "labels": [
+                "16-Nov-2022",
+                "17-Nov-2022",
+                "18-Nov-2022",
+                "19-Nov-2022",
+                "20-Nov-2022",
+                "21-Nov-2022",
+                "22-Nov-2022",
+                "23-Nov-2022"
+            ],
+            "days": [
+                "2022-11-16",
+                "2022-11-17",
+                "2022-11-18",
+                "2022-11-19",
+                "2022-11-20",
+                "2022-11-21",
+                "2022-11-22",
+                "2022-11-23"
+            ],
+            "breakdown_value": "Microsoft Edge",
+            "persons_urls": [
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-16T00:00:00Z",
+                        "date_to": "2022-11-16T00:00:00Z",
+                        "breakdown_value": "Microsoft Edge",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-16T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-16T00%3A00%3A00%2B00%3A00&breakdown_value=Microsoft+Edge"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-17T00:00:00Z",
+                        "date_to": "2022-11-17T00:00:00Z",
+                        "breakdown_value": "Microsoft Edge",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-17T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-17T00%3A00%3A00%2B00%3A00&breakdown_value=Microsoft+Edge"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-18T00:00:00Z",
+                        "date_to": "2022-11-18T00:00:00Z",
+                        "breakdown_value": "Microsoft Edge",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-18T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-18T00%3A00%3A00%2B00%3A00&breakdown_value=Microsoft+Edge"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-19T00:00:00Z",
+                        "date_to": "2022-11-19T00:00:00Z",
+                        "breakdown_value": "Microsoft Edge",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-19T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-19T00%3A00%3A00%2B00%3A00&breakdown_value=Microsoft+Edge"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-20T00:00:00Z",
+                        "date_to": "2022-11-20T00:00:00Z",
+                        "breakdown_value": "Microsoft Edge",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-20T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-20T00%3A00%3A00%2B00%3A00&breakdown_value=Microsoft+Edge"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-21T00:00:00Z",
+                        "date_to": "2022-11-21T00:00:00Z",
+                        "breakdown_value": "Microsoft Edge",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-21T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-21T00%3A00%3A00%2B00%3A00&breakdown_value=Microsoft+Edge"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-22T00:00:00Z",
+                        "date_to": "2022-11-22T00:00:00Z",
+                        "breakdown_value": "Microsoft Edge",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-22T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-22T00%3A00%3A00%2B00%3A00&breakdown_value=Microsoft+Edge"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-23T00:00:00Z",
+                        "date_to": "2022-11-23T00:00:00Z",
+                        "breakdown_value": "Microsoft Edge",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-23T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-23T00%3A00%3A00%2B00%3A00&breakdown_value=Microsoft+Edge"
+                }
+            ],
+            "filter": {
+                "breakdown": "$browser",
+                "breakdown_attribution_type": "first_touch",
+                "breakdown_normalize_url": false,
+                "breakdown_type": "event",
+                "date_from": "-7d",
+                "display": "ActionsAreaGraph",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "custom_name": null,
+                        "math": null,
+                        "math_property": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    }
+                ],
+                "insight": "TRENDS",
+                "interval": "day",
+                "smoothing_intervals": 1
+            }
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "$pageview - Samsung Internet",
+            "count": 14,
+            "data": [1, 5, 1, 1, 2, 4, 0, 0],
+            "labels": [
+                "16-Nov-2022",
+                "17-Nov-2022",
+                "18-Nov-2022",
+                "19-Nov-2022",
+                "20-Nov-2022",
+                "21-Nov-2022",
+                "22-Nov-2022",
+                "23-Nov-2022"
+            ],
+            "days": [
+                "2022-11-16",
+                "2022-11-17",
+                "2022-11-18",
+                "2022-11-19",
+                "2022-11-20",
+                "2022-11-21",
+                "2022-11-22",
+                "2022-11-23"
+            ],
+            "breakdown_value": "Samsung Internet",
+            "persons_urls": [
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-16T00:00:00Z",
+                        "date_to": "2022-11-16T00:00:00Z",
+                        "breakdown_value": "Samsung Internet",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-16T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-16T00%3A00%3A00%2B00%3A00&breakdown_value=Samsung+Internet"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-17T00:00:00Z",
+                        "date_to": "2022-11-17T00:00:00Z",
+                        "breakdown_value": "Samsung Internet",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-17T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-17T00%3A00%3A00%2B00%3A00&breakdown_value=Samsung+Internet"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-18T00:00:00Z",
+                        "date_to": "2022-11-18T00:00:00Z",
+                        "breakdown_value": "Samsung Internet",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-18T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-18T00%3A00%3A00%2B00%3A00&breakdown_value=Samsung+Internet"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-19T00:00:00Z",
+                        "date_to": "2022-11-19T00:00:00Z",
+                        "breakdown_value": "Samsung Internet",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-19T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-19T00%3A00%3A00%2B00%3A00&breakdown_value=Samsung+Internet"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-20T00:00:00Z",
+                        "date_to": "2022-11-20T00:00:00Z",
+                        "breakdown_value": "Samsung Internet",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-20T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-20T00%3A00%3A00%2B00%3A00&breakdown_value=Samsung+Internet"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-21T00:00:00Z",
+                        "date_to": "2022-11-21T00:00:00Z",
+                        "breakdown_value": "Samsung Internet",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-21T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-21T00%3A00%3A00%2B00%3A00&breakdown_value=Samsung+Internet"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-22T00:00:00Z",
+                        "date_to": "2022-11-22T00:00:00Z",
+                        "breakdown_value": "Samsung Internet",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-22T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-22T00%3A00%3A00%2B00%3A00&breakdown_value=Samsung+Internet"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-11-23T00:00:00Z",
+                        "date_to": "2022-11-23T00:00:00Z",
+                        "breakdown_value": "Samsung Internet",
+                        "breakdown_type": "event"
+                    },
+                    "url": "api/projects/2/persons/trends/?breakdown=%24browser&breakdown_attribution_type=first_touch&breakdown_normalize_url=False&breakdown_type=event&date_from=2022-11-23T00%3A00%3A00%2B00%3A00&display=ActionsAreaGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=%24pageview&entity_type=events&date_to=2022-11-23T00%3A00%3A00%2B00%3A00&breakdown_value=Samsung+Internet"
+                }
+            ],
+            "filter": {
+                "breakdown": "$browser",
+                "breakdown_attribution_type": "first_touch",
+                "breakdown_normalize_url": false,
+                "breakdown_type": "event",
+                "date_from": "-7d",
+                "display": "ActionsAreaGraph",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "custom_name": null,
+                        "math": null,
+                        "math_property": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    }
+                ],
+                "insight": "TRENDS",
+                "interval": "day",
+                "smoothing_intervals": 1
+            }
+        }
+    ],
+    "created_at": "2022-11-23T17:27:25.585856Z",
+    "created_by": {
+        "id": 2,
+        "uuid": "01849a3b-733c-0000-a2a3-11540809ae0b",
+        "distinct_id": "EgJxebsiPyI2oROvcrs80YvlCFWc9HSVbQTIMyuFXE5",
+        "first_name": "Employee 427",
+        "email": "test@posthog.com"
+    },
+    "description": "",
+    "updated_at": "2022-11-23T17:27:25.585881Z",
+    "favorited": false,
+    "saved": true,
+    "last_modified_at": "2022-11-23T17:27:25.585078Z",
+    "last_modified_by": {
+        "id": 2,
+        "uuid": "01849a3b-733c-0000-a2a3-11540809ae0b",
+        "distinct_id": "EgJxebsiPyI2oROvcrs80YvlCFWc9HSVbQTIMyuFXE5",
+        "first_name": "Employee 427",
+        "email": "test@posthog.com"
+    },
+    "is_sample": false,
+    "effective_restriction_level": 21,
+    "effective_privilege_level": 37,
+    "timezone": "UTC",
+    "tags": []
+}

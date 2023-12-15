@@ -1,6 +1,7 @@
-import { FlagImplementationSnippet } from './flagImplementationSnippet'
 import { SDKKey } from '~/types'
+
 import { SDKInstallIOSInstructions } from '../sdk-install-instructions'
+import { FlagImplementationSnippet } from './flagImplementationSnippet'
 
 export function FeatureFlagsIOSInstructions(): JSX.Element {
     return (

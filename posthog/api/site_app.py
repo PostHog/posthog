@@ -34,5 +34,5 @@ def get_site_app(request: HttpRequest, id: int, token: str, hash: str) -> HttpRe
             "Unable to serve site app source code.",
             code="missing_site_app_source",
             type="server_error",
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            status_code=status.HTTP_404_NOT_FOUND,
         )

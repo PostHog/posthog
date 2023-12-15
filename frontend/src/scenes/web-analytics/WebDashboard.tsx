@@ -1,148 +1,88 @@
-import { Query } from '~/queries/Query/Query'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { isEventPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { NodeKind, WebStatsBreakdown } from '~/queries/schema'
-import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import { useCallback } from 'react'
-import { UnexpectedNeverError } from 'lib/utils'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { supportLogic } from 'lib/components/Support/supportLogic'
-import { IconBugReport, IconFeedback, IconGithub } from 'lib/lemon-ui/icons'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { isEventPropertyOrPersonPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
+import { TabsTile, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { WebAnalyticsNotice } from 'scenes/web-analytics/WebAnalyticsNotice'
+import {
+    webAnalyticsDataTableQueryContext,
+    WebStatsTableTile,
+    WebStatsTrendTile,
+} from 'scenes/web-analytics/WebAnalyticsTile'
+import { WebTabs } from 'scenes/web-analytics/WebTabs'
 
-const PercentageCell: QueryContextColumnComponent = ({ value }) => {
-    if (typeof value === 'number') {
-        return <span>{`${(value * 100).toFixed(1)}%`}</span>
-    } else {
-        return null
-    }
-}
-
-const NumericCell: QueryContextColumnComponent = ({ value }) => {
-    return <span>{typeof value === 'number' ? value.toLocaleString() : String(value)}</span>
-}
-
-const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
-    const { query } = props
-    const { source } = query
-    if (source.kind !== NodeKind.WebStatsTableQuery) {
-        return null
-    }
-    const { breakdownBy } = source
-    switch (breakdownBy) {
-        case WebStatsBreakdown.Page:
-            return <>Path</>
-        case WebStatsBreakdown.InitialPage:
-            return <>Initial Path</>
-        case WebStatsBreakdown.InitialReferringDomain:
-            return <>Referring Domain</>
-        case WebStatsBreakdown.InitialUTMSource:
-            return <>UTM Source</>
-        case WebStatsBreakdown.InitialUTMCampaign:
-            return <>UTM Campaign</>
-        case WebStatsBreakdown.Browser:
-            return <>Browser</>
-        case WebStatsBreakdown.OS:
-            return <>OS</>
-        case WebStatsBreakdown.DeviceType:
-            return <>Device Type</>
-        default:
-            throw new UnexpectedNeverError(breakdownBy)
-    }
-}
-
-const BreakdownValueCell: QueryContextColumnComponent = (props) => {
-    const { value, query } = props
-    const { source } = query
-    if (source.kind !== NodeKind.WebStatsTableQuery) {
-        return null
-    }
-    if (typeof value !== 'string') {
-        return null
-    }
-    const { breakdownBy } = source
-    let propertyName: string
-    switch (breakdownBy) {
-        case WebStatsBreakdown.Page:
-            propertyName = '$pathname'
-            break
-        case WebStatsBreakdown.InitialPage:
-            propertyName = '$initial_pathname'
-            break
-        case WebStatsBreakdown.InitialReferringDomain:
-            propertyName = '$initial_referrer'
-            break
-        case WebStatsBreakdown.InitialUTMSource:
-            propertyName = '$initial_utm_source'
-            break
-        case WebStatsBreakdown.InitialUTMCampaign:
-            propertyName = '$initial_utm_campaign'
-            break
-        case WebStatsBreakdown.Browser:
-            propertyName = '$browser'
-            break
-        case WebStatsBreakdown.OS:
-            propertyName = '$os'
-            break
-        case WebStatsBreakdown.DeviceType:
-            propertyName = '$device_type'
-            break
-        default:
-            throw new UnexpectedNeverError(breakdownBy)
-    }
-
-    return <BreakdownValueCellInner value={value} propertyName={propertyName} />
-}
-const BreakdownValueCellInner = ({ value, propertyName }: { value: string; propertyName: string }): JSX.Element => {
-    const { togglePropertyFilter } = useActions(webAnalyticsLogic)
-
-    const onClick = useCallback(() => {
-        togglePropertyFilter(propertyName, value)
-    }, [togglePropertyFilter, propertyName, value])
-
-    return <a onClick={onClick}>{value}</a>
-}
-
-const queryContext: QueryContext = {
-    columns: {
-        breakdown_value: {
-            renderTitle: BreakdownValueTitle,
-            render: BreakdownValueCell,
-        },
-        bounce_rate: {
-            title: 'Bounce Rate',
-            render: PercentageCell,
-            align: 'right',
-        },
-        views: {
-            title: 'Views',
-            render: NumericCell,
-            align: 'right',
-        },
-        visitors: {
-            title: 'Visitors',
-            render: NumericCell,
-            align: 'right',
-        },
-    },
-}
+import { Query } from '~/queries/Query/Query'
+import { NodeKind, QuerySchema } from '~/queries/schema'
 
 const Filters = (): JSX.Element => {
-    const { webAnalyticsFilters, dateTo, dateFrom } = useValues(webAnalyticsLogic)
+    const {
+        webAnalyticsFilters,
+        dateFilter: { dateTo, dateFrom },
+    } = useValues(webAnalyticsLogic)
     const { setWebAnalyticsFilters, setDates } = useActions(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const hasPosthog3000 = featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test'
+
     return (
-        <div className="sticky top-0 bg-white z-20 pt-2">
+        <div
+            className={clsx('sticky z-20 pt-2', !hasPosthog3000 && 'top-0 bg-white')}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={
+                hasPosthog3000
+                    ? {
+                          backgroundColor: 'var(--bg-3000)',
+                          top: 'var(--breadcrumbs-height)',
+                      }
+                    : undefined
+            }
+        >
             <div className="flex flex-row flex-wrap gap-2">
                 <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
                 <PropertyFilters
-                    taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
-                    onChange={(filters) => setWebAnalyticsFilters(filters.filter(isEventPropertyFilter))}
+                    taxonomicGroupTypes={[
+                        TaxonomicFilterGroupType.EventProperties,
+                        TaxonomicFilterGroupType.PersonProperties,
+                    ]}
+                    onChange={(filters) =>
+                        setWebAnalyticsFilters(filters.filter(isEventPropertyOrPersonPropertyFilter))
+                    }
                     propertyFilters={webAnalyticsFilters}
                     pageKey={'web-analytics'}
+                    eventNames={['$pageview', '$pageleave', '$autocapture']}
+                    propertyAllowList={{
+                        [TaxonomicFilterGroupType.EventProperties]: [
+                            '$pathname',
+                            '$host',
+                            '$browser',
+                            '$os',
+                            '$device_type',
+                            '$geoip_country_code',
+                            '$geoip_subdivision_1_code',
+                            '$geoip_city_name',
+                            // re-enable after https://github.com/PostHog/posthog-js/pull/875 is merged
+                            // '$client_session_initial_pathname',
+                            // '$client_session_initial_referring_host',
+                            // '$client_session_initial_utm_source',
+                            // '$client_session_initial_utm_campaign',
+                            // '$client_session_initial_utm_medium',
+                            // '$client_session_initial_utm_content',
+                            // '$client_session_initial_utm_term',
+                        ],
+                        [TaxonomicFilterGroupType.PersonProperties]: [
+                            '$initial_pathname',
+                            '$initial_referring_domain',
+                            '$initial_utm_source',
+                            '$initial_utm_campaign',
+                            '$initial_utm_medium',
+                            '$initial_utm_content',
+                            '$initial_utm_term',
+                        ],
+                    }}
                 />
             </div>
             <div className={'bg-border h-px w-full mt-2'} />
@@ -152,59 +92,27 @@ const Filters = (): JSX.Element => {
 
 const Tiles = (): JSX.Element => {
     const { tiles } = useValues(webAnalyticsLogic)
+
     return (
-        <div className="mt-2 grid grid-cols-1 md:grid-cols-12 gap-4">
+        <div className="mt-8 grid grid-cols-1 md:grid-cols-12 gap-x-4 gap-y-10">
             {tiles.map((tile, i) => {
                 if ('query' in tile) {
                     const { query, title, layout } = tile
                     return (
                         <div
                             key={i}
-                            className={`col-span-1 row-span-1 md:col-span-${layout.colSpan ?? 6} md:row-span-${
-                                layout.rowSpan ?? 1
-                            }  flex flex-col`}
+                            className={clsx(
+                                'col-span-1 row-span-1 flex flex-col',
+                                `md:col-span-${layout.colSpan ?? 6} md:row-span-${layout.rowSpan ?? 1}`,
+                                layout.className
+                            )}
                         >
-                            {title && <h2 className="m-0  mb-1">{title}</h2>}
-                            <Query query={query} readOnly={true} context={queryContext} />
+                            {title && <h2 className="m-0 mb-3">{title}</h2>}
+                            <WebQuery query={query} />
                         </div>
                     )
                 } else if ('tabs' in tile) {
-                    const { tabs, activeTabId, layout, setTabId } = tile
-                    const tab = tabs.find((t) => t.id === activeTabId)
-                    if (!tab) {
-                        return null
-                    }
-                    const { query, title } = tab
-                    return (
-                        <div
-                            key={i}
-                            className={`col-span-1 row-span-1 md:col-span-${layout.colSpan ?? 6} md:row-span-${
-                                layout.rowSpan ?? 1
-                            } flex flex-col`}
-                        >
-                            <div className="flex flex-row items-center">
-                                {<h2 className="flex-1 m-0 mb-1">{title}</h2>}
-                                {tabs.length > 1 && (
-                                    <div className="space-x-2">
-                                        {/* TODO switch to a select if more than 3 */}
-                                        {tabs.map(({ id, linkText }) => (
-                                            <a
-                                                className={
-                                                    id === activeTabId ? 'text-link' : 'text-inherit hover:text-link'
-                                                }
-                                                key={id}
-                                                onClick={() => setTabId(id)}
-                                            >
-                                                {linkText}
-                                            </a>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                            {/* Setting key forces the component to be recreated when the tab changes */}
-                            <Query key={activeTabId} query={query} readOnly={true} context={queryContext} />
-                        </div>
-                    )
+                    return <TabsTileItem key={i} tile={tile} />
                 } else {
                     return null
                 }
@@ -213,40 +121,48 @@ const Tiles = (): JSX.Element => {
     )
 }
 
-export const Notice = (): JSX.Element => {
-    const { openSupportForm } = useActions(supportLogic)
-    const { preflight } = useValues(preflightLogic)
-
-    const showSupportOptions = preflight?.cloud
+const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
+    const { layout } = tile
 
     return (
-        <LemonBanner type={'info'}>
-            <p>PostHog Web Analytics is in closed Alpha. Thanks for taking part! We'd love to hear what you think.</p>
-            {showSupportOptions ? (
-                <p>
-                    <a onClick={() => openSupportForm('bug')}>
-                        <IconBugReport /> Report a bug
-                    </a>{' '}
-                    -{' '}
-                    <a onClick={() => openSupportForm('feedback')}>
-                        <IconFeedback /> Give feedback
-                    </a>{' '}
-                    -{' '}
-                    <a href={'https://github.com/PostHog/posthog/issues/18177'}>
-                        <IconGithub /> View GitHub issue
-                    </a>
-                </p>
-            ) : null}
-        </LemonBanner>
+        <WebTabs
+            className={clsx(
+                'col-span-1 row-span-1',
+                `md:col-span-${layout.colSpan ?? 6} md:row-span-${layout.rowSpan ?? 1}`,
+                layout.className
+            )}
+            activeTabId={tile.activeTabId}
+            setActiveTabId={tile.setTabId}
+            tabs={tile.tabs.map((tab) => ({
+                id: tab.id,
+                content: <WebQuery key={tab.id} query={tab.query} showIntervalSelect={tab.showIntervalSelect} />,
+                linkText: tab.linkText,
+                title: tab.title,
+            }))}
+        />
     )
+}
+
+const WebQuery = ({ query, showIntervalSelect }: { query: QuerySchema; showIntervalSelect?: boolean }): JSX.Element => {
+    if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebStatsTableQuery) {
+        return <WebStatsTableTile query={query} breakdownBy={query.source.breakdownBy} />
+    }
+    if (query.kind === NodeKind.InsightVizNode) {
+        return <WebStatsTrendTile query={query} showIntervalTile={showIntervalSelect} />
+    }
+
+    return <Query query={query} readOnly={true} context={webAnalyticsDataTableQueryContext} />
 }
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
     return (
-        <div className="w-full flex flex-col pt-2">
-            <Notice />
-            <Filters />
-            <Tiles />
-        </div>
+        <>
+            <WebAnalyticsNotice />
+            <div className="WebAnalyticsDashboard w-full flex flex-col">
+                <Filters />
+                <WebAnalyticsHealthCheck />
+                <Tiles />
+            </div>
+        </>
     )
 }

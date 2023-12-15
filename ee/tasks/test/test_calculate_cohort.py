@@ -12,9 +12,7 @@ from posthog.tasks.test.test_calculate_cohort import calculate_cohort_test_facto
 from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person
 
 
-class TestClickhouseCalculateCohort(
-    ClickhouseTestMixin, calculate_cohort_test_factory(_create_event, _create_person)
-):  # type: ignore
+class TestClickhouseCalculateCohort(ClickhouseTestMixin, calculate_cohort_test_factory(_create_event, _create_person)):  # type: ignore
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_insight_filter.delay")
     def test_create_stickiness_cohort(self, _insert_cohort_from_insight_filter):
         _create_person(team_id=self.team.pk, distinct_ids=["blabla"])

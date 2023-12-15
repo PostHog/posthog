@@ -1,19 +1,20 @@
+import './ProfilePicture.scss'
+
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { inStorybookTestRunner } from 'lib/utils'
 import md5 from 'md5'
-import { CSSProperties, useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
+
 import { IconRobot } from '../icons'
 import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
-import './ProfilePicture.scss'
-import { inStorybookTestRunner } from 'lib/utils'
 
 export interface ProfilePictureProps {
     name?: string
     email?: string
     size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | 'xxl'
     showName?: boolean
-    style?: CSSProperties
     className?: string
     title?: string
     index?: number
@@ -25,21 +26,17 @@ export function ProfilePicture({
     email,
     size = 'lg',
     showName,
-    style,
     className,
     index,
     title,
     type = 'person',
 }: ProfilePictureProps): JSX.Element {
     const { user } = useValues(userLogic)
-    const [gravatarUrl, setGravatarUrl] = useState<string | null>(null)
-    const pictureClass = clsx('ProfilePicture', size, className)
-
-    let pictureComponent: JSX.Element
+    const [gravatarLoaded, setGravatarLoaded] = useState<boolean | undefined>()
 
     const combinedNameAndEmail = name && email ? `${name} <${email}>` : name || email
 
-    useEffect(() => {
+    const gravatarUrl = useMemo(() => {
         if (inStorybookTestRunner()) {
             return // There are no guarantees on how long it takes to fetch a Gravatar, so we skip this in snapshots
         }
@@ -47,41 +44,39 @@ export function ProfilePicture({
         const emailOrNameWithEmail = email || (name?.includes('@') ? name : undefined)
         if (emailOrNameWithEmail) {
             const emailHash = md5(emailOrNameWithEmail.trim().toLowerCase())
-            const tentativeUrl = `https://www.gravatar.com/avatar/${emailHash}?s=96&d=404`
-            // The image will be cached, so it's best to do GET request check before trying to render it
-            fetch(tentativeUrl).then((response) => {
-                if (response.status === 200) {
-                    setGravatarUrl(tentativeUrl)
-                }
-            })
+            return `https://www.gravatar.com/avatar/${emailHash}?s=96&d=404`
         }
     }, [email])
 
-    if (gravatarUrl) {
-        pictureComponent = (
-            <img
-                className={pictureClass}
-                src={gravatarUrl}
-                title={title || `This is the Gravatar for ${combinedNameAndEmail}`}
-                alt=""
-                style={style}
-            />
-        )
-    } else {
-        pictureComponent =
-            type === 'bot' ? (
-                <IconRobot className={clsx(pictureClass, 'p-0.5')} />
-            ) : (
-                <span className={pictureClass} style={style}>
-                    <Lettermark
-                        name={combinedNameAndEmail}
-                        index={index}
-                        rounded
-                        color={type === 'system' ? LettermarkColor.Gray : undefined}
-                    />
-                </span>
-            )
-    }
+    const pictureComponent = (
+        <span className={clsx('ProfilePicture', size, className)}>
+            {gravatarLoaded !== true && (
+                <>
+                    {type === 'bot' ? (
+                        <IconRobot className={'p-0.5'} />
+                    ) : (
+                        <Lettermark
+                            name={combinedNameAndEmail}
+                            index={index}
+                            rounded
+                            color={type === 'system' ? LettermarkColor.Gray : undefined}
+                        />
+                    )}
+                </>
+            )}
+            {gravatarUrl && gravatarLoaded !== false ? (
+                <img
+                    className={'absolute top-0 left-0 w-full h-full rounded-full'}
+                    src={gravatarUrl}
+                    title={title || `This is the Gravatar for ${combinedNameAndEmail}`}
+                    alt=""
+                    onError={() => setGravatarLoaded(false)}
+                    onLoad={() => setGravatarLoaded(true)}
+                />
+            ) : null}
+        </span>
+    )
+
     return !showName ? (
         pictureComponent
     ) : (

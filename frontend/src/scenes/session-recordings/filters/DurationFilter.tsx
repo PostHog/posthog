@@ -1,10 +1,11 @@
-import { DurationType, PropertyOperator, RecordingDurationFilter } from '~/types'
+import { LemonButton } from '@posthog/lemon-ui'
+import { convertSecondsToDuration, DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { OperatorSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { DurationPicker, convertSecondsToDuration } from 'lib/components/DurationPicker/DurationPicker'
-import { LemonButton } from '@posthog/lemon-ui'
 import { useMemo, useState } from 'react'
 import { DurationTypeSelect } from 'scenes/session-recordings/filters/DurationTypeSelect'
+
+import { DurationType, PropertyOperator, RecordingDurationFilter } from '~/types'
 
 interface Props {
     recordingDurationFilter: RecordingDurationFilter

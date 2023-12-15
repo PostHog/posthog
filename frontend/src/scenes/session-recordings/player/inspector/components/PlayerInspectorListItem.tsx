@@ -1,12 +1,16 @@
 import { TZLabel } from '@posthog/apps-common'
-import { LemonDivider, LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useValues, useActions } from 'kea'
+import { useActions, useValues } from 'kea'
+import { IconGauge, IconTerminal, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ceilMsToClosestSecond, colonDelimitedDuration } from 'lib/utils'
 import { useEffect } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 import useResizeObserver from 'use-resize-observer'
+
 import { SessionRecordingPlayerTab } from '~/types'
+
 import { IconWindow } from '../../icons'
 import { playerSettingsLogic } from '../../playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
@@ -14,8 +18,6 @@ import { InspectorListItem, playerInspectorLogic } from '../playerInspectorLogic
 import { ItemConsoleLog } from './ItemConsoleLog'
 import { ItemEvent } from './ItemEvent'
 import { ItemPerformanceEvent } from './ItemPerformanceEvent'
-import { IconGauge, IconTerminal, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 const typeToIconAndDescription = {
     [SessionRecordingPlayerTab.ALL]: {

@@ -39,7 +39,8 @@ class SimplifyFilterMixin:
         if hasattr(result, "entities_to_dict"):
             for entity_type, entities in result.entities_to_dict().items():
                 updated_entities[entity_type] = [
-                    self._simplify_entity(team, entity_type, entity, **kwargs) for entity in entities  # type: ignore
+                    self._simplify_entity(team, entity_type, entity, **kwargs)  # type: ignore
+                    for entity in entities
                 ]
 
         from posthog.models.property.util import clear_excess_levels

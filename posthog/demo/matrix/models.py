@@ -19,7 +19,7 @@ from typing import (
     Set,
     TypeVar,
 )
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 from uuid import UUID
 
 if TYPE_CHECKING:
@@ -54,6 +54,9 @@ EVENT_IDENTIFY = "$identify"
 EVENT_GROUP_IDENTIFY = "$groupidentify"
 
 PROPERTY_GEOIP_COUNTRY_CODE = "$geoip_country_code"
+
+UTM_QUERY_PROPERTIES = {"utm_source", "utm_campaign", "utm_medium", "utm_term", "utm_content"}
+
 
 # Properties who get `$set_once` implicitly as `$initial_foo` - source of truth in plugin-server/src/utils/db/utils.ts
 PROPERTIES_WITH_IMPLICIT_INITIAL_VALUE_TRACKING = {
@@ -215,15 +218,21 @@ class SimBrowserClient(SimClient):
             "$session_id": self.active_session_id,
             "$device_id": self.device_id,
         }
+        if "$set" not in combined_properties:
+            combined_properties["$set"] = {}
         if self.super_properties:
             combined_properties.update(self.super_properties)
         if self.current_url is not None:
             parsed_current_url = urlparse(self.current_url)
+            parsed_current_url_query = parse_qs(parsed_current_url.query)
             combined_properties["$current_url"] = self.current_url
             combined_properties["$host"] = parsed_current_url.netloc
             combined_properties["$pathname"] = parsed_current_url.path
-        if "$set" not in combined_properties:
-            combined_properties["$set"] = {}
+            for utm_key in UTM_QUERY_PROPERTIES:
+                if utm_key in parsed_current_url_query:
+                    utm_value = parsed_current_url_query[utm_key][0]
+                    combined_properties[utm_key] = utm_value
+                    combined_properties["$set"][utm_key] = utm_value
         if properties:
             if referrer := properties.get("$referrer"):
                 referring_domain = urlparse(referrer).netloc if referrer != "$direct" else referrer

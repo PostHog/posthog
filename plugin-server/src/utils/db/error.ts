@@ -1,8 +1,7 @@
-import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { captureException } from '@sentry/node'
 
-import { Hub, PluginConfig, PluginError } from '../../types'
-import { setError } from './sql'
+import { Hub, PluginConfig, PluginError, PluginLogEntrySource, PluginLogEntryType } from '../../types'
 
 export class DependencyUnavailableError extends Error {
     constructor(message: string, dependencyName: string, error: Error) {
@@ -30,7 +29,7 @@ export async function processError(
     server: Hub,
     pluginConfig: PluginConfig | null,
     error: Error | string,
-    event?: PluginEvent | ProcessedPluginEvent | null
+    event?: PluginEvent | ProcessedPluginEvent | PostHogEvent | null
 ): Promise<void> {
     if (!pluginConfig) {
         captureException(new Error('Tried to process error for nonexistent plugin config!'), {
@@ -47,7 +46,7 @@ export async function processError(
         throw error
     }
 
-    const errorJson: PluginError =
+    const pluginError: PluginError =
         typeof error === 'string'
             ? {
                   message: error,
@@ -61,14 +60,14 @@ export async function processError(
                   event: event,
               }
 
-    await setError(server, errorJson, pluginConfig)
-}
-
-export async function clearError(server: Hub, pluginConfig: PluginConfig): Promise<void> {
-    // running this may causes weird deadlocks with piscina and vms, so avoiding if possible
-    if (pluginConfig.has_error) {
-        await setError(server, null, pluginConfig)
-    }
+    await server.db.queuePluginLogEntry({
+        pluginConfig,
+        source: PluginLogEntrySource.Plugin,
+        type: PluginLogEntryType.Error,
+        message: pluginError.stack ?? pluginError.message,
+        instanceId: server.instanceId,
+        timestamp: pluginError.time,
+    })
 }
 
 export function cleanErrorStackTrace(stack: string | undefined): string | undefined {

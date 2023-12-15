@@ -116,12 +116,14 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "object_storage": is_cloud() or is_object_storage_available(),
     }
 
+    if settings.DEBUG or settings.E2E_TESTING:
+        response["is_debug"] = True
+
     if request.user.is_authenticated:
         response = {
             **response,
             "available_timezones": get_available_timezones_with_offsets(),
             "opt_out_capture": os.environ.get("OPT_OUT_CAPTURE", False),
-            "is_debug": settings.DEBUG or settings.E2E_TESTING,
             "licensed_users_available": get_licensed_users_available() if not is_cloud() else None,
             "openai_available": bool(os.environ.get("OPENAI_API_KEY")),
             "site_url": settings.SITE_URL,

@@ -1,4 +1,5 @@
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+
 import { InsightShortId } from '~/types'
 
 export const featureFlagsActivityResponseJson: ActivityLogItem[] = [

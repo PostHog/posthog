@@ -101,11 +101,11 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
 
         thank_you_message = value.get("thankYouMessageHeader")
         if thank_you_message and nh3.is_html(thank_you_message):
-            value["thankYouMessageHeader"] = nh3_clean_with_whitelist(thank_you_message)
+            value["thankYouMessageHeader"] = nh3_clean_with_allow_list(thank_you_message)
 
         thank_you_description = value.get("thankYouMessageDescription")
         if thank_you_description and nh3.is_html(thank_you_description):
-            value["thankYouMessageDescription"] = nh3_clean_with_whitelist(thank_you_description)
+            value["thankYouMessageDescription"] = nh3_clean_with_allow_list(thank_you_description)
 
         return value
 
@@ -131,9 +131,13 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
 
             description = raw_question.get("description")
             if nh3.is_html(question_text):
-                cleaned_question["question"] = nh3_clean_with_whitelist(question_text)
+                cleaned_question["question"] = nh3_clean_with_allow_list(question_text)
             if description and nh3.is_html(description):
-                cleaned_question["description"] = nh3_clean_with_whitelist(description)
+                cleaned_question["description"] = nh3_clean_with_allow_list(description)
+
+            choices = raw_question.get("choices")
+            if choices and not isinstance(choices, list):
+                raise serializers.ValidationError("Question choices must be a list of strings")
 
             cleaned_questions.append(cleaned_question)
 
@@ -221,19 +225,29 @@ class SurveySerializerCreateUpdateOnly(SurveySerializer):
                 existing_flag_serializer.is_valid(raise_exception=True)
                 existing_flag_serializer.save()
             else:
-                new_flag = self._create_new_targeting_flag(instance.name, new_filters)
+                new_flag = self._create_new_targeting_flag(instance.name, new_filters, bool(instance.start_date))
                 validated_data["targeting_flag_id"] = new_flag.id
             validated_data.pop("targeting_flag_filters")
 
+        end_date = validated_data.get("end_date")
+        if instance.targeting_flag:
+            # turn off feature flag if survey is ended
+            if end_date is None:
+                instance.targeting_flag.active = True
+            else:
+                instance.targeting_flag.active = False
+            instance.targeting_flag.save()
+
         return super().update(instance, validated_data)
 
-    def _create_new_targeting_flag(self, name, filters):
+    def _create_new_targeting_flag(self, name, filters, active=False):
         feature_flag_key = slugify(f"{SURVEY_TARGETING_FLAG_PREFIX}{name}")
         feature_flag_serializer = FeatureFlagSerializer(
             data={
                 "key": feature_flag_key,
                 "name": f"Targeting flag for survey {name}",
                 "filters": filters,
+                "active": active,
             },
             context=self.context,
         )
@@ -347,7 +361,7 @@ def surveys(request: Request):
     return cors_response(request, JsonResponse({"surveys": surveys}))
 
 
-def nh3_clean_with_whitelist(to_clean: str):
+def nh3_clean_with_allow_list(to_clean: str):
     return nh3.clean(
         to_clean,
         link_rel="noopener",
@@ -431,8 +445,8 @@ def nh3_clean_with_whitelist(to_clean: str):
         attributes={
             "*": {"style", "lang", "title", "width", "height"},
             # below are mostly defaults to ammonia, but we need to add them explicitly
-            # because this python binding doesn't allow additive whitelisting
-            "a": {"href", "hreflang"},
+            # because this python binding doesn't allow additive allowing
+            "a": {"href", "hreflang", "target"},
             "bdo": {"dir"},
             "blockquote": {"cite"},
             "col": {"align", "char", "charoff", "span"},

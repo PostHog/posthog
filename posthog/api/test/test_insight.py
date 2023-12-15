@@ -2952,3 +2952,27 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ).json()
             self.assertEqual(len(response["result"]), 11)
             self.assertEqual(response["result"][0]["values"][0]["count"], 1)
+
+    @override_settings(HOGQL_INSIGHTS_OVERRIDE=True)
+    def test_insight_with_filters_via_hogql(self) -> None:
+        filter_dict = {"insight": "LIFECYCLE", "events": [{"id": "$pageview"}]}
+
+        Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(),
+            team=self.team,
+            short_id="xyz123",
+        )
+
+        # fresh response
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id=xyz123")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["result"][0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])
+
+        # cached response
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id=xyz123")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["result"][0]["data"], [0, 0, 0, 0, 0, 0, 0, 0])

@@ -1,18 +1,19 @@
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
-import { PageHeader } from 'lib/components/PageHeader'
-import { SceneExport } from 'scenes/sceneTypes'
-import { databaseSceneLogic } from 'scenes/data-management/database/databaseSceneLogic'
-import { DataWarehousePageTabs, DataWarehouseTab } from '../DataWarehousePageTabs'
-import { DatabaseTablesContainer } from 'scenes/data-management/database/DatabaseTables'
-import { ViewLinkModal } from '../ViewLinkModal'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { viewLinkLogic } from '../viewLinkLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { DatabaseTablesContainer } from 'scenes/data-management/database/DatabaseTables'
+import { SceneExport } from 'scenes/sceneTypes'
+
+import { DataWarehousePageTabs, DataWarehouseTab } from '../DataWarehousePageTabs'
+import { viewLinkLogic } from '../viewLinkLogic'
+import { ViewLinkModal } from '../ViewLinkModal'
 
 export const scene: SceneExport = {
     component: DataWarehousePosthogScene,
-    logic: databaseSceneLogic,
+    logic: databaseTableListLogic,
 }
 
 export function DataWarehousePosthogScene(): JSX.Element {
@@ -32,9 +33,9 @@ export function DataWarehousePosthogScene(): JSX.Element {
                 caption={
                     <div>
                         These are the database tables you can query under SQL insights with{' '}
-                        <a href="https://posthog.com/manual/hogql" target="_blank">
+                        <Link to="https://posthog.com/manual/hogql" target="_blank">
                             HogQL
-                        </a>
+                        </Link>
                         .
                     </div>
                 }

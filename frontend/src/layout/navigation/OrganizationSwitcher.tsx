@@ -9,7 +9,10 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { userLogic } from 'scenes/userLogic'
+
 import { AvailableFeature, OrganizationBasicType } from '~/types'
+
+import { globalModalsLogic } from '../GlobalModals'
 import { navigationLogic } from './navigationLogic'
 
 export function AccessLevelIndicator({ organization }: { organization: OrganizationBasicType }): JSX.Element {
@@ -44,7 +47,8 @@ export function OtherOrganizationButton({
 }
 
 export function NewOrganizationButton(): JSX.Element {
-    const { closeSitePopover, showCreateOrganizationModal } = useActions(navigationLogic)
+    const { closeSitePopover } = useActions(navigationLogic)
+    const { showCreateOrganizationModal } = useActions(globalModalsLogic)
     const { guardAvailableFeature } = useActions(sceneLogic)
 
     return (

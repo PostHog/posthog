@@ -1,8 +1,9 @@
-import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { render } from '@testing-library/react'
 import '@testing-library/jest-dom'
+
+import { render } from '@testing-library/react'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { makeTestSetup } from 'lib/components/ActivityLog/activityLogLogic.test.setup'
+import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 
 jest.mock('lib/colors')
 

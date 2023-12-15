@@ -1,4 +1,5 @@
-import { StoryFn, Meta, StoryObj } from '@storybook/react'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
 import { ObjectTags, ObjectTagsProps } from './ObjectTags'
 
 type Story = StoryObj<typeof ObjectTags>

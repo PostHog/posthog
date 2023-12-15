@@ -1,20 +1,33 @@
-import { useEffect, useMemo } from 'react'
+import { LemonDivider, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { membersLogic } from 'scenes/organization/Settings/membersLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { Field } from 'lib/forms/Field'
-import { dayjs } from 'lib/dayjs'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { subscriptionLogic } from '../subscriptionLogic'
+import { Form } from 'kea-forms'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { IconChevronLeft, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
+import { dayjs } from 'lib/dayjs'
+import { Field } from 'lib/forms/Field'
+import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import {
+    LemonSelectMultiple,
+    LemonSelectMultipleOptionItem,
+} from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { useEffect, useMemo } from 'react'
+import { membersLogic } from 'scenes/organization/membersLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { integrationsLogic } from 'scenes/settings/project/integrationsLogic'
+import { urls } from 'scenes/urls'
+
+import { subscriptionLogic } from '../subscriptionLogic'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import {
     bysetposOptions,
-    frequencyOptionsSingular,
     frequencyOptionsPlural,
+    frequencyOptionsSingular,
     getSlackChannelOptions,
     intervalOptions,
     monthlyWeekdayOptions,
@@ -23,18 +36,6 @@ import {
     timeOptions,
     weekdayOptions,
 } from '../utils'
-import { LemonDivider, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
-import {
-    LemonSelectMultiple,
-    LemonSelectMultipleOptionItem,
-} from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
-import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
-import { integrationsLogic } from 'scenes/project/Settings/integrationsLogic'
-import { urls } from 'scenes/urls'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { Form } from 'kea-forms'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 interface EditSubscriptionProps extends SubscriptionBaseProps {
     id: number | 'new'
@@ -119,11 +120,11 @@ export function EditSubscription({
                 {!subscription ? (
                     subscriptionLoading ? (
                         <div className="space-y-4">
-                            <LemonSkeleton className="w-1/2" />
+                            <LemonSkeleton className="w-1/2 h-4" />
                             <LemonSkeleton.Row />
-                            <LemonSkeleton className="w-1/2" />
+                            <LemonSkeleton className="w-1/2 h-4" />
                             <LemonSkeleton.Row />
-                            <LemonSkeleton className="w-1/2" />
+                            <LemonSkeleton className="w-1/2 h-4" />
                             <LemonSkeleton.Row />
                         </div>
                     ) : (
@@ -158,13 +159,13 @@ export function EditSubscription({
                                     . <br />
                                     If this value is not configured correctly PostHog may be unable to correctly send
                                     Subscriptions.{' '}
-                                    <a
+                                    <Link
+                                        to="https://posthog.com/docs/configuring-posthog/environment-variables?utm_medium=in-product&utm_campaign=subcriptions-system-status-site-url-misconfig"
                                         target="_blank"
-                                        rel="noopener"
-                                        href="https://posthog.com/docs/configuring-posthog/environment-variables?utm_medium=in-product&utm_campaign=subcriptions-system-status-site-url-misconfig"
+                                        targetBlankIcon
                                     >
-                                        Learn more <IconOpenInNew />
-                                    </a>
+                                        Learn more
+                                    </Link>
                                 </>
                             </LemonBanner>
                         )}
@@ -184,14 +185,13 @@ export function EditSubscription({
                                         <>
                                             Email subscriptions are not currently possible as this PostHog instance
                                             isn't{' '}
-                                            <a
-                                                href="https://posthog.com/docs/self-host/configure/email"
+                                            <Link
+                                                to="https://posthog.com/docs/self-host/configure/email"
                                                 target="_blank"
-                                                rel="noopener"
+                                                targetBlankIcon
                                             >
                                                 configured&nbsp;to&nbsp;send&nbsp;emails&nbsp;
-                                                <IconOpenInNew />
-                                            </a>
+                                            </Link>
                                             .
                                         </>
                                     </LemonBanner>
@@ -233,8 +233,8 @@ export function EditSubscription({
                                                         Slack is not yet configured for this project. Add PostHog to
                                                         your Slack workspace to continue.
                                                     </span>
-                                                    <a
-                                                        href={
+                                                    <Link
+                                                        to={
                                                             addToSlackButtonUrl(
                                                                 window.location.pathname + '?target_type=slack'
                                                             ) || ''
@@ -247,7 +247,7 @@ export function EditSubscription({
                                                             src="https://platform.slack-edge.com/img/add_to_slack.png"
                                                             srcSet="https://platform.slack-edge.com/img/add_to_slack.png 1x, https://platform.slack-edge.com/img/add_to_slack@2x.png 2x"
                                                         />
-                                                    </a>
+                                                    </Link>
                                                 </div>
                                             </LemonBanner>
                                         ) : (
@@ -255,7 +255,7 @@ export function EditSubscription({
                                                 <>
                                                     Slack is not yet configured for this project. You can configure it
                                                     at{' '}
-                                                    <Link to={`${urls.projectSettings()}#slack`}>
+                                                    <Link to={`${urls.settings('project')}#slack`}>
                                                         {' '}
                                                         Slack Integration settings
                                                     </Link>
@@ -272,13 +272,12 @@ export function EditSubscription({
                                             help={
                                                 <>
                                                     Private channels are only shown if you have{' '}
-                                                    <a
-                                                        href="https://posthog.com/docs/integrate/third-party/slack"
+                                                    <Link
+                                                        to="https://posthog.com/docs/integrate/third-party/slack"
                                                         target="_blank"
-                                                        rel="noopener"
                                                     >
                                                         added the PostHog Slack App
-                                                    </a>{' '}
+                                                    </Link>{' '}
                                                     to them
                                                 </>
                                             }
@@ -304,13 +303,12 @@ export function EditSubscription({
                                                             The PostHog Slack App is not in this channel. Please add it
                                                             to the channel otherwise Subscriptions will fail to be
                                                             delivered.{' '}
-                                                            <a
-                                                                href="https://posthog.com/docs/integrate/third-party/slack"
+                                                            <Link
+                                                                to="https://posthog.com/docs/integrate/third-party/slack"
                                                                 target="_blank"
-                                                                rel="noopener"
                                                             >
                                                                 See the Docs for more information
-                                                            </a>
+                                                            </Link>
                                                         </span>
                                                         <LemonButton
                                                             type="secondary"

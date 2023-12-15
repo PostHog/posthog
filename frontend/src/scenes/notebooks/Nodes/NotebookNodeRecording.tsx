@@ -142,7 +142,7 @@ type NotebookNodeRecordingAttributes = {
 
 export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordingAttributes>({
     nodeType: NotebookNodeType.Recording,
-    titlePlaceholder: 'Session replay',
+    titlePlaceholder: 'Session recording',
     Component,
     heightEstimate: HEIGHT,
     minHeight: MIN_HEIGHT,
@@ -162,7 +162,7 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
             return { id: match[1], noInspector: false }
         },
     },
-    settings: Settings,
+    Settings,
     serializedText: (attrs) => {
         return attrs.id
     },

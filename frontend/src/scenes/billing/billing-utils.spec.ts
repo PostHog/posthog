@@ -1,3 +1,9 @@
+import { dayjs } from 'lib/dayjs'
+import tk from 'timekeeper'
+
+import billingJson from '~/mocks/fixtures/_billing_v2.json'
+import billingJsonWithFlatFee from '~/mocks/fixtures/_billing_v2_with_flat_fee.json'
+
 import {
     convertAmountToUsage,
     convertLargeNumberToWords,
@@ -5,9 +11,6 @@ import {
     projectUsage,
     summarizeUsage,
 } from './billing-utils'
-import tk from 'timekeeper'
-import { dayjs } from 'lib/dayjs'
-import billingJson from '~/mocks/fixtures/_billing_v2.json'
 
 describe('summarizeUsage', () => {
     it('should summarise usage', () => {
@@ -143,6 +146,34 @@ describe('convertUsageToAmountWithPercentDiscount', () => {
             if (billingJson.products[0].tiers) {
                 expect(convertUsageToAmount(mapping.usage, [billingJson.products[0].tiers], discountPercent)).toEqual(
                     mapping.amount
+                )
+            }
+        }
+    )
+})
+
+const amountToUsageMappingWithFirstTierFlatFee = [
+    { usage: 5_000_000, amount: '200.00' },
+    { usage: 10_000_000, amount: '575.00' },
+    { usage: 30_000_000, amount: '1725.00' },
+]
+describe('amountToUsageMappingWithFirstTierFlatFee', () => {
+    it.each(amountToUsageMappingWithFirstTierFlatFee)(
+        'should convert usage to an amount based on the tiers',
+        (mapping) => {
+            if (billingJsonWithFlatFee.products[0].tiers) {
+                expect(convertUsageToAmount(mapping.usage, [billingJsonWithFlatFee.products[0].tiers])).toEqual(
+                    mapping.amount
+                )
+            }
+        }
+    )
+    it.each(amountToUsageMappingWithFirstTierFlatFee)(
+        'should convert amount to a usage based on the tiers',
+        (mapping) => {
+            if (billingJsonWithFlatFee.products[0].tiers) {
+                expect(convertAmountToUsage(mapping.amount, [billingJsonWithFlatFee.products[0].tiers])).toEqual(
+                    mapping.usage
                 )
             }
         }

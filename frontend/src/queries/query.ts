@@ -1,21 +1,11 @@
-import posthog from 'posthog-js'
-import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode } from './schema'
-import {
-    isInsightQueryNode,
-    isEventsQuery,
-    isPersonsNode,
-    isTimeToSeeDataSessionsQuery,
-    isTimeToSeeDataQuery,
-    isDataTableNode,
-    isTimeToSeeDataSessionsNode,
-    isHogQLQuery,
-    isInsightVizNode,
-    isQueryWithHogQLSupport,
-    isPersonsQuery,
-} from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { now } from 'lib/dayjs'
+import { currentSessionId } from 'lib/internalMetrics'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { delay, flattenObject, toParams } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/logics'
-import { AnyPartialFilterType, OnlineExportContext, QueryExportContext } from '~/types'
+import posthog from 'posthog-js'
 import {
     filterTrendsClientSideParams,
     isFunnelsFilter,
@@ -25,12 +15,30 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { toParams } from 'lib/utils'
+
+import { AnyPartialFilterType, OnlineExportContext, QueryExportContext } from '~/types'
+
 import { queryNodeToFilter } from './nodes/InsightQuery/utils/queryNodeToFilter'
-import { now } from 'lib/dayjs'
-import { currentSessionId } from 'lib/internalMetrics'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode } from './schema'
+import {
+    isDataTableNode,
+    isDataVisualizationNode,
+    isEventsQuery,
+    isHogQLQuery,
+    isInsightQueryNode,
+    isInsightVizNode,
+    isLifecycleQuery,
+    isPersonsNode,
+    isPersonsQuery,
+    isRetentionQuery,
+    isTimeToSeeDataQuery,
+    isTimeToSeeDataSessionsNode,
+    isTimeToSeeDataSessionsQuery,
+    isTrendsQuery,
+} from './utils'
+
+const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 5
+const QUERY_ASYNC_TOTAL_POLL_SECONDS = 300
 
 //get export context for a given query
 export function queryExportContext<N extends DataNode = DataNode>(
@@ -41,6 +49,8 @@ export function queryExportContext<N extends DataNode = DataNode>(
     if (isInsightVizNode(query)) {
         return queryExportContext(query.source, methodOptions, refresh)
     } else if (isDataTableNode(query)) {
+        return queryExportContext(query.source, methodOptions, refresh)
+    } else if (isDataVisualizationNode(query)) {
         return queryExportContext(query.source, methodOptions, refresh)
     } else if (isEventsQuery(query) || isPersonsQuery(query)) {
         return {
@@ -90,6 +100,37 @@ export function queryExportContext<N extends DataNode = DataNode>(
     throw new Error(`Unsupported query: ${query.kind}`)
 }
 
+async function executeQuery<N extends DataNode = DataNode>(
+    queryNode: N,
+    methodOptions?: ApiMethodOptions,
+    refresh?: boolean,
+    queryId?: string
+): Promise<NonNullable<N['response']>> {
+    const queryAsyncEnabled = Boolean(featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC])
+    const excludedKinds = ['HogQLMetadata', 'EventsQuery', 'DataVisualizationNode']
+    const queryAsync = queryAsyncEnabled && !excludedKinds.includes(queryNode.kind)
+    const response = await api.query(queryNode, methodOptions, queryId, refresh, queryAsync)
+
+    if (!queryAsync || !response.query_async) {
+        return response
+    }
+
+    const pollStart = performance.now()
+    let currentDelay = 300 // start low, because all queries will take at minimum this
+
+    while (performance.now() - pollStart < QUERY_ASYNC_TOTAL_POLL_SECONDS * 1000) {
+        await delay(currentDelay, methodOptions?.signal)
+        currentDelay = Math.min(currentDelay * 2, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
+
+        const statusResponse = await api.queryStatus.get(response.id)
+
+        if (statusResponse.complete || statusResponse.error) {
+            return statusResponse.results
+        }
+    }
+    throw new Error('Query timed out')
+}
+
 // Return data for a given query
 export async function query<N extends DataNode = DataNode>(
     queryNode: N,
@@ -105,28 +146,43 @@ export async function query<N extends DataNode = DataNode>(
     const logParams: Record<string, any> = {}
     const startTime = performance.now()
 
-    const hogQLInsightsFlagEnabled = Boolean(
-        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS]
+    const hogQLInsightsLifecycleFlagEnabled = Boolean(
+        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE]
     )
+    const hogQLInsightsRetentionFlagEnabled = Boolean(
+        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION]
+    )
+    const hogQLInsightsTrendsFlagEnabled = Boolean(
+        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]
+    )
+    const hogQLInsightsLiveCompareEnabled = Boolean(
+        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHT_LIVE_COMPARE]
+    )
+
+    async function fetchLegacyInsights(): Promise<Record<string, any>> {
+        if (!isInsightQueryNode(queryNode)) {
+            throw new Error('fetchLegacyInsights called with non-insight query. Should be unreachable.')
+        }
+        const filters = queryNodeToFilter(queryNode)
+        const params = {
+            ...filters,
+            ...(refresh ? { refresh: true } : {}),
+            client_query_id: queryId,
+            session_id: currentSessionId(),
+        }
+        const [resp] = await legacyInsightQuery({
+            filters: params,
+            currentTeamId: getCurrentTeamId(),
+            methodOptions,
+            refresh,
+        })
+        response = await resp.json()
+        return response
+    }
 
     try {
         if (isPersonsNode(queryNode)) {
             response = await api.get(getPersonsEndpoint(queryNode), methodOptions)
-        } else if (isInsightQueryNode(queryNode) && !(hogQLInsightsFlagEnabled && isQueryWithHogQLSupport(queryNode))) {
-            const filters = queryNodeToFilter(queryNode)
-            const params = {
-                ...filters,
-                ...(refresh ? { refresh: true } : {}),
-                client_query_id: queryId,
-                session_id: currentSessionId(),
-            }
-            const [resp] = await legacyInsightQuery({
-                filters: params,
-                currentTeamId: getCurrentTeamId(),
-                methodOptions,
-                refresh,
-            })
-            response = await resp.json()
         } else if (isTimeToSeeDataQuery(queryNode)) {
             response = await api.query(
                 {
@@ -138,8 +194,82 @@ export async function query<N extends DataNode = DataNode>(
                 },
                 methodOptions
             )
+        } else if (isInsightQueryNode(queryNode)) {
+            if (
+                (hogQLInsightsLifecycleFlagEnabled && isLifecycleQuery(queryNode)) ||
+                (hogQLInsightsRetentionFlagEnabled && isRetentionQuery(queryNode)) ||
+                (hogQLInsightsTrendsFlagEnabled && isTrendsQuery(queryNode))
+            ) {
+                if (hogQLInsightsLiveCompareEnabled) {
+                    let legacyResponse
+                    ;[response, legacyResponse] = await Promise.all([
+                        api.query(queryNode, methodOptions, queryId, refresh),
+                        fetchLegacyInsights(),
+                    ])
+
+                    let res1 = response?.result || response?.results
+                    let res2 = legacyResponse?.result || legacyResponse?.results
+
+                    if (isLifecycleQuery(queryNode)) {
+                        // Results don't come back in a predetermined order for the legacy lifecycle insight
+                        const order = { new: 1, returning: 2, resurrecting: 3, dormant: 4 }
+                        res1.sort((a: any, b: any) => order[a.status] - order[b.status])
+                        res2.sort((a: any, b: any) => order[a.status] - order[b.status])
+                    } else if (isTrendsQuery(queryNode)) {
+                        res1 = res1?.map((n: any) => ({ ...n, filter: undefined, action: undefined }))
+                        res2 = res2?.map((n: any) => ({ ...n, filter: undefined, action: undefined }))
+                    }
+
+                    const results = flattenObject(res1)
+                    const legacyResults = flattenObject(res2)
+                    const sortedKeys = Array.from(new Set([...Object.keys(results), ...Object.keys(legacyResults)]))
+                        .filter((key) => !key.includes('.persons_urls.') && !key.includes('.people_url'))
+                        .sort()
+                    const tableData = [['', 'key', 'HOGQL', 'LEGACY']]
+                    let matchCount = 0
+                    let mismatchCount = 0
+                    for (const key of sortedKeys) {
+                        if (results[key] === legacyResults[key]) {
+                            matchCount++
+                        } else {
+                            mismatchCount++
+                        }
+                        tableData.push([
+                            results[key] === legacyResults[key] ? '✅' : '🚨',
+                            key,
+                            results[key],
+                            legacyResults[key],
+                        ])
+                    }
+                    const symbols = mismatchCount === 0 ? '🍀🍀🍀' : '🏎️🏎️🏎'
+                    // eslint-disable-next-line no-console
+                    console.log(`${symbols} Insight Race ${symbols}`, {
+                        query: queryNode,
+                        duration: performance.now() - startTime,
+                        hogqlResults: results,
+                        legacyResults: legacyResults,
+                        equal: mismatchCount === 0,
+                        response,
+                        legacyResponse,
+                    })
+                    // eslint-disable-next-line no-console
+                    console.groupCollapsed(
+                        `Results: ${mismatchCount === 0 ? '✅✅✅' : '✅'} ${matchCount}${
+                            mismatchCount > 0 ? ` 🚨🚨🚨${mismatchCount}` : ''
+                        }`
+                    )
+                    // eslint-disable-next-line no-console
+                    console.table(tableData)
+                    // eslint-disable-next-line no-console
+                    console.groupEnd()
+                } else {
+                    response = await api.query(queryNode, methodOptions, queryId, refresh)
+                }
+            } else {
+                response = await fetchLegacyInsights()
+            }
         } else {
-            response = await api.query(queryNode, methodOptions, queryId, refresh)
+            response = await executeQuery(queryNode, methodOptions, refresh, queryId)
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
             }

@@ -1,15 +1,16 @@
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
+import { FunnelLayout } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { funnelInvalidExclusionError, funnelResult } from 'scenes/funnels/__mocks__/funnelDataLogicMocks'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { ChartDisplayType, InsightShortId } from '~/types'
+import { useMocks } from '~/mocks/jest'
+import { funnelsQueryDefault, trendsQueryDefault } from '~/queries/nodes/InsightQuery/defaults'
+import { ActionsNode, EventsNode, FunnelsQuery, InsightQueryNode, NodeKind, TrendsQuery } from '~/queries/schema'
+import { initKeaTests } from '~/test/init'
+import { BaseMathType, ChartDisplayType, InsightModel, InsightShortId, InsightType } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
-import { useMocks } from '~/mocks/jest'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { trendsQueryDefault, funnelsQueryDefault } from '~/queries/nodes/InsightQuery/defaults'
-import { NodeKind } from '~/queries/schema'
-import { FunnelLayout } from 'lib/constants'
 
 const Insight123 = '123' as InsightShortId
 
@@ -90,6 +91,7 @@ describe('insightVizDataLogic', () => {
                     kind: NodeKind.InsightVizNode,
                     source: {
                         ...trendsQueryDefault,
+                        interval: 'day', // side effect
                         dateRange: {
                             date_from: '-7d',
                             date_to: null,
@@ -113,6 +115,7 @@ describe('insightVizDataLogic', () => {
                     kind: NodeKind.InsightVizNode,
                     source: {
                         ...trendsQueryDefault,
+                        interval: 'day', // side effect
                         dateRange: {
                             date_from: '-7d',
                             date_to: '-3d',
@@ -246,6 +249,154 @@ describe('insightVizDataLogic', () => {
             expect(builtInsightVizDataLogic.values.insightFilter).toMatchObject({
                 ...funnelsQueryDefault.funnelsFilter,
                 layout: FunnelLayout.horizontal,
+            })
+        })
+    })
+
+    describe('activeUsersMath', () => {
+        it('returns null without active users math', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                            math: BaseMathType.TotalCount,
+                        },
+                    ],
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ activeUsersMath: null })
+        })
+
+        it('returns weekly active users math type', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                            math: BaseMathType.WeeklyActiveUsers,
+                        },
+                    ],
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ activeUsersMath: BaseMathType.WeeklyActiveUsers })
+        })
+
+        it('returns monthly active users math type', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                            math: BaseMathType.TotalCount,
+                        },
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                            math: BaseMathType.MonthlyActiveUsers,
+                        },
+                    ],
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ activeUsersMath: BaseMathType.MonthlyActiveUsers })
+        })
+    })
+
+    describe('enabledIntervals', () => {
+        it('returns all intervals', () => {
+            expectLogic(builtInsightVizDataLogic).toMatchValues({
+                enabledIntervals: {
+                    day: { label: 'day', newDateFrom: undefined },
+                    hour: { label: 'hour', newDateFrom: 'dStart' },
+                    month: { label: 'month', newDateFrom: '-90d' },
+                    week: { label: 'week', newDateFrom: '-30d' },
+                },
+            })
+        })
+
+        it('adds a disabled reason with active users math', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: 'EventsNode',
+                            name: '$pageview',
+                            event: '$pageview',
+                            math: BaseMathType.WeeklyActiveUsers,
+                        },
+                    ],
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({
+                enabledIntervals: {
+                    day: { label: 'day', newDateFrom: undefined },
+                    hour: {
+                        label: 'hour',
+                        newDateFrom: 'dStart',
+                        disabledReason:
+                            'Grouping by hour is not supported on insights with weekly or monthly active users series.',
+                    },
+                    month: {
+                        label: 'month',
+                        newDateFrom: '-90d',
+                        disabledReason:
+                            'Grouping by month is not supported on insights with weekly active users series.',
+                    },
+                    week: { label: 'week', newDateFrom: '-30d' },
+                },
+            })
+        })
+    })
+
+    describe('isFunnelWithEnoughSteps', () => {
+        const queryWithSeries = (series: (ActionsNode | EventsNode)[]): FunnelsQuery => ({
+            kind: NodeKind.FunnelsQuery,
+            series,
+        })
+
+        it('with enough/not enough steps', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    kind: NodeKind.RetentionQuery,
+                } as InsightQueryNode)
+            }).toMatchValues({ isFunnelWithEnoughSteps: false })
+
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource(queryWithSeries([]))
+            }).toMatchValues({ isFunnelWithEnoughSteps: false })
+
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource(
+                    queryWithSeries([{ kind: NodeKind.EventsNode }, { kind: NodeKind.EventsNode }])
+                )
+            }).toMatchValues({ isFunnelWithEnoughSteps: true })
+        })
+    })
+
+    describe('areExclusionFiltersValid', () => {
+        it('for standard funnel', async () => {
+            const insight: Partial<InsightModel> = {
+                filters: {
+                    insight: InsightType.FUNNELS,
+                },
+                result: funnelResult.result,
+            }
+
+            await expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightDataLogic.actions.loadDataSuccess(insight)
+            }).toMatchValues({
+                areExclusionFiltersValid: true,
+            })
+        })
+
+        it('for invalid exclusion', async () => {
+            await expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightDataLogic.actions.loadDataFailure('', { status: 400, ...funnelInvalidExclusionError })
+            }).toMatchValues({
+                areExclusionFiltersValid: false,
             })
         })
     })

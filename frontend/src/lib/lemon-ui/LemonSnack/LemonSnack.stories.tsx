@@ -1,6 +1,7 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { LemonSnack, LemonSnackProps } from './LemonSnack'
+
 import { ProfilePicture } from '../ProfilePicture'
+import { LemonSnack, LemonSnackProps } from './LemonSnack'
 
 type Story = StoryObj<typeof LemonSnack>
 const meta: Meta<typeof LemonSnack> = {

@@ -1,6 +1,6 @@
-import posthog, { PostHogConfig } from 'posthog-js'
 import * as Sentry from '@sentry/react'
 import { FEATURE_FLAGS } from 'lib/constants'
+import posthog, { PostHogConfig } from 'posthog-js'
 
 const configWithSentry = (config: Partial<PostHogConfig>): Partial<PostHogConfig> => {
     if ((window as any).SENTRY_DSN) {
@@ -27,8 +27,8 @@ export function loadPostHogJS(): void {
                 bootstrap: window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
                 opt_in_site_apps: true,
                 loaded: (posthog) => {
-                    if (posthog.webPerformance) {
-                        posthog.webPerformance._forceAllowLocalhost = true
+                    if (posthog.sessionRecording) {
+                        posthog.sessionRecording._forceAllowLocalhostNetworkCapture = true
                     }
 
                     if (window.IMPERSONATED_SESSION) {

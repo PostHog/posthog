@@ -1,7 +1,8 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { LemonBadge } from './LemonBadge'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconPlusMini } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+
+import { LemonBadge } from './LemonBadge'
 
 type Story = StoryObj<typeof LemonBadge>
 const meta: Meta<typeof LemonBadge> = {

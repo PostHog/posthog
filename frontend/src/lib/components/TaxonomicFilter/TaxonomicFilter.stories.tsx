@@ -1,13 +1,15 @@
-import { TaxonomicFilter } from './TaxonomicFilter'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
-import { useActions, useMountedLogic } from 'kea'
-import { actionsModel } from '~/models/actionsModel'
-import { useEffect } from 'react'
-import { infiniteListLogic } from './infiniteListLogic'
 import { Meta, StoryFn } from '@storybook/react'
+import { useActions, useMountedLogic } from 'kea'
+import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useEffect } from 'react'
+
 import { useAvailableFeatures } from '~/mocks/features'
+import { actionsModel } from '~/models/actionsModel'
 import { AvailableFeature } from '~/types'
+
+import { infiniteListLogic } from './infiniteListLogic'
+import { TaxonomicFilter } from './TaxonomicFilter'
 
 const meta: Meta<typeof TaxonomicFilter> = {
     title: 'Filters/Taxonomic Filter',
@@ -68,7 +70,7 @@ export const Actions: StoryFn<typeof TaxonomicFilter> = (args) => {
         setIndex(0)
     }, [])
     return (
-        <div className="w-fit border rounded p-2 bg-white">
+        <div className="w-fit border rounded p-2">
             <TaxonomicFilter {...args} />
         </div>
     )

@@ -53,28 +53,21 @@ describe('runAppsOnEventPipeline()', () => {
     let redis: Redis.Redis
     let closeHub: () => Promise<void>
 
-    beforeEach(() => {
+    beforeEach(async () => {
         // Use fake timers to ensure that we don't need to wait on e.g. retry logic.
-        jest.useFakeTimers({ advanceTimers: true })
-    })
-
-    beforeAll(async () => {
         jest.useFakeTimers({ advanceTimers: true })
         ;[hub, closeHub] = await createHub()
         redis = await hub.redisPool.acquire()
         await hub.postgres.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_TABLES_QUERY, null, 'deleteTables') // Need to clear the DB to avoid unique constraint violations on ids
     })
 
-    afterEach(() => {
-        jest.clearAllTimers()
-        jest.useRealTimers()
-        jest.clearAllMocks()
-    })
-
-    afterAll(async () => {
+    afterEach(async () => {
         await hub.redisPool.release(redis)
         await teardownPlugins(hub)
         await closeHub()
+        jest.clearAllTimers()
+        jest.useRealTimers()
+        jest.restoreAllMocks()
     })
 
     test('throws on produce errors', async () => {

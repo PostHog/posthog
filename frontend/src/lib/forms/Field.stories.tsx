@@ -1,9 +1,9 @@
-import { Meta } from '@storybook/react'
-import { Field, PureField } from './Field'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+import { Meta } from '@storybook/react'
 import { kea, path, useAllValues } from 'kea'
 import { Form, forms } from 'kea-forms'
 
+import { Field, PureField } from './Field'
 import type { formLogicType } from './Field.storiesType'
 
 const meta: Meta<typeof PureField> = {

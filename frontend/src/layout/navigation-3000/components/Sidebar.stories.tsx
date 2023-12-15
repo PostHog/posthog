@@ -1,14 +1,16 @@
 import { Meta } from '@storybook/react'
 import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
 import { Scene } from 'scenes/sceneTypes'
+
 import { useStorybookMocks } from '~/mocks/browser'
-import { navigation3000Logic } from '../navigationLogic'
-import { Sidebar } from './Sidebar'
-import featureFlagsJson from '../../../scenes/feature-flags/__mocks__/feature_flags.json'
+
 import dashboardsJson from '../../../scenes/dashboard/__mocks__/dashboards.json'
+import featureFlagsJson from '../../../scenes/feature-flags/__mocks__/feature_flags.json'
+import { navigation3000Logic } from '../navigationLogic'
 import { SidebarNavbarItem } from '../types'
-import { setFeatureFlags } from '~/mocks/browser'
+import { Sidebar } from './Sidebar'
 
 const meta: Meta = {
     title: 'PostHog 3000/Sidebar',
@@ -16,6 +18,7 @@ const meta: Meta = {
         mockDate: '2023-02-01',
         layout: 'fullscreen',
         viewMode: 'story',
+        featureFlags: [FEATURE_FLAGS.POSTHOG_3000, FEATURE_FLAGS.POSTHOG_3000_NAV],
     },
 }
 export default meta
@@ -32,7 +35,6 @@ const multipliedFeatureFlagsJson = {
 }
 
 export function Dashboards(): JSX.Element {
-    setFeatureFlags(['posthog-3000', 'posthog-3000-nav'])
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/dashboards/': dashboardsJson,
@@ -52,7 +54,6 @@ export function Dashboards(): JSX.Element {
 }
 
 export function FeatureFlags(): JSX.Element {
-    setFeatureFlags(['posthog-3000', 'posthog-3000-nav'])
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/feature_flags/': multipliedFeatureFlagsJson,

@@ -1,6 +1,8 @@
 import json
+import os
 import re
-from typing import Any, Dict, List, Optional, Set, cast
+import subprocess
+from typing import Any, Dict, List, Optional, Set, cast, Literal
 
 import requests
 from dateutil.relativedelta import relativedelta
@@ -180,6 +182,24 @@ def _fix_formdata_config_json(request: request.Request, validated_data: dict):
         validated_data["config"] = json.loads(request.POST["config"])
 
 
+def transpile(input_string: str, type: Literal["site", "frontend"] = "site") -> Optional[str]:
+    from posthog.settings.base_variables import BASE_DIR
+
+    transpiler_path = os.path.join(BASE_DIR, "plugin-transpiler/dist/index.js")
+    if type not in ["site", "frontend"]:
+        raise Exception('Invalid type. Must be "site" or "frontend".')
+
+    process = subprocess.Popen(
+        ["node", transpiler_path, "--type", type], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    stdout, stderr = process.communicate(input=input_string.encode())
+
+    if process.returncode != 0:
+        error = stderr.decode()
+        raise Exception(error)
+    return stdout.decode()
+
+
 class PlainRenderer(renderers.BaseRenderer):
     format = "txt"
 
@@ -355,25 +375,47 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         plugin = self.get_plugin_with_permissions(reason="source editing")
         sources: Dict[str, PluginSourceFile] = {}
         performed_changes = False
-        for source in PluginSourceFile.objects.filter(plugin=plugin):
-            sources[source.filename] = source
-        for key, value in request.data.items():
+        for plugin_source_file in PluginSourceFile.objects.filter(plugin=plugin):
+            sources[plugin_source_file.filename] = plugin_source_file
+        for key, source in request.data.items():
+            transpiled = None
+            error = None
+            status = None
+            try:
+                if key == "site.ts":
+                    transpiled = transpile(source, type="site")
+                    status = PluginSourceFile.Status.TRANSPILED
+                elif key == "frontend.tsx":
+                    transpiled = transpile(source, type="frontend")
+                    status = PluginSourceFile.Status.TRANSPILED
+            except Exception as e:
+                error = str(e)
+                status = PluginSourceFile.Status.ERROR
+
             if key not in sources:
                 performed_changes = True
                 sources[key], created = PluginSourceFile.objects.update_or_create(
-                    plugin=plugin, filename=key, defaults={"source": value}
+                    plugin=plugin,
+                    filename=key,
+                    defaults={
+                        "source": source,
+                        "transpiled": transpiled,
+                        "status": status,
+                        "error": error,
+                    },
                 )
-            elif sources[key].source != value:
+            elif sources[key].source != source or sources[key].transpiled != transpiled or sources[key].error != error:
                 performed_changes = True
-                if value is None:
+                if source is None:
                     sources[key].delete()
                     del sources[key]
                 else:
-                    sources[key].source = value
-                    sources[key].status = None
-                    sources[key].transpiled = None
-                    sources[key].error = None
+                    sources[key].source = source
+                    sources[key].transpiled = transpiled
+                    sources[key].status = status
+                    sources[key].error = error
                     sources[key].save()
+
         response: Dict[str, str] = {}
         for _, source in sources.items():
             response[source.filename] = source.source
@@ -489,6 +531,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
     config = serializers.SerializerMethodField()
     plugin_info = serializers.SerializerMethodField()
     delivery_rate_24h = serializers.SerializerMethodField()
+    error = serializers.SerializerMethodField()
 
     class Meta:
         model = PluginConfig
@@ -503,11 +546,16 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             "plugin_info",
             "delivery_rate_24h",
             "created_at",
+            "updated_at",
+            "name",
+            "description",
+            "deleted",
         ]
         read_only_fields = [
             "id",
             "team_id",
             "plugin_info",
+            "error",
             "delivery_rate_24h",
             "created_at",
         ]
@@ -558,6 +606,12 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         else:
             return None
 
+    def get_error(self, plugin_config: PluginConfig) -> None:
+        # Reporting the single latest error is no longer supported: use app
+        # metrics (for fatal errors) or plugin log entries (for all errors) for
+        # error details instead.
+        return None
+
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:
         if not can_configure_plugins(self.context["get_organization"]()):
             raise ValidationError("Plugin configuration is not available for the current organization!")
@@ -594,6 +648,10 @@ class PluginConfigSerializer(serializers.ModelSerializer):
     ) -> PluginConfig:
         _fix_formdata_config_json(self.context["request"], validated_data)
         validated_data.pop("plugin", None)
+        # One can delete apps in the UI, plugin-server doesn't use that field
+        # if deleted is set to true we always want to disable the app
+        if "deleted" in validated_data and validated_data["deleted"] is True:
+            validated_data["enabled"] = False
 
         # Keep old value for secret fields if no new value in the request
         secret_fields = _get_secret_fields_for_plugin(plugin_config.plugin)
@@ -632,7 +690,10 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def get_queryset(self):
         if not can_configure_plugins(self.team.organization_id):
             return self.queryset.none()
-        return super().get_queryset().order_by("order", "plugin_id")
+        queryset = super().get_queryset()
+        if self.action == "list":
+            queryset = queryset.filter(deleted=False)
+        return queryset.order_by("order", "plugin_id")
 
     def get_serializer_context(self) -> Dict[str, Any]:
         context = super().get_serializer_context()
@@ -777,3 +838,38 @@ def _get_secret_fields_for_plugin(plugin: Plugin) -> Set[str]:
 
 class LegacyPluginConfigViewSet(PluginConfigViewSet):
     legacy_team_compatibility = True
+
+
+class PipelineTransformationsViewSet(PluginViewSet):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.filter(Q(capabilities__has_key="methods") & Q(capabilities__methods__contains=["processEvent"]))
+
+
+class PipelineTransformationsConfigsViewSet(PluginConfigViewSet):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.filter(
+            Q(plugin__capabilities__has_key="methods") & Q(plugin__capabilities__methods__contains=["processEvent"])
+        )
+
+
+class PipelineDestinationsViewSet(PluginViewSet):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.filter(
+            Q(capabilities__has_key="methods")
+            & (Q(capabilities__methods__contains=["onEvent"]) | Q(capabilities__methods__contains=["composeWebhook"]))
+        )
+
+
+class PipelineDestinationsConfigsViewSet(PluginConfigViewSet):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.filter(
+            Q(plugin__capabilities__has_key="methods")
+            & (
+                Q(plugin__capabilities__methods__contains=["onEvent"])
+                | Q(plugin__capabilities__methods__contains=["composeWebhook"])
+            )
+        )

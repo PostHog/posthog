@@ -1,12 +1,15 @@
+import './PayGateMini.scss'
+
+import { Link } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useValues } from 'kea'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { AvailableFeature } from '~/types'
-import { userLogic } from 'scenes/userLogic'
+import { FEATURE_MINIMUM_PLAN, POSTHOG_CLOUD_STANDARD_PLAN } from 'lib/constants'
 import { IconEmojiPeople, IconLightBulb, IconLock, IconPremium } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import './PayGateMini.scss'
-import { FEATURE_MINIMUM_PLAN, POSTHOG_CLOUD_STANDARD_PLAN } from 'lib/constants'
-import clsx from 'clsx'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { AvailableFeature } from '~/types'
 
 type PayGateSupportedFeatures =
     | AvailableFeature.DASHBOARD_PERMISSIONING
@@ -124,9 +127,9 @@ export function PayGateMini({
                 {featureSummary.docsHref && (
                     <>
                         {' '}
-                        <a href={featureSummary.docsHref} target="_blank" rel="noopener noreferrer">
+                        <Link to={featureSummary.docsHref} target="_blank">
                             Learn more in PostHog Docs.
-                        </a>
+                        </Link>
                     </>
                 )}
             </div>

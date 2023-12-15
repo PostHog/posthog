@@ -107,7 +107,8 @@ KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENTS_TABL
     extra_fields="",
 )
 
-SESSION_RECORDING_EVENTS_TABLE_MV_SQL = lambda: """
+SESSION_RECORDING_EVENTS_TABLE_MV_SQL = (
+    lambda: """
 CREATE MATERIALIZED VIEW IF NOT EXISTS session_recording_events_mv ON CLUSTER '{cluster}'
 TO {database}.{target_table}
 AS SELECT
@@ -123,9 +124,10 @@ _timestamp,
 _offset
 FROM {database}.kafka_session_recording_events
 """.format(
-    target_table="writable_session_recording_events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    database=settings.CLICKHOUSE_DATABASE,
+        target_table="writable_session_recording_events",
+        cluster=settings.CLICKHOUSE_CLUSTER,
+        database=settings.CLICKHOUSE_DATABASE,
+    )
 )
 
 

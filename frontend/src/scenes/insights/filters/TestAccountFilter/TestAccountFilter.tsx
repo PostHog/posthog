@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
-import { FilterType } from '~/types'
-import { teamLogic } from 'scenes/teamLogic'
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconSettings } from 'lib/lemon-ui/icons'
-import { filterTestAccountsDefaultsLogic } from 'scenes/project/Settings/filterTestAccountDefaultsLogic'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { FilterType } from '~/types'
 
 export function TestAccountFilter({
     filters,
@@ -33,7 +35,7 @@ export function TestAccountFilter({
                     <span>Filter out internal and test users</span>
                     <LemonButton
                         icon={<IconSettings />}
-                        to="/project/settings#internal-users-filtering"
+                        to={urls.settings('project-product-analytics', 'internal-user-filtering')}
                         status="stealth"
                         size="small"
                         noPadding

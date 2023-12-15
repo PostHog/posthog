@@ -1,26 +1,27 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { forms } from 'kea-forms'
+import { beforeUnload, router } from 'kea-router'
+import api from 'lib/api'
+import { Dayjs, dayjs } from 'lib/dayjs'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import {
     BatchExportConfiguration,
     BatchExportDestination,
     BatchExportDestinationBigQuery,
     BatchExportDestinationPostgres,
+    BatchExportDestinationRedshift,
     BatchExportDestinationS3,
     BatchExportDestinationSnowflake,
     Breadcrumb,
 } from '~/types'
 
-import api from 'lib/api'
-import { forms } from 'kea-forms'
-import { urls } from 'scenes/urls'
-import { beforeUnload, router } from 'kea-router'
-
 import type { batchExportsEditLogicType } from './batchExportEditLogicType'
-import { dayjs, Dayjs } from 'lib/dayjs'
 import { batchExportLogic } from './batchExportLogic'
 
 export type BatchExportsEditLogicProps = {
-    id: string | 'new'
+    id: string
 }
 
 export type BatchExportConfigurationForm = Omit<
@@ -28,10 +29,11 @@ export type BatchExportConfigurationForm = Omit<
     'id' | 'destination' | 'start_at' | 'end_at'
 > &
     Partial<BatchExportDestinationPostgres['config']> &
+    Partial<BatchExportDestinationRedshift['config']> &
     Partial<BatchExportDestinationBigQuery['config']> &
     Partial<BatchExportDestinationS3['config']> &
     Partial<BatchExportDestinationSnowflake['config']> & {
-        destination: 'S3' | 'Snowflake' | 'Postgres' | 'BigQuery'
+        destination: 'S3' | 'Snowflake' | 'Postgres' | 'BigQuery' | 'Redshift'
         start_at: Dayjs | null
         end_at: Dayjs | null
         json_config_file?: File[] | null
@@ -61,6 +63,19 @@ const formFields = (
                   schema: !config.schema ? 'This field is required' : '',
                   table_name: !config.table_name ? 'This field is required' : '',
                   has_self_signed_cert: false,
+                  exclude_events: '',
+                  include_events: '',
+              }
+            : destination === 'Redshift'
+            ? {
+                  user: isNew ? (!config.user ? 'This field is required' : '') : '',
+                  password: isNew ? (!config.password ? 'This field is required' : '') : '',
+                  host: !config.host ? 'This field is required' : '',
+                  port: !config.port ? 'This field is required' : '',
+                  database: !config.database ? 'This field is required' : '',
+                  schema: !config.schema ? 'This field is required' : '',
+                  table_name: !config.table_name ? 'This field is required' : '',
+                  properties_data_type: '',
                   exclude_events: '',
                   include_events: '',
               }
@@ -143,6 +158,11 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
                               type: 'S3',
                               config: config,
                           } as unknown as BatchExportDestinationS3)
+                        : destination === 'Redshift'
+                        ? ({
+                              type: 'Redshift',
+                              config: config,
+                          } as unknown as BatchExportDestinationRedshift)
                         : destination === 'BigQuery'
                         ? ({
                               type: 'BigQuery',
@@ -247,22 +267,25 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
             (s) => [s.batchExportConfig, s.isNew],
             (config, isNew): Breadcrumb[] => [
                 {
+                    key: Scene.BatchExports,
                     name: 'Batch Exports',
                     path: urls.batchExports(),
                 },
                 ...(isNew
                     ? [
                           {
+                              key: 'new',
                               name: 'New',
                           },
                       ]
                     : [
                           {
-                              name: config?.name ?? 'Loading',
+                              key: config?.id ?? 'loading',
+                              name: config?.name,
                               path: config?.id ? urls.batchExport(config.id) : undefined,
                           },
-
                           {
+                              key: 'edit',
                               name: 'Edit',
                           },
                       ]),

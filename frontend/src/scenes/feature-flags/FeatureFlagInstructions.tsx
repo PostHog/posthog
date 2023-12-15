@@ -1,32 +1,35 @@
-import { useEffect, useState } from 'react'
-import { useActions, useValues } from 'kea'
-import { IconInfo, IconOpenInNew } from 'lib/lemon-ui/icons'
 import './FeatureFlagInstructions.scss'
-import { LemonCheckbox, LemonSelect } from '@posthog/lemon-ui'
-import { FeatureFlagType } from '~/types'
+
+import { LemonCheckbox, LemonSelect, Link } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
+import { IconInfo } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { useEffect, useState } from 'react'
+
+import { groupsModel } from '~/models/groupsModel'
+import { FeatureFlagType, GroupTypeIndex } from '~/types'
+
 import {
     BOOTSTRAPPING_OPTIONS,
     FF_ANCHOR,
     InstructionOption,
     LibraryType,
-    LOCAL_EVALUATION_LIBRARIES,
-    PAYLOAD_LIBRARIES,
     LOCAL_EVAL_ANCHOR,
+    LOCAL_EVALUATION_LIBRARIES,
     OPTIONS,
+    PAYLOAD_LIBRARIES,
     PAYLOADS_ANCHOR,
 } from './FeatureFlagCodeOptions'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { groupsModel } from '~/models/groupsModel'
-import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 
 function FeatureFlagInstructionsFooter({ documentationLink }: { documentationLink: string }): JSX.Element {
     return (
         <div className="mt-4">
             Need more information?{' '}
-            <a data-attr="feature-flag-doc-link" target="_blank" rel="noopener" href={documentationLink}>
-                Check the docs <IconOpenInNew />
-            </a>
+            <Link data-attr="feature-flag-doc-link" target="_blank" to={documentationLink} targetBlankIcon>
+                Check the docs
+            </Link>
         </div>
     )
 }
@@ -66,7 +69,7 @@ export function CodeInstructions({
     const { groupTypes } = useValues(groupsModel)
     const groupType =
         featureFlag?.filters?.aggregation_group_type_index != null
-            ? groupTypes[featureFlag?.filters?.aggregation_group_type_index]
+            ? groupTypes.get(featureFlag.filters.aggregation_group_type_index as GroupTypeIndex)
             : undefined
 
     const { reportFlagsCodeExampleInteraction, reportFlagsCodeExampleLanguage } = useActions(eventUsageLogic)

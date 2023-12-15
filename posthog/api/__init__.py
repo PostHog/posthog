@@ -3,7 +3,7 @@ from rest_framework import decorators, exceptions
 from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
-from posthog.warehouse.api import saved_query, table, view_link
+from posthog.warehouse.api import external_data_source, saved_query, table, view_link, external_data_schema
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
 from . import (
     activity_log,
@@ -24,6 +24,7 @@ from . import (
     notebook,
     organization,
     organization_domain,
+    organization_feature_flag,
     organization_invite,
     organization_member,
     personal_api_key,
@@ -32,6 +33,8 @@ from . import (
     prompt,
     property_definition,
     query,
+    search,
+    scheduled_change,
     sharing,
     survey,
     tagged_item,
@@ -72,6 +75,18 @@ project_plugins_configs_router.register(
     plugin_log_entry.PluginLogEntryViewSet,
     "project_plugins_config_logs",
     ["team_id", "plugin_config_id"],
+)
+pipeline_transformations_configs_router = projects_router.register(
+    r"pipeline_transformations_configs",
+    plugin.PipelineTransformationsConfigsViewSet,
+    "pipeline_transformations_configs",
+    ["team_id"],
+)
+pipeline_destinations_configs_router = projects_router.register(
+    r"pipeline_destinations_configs",
+    plugin.PipelineDestinationsConfigsViewSet,
+    "pipeline_destinations_configs",
+    ["team_id"],
 )
 
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["team_id"])
@@ -118,6 +133,13 @@ projects_router.register(
     r"data_management",
     DataManagementViewSet,
     "data_management",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"scheduled_changes",
+    scheduled_change.ScheduledChangeViewSet,
+    "scheduled_changes",
     ["team_id"],
 )
 
@@ -170,6 +192,18 @@ organizations_router = router.register(r"organizations", organization.Organizati
 organization_plugins_router = organizations_router.register(
     r"plugins", plugin.PluginViewSet, "organization_plugins", ["organization_id"]
 )
+organization_pipeline_transformations_router = organizations_router.register(
+    r"pipeline_transformations",
+    plugin.PipelineTransformationsViewSet,
+    "organization_pipeline_transformations",
+    ["organization_id"],
+)
+organization_pipeline_destinations_router = organizations_router.register(
+    r"pipeline_destinations",
+    plugin.PipelineDestinationsViewSet,
+    "organization_pipeline_destinations",
+    ["organization_id"],
+)
 organizations_router.register(
     r"members",
     organization_member.OrganizationMemberViewSet,
@@ -186,6 +220,12 @@ organizations_router.register(
     r"domains",
     organization_domain.OrganizationDomainViewset,
     "organization_domains",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"feature_flags",
+    organization_feature_flag.OrganizationFeatureFlagView,
+    "organization_feature_flags",
     ["organization_id"],
 )
 
@@ -209,6 +249,21 @@ projects_router.register(r"uploaded_media", uploaded_media.MediaViewSet, "projec
 
 projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["team_id"])
 projects_router.register(r"query", query.QueryViewSet, "project_query", ["team_id"])
+
+# External data resources
+projects_router.register(
+    r"external_data_sources",
+    external_data_source.ExternalDataSourceViewSet,
+    "project_external_data_sources",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"external_data_schemas",
+    external_data_schema.ExternalDataSchemaViewset,
+    "project_external_data_schemas",
+    ["team_id"],
+)
 
 # General endpoints (shared across CH & PG)
 router.register(r"login", authentication.LoginViewSet, "login")
@@ -303,3 +358,5 @@ projects_router.register(
     "project_notebooks",
     ["team_id"],
 )
+
+projects_router.register(r"search", search.SearchViewSet, "project_search", ["team_id"])

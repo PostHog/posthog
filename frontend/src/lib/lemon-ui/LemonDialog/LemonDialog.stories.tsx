@@ -1,7 +1,8 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { LemonDialog, LemonDialogProps } from './LemonDialog'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from '@posthog/lemon-ui'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+
+import { LemonDialog, LemonDialogProps } from './LemonDialog'
 
 type Story = StoryObj<typeof LemonDialog>
 const meta: Meta<typeof LemonDialog> = {

@@ -1,4 +1,5 @@
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+
 import { SDKInstallPythonInstructions } from '../sdk-install-instructions'
 
 function PythonCaptureSnippet(): JSX.Element {

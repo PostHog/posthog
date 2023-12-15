@@ -53,7 +53,7 @@ def select_from_persons_table(requested_fields: Dict[str, List[str]], modifiers:
                SELECT id, max(version) as version
                FROM raw_persons
                GROUP BY id
-               HAVING ifNull(equals(argMax(raw_persons.is_deleted, raw_persons.version), 0), 0)
+               HAVING equals(argMax(raw_persons.is_deleted, raw_persons.version), 0)
             )
             """
         )

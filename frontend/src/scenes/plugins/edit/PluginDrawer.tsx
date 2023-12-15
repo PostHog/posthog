@@ -1,23 +1,26 @@
-import React, { useEffect, useState } from 'react'
-import { useActions, useValues } from 'kea'
-import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { Button, Form, Space, Switch, Tag } from 'antd'
-import { CodeOutlined, LockFilled } from '@ant-design/icons'
-import { userLogic } from 'scenes/userLogic'
-import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
-import { Drawer } from 'lib/components/Drawer'
-import { defaultConfigForPlugin, doFieldRequirementsMatch, getConfigSchemaArray } from 'scenes/plugins/utils'
-import { PluginSource } from '../source/PluginSource'
+import { IconCode } from '@posthog/icons'
+import { LemonButton, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
-import { PluginField } from 'scenes/plugins/edit/PluginField'
-import { endWithPunctation } from 'lib/utils'
-import { canGloballyManagePlugins } from '../access'
-import { capabilitiesInfo } from './CapabilitiesInfo'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { PluginJobOptions } from './interface-jobs/PluginJobOptions'
+import { Form } from 'antd'
+import { useActions, useValues } from 'kea'
+import { Drawer } from 'lib/components/Drawer'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
+import { IconLock } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { endWithPunctation } from 'lib/utils'
+import React, { useEffect, useState } from 'react'
+import { PluginField } from 'scenes/plugins/edit/PluginField'
+import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
+import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { defaultConfigForPlugin, doFieldRequirementsMatch, getConfigSchemaArray } from 'scenes/plugins/utils'
+import { userLogic } from 'scenes/userLogic'
+
+import { canGloballyManagePlugins } from '../access'
+import { PluginSource } from '../source/PluginSource'
 import { PluginTags } from '../tabs/apps/components'
+import { capabilitiesInfo } from './CapabilitiesInfo'
+import { PluginJobOptions } from './interface-jobs/PluginJobOptions'
 
 window.process = MOCK_NODE_PROCESS
 
@@ -29,10 +32,10 @@ function EnabledDisabledSwitch({
     onChange?: (value: boolean) => void
 }): JSX.Element {
     return (
-        <>
-            <Switch checked={value} onChange={onChange} />
-            <strong className="pl-2.5">{value ? 'Enabled' : 'Disabled'}</strong>
-        </>
+        <div className="flex items-center gap-2">
+            <LemonSwitch checked={value || false} onChange={onChange} />
+            <strong>{value ? 'Enabled' : 'Disabled'}</strong>
+        </div>
     )
 }
 
@@ -42,7 +45,7 @@ const SecretFieldIcon = (): JSX.Element => (
             placement="topLeft"
             title="This is a secret write-only field. Its value is not available after saving."
         >
-            <LockFilled style={{ marginRight: 5 }} />
+            <IconLock style={{ marginRight: 5 }} />
         </Tooltip>
     </>
 )
@@ -135,20 +138,19 @@ export function PluginDrawer(): JSX.Element {
                 title={editingPlugin?.name}
                 data-attr="plugin-drawer"
                 footer={
-                    <div className="flex">
-                        <Space>
-                            <Button onClick={() => editPlugin(null)} data-attr="plugin-drawer-cancel">
-                                Cancel
-                            </Button>
-                            <Button
-                                type="primary"
-                                loading={loading}
-                                onClick={form.submit}
-                                data-attr="plugin-drawer-save"
-                            >
-                                Save
-                            </Button>
-                        </Space>
+                    <div className="flex space-x-2">
+                        <LemonButton size="small" onClick={() => editPlugin(null)} data-attr="plugin-drawer-cancel">
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            size="small"
+                            type="primary"
+                            loading={loading}
+                            onClick={form.submit}
+                            data-attr="plugin-drawer-save"
+                        >
+                            Save
+                        </LemonButton>
                     </div>
                 }
             >
@@ -163,9 +165,9 @@ export function PluginDrawer(): JSX.Element {
                                     <div className="flex items-center">
                                         <PluginTags plugin={editingPlugin} />
                                         {editingPlugin.url && (
-                                            <a href={editingPlugin.url}>
+                                            <Link to={editingPlugin.url}>
                                                 <i>⤷ Learn more</i>
-                                            </a>
+                                            </Link>
                                         )}
                                     </div>
                                     <div className="flex items-center">
@@ -183,14 +185,14 @@ export function PluginDrawer(): JSX.Element {
 
                             {editingPlugin.plugin_type === 'source' && canGloballyManagePlugins(user?.organization) ? (
                                 <div>
-                                    <Button
-                                        type={editingSource ? 'default' : 'primary'}
-                                        icon={<CodeOutlined />}
+                                    <LemonButton
+                                        status={editingSource ? 'muted' : 'primary'}
+                                        icon={<IconCode />}
                                         onClick={() => setEditingSource(!editingSource)}
                                         data-attr="plugin-edit-source"
                                     >
                                         Edit source
-                                    </Button>
+                                    </LemonButton>
                                 </div>
                             ) : null}
 
@@ -208,12 +210,12 @@ export function PluginDrawer(): JSX.Element {
                                             )
                                             .map((capability) => (
                                                 <Tooltip title={capabilitiesInfo[capability] || ''} key={capability}>
-                                                    <Tag className="Plugin__CapabilitiesTag">{capability}</Tag>
+                                                    <LemonTag className="cursor-default">{capability}</LemonTag>
                                                 </Tooltip>
                                             ))}
                                         {(editingPlugin.capabilities?.jobs || []).map((jobName) => (
                                             <Tooltip title="Custom job" key={jobName}>
-                                                <Tag className="Plugin__CapabilitiesTag">{jobName}</Tag>
+                                                <LemonTag className="cursor-default">{jobName}</LemonTag>
                                             </Tooltip>
                                         ))}
                                     </div>

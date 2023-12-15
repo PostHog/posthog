@@ -1,8 +1,8 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { NotebookListItemType, NotebookNodeResource } from '~/types'
-
 import api from 'lib/api'
+
+import { NotebookListItemType, NotebookNodeResource, NotebookNodeType } from '~/types'
 
 import type { notebookSelectButtonLogicType } from './notebookSelectButtonLogicType'
 
@@ -52,8 +52,8 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
             [] as NotebookListItemType[],
             {
                 loadAllNotebooks: async (_, breakpoint) => {
-                    breakpoint(100)
-                    const response = await api.notebooks.list(undefined, undefined, values.searchQuery ?? undefined)
+                    await breakpoint(100)
+                    const response = await api.notebooks.list({ search: values.searchQuery || undefined })
                     // TODO for simplicity we'll assume the results will fit into one page
                     return response.results
                 },
@@ -63,17 +63,27 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
             [] as NotebookListItemType[],
             {
                 loadNotebooksContainingResource: async (_, breakpoint) => {
-                    breakpoint(100)
+                    await breakpoint(100)
                     if (!props.resource) {
                         return []
                     }
-                    const response = await api.notebooks.list(
-                        props.resource && typeof props.resource !== 'boolean'
-                            ? [{ type: props.resource.type, attrs: { id: props.resource.attrs?.id } }]
-                            : undefined,
-                        undefined,
-                        values.searchQuery ?? undefined
-                    )
+                    const response = await api.notebooks.list({
+                        contains:
+                            props.resource && typeof props.resource !== 'boolean'
+                                ? [
+                                      {
+                                          type: props.resource.type,
+                                          attrs: {
+                                              id:
+                                                  props.resource.type === NotebookNodeType.Query
+                                                      ? props.resource.attrs.query.shortId
+                                                      : props.resource.attrs.id,
+                                          },
+                                      },
+                                  ]
+                                : undefined,
+                        search: values.searchQuery || undefined,
+                    })
                     // TODO for simplicity we'll assume the results will fit into one page
                     return response.results
                 },

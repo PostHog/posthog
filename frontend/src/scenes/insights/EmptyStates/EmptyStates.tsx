@@ -1,26 +1,30 @@
-import { useActions, useValues } from 'kea'
-import { PlusCircleOutlined, ThunderboltFilled, WarningOutlined } from '@ant-design/icons'
-import { IconErrorOutline, IconInfo, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
-import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
-import { Button, Empty } from 'antd'
-import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
-import { FilterType, InsightLogicProps, SavedInsightsTabs } from '~/types'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import './EmptyStates.scss'
-import { urls } from 'scenes/urls'
-import { Link } from 'lib/lemon-ui/Link'
+
+// eslint-disable-next-line no-restricted-imports
+import { PlusCircleOutlined, ThunderboltFilled } from '@ant-design/icons'
+import { IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
-import { posthog } from 'posthog-js'
-import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { FunnelsQuery } from '~/queries/schema'
-import { supportLogic } from 'lib/components/Support/supportLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { Empty } from 'antd'
+import { useActions, useValues } from 'kea'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
+import { supportLogic } from 'lib/components/Support/supportLogic'
+import { IconErrorOutline, IconInfo, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { SupportModal } from 'lib/components/Support/SupportModal'
+import { posthog } from 'posthog-js'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { urls } from 'scenes/urls'
+
+import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { FunnelsQuery } from '~/queries/schema'
+import { FilterType, InsightLogicProps, SavedInsightsTabs } from '~/types'
+
+import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
 
 export function InsightEmptyState({
     heading = 'There are no matching events for this query',
@@ -113,13 +117,12 @@ export function InsightTimeoutState({
                                 breakdowns. If you're still having issues,{' '}
                                 <Link
                                     onClick={() => {
-                                        openSupportForm('bug', 'analytics')
+                                        openSupportForm({ kind: 'bug', target_area: 'analytics' })
                                     }}
                                 >
                                     let us know
                                 </Link>
                                 .
-                                <SupportModal />
                             </>
                         )}
                     </p>
@@ -165,7 +168,7 @@ export function InsightErrorState({ excludeDetail, title, queryId }: InsightErro
                                 <Link
                                     data-attr="insight-error-bug-report"
                                     onClick={() => {
-                                        openSupportForm('bug', 'analytics')
+                                        openSupportForm({ kind: 'bug', target_area: 'analytics' })
                                     }}
                                 >
                                     If this persists, submit a bug report.
@@ -220,16 +223,15 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
                     </div>
                 )}
                 <div className="mt-4">
-                    <a
+                    <Link
                         data-attr="funnels-single-step-help"
-                        href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
+                        to="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-empty-state"
                         target="_blank"
-                        rel="noopener"
                         className="flex items-center justify-center"
+                        targetBlankIcon
                     >
                         Learn more about funnels in PostHog docs
-                        <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />
-                    </a>
+                    </Link>
                 </div>
             </div>
         </div>
@@ -241,7 +243,7 @@ export function FunnelInvalidExclusionState(): JSX.Element {
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
                 <div className="illustration-main">
-                    <WarningOutlined />
+                    <IconWarning />
                 </div>
                 <h2>Invalid exclusion filters</h2>
                 <p>
@@ -249,15 +251,14 @@ export function FunnelInvalidExclusionState(): JSX.Element {
                     filters, or removing the overlapping exclusion event.
                 </p>
                 <div className="mt-4">
-                    <a
+                    <Link
                         data-attr="insight-funnels-emptystate-help"
-                        href="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-exclusion-filter-state"
+                        to="https://posthog.com/docs/user-guides/funnels?utm_medium=in-product&utm_campaign=funnel-exclusion-filter-state"
                         target="_blank"
-                        rel="noopener"
                     >
                         Learn more about funnels in PostHog docs
                         <IconOpenInNew style={{ marginLeft: 4, fontSize: '0.85em' }} />
-                    </a>
+                    </Link>
                 </div>
             </div>
         </div>
@@ -312,17 +313,18 @@ export function SavedInsightsEmptyState(): JSX.Element {
                     <p className="empty-state__description">{description}</p>
                 )}
                 {tab !== SavedInsightsTabs.Favorites && (
-                    <Link to={urls.insightNew()}>
-                        <Button
-                            size="large"
-                            type="primary"
-                            data-attr="add-insight-button-empty-state"
-                            icon={<PlusCircleOutlined />}
-                            className="add-insight-button"
-                        >
-                            New Insight
-                        </Button>
-                    </Link>
+                    <div className="flex justify-center">
+                        <Link to={urls.insightNew()}>
+                            <LemonButton
+                                type="primary"
+                                data-attr="add-insight-button-empty-state"
+                                icon={<PlusCircleOutlined />}
+                                className="add-insight-button"
+                            >
+                                New insight
+                            </LemonButton>
+                        </Link>
+                    </div>
                 )}
             </div>
         </div>

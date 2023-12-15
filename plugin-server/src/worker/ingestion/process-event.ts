@@ -3,6 +3,7 @@ import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
+import { Counter, Summary } from 'prom-client'
 
 import { activeMilliseconds } from '../../main/ingestion-queues/session-recording/snapshot-segmenter'
 import {
@@ -23,16 +24,30 @@ import {
 } from '../../types'
 import { DB, GroupId } from '../../utils/db/db'
 import { elementsToString, extractElements } from '../../utils/db/elements-chain'
+import { MessageSizeTooLarge } from '../../utils/db/error'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
-import { castTimestampOrNow, UUID } from '../../utils/utils'
+import { MessageSizeTooLargeWarningLimiter } from '../../utils/token-bucket'
+import { castTimestampOrNow } from '../../utils/utils'
 import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { upsertGroup } from './properties-updater'
 import { PropertyDefinitionsManager } from './property-definitions-manager'
 import { TeamManager } from './team-manager'
 import { captureIngestionWarning } from './utils'
+
+const processEventMsSummary = new Summary({
+    name: 'process_event_ms',
+    help: 'Duration spent in processEvent',
+    percentiles: [0.5, 0.9, 0.95, 0.99],
+})
+
+const elementsOrElementsChainCounter = new Counter({
+    name: 'events_pipeline_elements_or_elements_chain_total',
+    help: 'Number of times elements or elements_chain appears on event',
+    labelNames: ['type'],
+})
 
 export class EventsProcessor {
     pluginsServer: Hub
@@ -54,8 +69,7 @@ export class EventsProcessor {
             this.teamManager,
             this.groupTypeManager,
             pluginsServer.db,
-            pluginsServer,
-            pluginsServer.statsd
+            pluginsServer
         )
     }
 
@@ -66,12 +80,6 @@ export class EventsProcessor {
         timestamp: DateTime,
         eventUuid: string
     ): Promise<PreIngestionEvent> {
-        if (!UUID.validateString(eventUuid, false)) {
-            await captureIngestionWarning(this.db, teamId, 'skipping_event_invalid_uuid', {
-                eventUuid: JSON.stringify(eventUuid),
-            })
-            throw new Error(`Not a valid UUID: "${eventUuid}"`)
-        }
         const singleSaveTimer = new Date()
         const timeout = timeoutGuard('Still inside "EventsProcessor.processEvent". Timeout warning after 30 sec!', {
             event: JSON.stringify(data),
@@ -92,9 +100,7 @@ export class EventsProcessor {
             })
             try {
                 result = await this.capture(eventUuid, team, data['event'], distinctId, properties, timestamp)
-                this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer, {
-                    team_id: teamId.toString(),
-                })
+                processEventMsSummary.observe(Date.now() - singleSaveTimer.valueOf())
             } finally {
                 clearTimeout(captureTimeout)
             }
@@ -115,6 +121,7 @@ export class EventsProcessor {
         let elementsChain = ''
         if (properties['$elements_chain']) {
             elementsChain = properties['$elements_chain']
+            elementsOrElementsChainCounter.labels('elements_chain').inc()
         } else if (properties['$elements']) {
             const elements: Record<string, any>[] | undefined = properties['$elements']
             let elementsList: Element[] = []
@@ -122,6 +129,7 @@ export class EventsProcessor {
                 elementsList = extractElements(elements)
                 elementsChain = elementsToString(elementsList)
             }
+            elementsOrElementsChainCounter.labels('elements').inc()
         }
         delete properties['$elements_chain']
         delete properties['$elements']
@@ -142,16 +150,19 @@ export class EventsProcessor {
             delete properties['$ip']
         }
 
-        try {
-            await this.propertyDefinitionsManager.updateEventNamesAndProperties(team.id, event, properties)
-        } catch (err) {
-            Sentry.captureException(err, { tags: { team_id: team.id } })
-            status.warn('⚠️', 'Failed to update property definitions for an event', {
-                event,
-                properties,
-                err,
-            })
+        if (this.pluginsServer.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP === false) {
+            try {
+                await this.propertyDefinitionsManager.updateEventNamesAndProperties(team.id, event, properties)
+            } catch (err) {
+                Sentry.captureException(err, { tags: { team_id: team.id } })
+                status.warn('⚠️', 'Failed to update property definitions for an event', {
+                    event,
+                    properties,
+                    err,
+                })
+            }
         }
+
         // Adds group_0 etc values to properties
         properties = await addGroupProperties(team.id, properties, this.groupTypeManager)
 
@@ -225,12 +236,27 @@ export class EventsProcessor {
             ...groupsColumns,
         }
 
-        const ack = this.kafkaProducer.produce({
-            topic: this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-            key: uuid,
-            value: Buffer.from(JSON.stringify(rawEvent)),
-            waitForAck: true,
-        })
+        const ack = this.kafkaProducer
+            .produce({
+                topic: this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                key: uuid,
+                value: Buffer.from(JSON.stringify(rawEvent)),
+                waitForAck: true,
+            })
+            .catch(async (error) => {
+                // Some messages end up significantly larger than the original
+                // after plugin processing, person & group enrichment, etc.
+                if (error instanceof MessageSizeTooLarge) {
+                    if (MessageSizeTooLargeWarningLimiter.consume(`${teamId}`, 1)) {
+                        await captureIngestionWarning(this.db, teamId, 'message_size_too_large', {
+                            eventUuid: uuid,
+                            distinctId: distinctId,
+                        })
+                    }
+                } else {
+                    throw error
+                }
+            })
 
         return [rawEvent, ack]
     }
@@ -297,6 +323,7 @@ export interface SummarizedSessionRecordingEvent {
     size: number
     event_count: number
     message_count: number
+    snapshot_source: string | null
 }
 
 export type ConsoleLogEntry = {
@@ -415,7 +442,8 @@ export const createSessionReplayEvent = (
     team_id: number,
     distinct_id: string,
     session_id: string,
-    events: RRWebEvent[]
+    events: RRWebEvent[],
+    snapshot_source: string | null
 ) => {
     const timestamps = getTimestampsFrom(events)
 
@@ -483,6 +511,7 @@ export const createSessionReplayEvent = (
         size: Math.trunc(Buffer.byteLength(JSON.stringify(events), 'utf8')),
         event_count: Math.trunc(events.length),
         message_count: 1,
+        snapshot_source: snapshot_source || 'web',
     }
 
     return data

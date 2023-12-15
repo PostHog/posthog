@@ -2,6 +2,7 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { posthog } from 'posthog-js'
+
 import { sceneLogic } from './sceneLogic'
 import { urls } from './urls'
 

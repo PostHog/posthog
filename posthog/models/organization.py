@@ -24,12 +24,7 @@ from rest_framework import exceptions
 from posthog.cloud_utils import is_cloud
 from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
 from posthog.email import is_email_available
-from posthog.models.utils import (
-    LowercaseSlugField,
-    UUIDModel,
-    create_with_slug,
-    sane_repr,
-)
+from posthog.models.utils import LowercaseSlugField, UUIDModel, create_with_slug, sane_repr
 from posthog.redis import get_client
 from posthog.utils import absolute_uri
 
@@ -53,6 +48,7 @@ class OrganizationUsageResource(TypedDict):
 class OrganizationUsageInfo(TypedDict):
     events: Optional[OrganizationUsageResource]
     recordings: Optional[OrganizationUsageResource]
+    rows_synced: Optional[OrganizationUsageResource]
     period: Optional[List[str]]
 
 
@@ -122,7 +118,7 @@ class Organization(UUIDModel):
     slug: LowercaseSlugField = LowercaseSlugField(unique=True, max_length=MAX_SLUG_LENGTH)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
-    plugins_access_level: (models.PositiveSmallIntegerField) = models.PositiveSmallIntegerField(
+    plugins_access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
         default=PluginsAccessLevel.CONFIG,
         choices=PluginsAccessLevel.choices,
     )
@@ -415,3 +411,19 @@ def ensure_organization_membership_consistency(sender, instance: OrganizationMem
         save_user = True
     if save_user:
         instance.user.save()
+
+
+@receiver(models.signals.pre_save, sender=OrganizationMembership)
+def organization_membership_saved(sender: Any, instance: OrganizationMembership, **kwargs: Any) -> None:
+    from posthog.event_usage import report_user_organization_membership_level_changed
+
+    try:
+        old_instance = OrganizationMembership.objects.get(id=instance.id)
+        if old_instance.level != instance.level:
+            # the level has been changed
+            report_user_organization_membership_level_changed(
+                instance.user, instance.organization, instance.level, old_instance.level
+            )
+    except OrganizationMembership.DoesNotExist:
+        # The instance is new, or we are setting up test data
+        pass

@@ -7,6 +7,7 @@ import fetch, { type RequestInfo, type RequestInit, type Response, FetchError, R
 import { URL } from 'url'
 
 import { runInSpan } from '../sentry'
+import { isProdEnv } from './env-utils'
 
 export async function trackedFetch(url: RequestInfo, init?: RequestInit): Promise<Response> {
     const request = new Request(url, init)
@@ -15,29 +16,17 @@ export async function trackedFetch(url: RequestInfo, init?: RequestInit): Promis
             op: 'fetch',
             description: `${request.method} ${request.url}`,
         },
-        async () => await fetch(url, init)
-    )
-}
-
-trackedFetch.isRedirect = fetch.isRedirect
-trackedFetch.FetchError = FetchError
-
-export async function safeTrackedFetch(url: RequestInfo, init?: RequestInit): Promise<Response> {
-    const request = new Request(url, init)
-    return await runInSpan(
-        {
-            op: 'fetch',
-            description: `${request.method} ${request.url}`,
-        },
         async () => {
-            await raiseIfUserProvidedUrlUnsafe(request.url)
+            if (isProdEnv() && !process.env.NODE_ENV?.includes('functional-tests')) {
+                await raiseIfUserProvidedUrlUnsafe(request.url)
+            }
             return await fetch(url, init)
         }
     )
 }
 
-safeTrackedFetch.isRedirect = fetch.isRedirect
-safeTrackedFetch.FetchError = FetchError
+trackedFetch.isRedirect = fetch.isRedirect
+trackedFetch.FetchError = FetchError
 
 /**
  * Raise if the provided URL seems unsafe, otherwise do nothing.

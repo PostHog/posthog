@@ -351,7 +351,7 @@ class DateMixin(BaseParamMixin):
             if self._date_from == "all":
                 return None
             elif isinstance(self._date_from, str):
-                date, delta_mapping = relative_date_parse_with_delta_mapping(
+                date, delta_mapping, _position = relative_date_parse_with_delta_mapping(
                     self._date_from,
                     self.team.timezone_info,  # type: ignore
                     always_truncate=True,
@@ -385,7 +385,11 @@ class DateMixin(BaseParamMixin):
                             tzinfo=ZoneInfo("UTC")
                         )
                     except ValueError:
-                        date, delta_mapping = relative_date_parse_with_delta_mapping(
+                        (
+                            date,
+                            delta_mapping,
+                            _position,
+                        ) = relative_date_parse_with_delta_mapping(
                             self._date_to,
                             self.team.timezone_info,  # type: ignore
                             always_truncate=True,

@@ -1,17 +1,19 @@
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
-import api from 'lib/api'
-import type { teamLogicType } from './teamLogicType'
-import { CorrelationConfigType, PropertyOperator, TeamPublicType, TeamType } from '~/types'
-import { userLogic } from './userLogic'
-import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
-import { organizationLogic } from './organizationLogic'
-import { getAppContext } from 'lib/utils/getAppContext'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { IconSwapHoriz } from 'lib/lemon-ui/icons'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import api, { ApiConfig } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { IconSwapHoriz } from 'lib/lemon-ui/icons'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { getPropertyLabel } from 'lib/taxonomy'
+import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getAppContext } from 'lib/utils/getAppContext'
+
+import { CorrelationConfigType, PropertyOperator, TeamPublicType, TeamType } from '~/types'
+
+import { organizationLogic } from './organizationLogic'
+import type { teamLogicType } from './teamLogicType'
+import { userLogic } from './userLogic'
 
 const parseUpdatedAttributeName = (attr: string | null): string => {
     if (attr === 'slack_incoming_webhook') {
@@ -102,7 +104,9 @@ export const teamLogic = kea<teamLogicType>([
                         eventUsageLogic.findMounted()?.actions?.reportTeamSettingChange(property, payload[property])
                     })
 
-                    lemonToast.success(message)
+                    if (!window.location.pathname.match(/\/(onboarding|products)/)) {
+                        lemonToast.success(message)
+                    }
 
                     return patchedTeam
                 },
@@ -206,6 +210,14 @@ export const teamLogic = kea<teamLogicType>([
         ],
     })),
     listeners(({ actions }) => ({
+        loadCurrentTeamSuccess: ({ currentTeam }) => {
+            if (currentTeam) {
+                ApiConfig.setCurrentTeamId(currentTeam.id)
+            }
+        },
+        createTeamSuccess: () => {
+            organizationLogic.actions.loadCurrentOrganization()
+        },
         deleteTeam: async ({ team }) => {
             try {
                 await api.delete(`api/projects/${team.id}`)
@@ -219,28 +231,26 @@ export const teamLogic = kea<teamLogicType>([
             lemonToast.success('Project has been deleted')
         },
     })),
-    events(({ actions }) => ({
-        afterMount: () => {
-            const appContext = getAppContext()
-            const currentTeam = appContext?.current_team
-            const switchedTeam = appContext?.switched_team
-            if (switchedTeam) {
-                lemonToast.info(<>You've switched to&nbsp;project {currentTeam?.name}</>, {
-                    button: {
-                        label: 'Switch back',
-                        action: () => userLogic.actions.updateCurrentTeam(switchedTeam),
-                    },
-                    icon: <IconSwapHoriz />,
-                })
-            }
+    afterMount(({ actions }) => {
+        const appContext = getAppContext()
+        const currentTeam = appContext?.current_team
+        const switchedTeam = appContext?.switched_team
+        if (switchedTeam) {
+            lemonToast.info(<>You've switched to&nbsp;project {currentTeam?.name}</>, {
+                button: {
+                    label: 'Switch back',
+                    action: () => userLogic.actions.updateCurrentTeam(switchedTeam),
+                },
+                icon: <IconSwapHoriz />,
+            })
+        }
 
-            if (currentTeam) {
-                // If app context is available (it should be practically always) we can immediately know currentTeam
-                actions.loadCurrentTeamSuccess(currentTeam)
-            } else {
-                // If app context is not available, a traditional request is needed
-                actions.loadCurrentTeam()
-            }
-        },
-    })),
+        if (currentTeam) {
+            // If app context is available (it should be practically always) we can immediately know currentTeam
+            actions.loadCurrentTeamSuccess(currentTeam)
+        } else {
+            // If app context is not available, a traditional request is needed
+            actions.loadCurrentTeam()
+        }
+    }),
 ])

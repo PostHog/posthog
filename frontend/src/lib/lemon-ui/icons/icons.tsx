@@ -1,8 +1,9 @@
 // Loads custom icons (some icons may come from a third-party library)
-import clsx from 'clsx'
-import { CSSProperties, PropsWithChildren, SVGAttributes } from 'react'
 import './icons.scss'
+
+import clsx from 'clsx'
 import { LemonBadge, LemonBadgeProps } from 'lib/lemon-ui/LemonBadge'
+import { CSSProperties, PropsWithChildren, SVGAttributes } from 'react'
 
 interface IconWithCountProps {
     count: number
@@ -935,15 +936,6 @@ export function IconRecording(props: LemonIconProps): JSX.Element {
                 d="m10 8v8l5-4zm9-5h-14c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-14c0-1.1-.9-2-2-2zm0 16h-14v-14h14z"
                 fill="currentColor"
             />
-        </LemonIconBase>
-    )
-}
-
-/** Material Design Arrow Drop Down icon. */
-export function IconArrowDropDown(props: LemonIconProps): JSX.Element {
-    return (
-        <LemonIconBase {...props}>
-            <path d="m7 10 5 5 5-5z" fill="currentColor" />
         </LemonIconBase>
     )
 }

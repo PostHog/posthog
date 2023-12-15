@@ -1,6 +1,7 @@
 import json
 from typing import List, cast
-from unittest.mock import ANY, MagicMock, patch
+from unittest import mock
+from unittest.mock import MagicMock, call, patch
 
 from asgiref.sync import sync_to_async
 from django.core.cache import cache
@@ -9,7 +10,7 @@ from rest_framework import status
 from temporalio.service import RPCError
 
 from posthog.api.test.batch_exports.conftest import start_test_worker
-from posthog.batch_exports.service import describe_schedule
+from posthog.temporal.common.schedule import describe_schedule
 from posthog.constants import AvailableFeature
 from posthog.models import EarlyAccessFeature
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
@@ -18,7 +19,7 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.team.team import get_team_in_cache
-from posthog.temporal.client import sync_connect
+from posthog.temporal.common.client import sync_connect
 from posthog.test.base import APIBaseTest
 
 
@@ -219,15 +220,16 @@ class TestTeamAPI(APIBaseTest):
             AsyncDeletion.objects.filter(team_id=team.id, deletion_type=DeletionType.Team, key=str(team.id)).count(),
             1,
         )
-        mock_capture.assert_called_once_with(
-            self.user.distinct_id,
-            "team deleted",
-            properties={},
-            groups={
-                "instance": ANY,
-                "organization": str(self.organization.id),
-                "project": str(self.team.uuid),
-            },
+        mock_capture.assert_has_calls(
+            calls=[
+                call(
+                    self.user.distinct_id,
+                    "membership level changed",
+                    properties={"new_level": 8, "previous_level": 1, "$set": mock.ANY},
+                    groups=mock.ANY,
+                ),
+                call(self.user.distinct_id, "team deleted", properties={}, groups=mock.ANY),
+            ]
         )
         mock_delete_bulky_postgres_data.assert_called_once_with(team_ids=[team.pk])
 
@@ -653,6 +655,64 @@ class TestTeamAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         second_get_response = self.client.get("/api/projects/@current/")
         assert second_get_response.json()["session_recording_linked_flag"] is None
+
+    @parameterized.expand(
+        [
+            [
+                "string",
+                "Marple bridge",
+                "invalid_input",
+                "Must provide a dictionary or None.",
+            ],
+            ["numeric", "-1", "invalid_input", "Must provide a dictionary or None."],
+            [
+                "unexpected json - no recordX",
+                {"key": "something"},
+                "invalid_input",
+                "Must provide a dictionary with only 'recordHeaders' and/or 'recordBody' keys.",
+            ],
+        ]
+    )
+    def test_invalid_session_recording_network_payload_capture_config(
+        self, _name: str, provided_value: str, expected_code: str, expected_error: str
+    ) -> None:
+        response = self.client.patch(
+            "/api/projects/@current/", {"session_recording_network_payload_capture_config": provided_value}
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "attr": "session_recording_network_payload_capture_config",
+            "code": expected_code,
+            "detail": expected_error,
+            "type": "validation_error",
+        }
+
+    def test_can_set_and_unset_session_recording_network_payload_capture_config(self) -> None:
+        # can set just one
+        first_patch_response = self.client.patch(
+            "/api/projects/@current/",
+            {"session_recording_network_payload_capture_config": {"recordHeaders": True}},
+        )
+        assert first_patch_response.status_code == status.HTTP_200_OK
+        get_response = self.client.get("/api/projects/@current/")
+        assert get_response.json()["session_recording_network_payload_capture_config"] == {"recordHeaders": True}
+
+        # can set the other
+        first_patch_response = self.client.patch(
+            "/api/projects/@current/",
+            {"session_recording_network_payload_capture_config": {"recordBody": False}},
+        )
+        assert first_patch_response.status_code == status.HTTP_200_OK
+        get_response = self.client.get("/api/projects/@current/")
+        assert get_response.json()["session_recording_network_payload_capture_config"] == {"recordBody": False}
+
+        # can unset both
+        response = self.client.patch(
+            "/api/projects/@current/", {"session_recording_network_payload_capture_config": None}
+        )
+        assert response.status_code == status.HTTP_200_OK
+        second_get_response = self.client.get("/api/projects/@current/")
+        assert second_get_response.json()["session_recording_network_payload_capture_config"] is None
 
 
 def create_team(organization: Organization, name: str = "Test team") -> Team:

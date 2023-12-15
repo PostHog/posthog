@@ -1,10 +1,11 @@
 import { actions, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
-import { query } from '~/queries/query'
-
-import type { hogQLEditorLogicType } from './hogQLEditorLogicType'
-import { HogQLMetadata, HogQLMetadataResponse, NodeKind } from '~/queries/schema'
 import { loaders } from 'kea-loaders'
 import React from 'react'
+
+import { query } from '~/queries/query'
+import { HogQLMetadata, HogQLMetadataResponse, NodeKind } from '~/queries/schema'
+
+import type { hogQLEditorLogicType } from './hogQLEditorLogicType'
 
 export interface HogQLEditorLogicProps {
     key: string

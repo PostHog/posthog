@@ -1,9 +1,10 @@
 import './PersonDisplay.scss'
-import { urls } from 'scenes/urls'
-import { ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
-import { teamLogic } from 'scenes/teamLogic'
+
 import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
+import { ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
 import { midEllipsis } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 type PersonPropType =
     | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: never }
@@ -55,7 +56,7 @@ export function asDisplay(person: PersonPropType | null | undefined, maxLength?:
             : undefined)
     )?.trim()
 
-    return display ? midEllipsis(display, maxLength || 40) : 'Person without ID'
+    return display ? midEllipsis(display, maxLength || 40) : 'Person without distinct_id'
 }
 
 export const asLink = (person?: PersonPropType | null): string | undefined =>

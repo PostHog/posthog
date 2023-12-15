@@ -1,7 +1,9 @@
-import { kea, path, selectors } from 'kea'
 import { TooltipItem } from 'chart.js'
-import { GraphDataset } from '~/types'
+import { kea, path, selectors } from 'kea'
 import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+
+import { GraphDataset } from '~/types'
+
 import type { lineGraphLogicType } from './lineGraphLogicType'
 
 // TODO: Eventually we should move all state from LineGraph into this logic

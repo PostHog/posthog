@@ -1,13 +1,14 @@
 import Fuse from 'fuse.js'
-import { actions, connect, kea, key, listeners, reducers, selectors, path, props } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { teamLogic } from 'scenes/teamLogic'
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { posthog } from 'posthog-js'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 import type { sceneDashboardChoiceModalLogicType } from './sceneDashboardChoiceModalLogicType'
-import { userLogic } from 'scenes/userLogic'
 
 export type DashboardCompatibleScenes = Scene.ProjectHomepage | Scene.Person | Scene.Group
 

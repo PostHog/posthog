@@ -1,22 +1,25 @@
+import { LemonButton, LemonCheckbox, LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { inviteSignupLogic, ErrorCodes } from './inviteSignupLogic'
-import { userLogic } from 'scenes/userLogic'
-import { PrevalidatedInvite } from '~/types'
-import { Link } from 'lib/lemon-ui/Link'
+import { Form } from 'kea-forms'
+import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import PasswordStrength from 'lib/components/PasswordStrength'
+import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
-import { urls } from 'scenes/urls'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Field, PureField } from 'lib/forms/Field'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonCheckbox, LemonDivider, LemonInput } from '@posthog/lemon-ui'
-import { Form } from 'kea-forms'
-import { Field, PureField } from 'lib/forms/Field'
-import PasswordStrength from 'lib/components/PasswordStrength'
-import clsx from 'clsx'
-import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import SignupRoleSelect from 'lib/components/SignupRoleSelect'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { PrevalidatedInvite } from '~/types'
+
+import { ErrorCodes, inviteSignupLogic } from './inviteSignupLogic'
 import { SupportModalButton } from './SupportModalButton'
 
 export const scene: SceneExport = {
@@ -190,6 +193,7 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
 function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): JSX.Element {
     const { signup, isSignupSubmitting } = useValues(inviteSignupLogic)
     const { preflight } = useValues(preflightLogic)
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     return (
         <BridgePage
@@ -268,6 +272,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
 
                 <LemonButton
                     type="primary"
+                    status={is3000 ? 'primary-alt' : 'primary'}
                     htmlType="submit"
                     data-attr="password-signup"
                     loading={isSignupSubmitting}
@@ -282,13 +287,13 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
             </div>
             <div className="mt-4 text-center text-muted">
                 By clicking continue you agree to our{' '}
-                <a href="https://posthog.com/terms" target="_blank" rel="noopener">
+                <Link to="https://posthog.com/terms" target="_blank">
                     Terms of Service
-                </a>{' '}
+                </Link>{' '}
                 and{' '}
-                <a href="https://posthog.com/privacy" target="_blank" rel="noopener">
+                <Link to="https://posthog.com/privacy" target="_blank">
                     Privacy Policy
-                </a>
+                </Link>
                 .
             </div>
             <SocialLoginButtons

@@ -2,7 +2,7 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { captureException } from '@sentry/node'
 import escapeStringRegexp from 'escape-string-regexp'
 import equal from 'fast-deep-equal'
-import { StatsD } from 'hot-shots'
+import { Summary } from 'prom-client'
 import RE2 from 're2'
 
 import {
@@ -42,6 +42,12 @@ const emptyMatchingOperator: Partial<Record<PropertyOperator, boolean>> = {
     [PropertyOperator.NotIContains]: true,
     [PropertyOperator.NotRegex]: true,
 }
+
+const actionMatchMsSummary = new Summary({
+    name: 'action_match_ms',
+    help: 'Time taken to match actions',
+    percentiles: [0.5, 0.9, 0.95, 0.99],
+})
 
 /** Return whether two values compare to each other according to the specified operator.
  * This simulates the behavior of ClickHouse (or other DBMSs) which like to cast values in SELECTs to the column's type.
@@ -128,12 +134,10 @@ export function matchString(actual: string, expected: string, matching: StringMa
 export class ActionMatcher {
     private postgres: PostgresRouter
     private actionManager: ActionManager
-    private statsd: StatsD | undefined
 
-    constructor(postgres: PostgresRouter, actionManager: ActionManager, statsd?: StatsD) {
+    constructor(postgres: PostgresRouter, actionManager: ActionManager) {
         this.postgres = postgres
         this.actionManager = actionManager
-        this.statsd = statsd
     }
 
     public hasWebhooks(teamId: number): boolean {
@@ -157,8 +161,7 @@ export class ActionMatcher {
                 matches.push(teamActions[i])
             }
         }
-        this.statsd?.timing('action_matching_for_event', matchingStart)
-        this.statsd?.increment('action_matches_found', matches.length)
+        actionMatchMsSummary.observe(new Date().getTime() - matchingStart.getTime())
         return matches
     }
 

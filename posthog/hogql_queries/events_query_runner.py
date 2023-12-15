@@ -1,6 +1,6 @@
 import json
 from datetime import timedelta
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
 
 from dateutil.parser import isoparse
 from django.db.models import Prefetch
@@ -10,13 +10,15 @@ from posthog.api.element import ElementSerializer
 from posthog.api.utils import get_pk_or_uuid
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
+from posthog.hogql.constants import get_max_limit_for_context, get_default_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import action_to_expr, has_aggregation, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.models import Action, Person, Team
+from posthog.models import Action, Person
 from posthog.models.element import chain_to_elements
+from posthog.models.person.person import get_distinct_ids_for_subquery
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.schema import EventsQuery, EventsQueryResponse
 from posthog.utils import relative_date_parse
@@ -37,19 +39,6 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
 class EventsQueryRunner(QueryRunner):
     query: EventsQuery
     query_type = EventsQuery
-
-    def __init__(
-        self,
-        query: EventsQuery | Dict[str, Any],
-        team: Team,
-        timings: Optional[HogQLTimings] = None,
-        in_export_context: Optional[bool] = False,
-    ):
-        super().__init__(query, team, timings, in_export_context)
-        if isinstance(query, EventsQuery):
-            self.query = query
-        else:
-            self.query = EventsQuery.model_validate(query)
 
     def to_query(self) -> ast.SelectQuery:
         # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
@@ -115,13 +104,13 @@ class EventsQueryRunner(QueryRunner):
                         where_exprs.append(action_to_expr(action))
                 if self.query.personId:
                     with self.timings.measure("person_id"):
-                        person: Optional[Person] = get_pk_or_uuid(Person.objects.all(), self.query.personId).first()
-                        distinct_ids = person.distinct_ids if person is not None else []
-                        ids_list = list(map(str, distinct_ids))
+                        person: Optional[Person] = get_pk_or_uuid(
+                            Person.objects.filter(team=self.team), self.query.personId
+                        ).first()
                         where_exprs.append(
                             parse_expr(
                                 "distinct_id in {list}",
-                                {"list": ast.Constant(value=ids_list)},
+                                {"list": ast.Constant(value=get_distinct_ids_for_subquery(person, self.team))},
                                 timings=self.timings,
                             )
                         )
@@ -198,7 +187,8 @@ class EventsQueryRunner(QueryRunner):
             workload=Workload.ONLINE,
             query_type="EventsQuery",
             timings=self.timings,
-            in_export_context=self.in_export_context,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
         )
 
         # Convert star field from tuple to dict in each result
@@ -266,22 +256,10 @@ class EventsQueryRunner(QueryRunner):
         return ["*"] if len(self.query.select) == 0 else self.query.select
 
     def limit(self) -> int:
-        # importing locally so we could override in a test
-        from posthog.hogql.constants import (
-            DEFAULT_RETURNED_ROWS,
-            MAX_SELECT_RETURNED_ROWS,
-        )
-
         # adding +1 to the limit to check if there's a "next page" after the requested results
-        return (
-            min(
-                MAX_SELECT_RETURNED_ROWS,
-                (MAX_SELECT_RETURNED_ROWS if self.in_export_context else DEFAULT_RETURNED_ROWS)
-                if self.query.limit is None
-                else self.query.limit,
-            )
-            + 1
-        )
+        max_rows = get_max_limit_for_context(self.limit_context)
+        default_rows = get_default_limit_for_context(self.limit_context)
+        return min(max_rows, default_rows if self.query.limit is None else self.query.limit) + 1
 
     def _is_stale(self, cached_result_package):
         return True

@@ -1,17 +1,21 @@
 import './index.scss'
+
+// eslint-disable-next-line no-restricted-imports
+import { LaptopOutlined, ProjectOutlined } from '@ant-design/icons'
+import { LemonButton, LemonDivider, LemonDropdown, LemonDropdownProps } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { ProjectOutlined, LaptopOutlined, GlobalOutlined } from '@ant-design/icons'
+import { dayjs } from 'lib/dayjs'
+import { IconSettings, IconWeb } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime, shortTimeZone } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { teamLogic } from '../../../scenes/teamLogic'
-import { dayjs } from 'lib/dayjs'
-import clsx from 'clsx'
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { LemonButton, LemonDivider, LemonDropdown, LemonDropdownProps } from '@posthog/lemon-ui'
-import { IconSettings } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
+import { teamLogic } from '../../../scenes/teamLogic'
+
 const BASE_OUTPUT_FORMAT = 'ddd, MMM D, YYYY h:mm A'
+const BASE_OUTPUT_FORMAT_WITH_SECONDS = 'ddd, MMM D, YYYY h:mm:ss A'
 
 export type TZLabelProps = Omit<LemonDropdownProps, 'overlay' | 'trigger' | 'children'> & {
     time: string | dayjs.Dayjs
@@ -21,13 +25,14 @@ export type TZLabelProps = Omit<LemonDropdownProps, 'overlay' | 'trigger' | 'chi
     showPopover?: boolean
     noStyles?: boolean
     className?: string
+    children?: JSX.Element
 }
 
 const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
     showSeconds,
     time,
 }: Pick<TZLabelProps, 'showSeconds'> & { time: dayjs.Dayjs }): JSX.Element {
-    const DATE_OUTPUT_FORMAT = !showSeconds ? BASE_OUTPUT_FORMAT : `${BASE_OUTPUT_FORMAT}:ss`
+    const DATE_OUTPUT_FORMAT = !showSeconds ? BASE_OUTPUT_FORMAT : BASE_OUTPUT_FORMAT_WITH_SECONDS
     const { currentTeam } = useValues(teamLogic)
     const { reportTimezoneComponentViewed } = useActions(eventUsageLogic)
 
@@ -40,7 +45,7 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
             <div className="flex justify-between items-center">
                 <h3 className="mb-0">Timezone conversion</h3>
                 <span>
-                    <LemonButton icon={<IconSettings />} size="small" to={urls.projectSettings('timezone')} />
+                    <LemonButton icon={<IconSettings />} size="small" to={urls.settings('project', 'date-and-time')} />
                 </span>
             </div>
 
@@ -66,7 +71,7 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
                 {currentTeam?.timezone !== 'UTC' && (
                     <div className="TZLabelPopover__row">
                         <div>
-                            <GlobalOutlined /> UTC
+                            <IconWeb /> UTC
                         </div>
                         <div />
                         <div>{time.tz('UTC').format(DATE_OUTPUT_FORMAT)}</div>
@@ -86,6 +91,7 @@ function TZLabelRaw({
     showPopover = true,
     noStyles = false,
     className,
+    children,
     ...dropdownProps
 }: TZLabelProps): JSX.Element {
     const parsedTime = useMemo(() => (dayjs.isDayjs(time) ? time : dayjs(time)), [time])
@@ -108,10 +114,12 @@ function TZLabelRaw({
         return () => clearInterval(interval)
     }, [parsedTime, format])
 
-    const innerContent = (
+    const innerContent = children ?? (
         <span
             className={
-                !noStyles ? clsx('whitespace-nowrap', showPopover && 'border-dotted border-b', className) : className
+                !noStyles
+                    ? clsx('whitespace-nowrap align-middle', showPopover && 'border-dotted border-b', className)
+                    : className
             }
         >
             {formattedContent}

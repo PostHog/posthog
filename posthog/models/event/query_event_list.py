@@ -15,13 +15,14 @@ from posthog.models.event.sql import (
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL,
 )
+from posthog.models.person.person import get_distinct_ids_for_subquery
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.queries.insight import insight_query_with_columns
 from posthog.utils import relative_date_parse
 
 
 def determine_event_conditions(
-    conditions: Dict[str, Union[None, str, List[str]]], tzinfo: ZoneInfo
+    conditions: Dict[str, Union[None, str, List[str]]], team: Team, tzinfo: ZoneInfo
 ) -> Tuple[str, Dict]:
     result = ""
     params: Dict[str, Union[str, List[str]]] = {}
@@ -44,9 +45,8 @@ def determine_event_conditions(
             params.update({"before": timestamp})
         elif k == "person_id":
             result += """AND distinct_id IN (%(distinct_ids)s) """
-            person = get_pk_or_uuid(Person.objects.all(), v).first()
-            distinct_ids = person.distinct_ids if person is not None else []
-            params.update({"distinct_ids": list(map(str, distinct_ids))})
+            person = get_pk_or_uuid(Person.objects.filter(team=team), v).first()
+            params.update({"distinct_ids": get_distinct_ids_for_subquery(person, team)})
         elif k == "distinct_id":
             result += "AND distinct_id = %(distinct_id)s "
             params.update({"distinct_id": v})
@@ -84,6 +84,7 @@ def query_events_list(
             "before": (now() + timedelta(seconds=5)).isoformat(),
             **request_get_query_dict,
         },
+        team,
         tzinfo=team.timezone_info,
     )
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(

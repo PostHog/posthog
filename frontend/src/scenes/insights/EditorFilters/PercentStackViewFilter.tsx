@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { insightLogic } from '../insightLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+
+import { insightLogic } from '../insightLogic'
 
 export function PercentStackViewFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)

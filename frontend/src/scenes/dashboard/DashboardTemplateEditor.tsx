@@ -1,9 +1,10 @@
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useMonaco } from '@monaco-editor/react'
-import { useEffect } from 'react'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
 import { CodeEditor } from 'lib/components/CodeEditors'
+import { useEffect } from 'react'
+
+import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
 
 export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }): JSX.Element {
     const monaco = useMonaco()

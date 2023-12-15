@@ -1,23 +1,26 @@
-import { BuiltLogic, useActions, useValues } from 'kea'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import {
-    ActionFilter as ActionFilterType,
-    ActionFilter,
-    EntityType,
-    EntityTypes,
-    FunnelExclusion,
-    PropertyFilterValue,
-    BaseMathType,
-    PropertyMathType,
-    CountPerActorMathType,
-    HogQLMathType,
-} from '~/types'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { getEventNamesForAction } from 'lib/utils'
-import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import './ActionFilterRow.scss'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+
+import { DraggableSyntheticListeners } from '@dnd-kit/core'
+import { useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
+import { BuiltLogic, useActions, useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicPopover, TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { IconCopy, IconDelete, IconEdit, IconFilter, IconWithCount } from 'lib/lemon-ui/icons'
+import { SortableDragIcon } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { getEventNamesForAction } from 'lib/utils'
+import { useState } from 'react'
+import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
+import { isAllEventsEntityFilter } from 'scenes/insights/utils'
 import {
     apiValueToMathType,
     COUNT_PER_ACTOR_MATH_DEFINITIONS,
@@ -26,23 +29,23 @@ import {
     mathTypeToApiValues,
     PROPERTY_MATH_DEFINITIONS,
 } from 'scenes/trends/mathsLogic'
+
 import { actionsModel } from '~/models/actionsModel'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicPopover, TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { IconCopy, IconDelete, IconEdit, IconFilter, IconWithCount } from 'lib/lemon-ui/icons'
-import { SortableDragIcon } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
-import { useState } from 'react'
-import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
-import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
-import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
-import { entityFilterLogicType } from '../entityFilterLogicType'
-import { isAllEventsEntityFilter } from 'scenes/insights/utils'
-import { useSortable } from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
+import {
+    ActionFilter,
+    ActionFilter as ActionFilterType,
+    BaseMathType,
+    CountPerActorMathType,
+    EntityType,
+    EntityTypes,
+    FunnelExclusion,
+    HogQLMathType,
+    PropertyFilterValue,
+    PropertyMathType,
+} from '~/types'
+
 import { LocalFilter } from '../entityFilterLogic'
-import { DraggableSyntheticListeners } from '@dnd-kit/core'
+import { entityFilterLogicType } from '../entityFilterLogicType'
 
 const DragHandle = (props: DraggableSyntheticListeners | undefined): JSX.Element => (
     <span className="ActionFilterRowDragHandle" {...props}>
@@ -103,7 +106,6 @@ export interface ActionFilterRowProps {
         propertyFiltersButton,
         renameRowButton,
         deleteButton,
-        orLabel,
     }: Record<string, JSX.Element | string | undefined>) => JSX.Element // build your own row given these components
 }
 
@@ -204,8 +206,6 @@ export function ActionFilterRow({
         name = filter.name || String(filter.id)
         value = filter.name || filter.id
     }
-
-    const orLabel = <div className="stateful-badge or width-locked">OR</div>
 
     const seriesIndicator =
         seriesIndicatorType === 'numeric' ? (
@@ -321,6 +321,7 @@ export function ActionFilterRow({
             className={'ActionFilterRow'}
             ref={setNodeRef}
             {...attributes}
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
                 position: 'relative',
                 zIndex: isDragging ? 1 : undefined,
@@ -337,7 +338,6 @@ export function ActionFilterRow({
                         propertyFiltersButton: propertyFiltersButton,
                         renameRowButton,
                         deleteButton,
-                        orLabel,
                     })
                 ) : (
                     <>
@@ -458,7 +458,6 @@ export function ActionFilterRow({
                         pageKey={`${index}-${value}-${typeKey}-filter`}
                         propertyFilters={filter.properties}
                         onChange={(properties) => updateFilterProperty({ properties, index })}
-                        style={{ margin: 0 }}
                         showNestedArrow={showNestedArrow}
                         disablePopover={!propertyFiltersPopover}
                         taxonomicGroupTypes={propertiesTaxonomicGroupTypes}

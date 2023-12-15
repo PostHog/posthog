@@ -1,12 +1,10 @@
 import { captureException } from '@sentry/node'
-import { StatsD } from 'hot-shots'
 import { Histogram } from 'prom-client'
 import { format } from 'util'
 
 import { Action, Hook, PostIngestionEvent, Team } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
-import { isCloud } from '../../utils/env-utils'
-import { safeTrackedFetch, trackedFetch } from '../../utils/fetch'
+import { trackedFetch } from '../../utils/fetch'
 import { status } from '../../utils/status'
 import { getPropertyValueByPath, stringify } from '../../utils/utils'
 import { AppMetrics } from './app-metrics'
@@ -257,11 +255,7 @@ export class HookCommander {
     teamManager: TeamManager
     organizationManager: OrganizationManager
     appMetrics: AppMetrics
-    statsd: StatsD | undefined
     siteUrl: string
-    /** null means that the hostname guard is enabled for everyone */
-    fetchHostnameGuardTeams: Set<number> | null
-
     /** Hook request timeout in ms. */
     EXTERNAL_REQUEST_TIMEOUT: number
 
@@ -269,22 +263,18 @@ export class HookCommander {
         postgres: PostgresRouter,
         teamManager: TeamManager,
         organizationManager: OrganizationManager,
-        fetchHostnameGuardTeams: Set<number> | null = new Set(),
         appMetrics: AppMetrics,
-        statsd: StatsD | undefined,
         timeout: number
     ) {
         this.postgres = postgres
         this.teamManager = teamManager
         this.organizationManager = organizationManager
-        this.fetchHostnameGuardTeams = fetchHostnameGuardTeams
         if (process.env.SITE_URL) {
             this.siteUrl = process.env.SITE_URL
         } else {
             status.warn('⚠️', 'SITE_URL env is not set for webhooks')
             this.siteUrl = ''
         }
-        this.statsd = statsd
         this.appMetrics = appMetrics
         this.EXTERNAL_REQUEST_TIMEOUT = timeout
     }
@@ -325,10 +315,6 @@ export class HookCommander {
                     await Promise.all(restHookRequests).catch((error) =>
                         captureException(error, { tags: { team_id: event.teamId } })
                     )
-
-                    this.statsd?.increment('zapier_hooks_fired', {
-                        team_id: String(team.id),
-                    })
                 }
             })
         }
@@ -373,13 +359,9 @@ export class HookCommander {
                 } sec! url=${webhookUrl} team_id=${team.id} event_id=${event.eventUuid}`
             )
         }, slowWarningTimeout)
-        const relevantFetch =
-            isCloud() && (!this.fetchHostnameGuardTeams || this.fetchHostnameGuardTeams.has(team.id))
-                ? safeTrackedFetch
-                : trackedFetch
         try {
             await instrumentWebhookStep('fetch', async () => {
-                const request = await relevantFetch(webhookUrl, {
+                const request = await trackedFetch(webhookUrl, {
                     method: 'POST',
                     body: JSON.stringify(message, undefined, 4),
                     headers: { 'Content-Type': 'application/json' },
@@ -407,9 +389,6 @@ export class HookCommander {
                         successes: 1,
                     })
                 }
-            })
-            this.statsd?.increment('webhook_firings', {
-                team_id: event.teamId.toString(),
             })
         } catch (error) {
             await this.appMetrics.queueError(
@@ -455,12 +434,8 @@ export class HookCommander {
                 } team_id=${event.teamId} event_id=${event.eventUuid}`
             )
         }, slowWarningTimeout)
-        const relevantFetch =
-            isCloud() && (!this.fetchHostnameGuardTeams || this.fetchHostnameGuardTeams.has(hook.team_id))
-                ? safeTrackedFetch
-                : trackedFetch
         try {
-            const request = await relevantFetch(hook.target, {
+            const request = await trackedFetch(hook.target, {
                 method: 'POST',
                 body: JSON.stringify(payload, undefined, 4),
                 headers: { 'Content-Type': 'application/json' },
@@ -492,7 +467,6 @@ export class HookCommander {
                     successes: 1,
                 })
             }
-            this.statsd?.increment('rest_hook_firings')
         } catch (error) {
             await this.appMetrics.queueError(
                 {

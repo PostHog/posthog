@@ -1,17 +1,5 @@
-import { kea, props, key, path, connect, actions, reducers, selectors, listeners } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { TaxonomicPropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
-import {
-    AnyPropertyFilter,
-    CohortPropertyFilter,
-    HogQLPropertyFilter,
-    PropertyDefinitionType,
-    PropertyFilterType,
-    PropertyOperator,
-    PropertyType,
-} from '~/types'
-import type { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
-import { cohortsModel } from '~/models/cohortsModel'
-import { TaxonomicFilterGroup, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import {
     isGroupPropertyFilter,
     isPropertyFilterWithOperator,
@@ -21,7 +9,25 @@ import {
     taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import {
+    TaxonomicFilterGroup,
+    TaxonomicFilterLogicProps,
+    TaxonomicFilterValue,
+} from 'lib/components/TaxonomicFilter/types'
+
+import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import {
+    AnyPropertyFilter,
+    CohortPropertyFilter,
+    HogQLPropertyFilter,
+    PropertyDefinitionType,
+    PropertyFilterType,
+    PropertyOperator,
+    PropertyType,
+} from '~/types'
+
+import type { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
 
 export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType>([
     props({} as TaxonomicPropertyFilterLogicProps),
@@ -36,7 +42,8 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                 taxonomicGroupTypes: props.taxonomicGroupTypes,
                 onChange: props.taxonomicOnChange,
                 eventNames: props.eventNames,
-            }),
+                propertyAllowList: props.propertyAllowList,
+            } as TaxonomicFilterLogicProps),
             ['taxonomicGroups'],
             propertyDefinitionsModel,
             ['describeProperty'],
@@ -102,7 +109,12 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                         propertyFilterTypeToPropertyDefinitionType(
                             taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
                         ) ?? PropertyDefinitionType.Event
-                    const propertyValueType = values.describeProperty(propertyKey, apiType)
+
+                    const propertyValueType = values.describeProperty(
+                        propertyKey,
+                        apiType,
+                        taxonomicGroup.groupTypeIndex
+                    )
                     const property_name_to_default_operator_override = {
                         $active_feature_flags: PropertyOperator.IContains,
                     }

@@ -1,4 +1,4 @@
-import { buildIntegerMatcher } from '../../../src/config/config'
+import { buildIntegerMatcher, buildStringMatcher } from '../../../src/config/config'
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../../../src/config/kafka-topics'
 import {
     eachBatchParallelIngestion,
@@ -10,10 +10,12 @@ import {
     eachBatchWebhooksHandlers,
     groupIntoBatchesByUsage,
 } from '../../../src/main/ingestion-queues/batch-processing/each-batch-webhooks'
+import * as batchProcessingMetrics from '../../../src/main/ingestion-queues/batch-processing/metrics'
 import {
     ClickHouseTimestamp,
     ClickHouseTimestampSecondPrecision,
     ISOTimestamp,
+    PluginMethod,
     PostIngestionEvent,
     RawClickHouseEvent,
 } from '../../../src/types'
@@ -22,6 +24,7 @@ import { ActionMatcher } from '../../../src/worker/ingestion/action-matcher'
 import { HookCommander } from '../../../src/worker/ingestion/hooks'
 import { runOnEvent } from '../../../src/worker/plugins/run'
 import { pluginConfig39 } from '../../helpers/plugins'
+import { runEventPipeline } from './../../../src/worker/ingestion/event-pipeline/runner'
 
 jest.mock('../../../src/worker/plugins/run')
 
@@ -38,7 +41,6 @@ jest.mock('./../../../src/worker/ingestion/event-pipeline/runner', () => ({
     runEventPipeline: jest.fn().mockResolvedValue('default value'),
     // runEventPipeline: jest.fn().mockRejectedValue('default value'),
 }))
-import { runEventPipeline } from './../../../src/worker/ingestion/event-pipeline/runner'
 
 const event: PostIngestionEvent = {
     eventUuid: 'uuid1',
@@ -130,12 +132,6 @@ describe('eachBatchX', () => {
                 TASKS_PER_WORKER: 10,
                 INGESTION_CONCURRENCY: 4,
                 BUFFER_CONVERSION_SECONDS: 60,
-                statsd: {
-                    timing: jest.fn(),
-                    increment: jest.fn(),
-                    histogram: jest.fn(),
-                    gauge: jest.fn(),
-                },
                 kafkaProducer: {
                     queueMessage: jest.fn(),
                 },
@@ -157,24 +153,16 @@ describe('eachBatchX', () => {
                     distinct_id: 'my_id',
                 })
             )
-            expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
-                'kafka_queue.each_batch_async_handlers_on_event',
-                expect.any(Date)
-            )
         })
         it('skip runOnEvent when no pluginconfig for team', async () => {
             queue.pluginsServer.pluginConfigsPerTeam.clear()
             await eachBatchAppsOnEventHandlers(createKafkaJSBatch(clickhouseEvent), queue)
             expect(runOnEvent).not.toHaveBeenCalled()
-            expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
-                'kafka_queue.each_batch_async_handlers_on_event',
-                expect.any(Date)
-            )
         })
         it('parses elements when useful', async () => {
             queue.pluginsServer.pluginConfigsPerTeam.set(2, [
-                { ...pluginConfig39, plugin_id: 60 },
-                { ...pluginConfig39, plugin_id: 33 },
+                { ...pluginConfig39, plugin_id: 60, method: PluginMethod.onEvent },
+                { ...pluginConfig39, plugin_id: 33, method: PluginMethod.onEvent },
             ])
             queue.pluginsServer.pluginConfigsToSkipElementsParsing = buildIntegerMatcher('12,60,100', true)
             await eachBatchAppsOnEventHandlers(
@@ -193,8 +181,8 @@ describe('eachBatchX', () => {
         })
         it('skips elements parsing when not useful', async () => {
             queue.pluginsServer.pluginConfigsPerTeam.set(2, [
-                { ...pluginConfig39, plugin_id: 60 },
-                { ...pluginConfig39, plugin_id: 100 },
+                { ...pluginConfig39, plugin_id: 60, method: PluginMethod.onEvent },
+                { ...pluginConfig39, plugin_id: 100, method: PluginMethod.onEvent },
             ])
             queue.pluginsServer.pluginConfigsToSkipElementsParsing = buildIntegerMatcher('12,60,100', true)
             await eachBatchAppsOnEventHandlers(
@@ -223,19 +211,12 @@ describe('eachBatchX', () => {
                 queue.pluginsServer.organizationManager,
                 new Set(),
                 queue.pluginsServer.appMetrics,
-                undefined,
                 queue.pluginsServer.EXTERNAL_REQUEST_TIMEOUT_MS
             )
             const matchSpy = jest.spyOn(actionMatcher, 'match')
             // mock hasWebhooks to return true
             actionMatcher.hasWebhooks = jest.fn(() => true)
-            await eachBatchWebhooksHandlers(
-                createKafkaJSBatch(clickhouseEvent),
-                actionMatcher,
-                hookCannon,
-                queue.pluginsServer.statsd,
-                10
-            )
+            await eachBatchWebhooksHandlers(createKafkaJSBatch(clickhouseEvent), actionMatcher, hookCannon, 10)
 
             // NOTE: really it would be nice to verify that fire has been called
             // on hookCannon, but that would require a little more setup, and it
@@ -248,10 +229,6 @@ describe('eachBatchX', () => {
                     },
                 },
                 []
-            )
-            expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
-                'kafka_queue.each_batch_async_handlers_webhooks',
-                expect.any(Date)
             )
         })
 
@@ -407,7 +384,8 @@ describe('eachBatchX', () => {
         })
         it('calls runEventPipeline', async () => {
             const batch = createBatch(captureEndpointEvent)
-            await eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Disabled)
+            const tokenBlockList = buildStringMatcher('another_token,more_token', false)
+            await eachBatchParallelIngestion(tokenBlockList, batch, queue, IngestionOverflowMode.Disabled)
 
             expect(runEventPipeline).toHaveBeenCalledWith(expect.anything(), {
                 distinct_id: 'id',
@@ -420,16 +398,13 @@ describe('eachBatchX', () => {
                 team_id: 1,
                 uuid: 'uuid1',
             })
-            expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
-                'kafka_queue.each_batch_parallel_ingestion',
-                expect.any(Date)
-            )
         })
 
         it("doesn't fail the batch if runEventPipeline rejects once then succeeds on retry", async () => {
             const batch = createBatch(captureEndpointEvent)
             runEventPipelineSpy.mockImplementationOnce(() => Promise.reject('runEventPipeline nopes out'))
-            await eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Disabled)
+            const tokenBlockList = buildStringMatcher('another_token,more_token', false)
+            await eachBatchParallelIngestion(tokenBlockList, batch, queue, IngestionOverflowMode.Disabled)
             expect(runEventPipeline).toHaveBeenCalledTimes(2)
         })
 
@@ -440,48 +415,53 @@ describe('eachBatchX', () => {
                     promises: [Promise.resolve(), Promise.reject('deferred nopes out')],
                 })
             )
-            await expect(eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Disabled)).rejects.toBe(
-                'deferred nopes out'
-            )
+            const tokenBlockList = buildStringMatcher('another_token,more_token', false)
+            await expect(
+                eachBatchParallelIngestion(tokenBlockList, batch, queue, IngestionOverflowMode.Disabled)
+            ).rejects.toBe('deferred nopes out')
             expect(runEventPipeline).toHaveBeenCalledTimes(1)
         })
 
-        it('batches events by team or token and distinct_id', () => {
-            const batch = createBatchWithMultipleEvents([
-                { ...captureEndpointEvent, team_id: 3, distinct_id: 'a' },
-                { ...captureEndpointEvent, team_id: 3, distinct_id: 'a' },
-                { ...captureEndpointEvent, team_id: 3, distinct_id: 'b' },
-                { ...captureEndpointEvent, team_id: 4, distinct_id: 'a' },
-                { ...captureEndpointEvent, team_id: 4, distinct_id: 'a' },
-                { ...captureEndpointEvent, team_id: 4, distinct_id: 'b' },
-                { ...captureEndpointEvent, team_id: undefined, token: 'tok', distinct_id: 'a' },
-                { ...captureEndpointEvent, team_id: undefined, token: 'tok', distinct_id: 'a' },
-                { ...captureEndpointEvent, team_id: undefined, token: 'tok', distinct_id: 'b' },
-                { ...captureEndpointEvent, team_id: 3, distinct_id: 'c' },
-                { ...captureEndpointEvent, team_id: 3, distinct_id: 'b' },
-                { ...captureEndpointEvent, team_id: 3, distinct_id: 'a' },
-            ])
-            const stats = new Map()
-            for (const group of splitIngestionBatch(batch, IngestionOverflowMode.Disabled).toProcess) {
-                const key = `${group[0].pluginEvent.team_id}:${group[0].pluginEvent.token}:${group[0].pluginEvent.distinct_id}`
-                for (const { pluginEvent: event } of group) {
-                    expect(`${event.team_id}:${event.token}:${event.distinct_id}`).toEqual(key)
-                }
-                stats.set(key, group.length)
-            }
-            expect(stats.size).toEqual(7)
-            expect(stats).toEqual(
-                new Map([
-                    ['3:undefined:a', 3],
-                    ['3:undefined:b', 2],
-                    ['3:undefined:c', 1],
-                    ['4:undefined:a', 2],
-                    ['4:undefined:b', 1],
-                    ['undefined:tok:a', 2],
-                    ['undefined:tok:b', 1],
+        it.each([IngestionOverflowMode.ConsumeSplitByDistinctId, IngestionOverflowMode.Disabled])(
+            'batches events by team or token and distinct_id %s',
+            (mode) => {
+                const batch = createBatchWithMultipleEvents([
+                    { ...captureEndpointEvent, team_id: 3, distinct_id: 'a' },
+                    { ...captureEndpointEvent, team_id: 3, distinct_id: 'a' },
+                    { ...captureEndpointEvent, team_id: 3, distinct_id: 'b' },
+                    { ...captureEndpointEvent, team_id: 4, distinct_id: 'a' },
+                    { ...captureEndpointEvent, team_id: 4, distinct_id: 'a' },
+                    { ...captureEndpointEvent, team_id: 4, distinct_id: 'b' },
+                    { ...captureEndpointEvent, team_id: undefined, token: 'tok', distinct_id: 'a' },
+                    { ...captureEndpointEvent, team_id: undefined, token: 'tok', distinct_id: 'a' },
+                    { ...captureEndpointEvent, team_id: undefined, token: 'tok', distinct_id: 'b' },
+                    { ...captureEndpointEvent, team_id: 3, distinct_id: 'c' },
+                    { ...captureEndpointEvent, team_id: 3, distinct_id: 'b' },
+                    { ...captureEndpointEvent, team_id: 3, distinct_id: 'a' },
                 ])
-            )
-        })
+                const stats = new Map()
+                const tokenBlockList = buildStringMatcher('another_token,more_token', false)
+                for (const group of splitIngestionBatch(tokenBlockList, batch, mode).toProcess) {
+                    const key = `${group[0].pluginEvent.team_id}:${group[0].pluginEvent.token}:${group[0].pluginEvent.distinct_id}`
+                    for (const { pluginEvent: event } of group) {
+                        expect(`${event.team_id}:${event.token}:${event.distinct_id}`).toEqual(key)
+                    }
+                    stats.set(key, group.length)
+                }
+                expect(stats.size).toEqual(7)
+                expect(stats).toEqual(
+                    new Map([
+                        ['3:undefined:a', 3],
+                        ['3:undefined:b', 2],
+                        ['3:undefined:c', 1],
+                        ['4:undefined:a', 2],
+                        ['4:undefined:b', 1],
+                        ['undefined:tok:a', 2],
+                        ['undefined:tok:b', 1],
+                    ])
+                )
+            }
+        )
 
         it('does not batch events when consuming overflow', () => {
             const input = createBatchWithMultipleEvents([
@@ -491,7 +471,12 @@ describe('eachBatchX', () => {
                 { ...captureEndpointEvent, team_id: 4, distinct_id: 'a' },
                 { ...captureEndpointEvent, team_id: 4, distinct_id: 'a' },
             ])
-            const batches = splitIngestionBatch(input, IngestionOverflowMode.Consume).toProcess
+            const tokenBlockList = buildStringMatcher('another_token,more_token', false)
+            const batches = splitIngestionBatch(
+                tokenBlockList,
+                input,
+                IngestionOverflowMode.ConsumeSplitEvenly
+            ).toProcess
             expect(batches.length).toEqual(input.length)
             for (const group of batches) {
                 expect(group.length).toEqual(1)
@@ -499,6 +484,14 @@ describe('eachBatchX', () => {
         })
 
         it('batches events but commits offsets only once', async () => {
+            const ingestEventBatchingInputLengthSummarySpy = jest.spyOn(
+                batchProcessingMetrics.ingestEventBatchingInputLengthSummary,
+                'observe'
+            )
+            const ingestEventBatchingBatchCountSummarySpy = jest.spyOn(
+                batchProcessingMetrics.ingestEventBatchingBatchCountSummary,
+                'observe'
+            )
             const batch = createBatchWithMultipleEvents([
                 { ...captureEndpointEvent, offset: 1, team_id: 3 },
                 { ...captureEndpointEvent, offset: 2, team_id: 3 }, // repeat
@@ -515,30 +508,23 @@ describe('eachBatchX', () => {
                 { ...captureEndpointEvent, offset: 13, team_id: 3 }, // repeat
                 { ...captureEndpointEvent, offset: 14, team_id: 5 }, // repeat
             ])
-
-            await eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Disabled)
+            const tokenBlockList = buildStringMatcher('another_token,more_token', false)
+            await eachBatchParallelIngestion(tokenBlockList, batch, queue, IngestionOverflowMode.Disabled)
             expect(runEventPipeline).toHaveBeenCalledTimes(14)
-            expect(queue.pluginsServer.statsd.histogram).toHaveBeenCalledWith(
-                'ingest_event_batching.input_length',
-                14,
-                {
-                    key: 'ingestion',
-                }
-            )
-            expect(queue.pluginsServer.statsd.histogram).toHaveBeenCalledWith('ingest_event_batching.batch_count', 5, {
-                key: 'ingestion',
-            })
+            expect(ingestEventBatchingInputLengthSummarySpy).toHaveBeenCalledWith(14)
+            expect(ingestEventBatchingBatchCountSummarySpy).toHaveBeenCalledWith(5)
         })
 
         it('fails the batch if runEventPipeline rejects repeatedly', async () => {
+            const tokenBlockList = buildStringMatcher('another_token,more_token', false)
             const batch = createBatch(captureEndpointEvent)
             runEventPipelineSpy
                 .mockImplementationOnce(() => Promise.reject('runEventPipeline nopes out'))
                 .mockImplementationOnce(() => Promise.reject('runEventPipeline nopes out'))
                 .mockImplementationOnce(() => Promise.reject('runEventPipeline nopes out'))
-            await expect(eachBatchParallelIngestion(batch, queue, IngestionOverflowMode.Disabled)).rejects.toBe(
-                'runEventPipeline nopes out'
-            )
+            await expect(
+                eachBatchParallelIngestion(tokenBlockList, batch, queue, IngestionOverflowMode.Disabled)
+            ).rejects.toBe('runEventPipeline nopes out')
             expect(runEventPipeline).toHaveBeenCalledTimes(3)
             runEventPipelineSpy.mockRestore()
         })

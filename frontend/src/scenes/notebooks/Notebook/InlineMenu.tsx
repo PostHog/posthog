@@ -4,6 +4,7 @@ import { BubbleMenu } from '@tiptap/react'
 import { IconBold, IconDelete, IconItalic, IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { isURL } from 'lib/utils'
 import { useRef } from 'react'
+
 import NotebookIconHeading from './NotebookIconHeading'
 
 export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
@@ -35,7 +36,7 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
         >
             <div
                 ref={menuRef}
-                className="NotebookInlineMenu flex bg-white rounded border items-center text-muted-alt p-1 space-x-0.5"
+                className="NotebookInlineMenu flex bg-bg-light rounded border items-center text-muted-alt p-1 space-x-0.5"
             >
                 {editor.isActive('link') ? (
                     <>

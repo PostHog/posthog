@@ -16,7 +16,7 @@ export function reportNotebookNodeCreation(nodeType: string): void {
 }
 
 export function posthogNodePasteRule(options: {
-    find: string
+    find: string | RegExp
     type: NodeType
     editor: TTEditor
     getAttributes: (
@@ -24,11 +24,12 @@ export function posthogNodePasteRule(options: {
     ) => Promise<Record<string, any> | null | undefined> | Record<string, any> | null | undefined
 }): PasteRule {
     return new PasteRule({
-        find: createUrlRegex(options.find),
+        find: typeof options.find === 'string' ? createUrlRegex(options.find) : options.find,
         handler: ({ match, chain, range }) => {
             if (match.input) {
                 chain().deleteRange(range).run()
-                Promise.resolve(options.getAttributes(match)).then((attributes) => {
+
+                void Promise.resolve(options.getAttributes(match)).then((attributes) => {
                     if (attributes) {
                         options.editor.commands.insertContent({
                             type: options.type.name,
@@ -64,32 +65,6 @@ export function linkPasteRule(): PasteRule {
                     .run()
             }
         },
-    })
-}
-
-export function selectFile(options: { contentType: string; multiple: boolean }): Promise<File[]> {
-    return new Promise((resolve, reject) => {
-        const input = document.createElement('input')
-        input.type = 'file'
-        input.multiple = options.multiple
-        input.accept = options.contentType
-
-        input.onchange = () => {
-            if (!input.files) {
-                return resolve([])
-            }
-            const files = Array.from(input.files)
-            resolve(files)
-        }
-
-        input.oncancel = () => {
-            resolve([])
-        }
-        input.onerror = () => {
-            reject(new Error('Error selecting file'))
-        }
-
-        input.click()
     })
 }
 

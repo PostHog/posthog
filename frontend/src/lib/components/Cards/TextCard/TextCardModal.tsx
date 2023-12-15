@@ -1,12 +1,13 @@
-import { AvailableFeature, DashboardType } from '~/types'
-import { textCardModalLogic } from 'lib/components/Cards/TextCard/textCardModalLogic'
 import { useActions, useValues } from 'kea'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Field, Form } from 'kea-forms'
-import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import { textCardModalLogic } from 'lib/components/Cards/TextCard/textCardModalLogic'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { userLogic } from 'scenes/userLogic'
+
+import { AvailableFeature, DashboardType } from '~/types'
 
 export function TextCardModal({
     isOpen,

@@ -1,39 +1,31 @@
 import { useActions, useValues } from 'kea'
-import { Group, PropertyDefinitionType } from '~/types'
-import { groupsListLogic } from './groupsListLogic'
-import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { PersonPageHeader } from 'scenes/persons/PersonPageHeader'
-import { LemonTableColumns } from 'lib/lemon-ui/LemonTable/types'
-import { TZLabel } from 'lib/components/TZLabel'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
-import { SceneExport } from 'scenes/sceneTypes'
-import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
-import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
-import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { PropertiesTable } from 'lib/components/PropertiesTable'
+import { TZLabel } from 'lib/components/TZLabel'
+import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable/types'
+import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
+import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
+import { urls } from 'scenes/urls'
 
-export const scene: SceneExport = {
-    component: Groups,
-    logic: groupsListLogic,
-    paramsToProps: ({ params: { groupTypeIndex } }) => ({
-        groupTypeIndex: parseInt(groupTypeIndex),
-    }),
-}
+import { Group, PropertyDefinitionType } from '~/types'
 
-export function Groups({ groupTypeIndex }: { groupTypeIndex?: string } = {}): JSX.Element {
+import { groupsListLogic } from './groupsListLogic'
+
+export function Groups({ groupTypeIndex }: { groupTypeIndex: number }): JSX.Element {
     const {
         groupTypeName: { singular, plural },
         groups,
         groupsLoading,
         search,
-    } = useValues(groupsListLogic)
-    const { loadGroups, setSearch } = useActions(groupsListLogic)
+    } = useValues(groupsListLogic({ groupTypeIndex }))
+    const { loadGroups, setSearch } = useActions(groupsListLogic({ groupTypeIndex }))
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
     if (groupTypeIndex === undefined) {
@@ -47,7 +39,6 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex?: string } = {}): JS
     ) {
         return (
             <>
-                <PersonPageHeader activeGroupTypeIndex={parseInt(groupTypeIndex)} />
                 <GroupsIntroduction access={groupsAccessStatus} />
             </>
         )
@@ -76,7 +67,6 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex?: string } = {}): JS
 
     return (
         <>
-            <PersonPageHeader activeGroupTypeIndex={parseInt(groupTypeIndex)} />
             <LemonInput
                 type="search"
                 placeholder={`Search for ${plural}`}
@@ -118,13 +108,9 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex?: string } = {}): JS
                         <LemonBanner type="info">
                             No {plural} found. Make sure to send properties with your {singular} for them to show up in
                             the list.{' '}
-                            <a
-                                href="https://posthog.com/docs/user-guides/group-analytics"
-                                rel="noopener"
-                                target="_blank"
-                            >
+                            <Link to="https://posthog.com/docs/user-guides/group-analytics" target="_blank">
                                 Read more here.
-                            </a>
+                            </Link>
                         </LemonBanner>
                         <CodeSnippet language={Language.JavaScript} wrap>
                             {`posthog.group('${singular}', 'id:5', {\n` +

@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react'
+
 import { useResizeObserver } from './useResizeObserver'
 
 /** Determine whether an element is horizontally scrollable, on the left and on the right respectively. */

@@ -11,7 +11,7 @@ describe('Toolbar', () => {
                 .then((href) => {
                     cy.visit(href)
                 })
-            cy.get('#__POSTHOG_TOOLBAR__').shadow().find('.floating-toolbar-button').should('exist')
+            cy.get('#__POSTHOG_TOOLBAR__').shadow().find('.Toolbar').should('exist')
         })
     })
 

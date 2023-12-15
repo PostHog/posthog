@@ -96,7 +96,11 @@ class ActorBaseQuery:
 
     def get_actors(
         self,
-    ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]], int,]:
+    ) -> Tuple[
+        Union[QuerySet[Person], QuerySet[Group]],
+        Union[List[SerializedGroup], List[SerializedPerson]],
+        int,
+    ]:
         """Get actors in data model and dict formats. Builds query and executes"""
         self._filter.team = self._team
         query, params = self.actor_query()
@@ -217,7 +221,10 @@ class ActorBaseQuery:
 
     def get_actors_from_result(
         self, raw_result
-    ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]],]:
+    ) -> Tuple[
+        Union[QuerySet[Person], QuerySet[Group]],
+        Union[List[SerializedGroup], List[SerializedPerson]],
+    ]:
         actors: Union[QuerySet[Person], QuerySet[Group]]
         serialized_actors: Union[List[SerializedGroup], List[SerializedPerson]]
 

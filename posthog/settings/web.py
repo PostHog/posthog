@@ -6,7 +6,6 @@ from typing import List
 from corsheaders.defaults import default_headers
 
 from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
-from posthog.settings.statsd import STATSD_HOST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 
@@ -106,11 +105,6 @@ MIDDLEWARE = [
     "posthog.middleware.PrometheusAfterMiddlewareWithTeamIds",
     "posthog.middleware.PostHogTokenCookieMiddleware",
 ]
-
-
-if STATSD_HOST is not None:
-    MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")
-    MIDDLEWARE.append("django_statsd.middleware.StatsdMiddlewareTimer")
 
 if DEBUG:
     # Used on local devenv to reverse-proxy all of /i/* to capture-rs on port 3000

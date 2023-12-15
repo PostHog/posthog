@@ -1,7 +1,9 @@
 import { v4 as uuid4 } from 'uuid'
 
 import { ONE_HOUR } from '../src/config/constants'
+import { PluginLogEntryType } from '../src/types'
 import { UUIDT } from '../src/utils/utils'
+import { getCacheKey } from '../src/worker/vm/extensions/cache'
 import {
     capture,
     createAndReloadPluginConfig,
@@ -10,10 +12,14 @@ import {
     createPluginAttachment,
     createPluginConfig,
     createTeam,
+    enablePluginConfig,
     fetchEvents,
+    fetchPluginAppMetrics,
     fetchPluginConsoleLogEntries,
+    fetchPluginLogEntries,
     fetchPostgresPersons,
     getPluginConfig,
+    redis,
     reloadPlugins,
     updatePluginConfig,
     waitForPluginToLoad,
@@ -87,127 +93,119 @@ test.concurrent(`plugin method tests: event captured, processed, ingested`, asyn
     })
 })
 
-test.concurrent(`plugin method tests: creates error on unhandled throw`, async () => {
-    const plugin = await createPlugin({
-        organization_id: organizationId,
-        name: 'test plugin',
-        plugin_type: 'source',
-        is_global: false,
-        source__index_ts: `
+test.concurrent(
+    `plugin method tests: records error in app metrics and creates log entry on unhandled throw`,
+    async () => {
+        const plugin = await createPlugin({
+            organization_id: organizationId,
+            name: 'test plugin',
+            plugin_type: 'source',
+            is_global: false,
+            source__index_ts: `
             export async function processEvent(event) {
                 throw new Error('error thrown in plugin')
             }
         `,
-    })
-    const teamId = await createTeam(organizationId)
-    const pluginConfig = await createAndReloadPluginConfig(teamId, plugin.id)
+        })
+        const teamId = await createTeam(organizationId)
+        const pluginConfig = await createAndReloadPluginConfig(teamId, plugin.id)
 
-    const distinctId = new UUIDT().toString()
-    const uuid = new UUIDT().toString()
+        const distinctId = new UUIDT().toString()
+        const uuid = new UUIDT().toString()
 
-    const event = {
-        event: 'custom event',
-        properties: { name: 'haha' },
+        const event = {
+            event: 'custom event',
+            properties: { name: 'haha', other: '\u0000' },
+        }
+
+        await capture({ teamId, distinctId, uuid, event: event.event, properties: event.properties })
+
+        await waitForExpect(async () => {
+            const events = await fetchEvents(teamId)
+            expect(events.length).toBe(1)
+            return events
+        })
+
+        const appMetric = await waitForExpect(async () => {
+            const errorMetrics = await fetchPluginAppMetrics(pluginConfig.id)
+            expect(errorMetrics.length).toEqual(1)
+            return errorMetrics[0]
+        })
+
+        expect(appMetric.successes).toEqual(0)
+        expect(appMetric.failures).toEqual(1)
+        expect(appMetric.error_type).toEqual('Error')
+        expect(JSON.parse(appMetric.error_details!)).toMatchObject({
+            error: { message: 'error thrown in plugin' },
+            event: { properties: event.properties },
+        })
+
+        const errorLogEntry = await waitForExpect(async () => {
+            const errorLogEntries = (await fetchPluginLogEntries(pluginConfig.id)).filter(
+                (entry) => entry.type == PluginLogEntryType.Error
+            )
+            expect(errorLogEntries.length).toBe(1)
+            return errorLogEntries[0]
+        })
+
+        expect(errorLogEntry.message).toContain('error thrown in plugin')
     }
+)
 
-    await capture({ teamId, distinctId, uuid, event: event.event, properties: event.properties })
-
-    await waitForExpect(async () => {
-        const events = await fetchEvents(teamId)
-        expect(events.length).toBe(1)
-        return events
-    })
-
-    const error = await waitForExpect(async () => {
-        const pluginConfigAgain = await getPluginConfig(teamId, pluginConfig.id)
-        expect(pluginConfigAgain.error).not.toBeNull()
-        return pluginConfigAgain.error
-    })
-
-    expect(error.message).toEqual('error thrown in plugin')
-})
-
-test.concurrent(`plugin method tests: creates error on unhandled rejection`, async () => {
-    const plugin = await createPlugin({
-        organization_id: organizationId,
-        name: 'test plugin',
-        plugin_type: 'source',
-        is_global: false,
-        source__index_ts: `
+test.concurrent(
+    `plugin method tests: records success in app metrics and creates error log entry on unawaited promise rejection`,
+    async () => {
+        const plugin = await createPlugin({
+            organization_id: organizationId,
+            name: 'test plugin',
+            plugin_type: 'source',
+            is_global: false,
+            source__index_ts: `
             export async function processEvent(event) {
-                void new Promise((_, rejects) => { rejects(new Error('error thrown in plugin')) }).then(() => {})
+                void new Promise(() => { throw new Error('error thrown in plugin') })
                 return event
             }
         `,
-    })
-    const teamId = await createTeam(organizationId)
-    const pluginConfig = await createAndReloadPluginConfig(teamId, plugin.id)
+        })
+        const teamId = await createTeam(organizationId)
+        const pluginConfig = await createAndReloadPluginConfig(teamId, plugin.id)
 
-    const distinctId = new UUIDT().toString()
-    const uuid = new UUIDT().toString()
+        const distinctId = new UUIDT().toString()
+        const uuid = new UUIDT().toString()
 
-    const event = {
-        event: 'custom event',
-        properties: { name: 'haha' },
+        const event = {
+            event: 'custom event',
+            properties: { name: 'haha' },
+        }
+
+        await capture({ teamId, distinctId, uuid, event: event.event, properties: event.properties })
+
+        await waitForExpect(async () => {
+            const events = await fetchEvents(teamId)
+            expect(events.length).toBe(1)
+            return events
+        })
+
+        const appMetric = await waitForExpect(async () => {
+            const appMetrics = await fetchPluginAppMetrics(pluginConfig.id)
+            expect(appMetrics.length).toEqual(1)
+            return appMetrics[0]
+        })
+
+        expect(appMetric.successes).toEqual(1)
+        expect(appMetric.failures).toEqual(0)
+
+        const errorLogEntry = await waitForExpect(async () => {
+            const errorLogEntries = (await fetchPluginLogEntries(pluginConfig.id)).filter(
+                (entry) => entry.type == PluginLogEntryType.Error
+            )
+            expect(errorLogEntries.length).toBe(1)
+            return errorLogEntries[0]
+        })
+
+        expect(errorLogEntry.message).toContain('error thrown in plugin')
     }
-
-    await capture({ teamId, distinctId, uuid, event: event.event, properties: event.properties })
-
-    await waitForExpect(async () => {
-        const events = await fetchEvents(teamId)
-        expect(events.length).toBe(1)
-        return events
-    })
-
-    const error = await waitForExpect(async () => {
-        const pluginConfigAgain = await getPluginConfig(teamId, pluginConfig.id)
-        expect(pluginConfigAgain.error).not.toBeNull()
-        return pluginConfigAgain.error
-    })
-
-    expect(error.message).toEqual('error thrown in plugin')
-})
-
-test.concurrent(`plugin method tests: creates error on unhandled promise errors`, async () => {
-    const plugin = await createPlugin({
-        organization_id: organizationId,
-        name: 'test plugin',
-        plugin_type: 'source',
-        is_global: false,
-        source__index_ts: `
-            export async function processEvent(event) {
-                void new Promise(() => { throw new Error('error thrown in plugin') }).then(() => {})
-                return event
-            }
-        `,
-    })
-    const teamId = await createTeam(organizationId)
-    const pluginConfig = await createAndReloadPluginConfig(teamId, plugin.id)
-
-    const distinctId = new UUIDT().toString()
-    const uuid = new UUIDT().toString()
-
-    const event = {
-        event: 'custom event',
-        properties: { name: 'haha' },
-    }
-
-    await capture({ teamId, distinctId, uuid, event: event.event, properties: event.properties })
-
-    await waitForExpect(async () => {
-        const events = await fetchEvents(teamId)
-        expect(events.length).toBe(1)
-        return events
-    })
-
-    const error = await waitForExpect(async () => {
-        const pluginConfigAgain = await getPluginConfig(teamId, pluginConfig.id)
-        expect(pluginConfigAgain.error).not.toBeNull()
-        return pluginConfigAgain.error
-    })
-
-    expect(error.message).toEqual('error thrown in plugin')
-})
+)
 
 test.concurrent(`plugin method tests: teardown is called on stateful plugin reload if they are updated`, async () => {
     const plugin = await createPlugin({
@@ -223,7 +221,7 @@ test.concurrent(`plugin method tests: teardown is called on stateful plugin relo
             }
 
             async function teardownPlugin(meta) {
-                console.log({ method: "teardownPlugin" })
+                await meta.cache.lpush("teardown", "x")
             }
         `,
     })
@@ -253,10 +251,8 @@ test.concurrent(`plugin method tests: teardown is called on stateful plugin relo
     await updatePluginConfig(teamId, pluginConfig.id, { updated_at: new Date().toISOString() })
     await reloadPlugins()
 
-    await waitForExpect(async () => {
-        const logs = await fetchPluginConsoleLogEntries(pluginConfig.id)
-        expect(logs.filter((log) => log.message.method === 'teardownPlugin')).toHaveLength(1)
-    })
+    const signalKey = getCacheKey(plugin.id, teamId, 'teardown')
+    expect(await redis.blpop(signalKey, 10)).toEqual([signalKey, 'x'])
 })
 
 test.concurrent(`plugin method tests: can update distinct_id via processEvent`, async () => {
@@ -382,23 +378,31 @@ test.concurrent(
             properties: properties,
         }
 
-        await capture({ teamId, distinctId, uuid, event: event.event, properties: event.properties })
-
         await waitForExpect(async () => {
+            // We might have not completed the setup properly in time, so to avoid flaky tests, we'll
+            // try sending messages and checking the last log message until we get the expected result.
+            await capture({ teamId, distinctId, uuid, event: event.event, properties: event.properties })
             const logEntries = await fetchPluginConsoleLogEntries(pluginConfig.id)
             const onEvent = logEntries.filter(({ message: [method] }) => method === 'onEvent')
-            expect(onEvent.length).toBeGreaterThan(0)
-
-            const onEventEvent = onEvent[0].message[1]
-            expect(onEventEvent.elements).toEqual([
+            const lastLogEntry = onEvent.length > 0 ? onEvent[onEvent.length - 1] : null
+            expect(lastLogEntry).toEqual(
                 expect.objectContaining({
-                    attributes: {},
-                    nth_child: 1,
-                    nth_of_type: 2,
-                    tag_name: 'div',
-                    text: '💻',
-                }),
-            ])
+                    message: [
+                        'onEvent',
+                        expect.objectContaining({
+                            elements: [
+                                expect.objectContaining({
+                                    attributes: {},
+                                    nth_child: 1,
+                                    nth_of_type: 2,
+                                    tag_name: 'div',
+                                    text: '💻',
+                                }),
+                            ],
+                        }),
+                    ],
+                })
+            )
         })
     },
     20000
@@ -567,7 +571,9 @@ test.concurrent('plugins can use attachements', async () => {
         source__index_ts: indexJs,
     })
 
-    const pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: plugin.id, config: {} })
+    // Create the pluginconfig disabled to avoid it being loaded by a concurrent test
+    // before the attachment is available.
+    const pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: plugin.id, config: {} }, false)
     await createPluginAttachment({
         teamId,
         pluginConfigId: pluginConfig.id,
@@ -577,6 +583,7 @@ test.concurrent('plugins can use attachements', async () => {
         key: 'testAttachment',
         contents: 'test',
     })
+    await enablePluginConfig(teamId, plugin.id)
 
     await reloadPlugins()
 

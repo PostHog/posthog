@@ -7,25 +7,34 @@
         color: var(--default);
         background: var(--secondary-3000);
         border-color: transparent;
+
         .ant-picker-suffix {
             color: var(--default);
         }
     }
+
     .ant-picker-panel-container {
         color: var(--default);
         background: var(--bg-3000);
         border: 1px solid var(--border);
+
         * {
             border-color: var(--border);
         }
     }
+
     .ant-picker-time-panel-column > li.ant-picker-time-panel-cell-selected .ant-picker-time-panel-cell-inner {
         background: var(--primary-3000);
     }
+
     .ant-picker-cell:hover:not(.ant-picker-cell-in-view) .ant-picker-cell-inner,
-    .ant-picker-cell:hover:not(.ant-picker-cell-selected):not(.ant-picker-cell-range-start):not(
-            .ant-picker-cell-range-end
-        ):not(.ant-picker-cell-range-hover-start):not(.ant-picker-cell-range-hover-end)
+    .ant-picker-cell:hover:not(
+            .ant-picker-cell-selected,
+            .ant-picker-cell-range-start,
+            .ant-picker-cell-range-end,
+            .ant-picker-cell-range-hover-start,
+            .ant-picker-cell-range-hover-end
+        )
         .ant-picker-cell-inner,
     .ant-picker-time-panel-column > li.ant-picker-time-panel-cell .ant-picker-time-panel-cell-inner:hover {
         background: var(--secondary-3000);

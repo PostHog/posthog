@@ -1,13 +1,24 @@
 import { LemonButton, LemonModal, LemonModalProps, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { Field } from 'lib/forms/Field'
 import { DatePicker } from 'lib/components/DatePicker'
-import { annotationScopeToName, annotationModalLogic, ANNOTATION_DAYJS_FORMAT } from './annotationModalLogic'
-import { AnnotationScope } from '~/types'
+import { Field } from 'lib/forms/Field'
 import { IconWarning } from 'lib/lemon-ui/icons'
 import { shortTimeZone } from 'lib/utils'
 import { urls } from 'scenes/urls'
+
+import { AnnotationScope } from '~/types'
+
+import { ANNOTATION_DAYJS_FORMAT, annotationModalLogic, annotationScopeToName } from './annotationModalLogic'
+
+export function NewAnnotationButton(): JSX.Element {
+    const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
+    return (
+        <LemonButton type="primary" data-attr="create-annotation" onClick={() => openModalToCreateAnnotation()}>
+            New annotation
+        </LemonButton>
+    )
+}
 
 export function AnnotationModal({
     overlayRef,
@@ -75,7 +86,7 @@ export function AnnotationModal({
                         label={
                             <span>
                                 Date and time (
-                                <Link to={urls.projectSettings('timezone')} target="_blank">
+                                <Link to={urls.settings('project', 'date-and-time')} target="_blank">
                                     {shortTimeZone(timezone)}
                                 </Link>
                                 )

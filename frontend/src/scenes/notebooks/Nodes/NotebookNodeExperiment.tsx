@@ -2,7 +2,7 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeType } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
 import { IconFlag, IconExperiment } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
@@ -25,8 +25,8 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
         experimentLogic({ experimentId: id })
     )
     const { loadExperiment } = useActions(experimentLogic({ experimentId: id }))
-    const { expanded, nextNode } = useValues(notebookNodeLogic)
-    const { insertAfter } = useActions(notebookNodeLogic)
+    const { expanded } = useValues(notebookNodeLogic)
+    const { insertAfter, setActions } = useActions(notebookNodeLogic)
 
     // experiment progress details
     const logic = insightLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID })
@@ -40,6 +40,14 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
     const entrants = results?.[0]?.count
 
     useEffect(() => {
+        setActions([
+            {
+                text: 'View feature flag',
+                icon: <IconFlag />,
+                onClick: () => insertAfter(buildFlagContent(experiment.feature_flag?.id || 'new')),
+            },
+        ])
+
         loadExperiment()
     }, [id])
 
@@ -57,7 +65,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
                     ) : (
                         <>
                             <span className="flex-1 font-semibold truncate">{experiment.name}</span>
-                            <StatusTag />
+                            <StatusTag experiment={experiment} />
                             <ResultsTag />
                         </>
                     )}
@@ -99,25 +107,6 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
                         )}
                     </>
                 ) : null}
-
-                <LemonDivider className="my-0" />
-                <div className="p-2 mr-1 flex justify-end gap-2">
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconFlag />}
-                        onClick={() => {
-                            if (nextNode?.type.name !== NotebookNodeType.FeatureFlag) {
-                                insertAfter(buildFlagContent(experiment.feature_flag?.id || 'new'))
-                            }
-                        }}
-                        disabledReason={
-                            nextNode?.type.name === NotebookNodeType.FeatureFlag && 'Feature flag already exists below'
-                        }
-                    >
-                        View Feature Flag
-                    </LemonButton>
-                </div>
             </BindLogic>
         </div>
     )

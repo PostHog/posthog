@@ -60,7 +60,9 @@ jobs:
                         # NOTE: we are at risk of missing a dependency here. We could make
                         # the dependencies more clear if we separated the backend/frontend
                         # code completely
+                        # really we should ignore ee/frontend/** but dorny doesn't support that
                         - 'ee/**/*'
+                        - '!ee/frontend/**'
                         - 'posthog/**/*'
                         - 'bin/*.py'
                         - requirements.txt
@@ -68,6 +70,7 @@ jobs:
                         - mypy.ini
                         - pytest.ini
                         - frontend/src/queries/schema.json # Used for generating schema.py
+                        - plugin-transpiler/src # Used for transpiling plugins
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-backend.yml
                         - .github/actions/run-backend-tests/action.yml
@@ -108,7 +111,7 @@ jobs:
             - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
               with:
-                  custom_cache_key_element: v1-
+                  custom_cache_key_element: v2-
 
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'
@@ -125,11 +128,11 @@ jobs:
 
             - name: Check for syntax errors, import sort, and code style violations
               run: |
-                  ruff .
+                  ruff check .
 
             - name: Check formatting
               run: |
-                  black --exclude posthog/hogql/grammar --check --diff .
+                  ruff format --exclude posthog/hogql/grammar --check --diff .
 
             - name: Check static typing
               run: |
@@ -330,7 +333,7 @@ jobs:
             - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
               with:
-                  custom_cache_key_element: v1-
+                  custom_cache_key_element: v2-
 
             - uses: syphar/restore-pip-download-cache@v1
               if: steps.cache-backend-tests.outputs.cache-hit != 'true'

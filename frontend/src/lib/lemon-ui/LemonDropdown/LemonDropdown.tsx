@@ -1,4 +1,5 @@
 import React, { MouseEventHandler, useContext, useEffect, useRef, useState } from 'react'
+
 import { Popover, PopoverOverlayContext, PopoverProps } from '../Popover'
 
 export interface LemonDropdownProps extends Omit<PopoverProps, 'children' | 'visible'> {
@@ -38,7 +39,7 @@ export const LemonDropdown: React.FunctionComponent<LemonDropdownProps & React.R
             ref
         ) => {
             const [, parentPopoverLevel] = useContext(PopoverOverlayContext)
-            const [localVisible, setLocalVisible] = useState(false)
+            const [localVisible, setLocalVisible] = useState(visible ?? false)
 
             const floatingRef = useRef<HTMLDivElement>(null)
             const referenceRef = useRef<HTMLSpanElement>(null)
@@ -46,8 +47,8 @@ export const LemonDropdown: React.FunctionComponent<LemonDropdownProps & React.R
             const effectiveVisible = visible ?? localVisible
 
             useEffect(() => {
-                onVisibilityChange?.(effectiveVisible)
-            }, [effectiveVisible, onVisibilityChange])
+                onVisibilityChange?.(localVisible)
+            }, [localVisible, onVisibilityChange])
 
             return (
                 <Popover

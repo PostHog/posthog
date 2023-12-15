@@ -610,6 +610,42 @@ class TestFiltering(ClickhouseTestMixin, property_to_Q_test_factory(_filter_pers
         events = _filter_events(filter, self.team)
         self.assertEqual(events[0]["id"], event1_uuid)
 
+    def test_numerical_person_properties(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"$a_number": 4})
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"$a_number": 5})
+        _create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"$a_number": 6})
+
+        filter = Filter(
+            data={
+                "properties": [
+                    {
+                        "type": "person",
+                        "key": "$a_number",
+                        "value": 4,
+                        "operator": "gt",
+                    }
+                ]
+            }
+        )
+        self.assertEqual(len(_filter_persons(filter, self.team)), 2)
+
+        filter = Filter(data={"properties": [{"type": "person", "key": "$a_number", "value": 5}]})
+        self.assertEqual(len(_filter_persons(filter, self.team)), 1)
+
+        filter = Filter(
+            data={
+                "properties": [
+                    {
+                        "type": "person",
+                        "key": "$a_number",
+                        "value": 6,
+                        "operator": "lt",
+                    }
+                ]
+            }
+        )
+        self.assertEqual(len(_filter_persons(filter, self.team)), 2)
+
     def test_contains(self):
         _create_event(team=self.team, distinct_id="test", event="$pageview")
         event2_uuid = _create_event(
@@ -1219,13 +1255,16 @@ class TestFiltering(ClickhouseTestMixin, property_to_Q_test_factory(_filter_pers
         )
         query = """
         SELECT distinct_id FROM person_distinct_id2 WHERE team_id = %(team_id)s {prop_clause}
-        """.format(
-            prop_clause=prop_clause
-        )
+        """.format(prop_clause=prop_clause)
         # get distinct_id column of result
-        result = sync_execute(query, {"team_id": self.team.pk, **prop_clause_params, **filter.hogql_context.values,},)[
-            0
-        ][0]
+        result = sync_execute(
+            query,
+            {
+                "team_id": self.team.pk,
+                **prop_clause_params,
+                **filter.hogql_context.values,
+            },
+        )[0][0]
         self.assertEqual(result, person1_distinct_id)
 
         # test cohort2 with negation
@@ -1241,13 +1280,16 @@ class TestFiltering(ClickhouseTestMixin, property_to_Q_test_factory(_filter_pers
         )
         query = """
         SELECT distinct_id FROM person_distinct_id2 WHERE team_id = %(team_id)s {prop_clause}
-        """.format(
-            prop_clause=prop_clause
-        )
+        """.format(prop_clause=prop_clause)
         # get distinct_id column of result
-        result = sync_execute(query, {"team_id": self.team.pk, **prop_clause_params, **filter.hogql_context.values,},)[
-            0
-        ][0]
+        result = sync_execute(
+            query,
+            {
+                "team_id": self.team.pk,
+                **prop_clause_params,
+                **filter.hogql_context.values,
+            },
+        )[0][0]
 
         self.assertEqual(result, person2_distinct_id)
 

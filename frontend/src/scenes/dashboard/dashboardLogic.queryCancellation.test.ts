@@ -1,15 +1,16 @@
 import { expectLogic, partial } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
+import api from 'lib/api'
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { now } from 'lib/dayjs'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { boxToString, dashboardResult, insightOnDashboard, tileFromInsight } from 'scenes/dashboard/dashboardLogic.test'
+
+import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { initKeaTests } from '~/test/init'
 import { DashboardType, InsightModel, InsightShortId } from '~/types'
-import { useMocks } from '~/mocks/jest'
-import { now } from 'lib/dayjs'
-import { MOCK_TEAM_ID } from 'lib/api.mock'
-import api from 'lib/api'
-import { boxToString, dashboardResult, insightOnDashboard, tileFromInsight } from 'scenes/dashboard/dashboardLogic.test'
 
 const seenQueryIDs: string[] = []
 

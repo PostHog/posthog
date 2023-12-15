@@ -1,8 +1,10 @@
 // Helpers for Kea issue with double importing
 import { LemonButtonProps } from '@posthog/lemon-ui'
 import {
+    Attribute,
     ChainedCommands as EditorCommands,
     Editor as TTEditor,
+    ExtendedRegExpMatchArray,
     FocusPosition as EditorFocusPosition,
     getText,
     JSONContent as TTJSONContent,
@@ -10,15 +12,51 @@ import {
     TextSerializer,
 } from '@tiptap/core'
 import { Node as PMNode } from '@tiptap/pm/model'
+
 import { NotebookNodeResource, NotebookNodeType } from '~/types'
+
+import type { NotebookNodeLogicProps } from '../Nodes/notebookNodeLogic'
+
+// TODO: fix the typing of string to NotebookNodeType
+export const KNOWN_NODES: Record<string, CreatePostHogWidgetNodeOptions<any>> = {}
+
+export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttributes> = Omit<
+    NodeWrapperProps<T>,
+    'updateAttributes'
+> & {
+    Component: (props: NotebookNodeProps<T>) => JSX.Element | null
+    pasteOptions?: {
+        find: string | RegExp
+        getAttributes: (match: ExtendedRegExpMatchArray) => Promise<T | null | undefined> | T | null | undefined
+    }
+    attributes: Record<keyof T, Partial<Attribute>>
+    serializedText?: (attributes: NotebookNodeAttributes<T>) => string
+}
+
+export type NodeWrapperProps<T extends CustomNotebookNodeAttributes> = Omit<NotebookNodeLogicProps, 'notebookLogic'> &
+    NotebookNodeProps<T> & {
+        Component: (props: NotebookNodeProps<T>) => JSX.Element | null
+
+        // View only props
+        href?: string | ((attributes: NotebookNodeAttributes<T>) => string | undefined)
+        expandable?: boolean
+        selected?: boolean
+        heightEstimate?: number | string
+        minHeight?: number | string
+        /** If true the metadata area will only show when hovered if in editing mode */
+        autoHideMetadata?: boolean
+        /** Expand the node if the component is clicked */
+        expandOnClick?: boolean
+        settingsIcon?: JSX.Element | 'filter' | 'gear'
+    }
 
 export interface Node extends PMNode {}
 export interface JSONContent extends TTJSONContent {}
 
-export {
+export type {
     ChainedCommands as EditorCommands,
-    Range as EditorRange,
     FocusPosition as EditorFocusPosition,
+    Range as EditorRange,
 } from '@tiptap/core'
 
 export type CustomNotebookNodeAttributes = Record<string, any>
@@ -59,12 +97,14 @@ export interface NotebookEditor {
     getText: () => string
     getEndPosition: () => number
     getSelectedNode: () => Node | null
+    getCurrentPosition: () => number
     getAdjacentNodes: (pos: number) => { previous: Node | null; next: Node | null }
     setEditable: (editable: boolean) => void
     setContent: (content: JSONContent) => void
     setSelection: (position: number) => void
     setTextSelection: (position: number | EditorRange) => void
-    focus: (position: EditorFocusPosition) => void
+    focus: (position?: EditorFocusPosition) => void
+    chain: () => EditorCommands
     destroy: () => void
     deleteRange: (range: EditorRange) => EditorCommands
     insertContent: (content: JSONContent) => void
@@ -127,6 +167,8 @@ export const textContent = (node: any): string => {
         'ph-person-feed': customOrTitleSerializer,
         'ph-properties': customOrTitleSerializer,
         'ph-map': customOrTitleSerializer,
+        'ph-mention': customOrTitleSerializer,
+        'ph-embed': customOrTitleSerializer,
     }
 
     return getText(node, {

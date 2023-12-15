@@ -55,14 +55,18 @@ LEFT OUTER JOIN
     {bounce_rate_query} AS bounce_rate
 ON
     counts.breakdown_value = bounce_rate.breakdown_value
+WHERE
+    {where_breakdown}
 ORDER BY
-    "context.columns.views" DESC
+    "context.columns.views" DESC,
+    "context.columns.breakdown_value" DESC
 LIMIT 10
                 """,
                 timings=self.timings,
                 placeholders={
                     "counts_query": counts_query,
                     "bounce_rate_query": bounce_rate_query,
+                    "where_breakdown": self.where_breakdown(),
                 },
                 backend="cpp",
             )
@@ -74,6 +78,7 @@ LIMIT 10
             query=self.to_query(),
             team=self.team,
             timings=self.timings,
+            modifiers=self.modifiers,
         )
 
         return WebStatsTableQueryResponse(
@@ -87,41 +92,125 @@ LIMIT 10
     def counts_breakdown(self):
         match self.query.breakdownBy:
             case WebStatsBreakdown.Page:
-                return parse_expr("properties.$pathname")
+                return ast.Field(chain=["properties", "$pathname"])
+            case WebStatsBreakdown.InitialChannelType:
+                # use this for now, switch to person.$virt_initial_channel_type when it's working. If fixing or adding
+                # anything to this, keep in sync with channel_type.py
+                return parse_expr(
+                    """
+multiIf(
+    match(person.properties.$initial_utm_campaign, 'cross-network'),
+    'Cross Network',
+
+    (
+        match(person.properties.$initial_utm_medium, '^(.*cp.*|ppc|retargeting|paid.*)$') OR
+        properties.$initial_gclid IS NOT NULL OR
+        properties.$initial_gad_source IS NOT NULL
+    ),
+    coalesce(
+        hogql_lookupPaidSourceType(person.properties.$initial_utm_source),
+        hogql_lookupPaidDomainType(person.properties.$initial_referring_domain),
+        if(
+            match(properties.$initial_utm_campaign, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
+            'Paid Shopping',
+            NULL
+        ),
+        hogql_lookupPaidMediumType(person.properties.$initial_utm_medium),
+        multiIf (
+            person.properties.$initial_gad_source = '1',
+            'Paid Search',
+
+            match(person.properties.$initial_utm_campaign, '^(.*video.*)$'),
+            'Paid Video',
+
+            'Paid Other'
+        )
+    ),
+
+    (
+        person.properties.$initial_referring_domain = '$direct'
+        AND (person.properties.$initial_utm_medium IS NULL OR person.properties.$initial_utm_medium = '')
+        AND (person.properties.$initial_utm_source IS NULL OR person.properties.$initial_utm_source IN ('', '(direct)', 'direct'))
+    ),
+    'Direct',
+
+    coalesce(
+        hogql_lookupOrganicSourceType(person.properties.$initial_utm_source),
+        hogql_lookupOrganicDomainType(person.properties.$initial_referring_domain),
+        if(
+            match(person.properties.$initial_utm_campaign, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
+            'Organic Shopping',
+            NULL
+        ),
+        hogql_lookupOrganicMediumType(person.properties.$initial_utm_medium),
+        multiIf(
+            match(person.properties.$initial_utm_campaign, '^(.*video.*)$'),
+            'Organic Video',
+
+            match(person.properties.$initial_utm_medium, 'push$'),
+            'Push',
+
+            NULL
+        )
+    )
+)"""
+                )
             case WebStatsBreakdown.InitialPage:
-                return parse_expr("properties.$set_once.$initial_pathname")
+                return ast.Field(chain=["person", "properties", "$initial_pathname"])
             case WebStatsBreakdown.InitialReferringDomain:
-                return parse_expr("properties.$set_once.$initial_referring_domain")
+                return ast.Field(chain=["person", "properties", "$initial_referring_domain"])
             case WebStatsBreakdown.InitialUTMSource:
-                return parse_expr("properties.$set_once.$initial_utm_source")
+                return ast.Field(chain=["person", "properties", "$initial_utm_source"])
             case WebStatsBreakdown.InitialUTMCampaign:
-                return parse_expr("properties.$set_once.$initial_utm_campaign")
+                return ast.Field(chain=["person", "properties", "$initial_utm_campaign"])
+            case WebStatsBreakdown.InitialUTMMedium:
+                return ast.Field(chain=["person", "properties", "$initial_utm_medium"])
+            case WebStatsBreakdown.InitialUTMTerm:
+                return ast.Field(chain=["person", "properties", "$initial_utm_term"])
+            case WebStatsBreakdown.InitialUTMContent:
+                return ast.Field(chain=["person", "properties", "$initial_utm_content"])
             case WebStatsBreakdown.Browser:
-                return parse_expr("properties.$browser")
+                return ast.Field(chain=["properties", "$browser"])
             case WebStatsBreakdown.OS:
-                return parse_expr("properties.$os")
+                return ast.Field(chain=["properties", "$os"])
             case WebStatsBreakdown.DeviceType:
-                return parse_expr("properties.$device_type")
+                return ast.Field(chain=["properties", "$device_type"])
+            case WebStatsBreakdown.Country:
+                return ast.Field(chain=["properties", "$geoip_country_code"])
+            case WebStatsBreakdown.Region:
+                return parse_expr(
+                    "tuple(properties.$geoip_country_code, properties.$geoip_subdivision_1_code, properties.$geoip_subdivision_1_name)"
+                )
+            case WebStatsBreakdown.City:
+                return parse_expr("tuple(properties.$geoip_country_code, properties.$geoip_city_name)")
             case _:
                 raise NotImplementedError("Breakdown not implemented")
 
     def bounce_breakdown(self):
         match self.query.breakdownBy:
             case WebStatsBreakdown.Page:
-                return parse_expr("any(properties.$set_once.$initial_pathname)")
-            case WebStatsBreakdown.InitialPage:
-                return parse_expr("any(properties.$set_once.$initial_pathname)")
-            case WebStatsBreakdown.InitialReferringDomain:
-                return parse_expr("any(properties.$set_once.$initial_referring_domain)")
-            case WebStatsBreakdown.InitialUTMSource:
-                return parse_expr("any(properties.$set_once.$initial_utm_source)")
-            case WebStatsBreakdown.InitialUTMCampaign:
-                return parse_expr("any(properties.$set_once.$initial_utm_campaign)")
-            case WebStatsBreakdown.Browser:
-                return parse_expr("any(properties.$browser)")
-            case WebStatsBreakdown.OS:
-                return parse_expr("any(properties.$os)")
-            case WebStatsBreakdown.DeviceType:
-                return parse_expr("any(properties.$device_type)")
+                # use initial pathname for bounce rate
+                return ast.Call(name="any", args=[ast.Field(chain=["person", "properties", "$initial_pathname"])])
             case _:
-                raise NotImplementedError("Breakdown not implemented")
+                return ast.Call(name="any", args=[self.counts_breakdown()])
+
+    def where_breakdown(self):
+        match self.query.breakdownBy:
+            case WebStatsBreakdown.Region:
+                return parse_expr('tupleElement("context.columns.breakdown_value", 2) IS NOT NULL')
+            case WebStatsBreakdown.City:
+                return parse_expr('tupleElement("context.columns.breakdown_value", 2) IS NOT NULL')
+            case WebStatsBreakdown.InitialChannelType:
+                return parse_expr("TRUE")  # actually show null values
+            case WebStatsBreakdown.InitialUTMSource:
+                return parse_expr("TRUE")  # actually show null values
+            case WebStatsBreakdown.InitialUTMCampaign:
+                return parse_expr("TRUE")  # actually show null values
+            case WebStatsBreakdown.InitialUTMMedium:
+                return parse_expr("TRUE")  # actually show null values
+            case WebStatsBreakdown.InitialUTMTerm:
+                return parse_expr("TRUE")  # actually show null values
+            case WebStatsBreakdown.InitialUTMContent:
+                return parse_expr("TRUE")  # actually show null values
+            case _:
+                return parse_expr('"context.columns.breakdown_value" IS NOT NULL')

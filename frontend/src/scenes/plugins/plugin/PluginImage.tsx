@@ -1,8 +1,9 @@
-import { parseGithubRepoURL } from 'lib/utils'
-import { useEffect, useState } from 'react'
-import imgPluginDefault from 'public/plugin-default.svg'
-import { PluginType } from '~/types'
 import { IconTerminal } from 'lib/lemon-ui/icons'
+import { parseGithubRepoURL } from 'lib/utils'
+import imgPluginDefault from 'public/plugin-default.svg'
+import { useEffect, useState } from 'react'
+
+import { PluginType } from '~/types'
 
 export function PluginImage({
     plugin,
@@ -42,6 +43,7 @@ export function PluginImage({
     ) : (
         <div
             className="plugin-image shrink-0"
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: pixelSize,
                 height: pixelSize,

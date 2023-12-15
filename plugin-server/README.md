@@ -24,7 +24,7 @@ Let's get you developing the plugin server in no time:
 
 1. Prepare for running functional tests. See notes below.
 
-## Functional tests
+### Running Functional Tests
 
 Functional tests are provided located in `functional_tests`. They provide tests
 for high level functionality of the plugin-server, i.e. functionality that any
@@ -47,8 +47,21 @@ testing:
 
 1. run docker `docker compose -f docker-compose.dev.yml up` (in posthog folder)
 1. setup the test DBs `pnpm setup:test`
-1. start the plugin-server with `CLICKHOUSE_DATABASE='default' DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog pnpm start:dev`
-1. run the tests with `CLICKHOUSE_DATABASE='default' DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog pnpm functional_tests --watch`
+1. start the plugin-server:
+    ```bash
+    APP_METRICS_FLUSH_FREQUENCY_MS=0 \
+        CLICKHOUSE_DATABASE='default' \
+        DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog \
+        PLUGINS_DEFAULT_LOG_LEVEL=0 \
+        RELOAD_PLUGIN_JITTER_MAX_MS=0 \
+        pnpm start:dev
+    ```
+1. run the tests:
+    ```bash
+    CLICKHOUSE_DATABASE='default' \
+        DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog \
+        pnpm functional_tests --watch
+    ```
 
 ## CLI flags
 
@@ -112,9 +125,6 @@ There's a multitude of settings you can use to control the plugin server. Use th
 | KAFKA_MAX_MESSAGE_BATCH_SIZE               | Kafka producer batch max size in bytes before flushing                                                                                                                                                         | `900000`                              |
 | LOG_LEVEL                                  | minimum log level                                                                                                                                                                                              | `'info'`                              |
 | SENTRY_DSN                                 | Sentry ingestion URL                                                                                                                                                                                           | `null`                                |
-| STATSD_HOST                                | StatsD host - integration disabled if this is not provided                                                                                                                                                     | `null`                                |
-| STATSD_PORT                                | StatsD port                                                                                                                                                                                                    | `8125`                                |
-| STATSD_PREFIX                              | StatsD prefix                                                                                                                                                                                                  | `'plugin-server.'`                    |
 | DISABLE_MMDB                               | whether to disable MMDB IP location capabilities                                                                                                                                                               | `false`                               |
 | INTERNAL_MMDB_SERVER_PORT                  | port of the internal server used for IP location (0 means random)                                                                                                                                              | `0`                                   |
 | DISTINCT_ID_LRU_SIZE                       | size of persons distinct ID LRU cache                                                                                                                                                                          | `10000`                               |

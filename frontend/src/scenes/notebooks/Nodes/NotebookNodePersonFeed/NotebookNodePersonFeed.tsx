@@ -1,10 +1,11 @@
-import { useValues } from 'kea'
-
 import { LemonSkeleton } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
-import { NotebookNodeType, PersonType } from '~/types'
 import { NotebookNodeProps } from 'scenes/notebooks/Notebook/utils'
 import { personLogic } from 'scenes/persons/personLogic'
+
+import { NotebookNodeType, PersonType } from '~/types'
+
 import { createPostHogWidgetNode } from '../NodeWrapper'
 import { notebookNodePersonFeedLogic } from './notebookNodePersonFeedLogic'
 import { Session } from './Session'

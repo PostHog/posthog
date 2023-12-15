@@ -2,6 +2,7 @@ import datetime as dt
 from typing import Any
 
 import posthoganalytics
+import structlog
 from django.db import transaction
 from django.utils.timezone import now
 from rest_framework import mixins, request, response, serializers, viewsets
@@ -27,14 +28,17 @@ from posthog.batch_exports.service import (
     BatchExportIdError,
     BatchExportServiceError,
     BatchExportServiceRPCError,
+    BatchExportServiceScheduleNotFound,
     backfill_export,
-    delete_schedule,
+    cancel_running_batch_export_backfill,
+    batch_export_delete_schedule,
     pause_batch_export,
     sync_batch_export,
     unpause_batch_export,
 )
 from posthog.models import (
     BatchExport,
+    BatchExportBackfill,
     BatchExportDestination,
     BatchExportRun,
     Team,
@@ -44,8 +48,10 @@ from posthog.permissions import (
     ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
-from posthog.temporal.client import sync_connect
+from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse
+
+logger = structlog.get_logger(__name__)
 
 
 def validate_date_input(date_input: Any) -> dt.datetime:
@@ -264,9 +270,9 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         batch_export = self.get_object()
         temporal = sync_connect()
-        backfill_export(temporal, str(batch_export.pk), team_id, start_at, end_at)
+        backfill_id = backfill_export(temporal, str(batch_export.pk), team_id, start_at, end_at)
 
-        return response.Response()
+        return response.Response({"backfill_id": backfill_id})
 
     @action(methods=["POST"], detail=True)
     def pause(self, request: request.Request, *args, **kwargs) -> response.Response:
@@ -318,11 +324,27 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return response.Response({"paused": False})
 
     def perform_destroy(self, instance: BatchExport):
-        """Perform a BatchExport destroy by clearing Temporal and Django state."""
-        instance.deleted = True
+        """Perform a BatchExport destroy by clearing Temporal and Django state.
+
+        If the underlying Temporal Schedule doesn't exist, we ignore the error and proceed with the delete anyways.
+        The Schedule could have been manually deleted causing Django and Temporal to go out of sync. For whatever reason,
+        since we are deleting, we assume that we can recover from this state by finishing the delete operation by calling
+        instance.save().
+        """
         temporal = sync_connect()
-        delete_schedule(temporal, str(instance.pk))
+
+        instance.deleted = True
+
+        try:
+            batch_export_delete_schedule(temporal, str(instance.pk))
+        except BatchExportServiceScheduleNotFound as e:
+            logger.warning("The Schedule %s could not be deleted as it was not found", e.schedule_id)
+
         instance.save()
+
+        for backfill in BatchExportBackfill.objects.filter(batch_export=instance):
+            if backfill.status == BatchExportBackfill.Status.RUNNING:
+                cancel_running_batch_export_backfill(temporal, backfill.workflow_id)
 
 
 class BatchExportLogEntrySerializer(DataclassSerializer):
@@ -359,7 +381,7 @@ class BatchExportLogViewSet(StructuredViewSetMixin, mixins.ListModelMixin, views
         if before_raw is not None:
             before = dt.datetime.fromisoformat(before_raw.replace("Z", "+00:00"))
 
-        level_filter = [BatchExportLogEntryLevel[t] for t in (self.request.GET.getlist("level_filter", []))]
+        level_filter = [BatchExportLogEntryLevel[t.upper()] for t in (self.request.GET.getlist("level_filter", []))]
         return fetch_batch_export_log_entries(
             team_id=self.parents_query_dict["team_id"],
             batch_export_id=self.parents_query_dict["batch_export_id"],

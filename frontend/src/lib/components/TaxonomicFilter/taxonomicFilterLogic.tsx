@@ -1,5 +1,7 @@
-import { BuiltLogic, kea, props, key, path, connect, actions, reducers, selectors, listeners } from 'kea'
-import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
+import { actions, BuiltLogic, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { combineUrl } from 'kea-router'
+import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
+import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import {
     ListStorage,
     SimpleOption,
@@ -8,41 +10,41 @@ import {
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
-import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
+import { IconCohort } from 'lib/lemon-ui/icons'
+import { KEY_MAPPING } from 'lib/taxonomy'
+import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
+import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
+import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
+import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
+import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { actionsModel } from '~/models/actionsModel'
+import { cohortsModel } from '~/models/cohortsModel'
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { groupPropertiesModel } from '~/models/groupPropertiesModel'
+import { groupsModel } from '~/models/groupsModel'
+import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import {
     ActionType,
     CohortType,
-    EventDefinitionType,
     DashboardType,
     EventDefinition,
+    EventDefinitionType,
     Experiment,
     FeatureFlagType,
     Group,
     InsightModel,
+    NotebookType,
     PersonProperty,
     PersonType,
     PluginType,
     PropertyDefinition,
-    NotebookType,
 } from '~/types'
-import { cohortsModel } from '~/models/cohortsModel'
-import { actionsModel } from '~/models/actionsModel'
-import { teamLogic } from 'scenes/teamLogic'
-import { groupsModel } from '~/models/groupsModel'
-import { groupPropertiesModel } from '~/models/groupPropertiesModel'
-import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
-import { combineUrl } from 'kea-router'
-import { IconCohort } from 'lib/lemon-ui/icons'
-import { KEY_MAPPING } from 'lib/taxonomy'
-import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
-import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
-import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
-import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { dashboardsModel } from '~/models/dashboardsModel'
-import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
-import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
-import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
+
 import { InlineHogQLEditor } from './InlineHogQLEditor'
+import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
     getPopoverHeader: (eventDefinition: EventDefinition): string => {
@@ -137,6 +139,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.excludedProperties],
             (excludedProperties) => excludedProperties ?? {},
         ],
+        propertyAllowList: [
+            () => [(_, props) => props.propertyAllowList],
+            (propertyAllowList) => propertyAllowList as TaxonomicFilterLogicProps['propertyAllowList'],
+        ],
         taxonomicGroups: [
             (s) => [
                 s.currentTeamId,
@@ -145,6 +151,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.eventNames,
                 s.hogQLTable,
                 s.excludedProperties,
+                s.propertyAllowList,
             ],
             (
                 teamId,
@@ -152,7 +159,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 groupAnalyticsTaxonomicGroupNames,
                 eventNames,
                 hogQLTable,
-                excludedProperties
+                excludedProperties,
+                propertyAllowList
             ): TaxonomicFilterGroup[] => {
                 const groups: TaxonomicFilterGroup[] = [
                     {
@@ -200,6 +208,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         endpoint: combineUrl(`api/projects/${teamId}/property_definitions`, {
                             is_feature_flag: false,
                             ...(eventNames.length > 0 ? { event_names: eventNames } : {}),
+                            properties: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]
+                                ? propertyAllowList[TaxonomicFilterGroupType.EventProperties].join(',')
+                                : undefined,
                         }).url,
                         scopedEndpoint:
                             eventNames.length > 0
@@ -207,6 +218,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                       event_names: eventNames,
                                       is_feature_flag: false,
                                       filter_by_event_names: true,
+                                      properties: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]
+                                          ? propertyAllowList[TaxonomicFilterGroupType.EventProperties].join(',')
+                                          : undefined,
                                   }).url
                                 : undefined,
                         expandLabel: ({ count, expandedCount }: { count: number; expandedCount: number }) =>
@@ -219,6 +233,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                         getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                         excludedProperties: excludedProperties[TaxonomicFilterGroupType.EventProperties],
+                        propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties],
                         ...propertyTaxonomicGroupProps(),
                     },
                     {
@@ -267,9 +282,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.PersonProperties,
                         endpoint: combineUrl(`api/projects/${teamId}/property_definitions`, {
                             type: 'person',
+                            properties: propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties]
+                                ? propertyAllowList[TaxonomicFilterGroupType.PersonProperties].join(',')
+                                : undefined,
                         }).url,
                         getName: (personProperty: PersonProperty) => personProperty.name,
                         getValue: (personProperty: PersonProperty) => personProperty.name,
+                        propertyAllowList: propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties],
                         ...propertyTaxonomicGroupProps(true),
                     },
                     {
@@ -449,7 +468,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         groupAnalyticsTaxonomicGroupNames: [
             (s) => [s.groupTypes, s.currentTeamId, s.aggregationLabel],
             (groupTypes, teamId, aggregationLabel): TaxonomicFilterGroup[] =>
-                groupTypes.map((type) => ({
+                Array.from(groupTypes.values()).map((type) => ({
                     name: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).plural)}`,
                     searchPlaceholder: `${aggregationLabel(type.group_type_index).plural}`,
                     type: `${TaxonomicFilterGroupType.GroupNamesPrefix}_${type.group_type_index}` as unknown as TaxonomicFilterGroupType,
@@ -466,7 +485,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         groupAnalyticsTaxonomicGroups: [
             (s) => [s.groupTypes, s.currentTeamId, s.aggregationLabel],
             (groupTypes, teamId, aggregationLabel): TaxonomicFilterGroup[] =>
-                groupTypes.map((type) => ({
+                Array.from(groupTypes.values()).map((type) => ({
                     name: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular)} properties`,
                     searchPlaceholder: `${aggregationLabel(type.group_type_index).singular} properties`,
                     type: `${TaxonomicFilterGroupType.GroupsPrefix}_${type.group_type_index}` as unknown as TaxonomicFilterGroupType,

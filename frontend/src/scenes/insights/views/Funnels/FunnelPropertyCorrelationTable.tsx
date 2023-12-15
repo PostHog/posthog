@@ -1,28 +1,31 @@
-import { useEffect } from 'react'
-import { Link } from 'lib/lemon-ui/Link'
-import { Col, ConfigProvider, Row, Table, Empty } from 'antd'
+import './FunnelCorrelationTable.scss'
+
+import { IconInfo } from '@posthog/icons'
+import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
+import { Col, ConfigProvider, Empty, Row, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
-import { RiseOutlined, FallOutlined, InfoCircleOutlined } from '@ant-design/icons'
-import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
+import { PersonPropertySelect } from 'lib/components/PersonPropertySelect/PersonPropertySelect'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { IconSelectProperties } from 'lib/lemon-ui/icons'
-import './FunnelCorrelationTable.scss'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
+import { IconSelectProperties, IconTrendingDown, IconTrendingUp } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
+import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { PropertyCorrelationActionsCell } from './CorrelationActionsCell'
-import { funnelCorrelationUsageLogic } from 'scenes/funnels/funnelCorrelationUsageLogic'
-import { parseDisplayNameForCorrelation } from 'scenes/funnels/funnelUtils'
-import { funnelPropertyCorrelationLogic } from 'scenes/funnels/funnelPropertyCorrelationLogic'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { Popover } from 'lib/lemon-ui/Popover'
-import { PersonPropertySelect } from 'lib/components/PersonPropertySelect/PersonPropertySelect'
+import { useEffect } from 'react'
 import { useState } from 'react'
-import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
+import { funnelCorrelationUsageLogic } from 'scenes/funnels/funnelCorrelationUsageLogic'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
+import { funnelPropertyCorrelationLogic } from 'scenes/funnels/funnelPropertyCorrelationLogic'
+import { parseDisplayNameForCorrelation } from 'scenes/funnels/funnelUtils'
+import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
+import { insightLogic } from 'scenes/insights/insightLogic'
+
+import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
+
+import { PropertyCorrelationActionsCell } from './CorrelationActionsCell'
 
 export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -103,9 +106,9 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
             <>
                 <h4>
                     {is_success ? (
-                        <RiseOutlined style={{ color: 'green' }} />
+                        <IconTrendingUp style={{ color: 'green' }} />
                     ) : (
-                        <FallOutlined style={{ color: 'red' }} />
+                        <IconTrendingDown style={{ color: 'red' }} />
                     )}{' '}
                     <PropertyKeyInfo value={first_value} />
                     {second_value !== undefined && (
@@ -264,7 +267,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                                             querySource?.aggregation_group_type_index != undefined ? 'that' : 'who'
                                         } have this property and completed the entire funnel.`}
                                     >
-                                        <InfoCircleOutlined className="column-info" />
+                                        <IconInfo className="column-info" />
                                     </Tooltip>
                                 </div>
                             }
@@ -288,7 +291,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                                             </>
                                         }
                                     >
-                                        <InfoCircleOutlined className="column-info" />
+                                        <IconInfo className="column-info" />
                                     </Tooltip>
                                 </div>
                             }

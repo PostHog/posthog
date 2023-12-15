@@ -10,6 +10,10 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from unittest.mock import patch
 
 import freezegun
+
+# we have to import pendulum for the side effect of importing it
+# freezegun.FakeDateTime and pendulum don't play nicely otherwise
+import pendulum  # noqa F401
 import pytest
 import sqlparse
 from django.apps import apps
@@ -30,6 +34,13 @@ from posthog.cloud_utils import (
     is_cloud,
 )
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
+from posthog.models.channel_type.sql import (
+    CHANNEL_DEFINITION_TABLE_SQL,
+    DROP_CHANNEL_DEFINITION_TABLE_SQL,
+    DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
+    CHANNEL_DEFINITION_DICTIONARY_SQL,
+    CHANNEL_DEFINITION_DATA_SQL,
+)
 from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import (
     DISTRIBUTED_EVENTS_TABLE_SQL,
@@ -460,12 +471,23 @@ class QueryMatchingTest:
         if replace_all_numbers:
             query = re.sub(r"(\"?) = \d+", r"\1 = 2", query)
             query = re.sub(r"(\"?) IN \(\d+(, \d+)*\)", r"\1 IN (1, 2, 3, 4, 5 /* ... */)", query)
-            # feature flag conditions use primary keys as columns in queries, so replace those too
-            query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
-            query = re.sub(r"flag_\d+_super_condition", r"flag_X_super_condition", query)
+            # replace "uuid" IN ('00000000-0000-4000-8000-000000000001'::uuid) effectively:
+            query = re.sub(
+                r"\"uuid\" IN \('[0-9a-f-]{36}'(::uuid)?(, '[0-9a-f-]{36}'(::uuid)?)*\)",
+                r""""uuid" IN ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000001'::uuid /* ... */)\n""",
+                query,
+            )
+
         else:
             query = re.sub(r"(team|cohort)_id(\"?) = \d+", r"\1_id\2 = 2", query)
             query = re.sub(r"\d+ as (team|cohort)_id(\"?)", r"2 as \1_id\2", query)
+
+        # feature flag conditions use primary keys as columns in queries, so replace those always
+        query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
+        query = re.sub(r"flag_\d+_super_condition", r"flag_X_super_condition", query)
+
+        # replace django cursors
+        query = re.sub(r"_django_curs_[0-9sync_]*\"", r'_django_curs_X"', query)
 
         # hog ql checks team ids differently
         query = re.sub(
@@ -828,6 +850,8 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 TRUNCATE_COHORTPEOPLE_TABLE_SQL,
                 TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
                 TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
+                DROP_CHANNEL_DEFINITION_TABLE_SQL,
+                DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
             ]
         )
         run_clickhouse_statement_in_parallel(
@@ -836,6 +860,8 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 PERSONS_TABLE_SQL(),
                 SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                CHANNEL_DEFINITION_TABLE_SQL(),
+                CHANNEL_DEFINITION_DICTIONARY_SQL,
             ]
         )
         run_clickhouse_statement_in_parallel(
@@ -843,6 +869,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                CHANNEL_DEFINITION_DATA_SQL,
             ]
         )
 
@@ -856,6 +883,8 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
                 DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                DROP_CHANNEL_DEFINITION_TABLE_SQL,
+                DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
             ]
         )
 
@@ -865,6 +894,8 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 PERSONS_TABLE_SQL(),
                 SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                CHANNEL_DEFINITION_TABLE_SQL(),
+                CHANNEL_DEFINITION_DICTIONARY_SQL,
             ]
         )
         run_clickhouse_statement_in_parallel(
@@ -872,6 +903,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                CHANNEL_DEFINITION_DATA_SQL,
             ]
         )
 

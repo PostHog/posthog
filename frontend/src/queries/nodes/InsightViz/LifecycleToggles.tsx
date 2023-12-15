@@ -1,8 +1,9 @@
-import { LifecycleFilter } from '~/queries/schema'
-import { EditorFilterProps, LifecycleToggle } from '~/types'
 import { LemonCheckbox, LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
+import { LifecycleFilter } from '~/queries/schema'
+import { EditorFilterProps, LifecycleToggle } from '~/types'
 
 const lifecycles: { name: LifecycleToggle; tooltip: string; color: string }[] = [
     {

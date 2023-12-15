@@ -1,6 +1,6 @@
 from datetime import timedelta
 from math import ceil
-from typing import Optional, Any, Dict, List
+from typing import Optional, List
 
 from django.utils.timezone import datetime
 from posthog.caching.insights_api import (
@@ -14,9 +14,8 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import property_to_expr, action_to_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.models import Team, Action
+from posthog.models import Action
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.schema import (
@@ -31,26 +30,30 @@ class LifecycleQueryRunner(QueryRunner):
     query: LifecycleQuery
     query_type = LifecycleQuery
 
-    def __init__(
-        self,
-        query: LifecycleQuery | Dict[str, Any],
-        team: Team,
-        timings: Optional[HogQLTimings] = None,
-        in_export_context: Optional[bool] = False,
-    ):
-        super().__init__(query, team, timings, in_export_context)
-
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+        if self.query.samplingFactor == 0:
+            counts_with_sampling = ast.Constant(value=0)
+        elif self.query.samplingFactor is not None and self.query.samplingFactor != 1:
+            counts_with_sampling = parse_expr(
+                "round(counts * (1 / {sampling_factor}))",
+                {
+                    "sampling_factor": ast.Constant(value=self.query.samplingFactor),
+                },
+            )
+        else:
+            counts_with_sampling = parse_expr("counts")
+
         placeholders = {
             **self.query_date_range.to_placeholders(),
             "events_query": self.events_query,
             "periods_query": self.periods_query,
+            "counts_with_sampling": counts_with_sampling,
         }
         with self.timings.measure("lifecycle_query"):
             lifecycle_query = parse_select(
                 """
                     SELECT groupArray(start_of_period) AS date,
-                           groupArray(counts) AS total,
+                           groupArray({counts_with_sampling}) AS total,
                            status
                     FROM (
                         SELECT
@@ -75,8 +78,8 @@ class LifecycleQueryRunner(QueryRunner):
                             FROM {events_query}
                             GROUP BY start_of_period, status
                         )
-                        WHERE start_of_period <= dateTrunc({interval}, {date_to})
-                            AND start_of_period >= dateTrunc({interval}, {date_from})
+                        WHERE start_of_period <= {date_to_start_of_interval}
+                            AND start_of_period >= {date_from_start_of_interval}
                         GROUP BY start_of_period, status
                         ORDER BY start_of_period ASC
                     )
@@ -87,20 +90,39 @@ class LifecycleQueryRunner(QueryRunner):
             )
         return lifecycle_query
 
-    def to_persons_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
-        # TODO: add support for selecting and filtering by breakdowns
+    def to_persons_query(
+        self, day: Optional[str] = None, status: Optional[str] = None
+    ) -> ast.SelectQuery | ast.SelectUnionQuery:
         with self.timings.measure("persons_query"):
+            exprs = []
+            if day is not None:
+                exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["start_of_period"]),
+                        right=self.query_date_range.date_to_start_of_interval_hogql(
+                            ast.Call(name="toDateTime", args=[ast.Constant(value=day)])
+                        ),
+                    )
+                )
+            if status is not None:
+                exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["status"]),
+                        right=ast.Constant(value=status),
+                    )
+                )
+
             return parse_select(
-                """
-                SELECT
-                    person_id --, start_of_period as breakdown_1, status as breakdown_2
-                FROM
-                    {events_query}
-                """,
-                placeholders={"events_query": self.events_query},
+                "SELECT person_id FROM {events_query} WHERE {where}",
+                placeholders={
+                    "events_query": self.events_query,
+                    "where": ast.And(exprs=exprs) if len(exprs) > 0 else ast.Constant(value=1),
+                },
             )
 
-    def calculate(self):
+    def calculate(self) -> LifecycleQueryResponse:
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team.pk)
 
@@ -109,6 +131,7 @@ class LifecycleQueryRunner(QueryRunner):
             query=query,
             team=self.team,
             timings=self.timings,
+            modifiers=self.modifiers,
         )
 
         # TODO: can we move the data conversion part into the query as well? It would make it easier to swap
@@ -130,10 +153,34 @@ class LifecycleQueryRunner(QueryRunner):
                 for item in val[0]
             ]
 
-            label = "{} - {}".format("", val[2])  # entity.name
+            # legacy response compatibility object
+            action_object = {}
+            label = "{} - {}".format("", val[2])
+            if isinstance(self.query.series[0], ActionsNode):
+                action = Action.objects.get(pk=int(self.query.series[0].id), team=self.team)
+                label = "{} - {}".format(action.name, val[2])
+                action_object = {
+                    "id": str(action.pk),
+                    "name": action.name,
+                    "type": "actions",
+                    "order": 0,
+                    "math": "total",
+                }
+            elif isinstance(self.query.series[0], EventsNode):
+                event = self.query.series[0].event
+                label = "{} - {}".format("All events" if event is None else event, val[2])
+                action_object = {
+                    "id": event,
+                    "name": "All events" if event is None else event,
+                    "type": "events",
+                    "order": 0,
+                    "math": "total",
+                }
+
             additional_values = {"label": label, "status": val[2]}
             res.append(
                 {
+                    "action": action_object,
                     "data": [float(c) for c in counts],
                     "count": float(sum(counts)),
                     "labels": labels,
@@ -159,23 +206,15 @@ class LifecycleQueryRunner(QueryRunner):
         with self.timings.measure("date_range"):
             event_filters.append(
                 parse_expr(
-                    "timestamp >= dateTrunc({interval}, {date_from}) - {one_interval}",
-                    {
-                        "interval": self.query_date_range.interval_period_string_as_hogql_constant(),
-                        "one_interval": self.query_date_range.one_interval_period(),
-                        "date_from": self.query_date_range.date_from_as_hogql(),
-                    },
+                    "timestamp >= {date_from_start_of_interval} - {one_interval_period}",
+                    self.query_date_range.to_placeholders(),
                     timings=self.timings,
                 )
             )
             event_filters.append(
                 parse_expr(
-                    "timestamp < dateTrunc({interval}, {date_to}) + {one_interval}",
-                    {
-                        "interval": self.query_date_range.interval_period_string_as_hogql_constant(),
-                        "one_interval": self.query_date_range.one_interval_period(),
-                        "date_to": self.query_date_range.date_to_as_hogql(),
-                    },
+                    "timestamp < {date_to_start_of_interval} + {one_interval_period}",
+                    self.query_date_range.to_placeholders(),
                     timings=self.timings,
                 )
             )
@@ -224,9 +263,9 @@ class LifecycleQueryRunner(QueryRunner):
                     SELECT
                         events.person.id as person_id,
                         min(events.person.created_at) AS created_at,
-                        arraySort(groupUniqArray(dateTrunc({interval}, events.timestamp))) AS all_activity,
-                        arrayPopBack(arrayPushFront(all_activity, dateTrunc({interval}, created_at))) as previous_activity,
-                        arrayPopFront(arrayPushBack(all_activity, dateTrunc({interval}, toDateTime('1970-01-01 00:00:00')))) as following_activity,
+                        arraySort(groupUniqArray({trunc_timestamp})) AS all_activity,
+                        arrayPopBack(arrayPushFront(all_activity, {trunc_created_at})) as previous_activity,
+                        arrayPopFront(arrayPushBack(all_activity, {trunc_epoch})) as following_activity,
                         arrayMap((previous, current, index) -> (previous = current ? 'new' : ((current - {one_interval_period}) = previous AND index != 1) ? 'returning' : 'resurrecting'), previous_activity, all_activity, arrayEnumerate(all_activity)) as initial_status,
                         arrayMap((current, next) -> (current + {one_interval_period} = next ? '' : 'dormant'), all_activity, following_activity) as dormant_status,
                         arrayMap(x -> x + {one_interval_period}, arrayFilter((current, is_dormant) -> is_dormant = 'dormant', all_activity, dormant_status)) as dormant_periods,
@@ -242,6 +281,15 @@ class LifecycleQueryRunner(QueryRunner):
                 placeholders={
                     **self.query_date_range.to_placeholders(),
                     "event_filter": self.event_filter,
+                    "trunc_timestamp": self.query_date_range.date_to_start_of_interval_hogql(
+                        ast.Field(chain=["events", "timestamp"])
+                    ),
+                    "trunc_created_at": self.query_date_range.date_to_start_of_interval_hogql(
+                        ast.Field(chain=["created_at"])
+                    ),
+                    "trunc_epoch": self.query_date_range.date_to_start_of_interval_hogql(
+                        ast.Call(name="toDateTime", args=[ast.Constant(value="1970-01-01 00:00:00")])
+                    ),
                 },
                 timings=self.timings,
             )
@@ -257,18 +305,17 @@ class LifecycleQueryRunner(QueryRunner):
         with self.timings.measure("periods_query"):
             periods_query = parse_select(
                 """
-                    SELECT (
-                        dateTrunc({interval}, {date_to}) - {number_interval_period}
-                    ) AS start_of_period
-                    FROM numbers(
-                        dateDiff(
-                            {interval},
-                            dateTrunc({interval}, {date_from}),
-                            dateTrunc({interval}, {date_to} + {one_interval_period})
-                        )
-                    )
+                    SELECT ({date_to_start_of_interval} - {number_interval_period}) AS start_of_period
+                    FROM numbers(dateDiff({interval}, {date_from_start_of_interval}, {date_to_plus_interval}))
                 """,
-                placeholders=self.query_date_range.to_placeholders(),
+                placeholders={
+                    **self.query_date_range.to_placeholders(),
+                    "date_to_plus_interval": self.query_date_range.date_to_start_of_interval_hogql(
+                        parse_expr(
+                            "{date_to} + {one_interval_period}", placeholders=self.query_date_range.to_placeholders()
+                        )
+                    ),
+                },
                 timings=self.timings,
             )
         return periods_query

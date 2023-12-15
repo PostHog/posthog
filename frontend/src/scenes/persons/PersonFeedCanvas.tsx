@@ -1,12 +1,17 @@
-import { PersonType } from '~/types'
-import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
+import { useValues } from 'kea'
 import { uuid } from 'lib/utils'
+import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+import { PersonType } from '~/types'
 
 type PersonFeedCanvasProps = {
     person: PersonType
 }
 
 const PersonFeedCanvas = ({ person }: PersonFeedCanvasProps): JSX.Element => {
+    const { isCloudOrDev } = useValues(preflightLogic)
+
     const id = person.id
 
     const personId = person.distinct_ids[0]
@@ -32,10 +37,14 @@ const PersonFeedCanvas = ({ person }: PersonFeedCanvasProps): JSX.Element => {
                                     type: 'ph-person',
                                     attrs: { id: personId, nodeId: uuid(), title: 'Info' },
                                 },
-                                {
-                                    type: 'ph-map',
-                                    attrs: { id: personId, nodeId: uuid() },
-                                },
+                                ...(isCloudOrDev
+                                    ? [
+                                          {
+                                              type: 'ph-map',
+                                              attrs: { id: personId, nodeId: uuid() },
+                                          },
+                                      ]
+                                    : []),
                                 {
                                     type: 'ph-properties',
                                     attrs: { id: personId, nodeId: uuid() },

@@ -114,7 +114,12 @@ class RetentionEventsQuery(EventQuery):
                     ] as breakdown_values
                     """
                 ]
-            self.params.update({"start_date": self._filter.date_from, "period": self._filter.period})
+            self.params.update(
+                {
+                    "start_date": self._filter.date_from.strftime("%Y-%m-%d %H:%M:%S"),
+                    "period": self._filter.period,
+                }
+            )
 
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)

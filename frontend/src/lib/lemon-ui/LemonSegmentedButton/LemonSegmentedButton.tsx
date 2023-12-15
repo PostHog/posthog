@@ -1,8 +1,11 @@
-import clsx from 'clsx'
-import React from 'react'
-import { LemonButton } from '../LemonButton'
-import { useSliderPositioning } from '../hooks'
 import './LemonSegmentedButton.scss'
+
+import clsx from 'clsx'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import React from 'react'
+
+import { useSliderPositioning } from '../hooks'
+import { LemonButton, LemonButtonProps } from '../LemonButton'
 
 export interface LemonSegmentedButtonOption<T extends React.Key> {
     value: T
@@ -18,7 +21,7 @@ export interface LemonSegmentedButtonProps<T extends React.Key> {
     value?: T
     onChange?: (newValue: T) => void
     options: LemonSegmentedButtonOption<T>[]
-    size?: 'small' | 'medium'
+    size?: LemonButtonProps['size']
     className?: string
     fullWidth?: boolean
 }
@@ -37,20 +40,31 @@ export function LemonSegmentedButton<T extends React.Key>({
     fullWidth,
     className,
 }: LemonSegmentedButtonProps<T>): JSX.Element {
-    const { containerRef, selectionRef, sliderWidth, sliderOffset } = useSliderPositioning<
+    const { containerRef, selectionRef, sliderWidth, sliderOffset, transitioning } = useSliderPositioning<
         HTMLDivElement,
-        HTMLButtonElement
+        HTMLLIElement
     >(value, 200)
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
+
+    let buttonProps = {}
+
+    if (is3000) {
+        buttonProps = { status: 'stealth', type: 'secondary', motion: false }
+    }
 
     return (
         <div
-            className={clsx('LemonSegmentedButton', fullWidth && 'LemonSegmentedButton--full-width', className)}
+            className={clsx(
+                'LemonSegmentedButton',
+                fullWidth && 'LemonSegmentedButton--full-width',
+                transitioning && 'LemonSegmentedButton--transitioning',
+                className
+            )}
             // eslint-disable-next-line react/forbid-dom-props
             style={
                 {
                     '--lemon-segmented-button-slider-width': `${sliderWidth}px`,
-                    // Subtract 1px from offset to account for border-right
-                    '--lemon-segmented-button-slider-offset': `${sliderOffset - 1}px`,
+                    '--lemon-segmented-button-slider-offset': `${sliderOffset}px`,
                 } as LemonSegmentedButtonCSSProperties
             }
             ref={containerRef}
@@ -76,9 +90,9 @@ export function LemonSegmentedButton<T extends React.Key>({
                             option.disabledReason && 'LemonSegmentedButton__option--disabled',
                             option.value === value && 'LemonSegmentedButton__option--selected'
                         )}
+                        ref={option.value === value ? selectionRef : undefined}
                     >
-                        <LemonButton /* The ref is on the button and not on the list item so that the border isn't counted */
-                            ref={option.value === value ? selectionRef : undefined}
+                        <LemonButton
                             size={size}
                             fullWidth
                             disabledReason={option.disabledReason}
@@ -89,6 +103,8 @@ export function LemonSegmentedButton<T extends React.Key>({
                             }}
                             icon={option.icon}
                             data-attr={option['data-attr']}
+                            center
+                            {...buttonProps}
                         >
                             {option.label}
                         </LemonButton>

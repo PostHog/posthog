@@ -1,15 +1,15 @@
-from posthog.permissions import OrganizationMemberPermissions
+from typing import Optional
+
+from rest_framework import filters, serializers, viewsets
 from rest_framework.exceptions import NotAuthenticated
 from rest_framework.permissions import IsAuthenticated
-from rest_framework import filters, serializers, viewsets
-from posthog.hogql.database.database import create_hogql_database
-from posthog.warehouse.models import DataWarehouseSavedQuery
-from posthog.warehouse.models import DataWarehouseViewLink
-from posthog.api.shared import UserBasicSerializer
-from posthog.api.routing import StructuredViewSetMixin
 
+from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.shared import UserBasicSerializer
+from posthog.hogql.database.database import create_hogql_database
 from posthog.models import User
-from typing import Optional
+from posthog.permissions import OrganizationMemberPermissions
+from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseViewLink
 
 
 class ViewLinkSerializer(serializers.ModelSerializer):

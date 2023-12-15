@@ -1,16 +1,19 @@
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { kea, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
 import { router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
+import { GENERATED_DASHBOARD_PREFIX } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { idToKey, isUserLoggedIn } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import type { dashboardsModelType } from './dashboardsModelType'
-import { DashboardBasicType, DashboardTile, DashboardType, InsightModel, InsightShortId } from '~/types'
-import { urls } from 'scenes/urls'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { teamLogic } from 'scenes/teamLogic'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { urls } from 'scenes/urls'
+
 import { tagsModel } from '~/models/tagsModel'
-import { GENERATED_DASHBOARD_PREFIX } from 'lib/constants'
+import { DashboardBasicType, DashboardTile, DashboardType, InsightModel, InsightShortId } from '~/types'
+
+import type { dashboardsModelType } from './dashboardsModelType'
 
 export const dashboardsModel = kea<dashboardsModelType>([
     path(['models', 'dashboardsModel']),
@@ -321,11 +324,10 @@ export const dashboardsModel = kea<dashboardsModelType>([
             }
         },
     })),
-    events(({ actions }) => ({
-        afterMount: () => {
-            actions.loadDashboards()
-        },
-    })),
+    afterMount(({ actions }) => {
+        actions.loadDashboards()
+    }),
+    permanentlyMount(),
 ])
 
 export function nameCompareFunction(a: DashboardBasicType, b: DashboardBasicType): number {

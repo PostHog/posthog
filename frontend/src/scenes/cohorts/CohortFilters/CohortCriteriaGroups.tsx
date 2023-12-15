@@ -1,18 +1,19 @@
 import './CohortCriteriaGroups.scss'
-import { criteriaToBehavioralFilterType, isCohortCriteriaGroup } from 'scenes/cohorts/cohortUtils'
+
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
 import { Field as KeaField } from 'kea-forms/lib/components'
-import clsx from 'clsx'
-import { Row } from 'antd'
+import { IconCopy, IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { alphabet } from 'lib/utils'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconCopy, IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { useActions, useValues } from 'kea'
+import { cohortEditLogic, CohortLogicProps } from 'scenes/cohorts/cohortEditLogic'
 import { CohortCriteriaRowBuilder } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
-import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import { criteriaToBehavioralFilterType, isCohortCriteriaGroup } from 'scenes/cohorts/cohortUtils'
+
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 
 export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element {
@@ -40,7 +41,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                             error && `CohortCriteriaGroups__matching-group--error`
                                         )}
                                     >
-                                        <Row align="middle" wrap={false} className="px-4">
+                                        <div className="flex flex-nowrap items-center px-4">
                                             <Lettermark name={alphabet[groupIndex]} color={LettermarkColor.Gray} />
                                             <AndOrFilterSelect
                                                 prefix="Match persons against"
@@ -48,7 +49,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                                 onChange={(value) => setInnerGroupType(value, groupIndex)}
                                                 value={group.type}
                                             />
-                                            <div style={{ flex: 1, minWidth: '0.5rem' }} />
+                                            <div className="flex-1 min-w-2" />
                                             <LemonButton
                                                 icon={<IconCopy />}
                                                 status="primary-alt"
@@ -61,7 +62,7 @@ export function CohortCriteriaGroups(logicProps: CohortLogicProps): JSX.Element 
                                                     onClick={() => removeFilter(groupIndex)}
                                                 />
                                             )}
-                                        </Row>
+                                        </div>
                                         <LemonDivider className="my-4" />
                                         {error && (
                                             <LemonBanner className="m-2" type="error">

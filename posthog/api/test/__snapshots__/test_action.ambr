@@ -18,6 +18,7 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."email_opt_in",
+         "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
@@ -49,6 +50,7 @@
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -69,7 +71,9 @@
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
-         "posthog_team"."session_recording_retention_period_days"
+         "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='project_actions-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/actions/%3F%24'*/
@@ -111,6 +115,7 @@
          "posthog_user"."requested_password_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."email_opt_in",
+         "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
@@ -171,6 +176,7 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."email_opt_in",
+         "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
@@ -202,6 +208,7 @@
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -222,7 +229,9 @@
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
-         "posthog_team"."session_recording_retention_period_days"
+         "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='project_actions-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/actions/%3F%24'*/
@@ -318,6 +327,7 @@
          "posthog_user"."requested_password_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."email_opt_in",
+         "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
@@ -459,6 +469,7 @@
          "posthog_user"."requested_password_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."email_opt_in",
+         "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
@@ -495,6 +506,7 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."email_opt_in",
+         "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
@@ -526,6 +538,7 @@
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -546,7 +559,9 @@
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
-         "posthog_team"."session_recording_retention_period_days"
+         "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='project_actions-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/actions/%3F%24'*/

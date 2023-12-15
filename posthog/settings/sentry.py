@@ -15,6 +15,18 @@ from random import random
 from datetime import timedelta
 
 
+def before_send(event, hint):
+    for exception in event.get("exception", {}).get("values", []):
+        for frame in exception.get("stacktrace", {}).get("frames", []):
+            args = frame.get("vars", {}).get("args", {})
+            if isinstance(args, dict):
+                for key in args.keys():
+                    if "sensitive" in key:
+                        frame["vars"]["args"][key] = "[Filtered]"
+
+    return event
+
+
 def before_send_transaction(event, hint):
     url_string = event.get("request", {}).get("url")
     if url_string and "decide" in url_string:
@@ -102,6 +114,14 @@ def traces_sampler(sampling_context: dict) -> float:
         else:
             # Default sample rate for Celery tasks
             return 0.001  # 0.1%
+    elif op == "queue.task.celery":
+        task = sampling_context.get("celery_job", {}).get("task")
+        if task == "posthog.tasks.calculate_cohort.insert_cohort_from_feature_flag":
+            # sample all cohort calculations via feature flag
+            return 1
+        # Default sample rate
+        return 0.01
+
     else:
         # Default sample rate for everything else
         return 0.01  # 1%
@@ -147,6 +167,7 @@ def sentry_init() -> None:
             # Configures the sample rate for error events, in the range of 0.0 to 1.0 (default).
             # If set to 0.1 only 10% of error events will be sent. Events are picked randomly.
             traces_sampler=traces_sampler,
+            before_send=before_send,
             before_send_transaction=before_send_transaction,
             _experiments={
                 # https://docs.sentry.io/platforms/python/profiling/

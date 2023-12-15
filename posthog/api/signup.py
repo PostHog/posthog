@@ -402,7 +402,7 @@ def process_social_invite_signup(strategy: DjangoStrategy, invite_id: str, email
 def process_social_domain_jit_provisioning_signup(
     email: str, full_name: str, user: Optional[User] = None
 ) -> Optional[User]:
-    # Check if the user is on a whitelisted domain
+    # Check if the user is on a allowed domain
     domain = email.split("@")[-1]
     try:
         logger.info(f"process_social_domain_jit_provisioning_signup", domain=domain)
@@ -502,7 +502,9 @@ def social_create_user(
             user=user.id if user else None,
         )
         if user:
-            backend_processor = "domain_whitelist"  # This is actually `jit_provisioning` (name kept for backwards-compatibility purposes)
+            backend_processor = (
+                "domain_whitelist"
+            )  # This is actually `jit_provisioning` (name kept for backwards-compatibility purposes)
             from_invite = True  # jit_provisioning means they're definitely not organization_first_user
 
         if not user:

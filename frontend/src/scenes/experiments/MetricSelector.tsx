@@ -1,28 +1,28 @@
-import { BindLogic, useActions, useValues } from 'kea'
-
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { EditorFilterProps, FilterType, InsightLogicProps, InsightShortId, InsightType } from '~/types'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-import { LemonSelect } from '@posthog/lemon-ui'
-import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
-import { Query } from '~/queries/Query/Query'
-import { FunnelsQuery, InsightQueryNode, TrendsQuery } from '~/queries/schema'
-import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
-import { FunnelConversionWindowFilter } from 'scenes/insights/views/Funnels/FunnelConversionWindowFilter'
-import { InfoCircleOutlined } from '@ant-design/icons'
-
 import './Experiment.scss'
+
+import { IconInfo } from '@posthog/icons'
+import { LemonSelect } from '@posthog/lemon-ui'
+import { BindLogic, useActions, useValues } from 'kea'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
+import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
+import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { FunnelConversionWindowFilter } from 'scenes/insights/views/Funnels/FunnelConversionWindowFilter'
+
+import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { TestAccountFilter } from '~/queries/nodes/InsightViz/filters/TestAccountFilter'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { Query } from '~/queries/Query/Query'
+import { FunnelsQuery, InsightQueryNode, TrendsQuery } from '~/queries/schema'
+import { EditorFilterProps, FilterType, InsightLogicProps, InsightShortId, InsightType } from '~/types'
+
 import { DEFAULT_DURATION } from './experimentLogic'
 
 export interface MetricSelectorProps {
@@ -145,8 +145,8 @@ export function ExperimentInsightCreator({ insightProps }: { insightProps: Insig
 export function AttributionSelect({ insightProps }: EditorFilterProps): JSX.Element {
     return (
         <div className="flex items-center w-full gap-2">
-            <span>
-                Attribution type
+            <div className="flex">
+                <span>Attribution type</span>
                 <Tooltip
                     title={
                         <div>
@@ -163,9 +163,9 @@ export function AttributionSelect({ insightProps }: EditorFilterProps): JSX.Elem
                         </div>
                     }
                 >
-                    <InfoCircleOutlined className="info-indicator" />
+                    <IconInfo className="w-4 info-indicator" />
                 </Tooltip>
-            </span>
+            </div>
             <Attribution insightProps={insightProps} />
         </div>
     )

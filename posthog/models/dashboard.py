@@ -52,7 +52,7 @@ class Dashboard(models.Model):
     last_accessed_at: models.DateTimeField = models.DateTimeField(blank=True, null=True)
     filters: models.JSONField = models.JSONField(default=dict)
     creation_mode: models.CharField = models.CharField(max_length=16, default="default", choices=CreationMode.choices)
-    restriction_level: (models.PositiveSmallIntegerField) = models.PositiveSmallIntegerField(
+    restriction_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
         default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
         choices=RestrictionLevel.choices,
     )

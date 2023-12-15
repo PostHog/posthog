@@ -1,9 +1,11 @@
-import { useRef, useState } from 'react'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconErrorOutline, IconInfo } from 'lib/lemon-ui/icons'
+import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
+import { IconErrorOutline, IconInfo } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import { useRef, useState } from 'react'
+
 import { hogQLEditorLogic } from './hogQLEditorLogic'
 
 export interface HogQLEditorProps {
@@ -93,9 +95,9 @@ export function HogQLEditor({
                         disablePersonProperties ? '' : 'w-full '
                     }text-right select-none ${CLICK_OUTSIDE_BLOCK_CLASS}`}
                 >
-                    <a href="https://posthog.com/manual/hogql" target={'_blank'}>
+                    <Link to="https://posthog.com/manual/hogql" target="_blank">
                         Learn more about HogQL
-                    </a>
+                    </Link>
                 </div>
             </div>
         </>

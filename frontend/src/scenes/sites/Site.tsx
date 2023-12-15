@@ -1,8 +1,10 @@
-import { SceneExport } from 'scenes/sceneTypes'
 import './Site.scss'
-import { SiteLogicProps, siteLogic } from './siteLogic'
-import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+
 import { useValues } from 'kea'
+import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+
+import { siteLogic, SiteLogicProps } from './siteLogic'
 
 export const scene: SceneExport = {
     component: Site,

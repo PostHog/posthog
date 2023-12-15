@@ -1,27 +1,31 @@
 import './InfiniteList.scss'
 import '../../lemon-ui/Popover/Popover.scss'
-import { Empty, Tag } from 'antd'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+
+import { LemonTag } from '@posthog/lemon-ui'
+import { Empty } from 'antd'
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { infiniteListLogic, NO_ITEM_SELECTED } from './infiniteListLogic'
+import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
+import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
-import { EventDefinition, PropertyDefinition } from '~/types'
-import { dayjs } from 'lib/dayjs'
 import { STALE_EVENT_SECONDS } from 'lib/constants'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import clsx from 'clsx'
-import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
-import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
-import { pluralize } from 'lib/utils'
+import { dayjs } from 'lib/dayjs'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { pluralize } from 'lib/utils'
 import { useState } from 'react'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
+
+import { EventDefinition, PropertyDefinition } from '~/types'
+
+import { infiniteListLogic, NO_ITEM_SELECTED } from './infiniteListLogic'
 
 export interface InfiniteListProps {
     popupAnchorElement: HTMLDivElement | null
@@ -36,7 +40,7 @@ const staleIndicator = (parsedLastSeen: dayjs.Dayjs | null): JSX.Element => {
                 </>
             }
         >
-            <Tag className="lemonade-tag">Stale</Tag>
+            <LemonTag>Stale</LemonTag>
         </Tooltip>
     )
 }
@@ -64,7 +68,7 @@ const unusedIndicator = (eventNames: string[]): JSX.Element => {
                 </>
             }
         >
-            <Tag className="lemonade-tag">Not seen</Tag>
+            <LemonTag>Not seen</LemonTag>
         </Tooltip>
     )
 }

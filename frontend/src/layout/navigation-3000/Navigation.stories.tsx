@@ -1,9 +1,11 @@
 import { Meta } from '@storybook/react'
-import { mswDecorator, setFeatureFlags } from '~/mocks/browser'
-import { useEffect } from 'react'
 import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useEffect } from 'react'
 import { App } from 'scenes/App'
+import { urls } from 'scenes/urls'
+
+import { mswDecorator, setFeatureFlags } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
 const meta: Meta = {
@@ -23,12 +25,12 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
+        featureFlags: [FEATURE_FLAGS.POSTHOG_3000],
     },
 }
 export default meta
 
 export function NavigationBase(): JSX.Element {
-    setFeatureFlags(['posthog-3000'])
     useEffect(() => {
         router.actions.push(urls.projectHomepage())
     }, [])
@@ -37,7 +39,7 @@ export function NavigationBase(): JSX.Element {
 }
 
 export function Navigation3000(): JSX.Element {
-    setFeatureFlags(['posthog-3000', 'posthog-3000-nav'])
+    setFeatureFlags([FEATURE_FLAGS.POSTHOG_3000, FEATURE_FLAGS.POSTHOG_3000_NAV])
     useEffect(() => {
         router.actions.push(urls.projectHomepage())
     }, [])

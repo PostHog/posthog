@@ -1,5 +1,6 @@
-import { useState } from 'react'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { useState } from 'react'
+
 import { FilterLogicalOperator } from '~/types'
 
 import { AndOrFilterSelect } from './AndOrFilterSelect'

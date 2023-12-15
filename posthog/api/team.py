@@ -101,6 +101,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "session_recording_sample_rate",
             "session_recording_minimum_duration_milliseconds",
             "session_recording_linked_flag",
+            "session_recording_network_payload_capture_config",
             "recording_domains",
             "inject_web_apps",
             "surveys_opt_in",
@@ -144,6 +145,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "session_recording_sample_rate",
             "session_recording_minimum_duration_milliseconds",
             "session_recording_linked_flag",
+            "session_recording_network_payload_capture_config",
             "effective_membership_level",
             "access_control",
             "week_start_day",
@@ -192,6 +194,20 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         return value
 
+    def validate_session_recording_network_payload_capture_config(self, value) -> Dict | None:
+        if value is None:
+            return None
+
+        if not isinstance(value, Dict):
+            raise exceptions.ValidationError("Must provide a dictionary or None.")
+
+        if not all(key in ["recordHeaders", "recordBody"] for key in value.keys()):
+            raise exceptions.ValidationError(
+                "Must provide a dictionary with only 'recordHeaders' and/or 'recordBody' keys."
+            )
+
+        return value
+
     def validate(self, attrs: Any) -> Any:
         if "primary_dashboard" in attrs and attrs["primary_dashboard"].team != self.instance:
             raise exceptions.PermissionDenied("Dashboard does not belong to this team.")
@@ -204,7 +220,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 organization_id = self.instance.organization_id
             else:
                 organization_id = self.context["view"].organization
-            org_membership: (OrganizationMembership) = OrganizationMembership.objects.only("level").get(
+            org_membership: OrganizationMembership = OrganizationMembership.objects.only("level").get(
                 organization_id=organization_id, user=request.user
             )
             if org_membership.level < OrganizationMembership.Level.ADMIN:

@@ -1,7 +1,8 @@
-import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
-import { playerInspectorLogic } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { playerInspectorLogic } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+
+import { initKeaTests } from '~/test/init'
 
 const playerLogicProps = { sessionRecordingId: '1', playerKey: 'playlist' }
 

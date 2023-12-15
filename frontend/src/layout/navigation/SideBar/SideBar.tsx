@@ -1,22 +1,23 @@
+import './SideBar.scss'
+
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { Link } from 'lib/lemon-ui/Link'
-import { useState } from 'react'
-import { ProjectName, ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
+import { ActivationSidebar } from 'lib/components/ActivationSidebar/ActivationSidebar'
+import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { DebugNotice } from 'lib/components/DebugNotice'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 import {
     IconApps,
     IconBarChart,
     IconCohort,
-    IconComment,
     IconDatabase,
     IconExperiment,
     IconFlag,
     IconGauge,
     IconLive,
     IconMessages,
-    IconNotebook,
     IconOpenInApp,
-    IconPerson,
     IconPinOutline,
     IconPipeline,
     IconPlus,
@@ -28,8 +29,22 @@ import {
     IconUnverifiedEvent,
     IconWeb,
 } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
+import { Link } from 'lib/lemon-ui/Link'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useState } from 'react'
+import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
+import { IconNotebook } from 'scenes/notebooks/IconNotebook'
+import { NotebookPopover } from 'scenes/notebooks/NotebookPanel/NotebookPopover'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { ProjectName, ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
+import { PageButton } from '~/layout/navigation/SideBar/PageButton'
+import { SideBarApps } from '~/layout/navigation/SideBar/SideBarApps'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { organizationLogic } from '~/scenes/organizationLogic'
 import { canViewPlugins } from '~/scenes/plugins/access'
@@ -37,30 +52,14 @@ import { Scene } from '~/scenes/sceneTypes'
 import { isAuthenticatedTeam, teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
 import { AvailableFeature } from '~/types'
-import './SideBar.scss'
+
 import { navigationLogic } from '../navigationLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { groupsModel } from '~/models/groupsModel'
-import { userLogic } from 'scenes/userLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { SideBarApps } from '~/layout/navigation/SideBar/SideBarApps'
-import { PageButton } from '~/layout/navigation/SideBar/PageButton'
-import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
-import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { DebugNotice } from 'lib/components/DebugNotice'
-import ActivationSidebar from 'lib/components/ActivationSidebar/ActivationSidebar'
-import { NotebookPopover } from 'scenes/notebooks/Notebook/NotebookPopover'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { hideSideBarMobile, toggleProjectSwitcher, hideProjectSwitcher } = useActions(navigationLogic)
     const { isProjectSwitcherShown } = useValues(navigationLogic)
     const { pinnedDashboards } = useValues(dashboardsModel)
-    const { showGroupsOptions } = useValues(groupsModel)
     const { hasAvailableFeature } = useValues(userLogic)
     const { preflight } = useValues(preflightLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -93,7 +92,7 @@ function Pages(): JSX.Element {
                     dropdown: {
                         visible: isProjectSwitcherShown,
                         onClickOutside: hideProjectSwitcher,
-                        overlay: <ProjectSwitcherOverlay />,
+                        overlay: <ProjectSwitcherOverlay onClickInside={hideProjectSwitcher} />,
                         actionable: true,
                     },
                 }}
@@ -182,7 +181,7 @@ function Pages(): JSX.Element {
                             icon={<IconWeb />}
                             identifier={Scene.WebAnalytics}
                             to={urls.webAnalytics()}
-                            highlight="alpha"
+                            highlight="beta"
                         />
                     </FlaggedFeature>
                     <PageButton icon={<IconRecording />} identifier={Scene.Replay} to={urls.replay()} />
@@ -205,7 +204,7 @@ function Pages(): JSX.Element {
                     <PageButton
                         icon={<IconRocketLaunch />}
                         identifier={Scene.EarlyAccessFeatures}
-                        title={'Early Access Management'}
+                        title={'Early access features'}
                         to={urls.earlyAccessFeatures()}
                     />
                     <div className="SideBar__heading">Data</div>
@@ -214,7 +213,7 @@ function Pages(): JSX.Element {
                         icon={<IconLive />}
                         identifier={Scene.Events}
                         to={urls.events()}
-                        title={'Event Explorer'}
+                        title={'Event explorer'}
                     />
                     <PageButton
                         icon={<IconUnverifiedEvent />}
@@ -222,10 +221,10 @@ function Pages(): JSX.Element {
                         to={urls.eventDefinitions()}
                     />
                     <PageButton
-                        icon={<IconPerson />}
-                        identifier={Scene.Persons}
+                        icon={<IconCohort />}
+                        identifier={Scene.PersonsManagement}
                         to={urls.persons()}
-                        title={`Persons${showGroupsOptions ? ' & Groups' : ''}`}
+                        title="People"
                     />
                     <FlaggedFeature flag={FEATURE_FLAGS.PIPELINE_UI}>
                         <PageButton icon={<IconPipeline />} identifier={Scene.Pipeline} to={urls.pipeline()} />
@@ -234,19 +233,17 @@ function Pages(): JSX.Element {
                         <PageButton
                             icon={<IconDatabase />}
                             identifier={Scene.DataWarehouse}
-                            title={'Data Warehouse'}
+                            title={'Data warehouse'}
                             to={urls.dataWarehouse()}
                             highlight="beta"
                         />
                     </FlaggedFeature>
-                    <PageButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
-                    <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
                     {canViewPlugins(currentOrganization) || Object.keys(frontendApps).length > 0 ? (
                         <>
                             <div className="SideBar__heading">Apps</div>
                             {canViewPlugins(currentOrganization) && (
                                 <PageButton
-                                    title="Browse Apps"
+                                    title="Browse apps"
                                     icon={<IconApps />}
                                     identifier={Scene.Apps}
                                     to={urls.projectApps()}
@@ -277,11 +274,7 @@ function Pages(): JSX.Element {
                             },
                         }}
                     />
-                    <PageButton
-                        icon={<IconSettings />}
-                        identifier={Scene.ProjectSettings}
-                        to={urls.projectSettings()}
-                    />
+                    <PageButton icon={<IconSettings />} identifier={Scene.Settings} to={urls.settings('project')} />
                 </>
             )}
         </ul>

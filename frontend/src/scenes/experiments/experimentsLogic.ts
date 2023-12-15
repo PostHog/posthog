@@ -1,15 +1,18 @@
-import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
-import api from 'lib/api'
-import type { experimentsLogicType } from './experimentsLogicType'
-import { teamLogic } from 'scenes/teamLogic'
-import { AvailableFeature, Experiment, ExperimentsTabs, ProductKey, ProgressStatus } from '~/types'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { LemonTagType } from '@posthog/lemon-ui'
 import Fuse from 'fuse.js'
-import { userLogic } from 'scenes/userLogic'
-import { subscriptions } from 'kea-subscriptions'
+import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { subscriptions } from 'kea-subscriptions'
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { AvailableFeature, Experiment, ExperimentsTabs, ProductKey, ProgressStatus } from '~/types'
+
+import type { experimentsLogicType } from './experimentsLogicType'
 
 export function getExperimentStatus(experiment: Experiment): ProgressStatus {
     if (!experiment.start_date) {
@@ -18,6 +21,17 @@ export function getExperimentStatus(experiment: Experiment): ProgressStatus {
         return ProgressStatus.Running
     }
     return ProgressStatus.Complete
+}
+
+export function getExperimentStatusColor(status: ProgressStatus): LemonTagType {
+    switch (status) {
+        case ProgressStatus.Draft:
+            return 'default'
+        case ProgressStatus.Running:
+            return 'success'
+        case ProgressStatus.Complete:
+            return 'completion'
+    }
 }
 
 export const experimentsLogic = kea<experimentsLogicType>([
@@ -65,6 +79,11 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 deleteExperiment: async (id: number) => {
                     await api.delete(`api/projects/${values.currentTeamId}/experiments/${id}`)
                     lemonToast.info('Experiment removed')
+                    return values.experiments.filter((experiment) => experiment.id !== id)
+                },
+                archiveExperiment: async (id: number) => {
+                    await api.update(`api/projects/${values.currentTeamId}/experiments/${id}`, { archived: true })
+                    lemonToast.info('Experiment archived')
                     return values.experiments.filter((experiment) => experiment.id !== id)
                 },
                 addToExperiments: (experiment: Experiment) => {

@@ -1,6 +1,8 @@
 import { LemonModal } from '@posthog/lemon-ui'
 import { capitalizeFirstLetter } from 'lib/utils'
+
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2PlanType } from '~/types'
+
 import { getTierDescription } from './BillingProduct'
 
 export const ProductPricingModal = ({

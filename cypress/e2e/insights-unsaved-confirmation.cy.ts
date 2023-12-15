@@ -38,11 +38,9 @@ describe('Insights', () => {
             const insightName = randomString('to save and then navigate away from')
             insight.create(insightName)
 
-            cy.get('[data-attr="menu-item-annotations"]').click()
+            cy.get('[data-attr="menu-item-dashboards"]').click()
 
-            // the annotations API call is made before the annotations page loads, so we can't wait for it
-            cy.get('[data-attr="annotations-content"]').should('exist')
-            cy.url().should('include', '/annotations')
+            cy.url().should('include', '/dashboard')
         })
 
         it('Can keep editing changed new insight after navigating away with confirm() rejection (case 1)', () => {

@@ -1,4 +1,5 @@
 import { dayjs } from 'lib/dayjs'
+
 import { BillingProductV2Type, BillingV2TierType, BillingV2Type } from '~/types'
 
 export const summarizeUsage = (usage: number | null): string => {
@@ -50,12 +51,15 @@ export const convertUsageToAmount = (
     const tiers = productAndAddonTiers[0].map((tier, index) => {
         const allAddonsTiers = productAndAddonTiers.slice(1)
         let totalAmount = parseFloat(tier.unit_amount_usd)
+        let flatFee = parseFloat(tier.flat_amount_usd || '0')
         for (const addonTiers of allAddonsTiers) {
             totalAmount += parseFloat(addonTiers[index].unit_amount_usd)
+            flatFee += parseFloat(addonTiers[index].flat_amount_usd || '0')
         }
         return {
             ...tier,
             unit_amount_usd: totalAmount.toString(),
+            flat_amount_usd: flatFee.toString(),
         }
     })
 
@@ -66,9 +70,13 @@ export const convertUsageToAmount = (
 
         const tierUsageMax = tier.up_to ? tier.up_to - (previousTier?.up_to || 0) : Infinity
         const amountFloatUsd = parseFloat(tier.unit_amount_usd)
+        const tierFlatFee = parseFloat(tier.flat_amount_usd || '0')
         const usageThisTier = Math.min(remainingUsage, tierUsageMax)
         remainingUsage -= usageThisTier
         amount += amountFloatUsd * usageThisTier
+        if (tierFlatFee) {
+            amount += tierFlatFee
+        }
         previousTier = tier
     }
 
@@ -95,12 +103,15 @@ export const convertAmountToUsage = (
     const tiers = productAndAddonTiers[0].map((tier, index) => {
         const allAddonsTiers = productAndAddonTiers.slice(1)
         let totalAmount = parseFloat(tier.unit_amount_usd)
+        let flatFee = parseFloat(tier.flat_amount_usd || '0')
         for (const addonTiers of allAddonsTiers) {
             totalAmount += parseFloat(addonTiers[index].unit_amount_usd)
+            flatFee += parseFloat(addonTiers[index].flat_amount_usd || '0')
         }
         return {
             ...tier,
             unit_amount_usd: totalAmount.toString(),
+            flat_amount_usd: flatFee.toString(),
         }
     })
 
@@ -134,10 +145,14 @@ export const convertAmountToUsage = (
 
         const tierUsageMax = tier.up_to ? tier.up_to - (previousTier?.up_to || 0) : Infinity
         const amountFloatUsd = parseFloat(tier.unit_amount_usd)
+        const tierFlatFee = parseFloat(tier.flat_amount_usd || '0')
         const usageThisTier = Math.min(remainingAmount / amountFloatUsd, tierUsageMax)
 
         usage += usageThisTier
         remainingAmount -= amountFloatUsd * usageThisTier
+        if (tierFlatFee) {
+            remainingAmount -= tierFlatFee
+        }
         previousTier = tier
     }
 

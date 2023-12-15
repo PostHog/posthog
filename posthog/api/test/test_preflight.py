@@ -49,7 +49,6 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
     def preflight_authenticated_dict(self, options={}):
         preflight = {
             "opt_out_capture": False,
-            "is_debug": False,
             "licensed_users_available": None,
             "site_url": "http://localhost:8000",
             "can_create_org": False,

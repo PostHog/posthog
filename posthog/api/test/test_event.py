@@ -446,9 +446,10 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             from posthog.client import sync_execute
 
             self.assertEqual(
-                sync_execute("select count(*) from events where team_id = %(team_id)s", {"team_id": self.team.pk},)[
-                    0
-                ][0],
+                sync_execute(
+                    "select count(*) from events where team_id = %(team_id)s",
+                    {"team_id": self.team.pk},
+                )[0][0],
                 250,
             )
 
@@ -495,9 +496,10 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             from posthog.client import sync_execute
 
             self.assertEqual(
-                sync_execute("select count(*) from events where team_id = %(team_id)s", {"team_id": self.team.pk},)[
-                    0
-                ][0],
+                sync_execute(
+                    "select count(*) from events where team_id = %(team_id)s",
+                    {"team_id": self.team.pk},
+                )[0][0],
                 25,
             )
 

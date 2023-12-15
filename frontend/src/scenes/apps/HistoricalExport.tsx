@@ -1,7 +1,9 @@
 import { Card } from 'antd'
 import { useValues } from 'kea'
+
+import { AppMetricsTab } from '~/types'
+
 import { AppMetricsGraph } from './AppMetricsGraph'
-import { AppMetricsTab } from './appMetricsSceneLogic'
 import { historicalExportLogic, HistoricalExportLogicProps } from './historicalExportLogic'
 import { ErrorsOverview, MetricsOverview } from './MetricsTab'
 

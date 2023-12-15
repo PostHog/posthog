@@ -33,7 +33,7 @@ class DummyCluster(Cluster):
     MIN_RADIUS = 0
     MAX_RADIUS = 0
 
-    def initation_distribution(self) -> float:
+    def initiation_distribution(self) -> float:
         return 0  # Start every cluster at the same time
 
 
@@ -85,9 +85,10 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
 
         # At least one event for each cluster
         assert (
-            sync_execute("SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": self.team.pk},)[
-                0
-            ][0]
+            sync_execute(
+                "SELECT count() FROM events WHERE team_id = %(team_id)s",
+                {"team_id": self.team.pk},
+            )[0][0]
             >= 3
         )
         assert self.team.name == DummyMatrix.PRODUCT_NAME
@@ -100,8 +101,9 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
         # At least one event for each cluster
         assert sync_execute("SELECT count() FROM events WHERE team_id = 0")[0][0] >= 3
         assert (
-            sync_execute("SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": self.team.pk},)[
-                0
-            ][0]
+            sync_execute(
+                "SELECT count() FROM events WHERE team_id = %(team_id)s",
+                {"team_id": self.team.pk},
+            )[0][0]
             >= 3
         )

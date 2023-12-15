@@ -1,11 +1,12 @@
 import { Meta } from '@storybook/react'
 
-import { CodeInstructions, CodeInstructionsProps } from './FeatureFlagInstructions'
-import { OPTIONS } from './FeatureFlagCodeOptions'
-import { FeatureFlagType, SDKKey } from '~/types'
 import { useStorybookMocks } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
+import { FeatureFlagType, SDKKey } from '~/types'
 import { AvailableFeature } from '~/types'
+
+import { OPTIONS } from './FeatureFlagCodeOptions'
+import { CodeInstructions, CodeInstructionsProps } from './FeatureFlagInstructions'
 
 const REGULAR_FEATURE_FLAG: FeatureFlagType = {
     id: 1,

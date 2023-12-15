@@ -1,17 +1,22 @@
-import { actions, connect, kea, listeners, path, reducers } from 'kea'
-import { userLogic } from 'scenes/userLogic'
-
-import type { supportLogicType } from './supportLogicType'
+import { captureException } from '@sentry/react'
+import * as Sentry from '@sentry/react'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import { Region, TeamType, UserType } from '~/types'
+import { actionToUrl, router, urlToAction } from 'kea-router'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { actionToUrl, router, urlToAction } from 'kea-router'
-import { captureException } from '@sentry/react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import * as Sentry from '@sentry/react'
+import { userLogic } from 'scenes/userLogic'
+
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { Region, SidePanelTab, TeamType, UserType } from '~/types'
+
+import type { supportLogicType } from './supportLogicType'
+import { openSupportModal } from './SupportModal'
 
 function getSessionReplayLink(): string {
     const link = posthog
@@ -41,6 +46,12 @@ function getSentryLink(user: UserType | null, cloudRegion: Region | null | undef
     return `Sentry: ${link}`
 }
 
+const SUPPORT_TICKET_KIND_TO_TITLE: Record<SupportTicketKind, string> = {
+    support: 'Ask a question',
+    feedback: 'Give feedback',
+    bug: 'Report a bug',
+}
+
 export const TARGET_AREA_TO_NAME = {
     app_performance: 'App Performance',
     apps: 'Apps',
@@ -58,6 +69,7 @@ export const TARGET_AREA_TO_NAME = {
     toolbar: 'Toolbar & heatmaps',
     surveys: 'Surveys',
     web_analytics: 'Web Analytics',
+    'posthog-3000': 'PostHog 3000',
 }
 
 export const SUPPORT_KIND_TO_SUBJECT = {
@@ -65,6 +77,7 @@ export const SUPPORT_KIND_TO_SUBJECT = {
     feedback: 'Feedback',
     support: 'Support Ticket',
 }
+
 export type SupportTicketTargetArea = keyof typeof TARGET_AREA_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
@@ -94,112 +107,115 @@ export function getURLPathToTargetArea(pathname: string): SupportTicketTargetAre
     return URL_PATH_TO_TARGET_AREA[first_part] ?? null
 }
 
+export type SupportFormLogicProps = {
+    onClose?: () => void
+}
+
+export type SupportFormFields = {
+    name: string
+    email: string
+    kind: SupportTicketKind
+    target_area: SupportTicketTargetArea | null
+    message: string
+}
+
 export const supportLogic = kea<supportLogicType>([
+    props({} as SupportFormLogicProps),
     path(['lib', 'components', 'support', 'supportLogic']),
     connect(() => ({
-        values: [userLogic, ['user'], preflightLogic, ['preflight']],
+        values: [
+            userLogic,
+            ['user'],
+            preflightLogic,
+            ['preflight'],
+            featureFlagLogic,
+            ['featureFlags'],
+            sidePanelStateLogic,
+            ['sidePanelAvailable'],
+        ],
+        actions: [sidePanelStateLogic, ['openSidePanel', 'setSidePanelOptions']],
     })),
     actions(() => ({
-        closeSupportForm: () => true,
-        openSupportForm: (
-            kind: SupportTicketKind | null = null,
-            target_area: SupportTicketTargetArea | null = null
-        ) => ({
-            kind,
-            target_area,
-        }),
-        openSupportLoggedOutForm: (
-            name: string | null = null,
-            email: string | null = null,
-            kind: SupportTicketKind | null = null,
-            target_area: SupportTicketTargetArea | null = null
-        ) => ({ name, email, kind, target_area }),
-        submitZendeskTicket: (
-            name: string,
-            email: string,
-            kind: SupportTicketKind | null,
-            target_area: string | null,
-            message: string
-        ) => ({
-            name,
-            email,
-            kind,
-            target_area,
-            message,
-        }),
+        closeSupportForm: true,
+        openSupportForm: (values: Partial<SupportFormFields>) => values,
+        submitZendeskTicket: (form: SupportFormFields) => form,
+        updateUrlParams: true,
     })),
     reducers(() => ({
         isSupportFormOpen: [
             false,
             {
                 openSupportForm: () => true,
-                openSupportLoggedOutForm: () => true,
                 closeSupportForm: () => false,
             },
         ],
     })),
-    forms(({ actions }) => ({
+    forms(({ actions, values }) => ({
         sendSupportRequest: {
-            defaults: {} as unknown as {
-                kind: SupportTicketKind | null
-                target_area: SupportTicketTargetArea | null
-                message: string
-            },
-            errors: ({ message, kind, target_area }) => {
+            defaults: {
+                name: '',
+                email: '',
+                kind: 'support',
+                target_area: null,
+                message: '',
+            } as SupportFormFields,
+            errors: ({ name, email, message, kind, target_area }) => {
                 return {
+                    name: !values.user ? (!name ? 'Please enter your name' : '') : '',
+                    email: !values.user ? (!email ? 'Please enter your email' : '') : '',
                     message: !message ? 'Please enter a message' : '',
                     kind: !kind ? 'Please choose' : undefined,
                     target_area: !target_area ? 'Please choose' : undefined,
                 }
             },
-            submit: async ({ kind, target_area, message }) => {
-                const name = userLogic.values.user?.first_name
-                const email = userLogic.values.user?.email
-                actions.submitZendeskTicket(name || '', email || '', kind, target_area, message)
+            submit: async (formValues) => {
+                formValues.name = values.user?.first_name ?? formValues.name ?? ''
+                formValues.email = values.user?.email ?? formValues.email ?? ''
+                actions.submitZendeskTicket(formValues)
                 actions.closeSupportForm()
                 actions.resetSendSupportRequest()
             },
         },
-        sendSupportLoggedOutRequest: {
-            defaults: {} as unknown as {
-                name: string
-                email: string
-                kind: SupportTicketKind | null
-                target_area: SupportTicketTargetArea | null
-                message: string
-            },
-            errors: ({ name, email, message, kind, target_area }) => {
-                return {
-                    name: !name ? 'Please enter your name' : '',
-                    email: !email ? 'Please enter your email' : '',
-                    message: !message ? 'Please enter a message' : '',
-                    kind: !kind ? 'Please choose' : undefined,
-                    target_area: !target_area ? 'Please choose' : undefined,
-                }
-            },
-            submit: async ({ name, email, kind, target_area, message }) => {
-                actions.submitZendeskTicket(name || '', email || '', kind, target_area, message)
-                actions.closeSupportForm()
-                actions.resetSendSupportLoggedOutRequest()
-            },
-        },
     })),
-    listeners(({ actions }) => ({
-        openSupportForm: async ({ kind, target_area }) => {
-            actions.resetSendSupportRequest({
-                kind,
-                target_area: target_area ?? getURLPathToTargetArea(window.location.pathname),
-                message: '',
-            })
+    selectors({
+        title: [
+            (s) => [s.sendSupportRequest ?? null],
+            (sendSupportRequest) =>
+                sendSupportRequest.kind
+                    ? SUPPORT_TICKET_KIND_TO_TITLE[sendSupportRequest.kind]
+                    : 'Leave a message with PostHog',
+        ],
+    }),
+    listeners(({ actions, props, values }) => ({
+        updateUrlParams: async () => {
+            const panelOptions = [
+                values.sendSupportRequest.kind ?? '',
+                values.sendSupportRequest.target_area ?? '',
+            ].join(':')
+
+            if (panelOptions !== ':') {
+                actions.setSidePanelOptions(panelOptions)
+            }
         },
-        openSupportLoggedOutForm: async ({ name, email, kind, target_area }) => {
-            actions.resetSendSupportLoggedOutRequest({
-                name: name ? name : '',
-                email: email ? email : '',
-                kind: kind ? kind : null,
-                target_area: target_area ? target_area : null,
-                message: '',
+        openSupportForm: async ({ name, email, kind, target_area, message }) => {
+            const area = target_area ?? getURLPathToTargetArea(window.location.pathname)
+            kind = kind ?? 'support'
+            actions.resetSendSupportRequest({
+                name: name ?? '',
+                email: email ?? '',
+                kind,
+                target_area: area,
+                message: message ?? '',
             })
+
+            if (values.sidePanelAvailable) {
+                const panelOptions = [kind ?? '', area ?? ''].join(':')
+                actions.openSidePanel(SidePanelTab.Support, panelOptions === ':' ? undefined : panelOptions)
+            } else {
+                openSupportModal()
+            }
+
+            actions.updateUrlParams()
         },
         submitZendeskTicket: async ({ name, email, kind, target_area, message }) => {
             const zendesk_ticket_uuid = uuid()
@@ -233,72 +249,102 @@ export const supportLogic = kea<supportLogicType>([
                     },
                 },
             }
-            await fetch('https://posthoghelp.zendesk.com/api/v2/requests.json', {
-                method: 'POST',
-                body: JSON.stringify(payload, undefined, 4),
-                headers: { 'Content-Type': 'application/json' },
-            })
-                .then((res) => res.json())
-                .then((res) => {
-                    const zendesk_ticket_id = res.request.id
-                    const zendesk_ticket_link = `https://posthoghelp.zendesk.com/agent/tickets/${zendesk_ticket_id}`
-                    const properties = {
-                        zendesk_ticket_uuid,
-                        kind,
-                        target_area,
-                        message,
-                        zendesk_ticket_id,
-                        zendesk_ticket_link,
-                    }
-                    posthog.capture('support_ticket', properties)
-                    Sentry.captureMessage('User submitted Zendesk ticket', {
-                        tags: {
-                            zendesk_ticket_uuid,
-                            zendesk_ticket_link,
-                            support_request_kind: kind,
-                            support_request_area: target_area,
-                            team_id: teamLogic.values.currentTeamId,
-                        },
-                        extra: properties,
-                        level: 'log',
+
+            try {
+                const response = await fetch('https://posthoghelp.zendesk.com/api/v2/requests.json', {
+                    method: 'POST',
+                    body: JSON.stringify(payload, undefined, 4),
+                    headers: { 'Content-Type': 'application/json' },
+                })
+                if (!response.ok) {
+                    const error = new Error(`There was an error creating the support ticket with zendesk.`)
+                    captureException(error, {
+                        extra: { response, payload },
                     })
-                    lemonToast.success(
-                        "Got the message! If we have follow-up information for you, we'll reply via email."
-                    )
-                })
-                .catch((err) => {
-                    captureException(err)
                     lemonToast.error(`There was an error sending the message.`)
+                    return
+                }
+
+                const json = await response.json()
+
+                const zendesk_ticket_id = json.request.id
+                const zendesk_ticket_link = `https://posthoghelp.zendesk.com/agent/tickets/${zendesk_ticket_id}`
+                const properties = {
+                    zendesk_ticket_uuid,
+                    kind,
+                    target_area,
+                    message,
+                    zendesk_ticket_id,
+                    zendesk_ticket_link,
+                }
+                posthog.capture('support_ticket', properties)
+                Sentry.captureMessage('User submitted Zendesk ticket', {
+                    tags: {
+                        zendesk_ticket_uuid,
+                        zendesk_ticket_link,
+                        support_request_kind: kind,
+                        support_request_area: target_area,
+                        team_id: teamLogic.values.currentTeamId,
+                    },
+                    extra: properties,
+                    level: 'log',
                 })
+                lemonToast.success("Got the message! If we have follow-up information for you, we'll reply via email.")
+            } catch (e) {
+                captureException(e)
+                lemonToast.error(`There was an error sending the message.`)
+            }
+        },
+
+        closeSupportForm: () => {
+            props.onClose?.()
+        },
+
+        setSendSupportRequestValue: () => {
+            actions.updateUrlParams()
         },
     })),
 
     urlToAction(({ actions, values }) => ({
         '*': (_, _search, hashParams) => {
-            if ('supportModal' in hashParams && !values.isSupportFormOpen) {
+            if (values.isSupportFormOpen) {
+                return
+            }
+
+            const [panel, ...panelOptions] = (hashParams['panel'] ?? '').split(':')
+
+            if (panel === SidePanelTab.Support) {
+                const [kind, area] = panelOptions
+
+                actions.openSupportForm({
+                    kind: Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
+                    target_area: Object.keys(TARGET_AREA_TO_NAME).includes(area) ? area : null,
+                })
+                return
+            }
+
+            // Legacy supportModal param
+            if ('supportModal' in hashParams) {
                 const [kind, area] = (hashParams['supportModal'] || '').split(':')
 
-                actions.openSupportForm(
-                    Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
-                    Object.keys(TARGET_AREA_TO_NAME).includes(area) ? area : null
-                )
+                actions.openSupportForm({
+                    kind: Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
+                    target_area: Object.keys(TARGET_AREA_TO_NAME).includes(area) ? area : null,
+                })
             }
         },
     })),
     actionToUrl(({ values }) => {
-        const updateUrl = (): any => {
-            const hashParams = router.values.hashParams
-            hashParams['supportModal'] = `${values.sendSupportRequest.kind || ''}:${
-                values.sendSupportRequest.target_area || ''
-            }`
-            return [router.values.location.pathname, router.values.searchParams, hashParams]
-        }
         return {
-            openSupportForm: () => updateUrl(),
-            setSendSupportRequestValue: () => updateUrl(),
             closeSupportForm: () => {
+                if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test') {
+                    return
+                }
+
                 const hashParams = router.values.hashParams
-                delete hashParams['supportModal']
+                delete hashParams['supportModal'] // legacy value
+                delete hashParams['panel']
+
                 return [router.values.location.pathname, router.values.searchParams, hashParams]
             },
         }

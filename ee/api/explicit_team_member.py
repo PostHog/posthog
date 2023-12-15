@@ -48,7 +48,7 @@ class ExplicitTeamMemberSerializer(serializers.ModelSerializer, UserPermissionsS
         user_uuid = validated_data.pop("user_uuid")
         validated_data["team"] = team
         try:
-            requesting_parent_membership: (OrganizationMembership) = OrganizationMembership.objects.get(
+            requesting_parent_membership: OrganizationMembership = OrganizationMembership.objects.get(
                 organization_id=team.organization_id,
                 user__uuid=user_uuid,
                 user__is_active=True,
@@ -110,7 +110,7 @@ class ExplicitTeamMemberViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     lookup_field = "parent_membership__user__uuid"
     ordering = ["level", "-joined_at"]
     serializer_class = ExplicitTeamMemberSerializer
-    include_in_docs = False
+    include_in_docs = True
 
     def get_permissions(self):
         if (

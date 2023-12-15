@@ -1,13 +1,14 @@
-import { useActions, useValues } from 'kea'
 import { useMonaco } from '@monaco-editor/react'
-import { useEffect, useState } from 'react'
-import schema from '~/queries/schema.json'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { queryEditorLogic } from '~/queries/QueryEditor/queryEditorLogic'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import clsx from 'clsx'
-import { QueryContext } from '~/queries/types'
+import { useActions, useValues } from 'kea'
 import { CodeEditor } from 'lib/components/CodeEditors'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { useEffect, useState } from 'react'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+
+import { queryEditorLogic } from '~/queries/QueryEditor/queryEditorLogic'
+import schema from '~/queries/schema.json'
+import { QueryContext } from '~/queries/types'
 
 export interface QueryEditorProps {
     query: string
@@ -49,7 +50,10 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
             ) : null}
             <div
                 data-attr="query-editor"
-                className={clsx('flex flex-col p-2 bg-border space-y-2 resize-y overflow-auto h-80', props.className)}
+                className={clsx(
+                    'flex flex-col p-2 bg-mid space-y-2 resize-y overflow-auto h-80 rounded-sm',
+                    props.className
+                )}
             >
                 <div className="flex-1">
                     <AutoSizer disableWidth>
@@ -72,13 +76,13 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
                 <LemonButton
                     onClick={saveQuery}
                     type="primary"
-                    status={error ? 'danger' : 'muted-alt'}
+                    status={error ? 'danger' : 'primary'}
                     disabled={!props.setQuery || !!error || !inputChanged}
                     fullWidth
                     center
                     data-attr="query-editor-save"
                 >
-                    {!props.setQuery ? 'No permission to update' : 'Update'}
+                    {!props.setQuery ? 'No permission to update' : 'Update and run'}
                 </LemonButton>
             </div>
         </>

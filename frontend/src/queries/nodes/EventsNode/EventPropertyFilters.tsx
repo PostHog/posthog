@@ -1,9 +1,10 @@
-import { EventsNode, EventsQuery, HogQLQuery } from '~/queries/schema'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { AnyPropertyFilter } from '~/types'
-import { useState } from 'react'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useState } from 'react'
+
+import { EventsNode, EventsQuery, HogQLQuery } from '~/queries/schema'
 import { isHogQLQuery } from '~/queries/utils'
+import { AnyPropertyFilter } from '~/types'
 
 interface EventPropertyFiltersProps {
     query: EventsNode | EventsQuery | HogQLQuery
@@ -36,7 +37,6 @@ export function EventPropertyFilters({ query, setQuery }: EventPropertyFiltersPr
                 }
             }}
             pageKey={`EventPropertyFilters.${id}`}
-            style={{ marginBottom: 0, marginTop: 0 }}
             eventNames={eventNames}
         />
     ) : (

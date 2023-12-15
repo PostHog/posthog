@@ -1,10 +1,12 @@
+import { actions, events, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
-import { kea, path, actions, reducers, listeners, events } from 'kea'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
-import { SavedFunnel, InsightType } from '~/types'
-import type { funnelsModelType } from './funnelsModelType'
+
+import { InsightType, SavedFunnel } from '~/types'
+
 import { teamLogic } from '../scenes/teamLogic'
+import type { funnelsModelType } from './funnelsModelType'
 
 const parseSavedFunnel = (result: Record<string, any>): SavedFunnel => {
     return {

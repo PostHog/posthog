@@ -1,9 +1,8 @@
-import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { ClickHouseEvent, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
-import { convertDatabaseElementsToRawElements } from '../worker/vm/upgrades/utils/fetchEventsForInterval'
+import { ClickHouseEvent, Element, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
 import { chainToElements } from './db/elements-chain'
 import { personInitialAndUTMProperties } from './db/utils'
 import {
@@ -11,6 +10,22 @@ import {
     clickHouseTimestampToDateTime,
     clickHouseTimestampToISO,
 } from './utils'
+
+interface RawElement extends Element {
+    $el_text?: string
+}
+
+const convertDatabaseElementsToRawElements = (elements: RawElement[]): RawElement[] => {
+    for (const element of elements) {
+        if (element.attributes && element.attributes.attr__class) {
+            element.attr_class = element.attributes.attr__class
+        }
+        if (element.text) {
+            element.$el_text = element.text
+        }
+    }
+    return elements
+}
 
 export function convertToProcessedPluginEvent(event: PostIngestionEvent): ProcessedPluginEvent {
     return {
@@ -59,6 +74,18 @@ export function parseRawClickHouseEvent(rawEvent: RawClickHouseEvent): ClickHous
         group4_created_at: rawEvent.group4_created_at
             ? clickHouseTimestampToDateTime(rawEvent.group4_created_at)
             : null,
+    }
+}
+export function convertToPostHogEvent(event: RawClickHouseEvent): PostHogEvent {
+    const properties = event.properties ? JSON.parse(event.properties) : {}
+    properties['$elements_chain'] = event.elements_chain // TODO: tests
+    return {
+        uuid: event.uuid,
+        event: event.event!,
+        team_id: event.team_id,
+        distinct_id: event.distinct_id,
+        properties,
+        timestamp: new Date(clickHouseTimestampToISO(event.timestamp)),
     }
 }
 

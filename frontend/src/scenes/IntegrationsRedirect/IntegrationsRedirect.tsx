@@ -1,6 +1,6 @@
-import { SceneExport } from 'scenes/sceneTypes'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { integrationsLogic } from 'scenes/project/Settings/integrationsLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+import { integrationsLogic } from 'scenes/settings/project/integrationsLogic'
 
 export const scene: SceneExport = {
     component: IntegrationsRedirect,

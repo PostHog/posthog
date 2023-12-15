@@ -1,9 +1,6 @@
-import { KeyMapping, PropertyFilterValue } from '~/types'
+import { KeyMapping, KeyMappingInterface, PropertyFilterValue } from '~/types'
 
-export interface KeyMappingInterface {
-    event: Record<string, KeyMapping>
-    element: Record<string, KeyMapping>
-}
+import { Link } from './lemon-ui/Link'
 
 // If adding event properties with labels, check whether they should be added to
 // PROPERTY_NAME_ALIASES in posthog/api/property_definition.py
@@ -71,7 +68,17 @@ export const KEY_MAPPING: KeyMappingInterface = {
                 'The version of the browser that the user first used (first-touch). Used in combination with Browser.',
             examples: ['70', '79'],
         },
-
+        $raw_user_agent: {
+            label: 'Raw User Agent',
+            description:
+                'PostHog process information like browser, OS, and device type from the user agent string. This is the raw user agent string.',
+            examples: ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)'],
+        },
+        $user_agent: {
+            label: 'Raw User Agent',
+            description: 'Some SDKs (like Android) send the raw user agent as $user_agent.',
+            examples: ['Dalvik/2.1.0 (Linux; U; Android 11; Pixel 3 Build/RQ2A.210505.002)'],
+        },
         $screen_height: {
             label: 'Screen Height',
             description: "The height of the user's entire screen (in pixels).",
@@ -136,8 +143,8 @@ export const KEY_MAPPING: KeyMappingInterface = {
             description: (
                 <span>
                     This variable will be set to the distinct ID if you've called{' '}
-                    <pre style={{ display: 'inline' }}>posthog.identify('distinct id')</pre>. If the user is anonymous,
-                    it'll be empty.
+                    <pre className="inline">posthog.identify('distinct id')</pre>. If the user is anonymous, it'll be
+                    empty.
                 </span>
             ),
         },
@@ -227,6 +234,32 @@ export const KEY_MAPPING: KeyMappingInterface = {
             label: 'Initial Device Type',
             description: 'The initial type of device that was used (first-touch).',
             examples: ['Mobile', 'Tablet', 'Desktop'],
+        },
+        $screen_density: {
+            label: 'Screen density',
+            description:
+                'The logical density of the display. This is a scaling factor for the Density Independent Pixel unit, where one DIP is one pixel on an approximately 160 dpi screen (for example a 240x320, 1.5"x2" screen), providing the baseline of the system\'s display. Thus on a 160dpi screen this density value will be 1; on a 120 dpi screen it would be .75; etc.',
+            examples: [2.75],
+        },
+        $device_model: {
+            label: 'Device Model',
+            description: 'The model of the device that was used.',
+            examples: ['iPhone9,3', 'SM-G965W'],
+        },
+        $network_wifi: {
+            label: 'Network WiFi',
+            description: 'Whether the user was on WiFi when the event was sent.',
+            examples: ['true', 'false'],
+        },
+        $network_bluetooth: {
+            label: 'Network Bluetooth',
+            description: 'Whether the user was on Bluetooth when the event was sent.',
+            examples: ['true', 'false'],
+        },
+        $network_cellular: {
+            label: 'Network Cellular',
+            description: 'Whether the user was on cellular when the event was sent.',
+            examples: ['true', 'false'],
         },
         $pageview: {
             label: 'Pageview',
@@ -659,6 +692,11 @@ export const KEY_MAPPING: KeyMappingInterface = {
             label: 'GeoIP Disabled',
             description: `Whether to skip GeoIP processing for the event.`,
         },
+        $el_text: {
+            label: 'Element Text',
+            description: `The text of the element that was clicked. Only sent with Autocapture events.`,
+            examples: ['Click here!'],
+        },
         // NOTE: This is a hack. $session_duration is a session property, not an event property
         // but we don't do a good job of tracking property types, so making it a session property
         // would require a large refactor, and this works (because all properties are treated as
@@ -668,7 +706,7 @@ export const KEY_MAPPING: KeyMappingInterface = {
             description: (
                 <span>
                     The duration of the session being tracked. Learn more about how PostHog tracks sessions in{' '}
-                    <a href="https://posthog.com/docs/user-guides/sessions">our documentation.</a>
+                    <Link to="https://posthog.com/docs/user-guides/sessions">our documentation.</Link>
                     <br /> <br />
                     Note, if the duration is formatted as a single number (not 'HH:MM:SS'), it's in seconds.
                 </span>
@@ -734,6 +772,41 @@ export const KEY_MAPPING: KeyMappingInterface = {
             label: 'Exception',
             description: 'Automatically captured exceptions from the client Sentry integration',
         },
+        $client_session_initial_referring_host: {
+            label: 'Referrer Host',
+            description: 'Host that the user came from. (First-touch, session-scoped)',
+            examples: ['google.com', 'facebook.com'],
+        },
+        $client_session_initial_pathname: {
+            label: 'Initial Path',
+            description: 'Path that the user started their session on. (First-touch, session-scoped)',
+            examples: ['/register', '/some/landing/page'],
+        },
+        $client_session_initial_utm_source: {
+            label: 'Initial UTM Source',
+            description: 'UTM Source. (First-touch, session-scoped)',
+            examples: ['Google', 'Bing', 'Twitter', 'Facebook'],
+        },
+        $client_session_initial_utm_campaign: {
+            label: 'Initial UTM Campaign',
+            description: 'UTM Campaign. (First-touch, session-scoped)',
+            examples: ['feature launch', 'discount'],
+        },
+        $client_session_initial_utm_medium: {
+            label: 'Initial UTM Medium',
+            description: 'UTM Medium. (First-touch, session-scoped)',
+            examples: ['Social', 'Organic', 'Paid', 'Email'],
+        },
+        $client_session_initial_utm_content: {
+            label: 'Initial UTM Source',
+            description: 'UTM Source. (First-touch, session-scoped)',
+            examples: ['bottom link', 'second button'],
+        },
+        $client_session_initial_utm_term: {
+            label: 'Initial UTM Source',
+            description: 'UTM Source. (First-touch, session-scoped)',
+            examples: ['free goodies'],
+        },
     },
     element: {
         tag_name: {
@@ -794,7 +867,7 @@ export function getKeyMapping(
         data = { ...KEY_MAPPING[type][value.replace(/^\$initial_/, '$')] }
         if (data.description) {
             data.label = `Initial ${data.label}`
-            data.description = `${data.description} Data from the first time this user was seen.`
+            data.description = `${String(data.description)} Data from the first time this user was seen.`
         }
         return data
     } else if (value.startsWith('$survey_responded/')) {

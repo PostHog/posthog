@@ -97,6 +97,7 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."email_opt_in",
+         "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
@@ -128,6 +129,7 @@
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -148,7 +150,9 @@
          "posthog_team"."primary_dashboard_id",
          "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
-         "posthog_team"."session_recording_retention_period_days"
+         "posthog_team"."session_recording_retention_period_days",
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."api_token" = 'token123'
   LIMIT 21 /*controller='posthog.api.survey.surveys',route='%5Eapi/surveys/%3F%28%3F%3A%5B%3F%23%5D.%2A%29%3F%24'*/

@@ -1,12 +1,14 @@
-import { ElementType } from '~/types'
-import { SelectableElement } from './SelectableElement'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { htmlElementsDisplayLogic } from 'lib/components/HTMLElementsDisplay/htmlElementsDisplayLogic'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
+import { htmlElementsDisplayLogic } from 'lib/components/HTMLElementsDisplay/htmlElementsDisplayLogic'
 import { ParsedCSSSelector } from 'lib/components/HTMLElementsDisplay/preselectWithCSS'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { useState } from 'react'
+
+import { ElementType } from '~/types'
+
 import { Fade } from '../Fade/Fade'
+import { SelectableElement } from './SelectableElement'
 
 function indent(level: number): string {
     return Array(level).fill('    ').join('')

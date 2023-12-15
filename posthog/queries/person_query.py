@@ -341,7 +341,10 @@ class PersonQuery:
             )
             finalization_sql = f"AND ({finalization_conditions_sql} OR {id_conditions_sql})"
 
-            (prefiltering_conditions_sql, prefiltering_params,) = parse_prop_grouped_clauses(
+            (
+                prefiltering_conditions_sql,
+                prefiltering_params,
+            ) = parse_prop_grouped_clauses(
                 team_id=self._team_id,
                 property_group=prop_group,
                 prepend=f"search_pre_{prepend}",

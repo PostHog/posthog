@@ -1,7 +1,8 @@
+import clsx from 'clsx'
+import { dayjs } from 'lib/dayjs'
 import { LemonCalendar } from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
 import { useEffect, useState } from 'react'
-import { dayjs } from 'lib/dayjs'
-import clsx from 'clsx'
+
 import { LemonCalendarRangeProps } from './LemonCalendarRange'
 
 /** Used to calculate how many calendars fit on the screen */
@@ -33,8 +34,7 @@ export function LemonCalendarRangeInline({
     // How many months fit on the screen, capped between 1..2
     function getMonthCount(): number {
         const width =
-            // eslint-disable-next-line valid-typeof
-            typeof window === undefined ? WIDTH_OF_ONE_CALENDAR_MONTH * CALENDARS_IF_NO_WINDOW : window.innerWidth
+            typeof window === 'undefined' ? WIDTH_OF_ONE_CALENDAR_MONTH * CALENDARS_IF_NO_WINDOW : window.innerWidth
         return Math.min(Math.max(1, Math.floor(width / WIDTH_OF_ONE_CALENDAR_MONTH)), 2)
     }
     const [autoMonthCount, setAutoMonthCount] = useState(getMonthCount())
@@ -102,10 +102,14 @@ export function LemonCalendarRangeInline({
                         className:
                             date.isSame(rangeStart, 'd') && date.isSame(rangeEnd, 'd')
                                 ? props.className
-                                : clsx(props.className, {
-                                      'rounded-r-none': date.isSame(rangeStart, 'd') && dayIndex < 6,
-                                      'rounded-l-none': date.isSame(rangeEnd, 'd') && dayIndex > 0,
-                                  }),
+                                : clsx(
+                                      props.className,
+                                      {
+                                          'rounded-r-none': date.isSame(rangeStart, 'd') && dayIndex < 6,
+                                          'rounded-l-none': date.isSame(rangeEnd, 'd') && dayIndex > 0,
+                                      },
+                                      'LemonCalendar__range--boundary'
+                                  ),
                         status: 'primary',
                         type: 'primary',
                     }

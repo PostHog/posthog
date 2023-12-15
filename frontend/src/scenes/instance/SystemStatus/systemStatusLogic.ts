@@ -1,14 +1,16 @@
-import { actionToUrl, urlToAction } from 'kea-router'
+import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { kea, path, actions, reducers, selectors, listeners, events } from 'kea'
-import type { systemStatusLogicType } from './systemStatusLogicType'
-import { userLogic } from 'scenes/userLogic'
-import { SystemStatus, SystemStatusRow, SystemStatusQueriesResult, InstanceSetting } from '~/types'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { isUserLoggedIn } from 'lib/utils'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { isUserLoggedIn } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { InstanceSetting, SystemStatus, SystemStatusQueriesResult, SystemStatusRow } from '~/types'
+
+import type { systemStatusLogicType } from './systemStatusLogicType'
 
 export enum ConfigMode {
     View = 'view',
@@ -19,7 +21,7 @@ export enum ConfigMode {
 export type InstanceStatusTabName = 'overview' | 'metrics' | 'settings' | 'staff_users' | 'kafka_inspector'
 
 /**
- * We whitelist the specific instance settings that can be edited via the /instance/status page.
+ * We allow the specific instance settings that can be edited via the /instance/status page.
  * Even if some settings are editable in the frontend according to the API, we may don't want to expose them here.
  * For example: async migrations settings are handled in their own page.
  */

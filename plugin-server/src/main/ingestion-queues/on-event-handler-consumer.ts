@@ -1,4 +1,3 @@
-import { StatsD } from 'hot-shots'
 import { Consumer, Kafka } from 'kafkajs'
 import * as schedule from 'node-schedule'
 import { AppMetrics } from 'worker/ingestion/app-metrics'
@@ -24,9 +23,7 @@ export const startAsyncOnEventHandlerConsumer = async ({
 }) => {
     /*
         Consumes analytics events from the Kafka topic `clickhouse_events_json`
-        and processes any onEvent plugin handlers configured for the team. This
-        also includes `exportEvents` handlers defined in plugins as these are
-        also handled via modifying `onEvent` to call `exportEvents`.
+        and processes any onEvent plugin handlers configured for the team. 
 
         At the moment this is just a wrapper around `IngestionConsumer`. We may
         want to further remove that abstraction in the future.
@@ -36,10 +33,6 @@ export const startAsyncOnEventHandlerConsumer = async ({
     const queue = buildOnEventIngestionConsumer({ hub })
 
     await queue.start()
-
-    schedule.scheduleJob('0 * * * * *', async () => {
-        await queue.emitConsumerGroupMetrics()
-    })
 
     const isHealthy = makeHealthCheck(queue.consumer, queue.sessionTimeout)
 
@@ -51,7 +44,6 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     postgres,
     teamManager,
     organizationManager,
-    statsd,
     serverConfig,
     appMetrics,
 }: {
@@ -59,15 +51,12 @@ export const startAsyncWebhooksHandlerConsumer = async ({
     postgres: PostgresRouter
     teamManager: TeamManager
     organizationManager: OrganizationManager
-    statsd: StatsD | undefined
     serverConfig: PluginsServerConfig
     appMetrics: AppMetrics
 }) => {
     /*
         Consumes analytics events from the Kafka topic `clickhouse_events_json`
-        and processes any onEvent plugin handlers configured for the team. This
-        also includes `exportEvents` handlers defined in plugins as these are
-        also handled via modifying `onEvent` to call `exportEvents`.
+        and processes any onEvent plugin handlers configured for the team. 
 
         At the moment this is just a wrapper around `IngestionConsumer`. We may
         want to further remove that abstraction in the future.
@@ -84,14 +73,12 @@ export const startAsyncWebhooksHandlerConsumer = async ({
 
     const actionManager = new ActionManager(postgres)
     await actionManager.prepare()
-    const actionMatcher = new ActionMatcher(postgres, actionManager, statsd)
+    const actionMatcher = new ActionMatcher(postgres, actionManager)
     const hookCannon = new HookCommander(
         postgres,
         teamManager,
         organizationManager,
-        new Set(serverConfig.FETCH_HOSTNAME_GUARD_TEAMS.split(',').filter(String).map(Number)),
         appMetrics,
-        statsd,
         serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS
     )
     const concurrency = serverConfig.TASKS_PER_WORKER || 20
@@ -116,7 +103,7 @@ export const startAsyncWebhooksHandlerConsumer = async ({
 
     await consumer.subscribe({ topic: KAFKA_EVENTS_JSON, fromBeginning: false })
     await consumer.run({
-        eachBatch: (payload) => eachBatchWebhooksHandlers(payload, actionMatcher, hookCannon, statsd, concurrency),
+        eachBatch: (payload) => eachBatchWebhooksHandlers(payload, actionMatcher, hookCannon, concurrency),
     })
 
     const isHealthy = makeHealthCheck(consumer, serverConfig.KAFKA_CONSUMPTION_SESSION_TIMEOUT_MS)

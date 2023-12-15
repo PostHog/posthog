@@ -1,4 +1,3 @@
-import asyncio
 import datetime as dt
 import uuid
 
@@ -7,58 +6,27 @@ import pytest_asyncio
 import temporalio
 import temporalio.client
 import temporalio.common
+import temporalio.exceptions
 import temporalio.testing
 import temporalio.worker
-from asgiref.sync import sync_to_async
 from django.conf import settings
 
-from posthog.api.test.test_organization import acreate_organization
-from posthog.api.test.test_team import acreate_team
-from posthog.temporal.client import connect
-from posthog.temporal.tests.batch_exports.base import afetch_batch_export_backfills
-from posthog.temporal.tests.batch_exports.fixtures import (
-    acreate_batch_export,
-    adelete_batch_export,
-)
-from posthog.temporal.workflows.backfill_batch_export import (
+from posthog.temporal.batch_exports.backfill_batch_export import (
     BackfillBatchExportInputs,
     BackfillBatchExportWorkflow,
     BackfillScheduleInputs,
     backfill_range,
     backfill_schedule,
     get_schedule_frequency,
+    wait_for_schedule_backfill_in_range,
 )
-from posthog.temporal.workflows.batch_exports import (
-    create_batch_export_backfill_model,
-    update_batch_export_backfill_model_status,
+from posthog.temporal.tests.utils.models import (
+    acreate_batch_export,
+    adelete_batch_export,
+    afetch_batch_export_backfills,
 )
-from posthog.temporal.workflows.noop import NoOpWorkflow, noop_activity
 
-
-@pytest_asyncio.fixture
-async def temporal_client():
-    """Yield a Temporal Client."""
-    client = await connect(
-        settings.TEMPORAL_HOST,
-        settings.TEMPORAL_PORT,
-        settings.TEMPORAL_NAMESPACE,
-        settings.TEMPORAL_CLIENT_ROOT_CA,
-        settings.TEMPORAL_CLIENT_CERT,
-        settings.TEMPORAL_CLIENT_KEY,
-    )
-
-    return client
-
-
-@pytest_asyncio.fixture
-async def team():
-    organization = await acreate_organization("test")
-    team = await acreate_team(organization=organization)
-
-    yield team
-
-    sync_to_async(team.delete)()
-    sync_to_async(organization.delete)()
+pytestmark = [pytest.mark.asyncio]
 
 
 @pytest_asyncio.fixture
@@ -88,30 +56,6 @@ async def temporal_schedule(temporal_client, team):
     yield handle
 
     await adelete_batch_export(batch_export, temporal_client)
-
-
-@pytest_asyncio.fixture
-async def temporal_worker(temporal_client):
-    worker = temporalio.worker.Worker(
-        temporal_client,
-        task_queue=settings.TEMPORAL_TASK_QUEUE,
-        workflows=[NoOpWorkflow, BackfillBatchExportWorkflow],
-        activities=[
-            noop_activity,
-            backfill_schedule,
-            create_batch_export_backfill_model,
-            update_batch_export_backfill_model_status,
-            get_schedule_frequency,
-        ],
-        workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
-    )
-
-    worker_run = asyncio.create_task(worker.run())
-
-    yield worker
-
-    worker_run.cancel()
-    await asyncio.wait([worker_run])
 
 
 @pytest.mark.parametrize(
@@ -189,7 +133,6 @@ def test_backfill_range(start_at, end_at, step, expected):
     assert result == expected
 
 
-@pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 async def test_get_schedule_frequency(activity_environment, temporal_worker, temporal_schedule):
     """Test get_schedule_frequency returns the correct interval."""
@@ -201,7 +144,6 @@ async def test_get_schedule_frequency(activity_environment, temporal_worker, tem
     assert result == expected
 
 
-@pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 async def test_backfill_schedule_activity(activity_environment, temporal_worker, temporal_schedule):
     """Test backfill_schedule activity schedules all backfill runs."""
@@ -228,7 +170,6 @@ async def test_backfill_schedule_activity(activity_environment, temporal_worker,
 
 
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
 async def test_backfill_batch_export_workflow(temporal_worker, temporal_schedule, temporal_client, team):
     """Test BackfillBatchExportWorkflow executes all backfill runs and updates model."""
     start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
@@ -268,3 +209,100 @@ async def test_backfill_batch_export_workflow(temporal_worker, temporal_schedule
 
     backfill = backfills.pop()
     assert backfill.status == "Completed"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_backfill_batch_export_workflow_fails_when_schedule_deleted(
+    temporal_worker, temporal_schedule, temporal_client, team
+):
+    """Test BackfillBatchExportWorkflow fails when its underlying Temporal Schedule is deleted."""
+    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
+    end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.timezone.utc)
+
+    desc = await temporal_schedule.describe()
+
+    workflow_id = str(uuid.uuid4())
+    inputs = BackfillBatchExportInputs(
+        team_id=team.pk,
+        batch_export_id=desc.id,
+        start_at=start_at.isoformat(),
+        end_at=end_at.isoformat(),
+        buffer_limit=1,
+        wait_delay=2.0,
+    )
+
+    handle = await temporal_client.start_workflow(
+        BackfillBatchExportWorkflow.run,
+        inputs,
+        id=workflow_id,
+        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        execution_timeout=dt.timedelta(seconds=20),
+        retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+    )
+    await temporal_schedule.delete()
+
+    with pytest.raises(temporalio.client.WorkflowFailureError) as exc_info:
+        await handle.result()
+
+    err = exc_info.value
+    assert isinstance(err.__cause__, temporalio.exceptions.ActivityError)
+    assert isinstance(err.__cause__.__cause__, temporalio.exceptions.ApplicationError)
+    assert err.__cause__.__cause__.type == "TemporalScheduleNotFoundError"
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_backfill_batch_export_workflow_fails_when_schedule_deleted_after_running(
+    temporal_worker, temporal_schedule, temporal_client, team
+):
+    """Test BackfillBatchExportWorkflow fails when its underlying Temporal Schedule is deleted.
+
+    In this test, in contrats to the previous one, we wait until we have started running some
+    backfill runs before cancelling.
+    """
+    start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
+    end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.timezone.utc)
+    now = dt.datetime.utcnow()
+
+    desc = await temporal_schedule.describe()
+
+    workflow_id = str(uuid.uuid4())
+    inputs = BackfillBatchExportInputs(
+        team_id=team.pk,
+        batch_export_id=desc.id,
+        start_at=start_at.isoformat(),
+        end_at=end_at.isoformat(),
+        buffer_limit=1,
+        wait_delay=2.0,
+    )
+
+    handle = await temporal_client.start_workflow(
+        BackfillBatchExportWorkflow.run,
+        inputs,
+        id=workflow_id,
+        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        execution_timeout=dt.timedelta(seconds=20),
+        retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+    )
+    await wait_for_schedule_backfill_in_range(
+        client=temporal_client,
+        schedule_id=desc.id,
+        start_at=start_at,
+        end_at=dt.datetime(2023, 1, 1, 0, 1, 0, tzinfo=dt.timezone.utc),
+        now=now,
+        wait_delay=1.0,
+    )
+
+    desc = await temporal_schedule.describe()
+    result = desc.info.num_actions
+
+    assert result >= 1
+
+    await temporal_schedule.delete()
+
+    with pytest.raises(temporalio.client.WorkflowFailureError) as exc_info:
+        await handle.result()
+
+    err = exc_info.value
+    assert isinstance(err.__cause__, temporalio.exceptions.ActivityError)
+    assert isinstance(err.__cause__.__cause__, temporalio.exceptions.ApplicationError)
+    assert err.__cause__.__cause__.type == "TemporalScheduleNotFoundError"

@@ -26,6 +26,7 @@ class BatchExportDestination(UUIDModel):
         S3 = "S3"
         SNOWFLAKE = "Snowflake"
         POSTGRES = "Postgres"
+        REDSHIFT = "Redshift"
         BIGQUERY = "BigQuery"
         NOOP = "NoOp"
 
@@ -33,6 +34,7 @@ class BatchExportDestination(UUIDModel):
         "S3": {"aws_access_key_id", "aws_secret_access_key"},
         "Snowflake": set("password"),
         "Postgres": set("password"),
+        "Redshift": set("password"),
         "BigQuery": {"private_key", "private_key_id", "client_email", "token_uri"},
         "NoOp": set(),
     }
@@ -240,11 +242,11 @@ def fetch_batch_export_log_entries(
         clickhouse_where_parts.append("message ILIKE %(search)s")
         clickhouse_kwargs["search"] = f"%{search}%"
     if len(level_filter) > 0:
-        clickhouse_where_parts.append("level in %(levels)s")
+        clickhouse_where_parts.append("upper(level) in %(levels)s")
         clickhouse_kwargs["levels"] = level_filter
 
     clickhouse_query = f"""
-        SELECT team_id, log_source_id AS batch_export_id, instance_id AS run_id, timestamp, level, message FROM log_entries
+        SELECT team_id, log_source_id AS batch_export_id, instance_id AS run_id, timestamp, upper(level) as level, message FROM log_entries
         WHERE {' AND '.join(clickhouse_where_parts)} ORDER BY timestamp DESC {f'LIMIT {limit}' if limit else ''}
     """
 
@@ -289,3 +291,10 @@ class BatchExportBackfill(UUIDModel):
         auto_now=True,
         help_text="The timestamp at which this BatchExportBackfill was last updated.",
     )
+
+    @property
+    def workflow_id(self) -> str:
+        """Return the Workflow id that corresponds to this BatchExportBackfill model."""
+        start_at = self.start_at.strftime("%Y-%m-%dT%H:%M:%S")
+        end_at = self.end_at.strftime("%Y-%m-%dT%H:%M:%S")
+        return f"{self.batch_export.id}-Backfill-{start_at}-{end_at}"

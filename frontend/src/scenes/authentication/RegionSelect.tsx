@@ -1,14 +1,14 @@
-import { useState } from 'react'
-import { useValues } from 'kea'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { LemonModal, LemonSelect } from '@posthog/lemon-ui'
-import { Region } from '~/types'
-import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
+import { useValues } from 'kea'
 import { router } from 'kea-router'
-
+import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { PureField } from 'lib/forms/Field'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { IconCheckmark } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useState } from 'react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+import { Region } from '~/types'
 
 const sections = [
     {

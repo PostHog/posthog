@@ -1,13 +1,15 @@
 import { LemonInput, LemonSelect, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { capitalizeFirstLetter } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { urls } from 'scenes/urls'
+
 import { FeatureFlagReleaseType } from '~/types'
-import { relatedFeatureFlagsLogic, RelatedFeatureFlag } from './relatedFeatureFlagsLogic'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+
+import { RelatedFeatureFlag, relatedFeatureFlagsLogic } from './relatedFeatureFlagsLogic'
 
 interface Props {
     distinctId: string
@@ -80,10 +82,10 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
             width: 150,
             render: function Render(_, featureFlag: RelatedFeatureFlag) {
                 return (
-                    <div style={{ wordBreak: 'break-word' }}>
+                    <div className="break-words">
                         {featureFlag.active && featureFlag.value
                             ? capitalizeFirstLetter(featureFlag.value.toString())
-                            : '--'}
+                            : 'False'}
                     </div>
                 )
             },
@@ -99,7 +101,7 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                         {featureFlag.active ? <>{featureFlagMatchMapping[featureFlag.evaluation.reason]}</> : '--'}
 
                         {matchesSet && (
-                            <span className="simple-tag ml-2" style={{ background: 'var(--primary-highlight)' }}>
+                            <span className="simple-tag ml-2 bg-primary-highlight">
                                 Set {(featureFlag.evaluation.condition_index ?? 0) + 1}
                             </span>
                         )}
@@ -129,7 +131,7 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
 
     return (
         <>
-            <div className="flex justify-between mb-4">
+            <div className="flex justify-between mb-4 gap-2 flex-wrap">
                 <LemonInput
                     type="search"
                     placeholder="Search for feature flags"
@@ -184,7 +186,7 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                         dropdownMaxContentWidth
                     />
                     <span className="ml-2">
-                        <b>Status</b>
+                        <b>Flag status</b>
                     </span>
                     <LemonSelect
                         onChange={(status) => {

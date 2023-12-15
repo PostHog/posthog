@@ -1,7 +1,26 @@
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
+import { actionToUrl, router } from 'kea-router'
 import api from 'lib/api'
-import { cohortsModel } from '~/models/cohortsModel'
 import { ENTITY_MATCH_TYPE, FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
+import {
+    applyAllCriteriaGroup,
+    applyAllNestedCriteria,
+    cleanCriteria,
+    createCohortFormData,
+    isCohortCriteriaGroup,
+    validateGroup,
+} from 'scenes/cohorts/cohortUtils'
+import { personsLogic } from 'scenes/persons/personsLogic'
+import { urls } from 'scenes/urls'
+
+import { cohortsModel, processCohort } from '~/models/cohortsModel'
+import { DataTableNode, Node, NodeKind } from '~/queries/schema'
+import { isDataTableNode } from '~/queries/utils'
 import {
     AnyCohortCriteriaType,
     AnyCohortGroupType,
@@ -11,26 +30,8 @@ import {
     FilterLogicalOperator,
     PropertyFilterType,
 } from '~/types'
-import { personsLogic } from 'scenes/persons/personsLogic'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { urls } from 'scenes/urls'
-import { actionToUrl, router } from 'kea-router'
-import { loaders } from 'kea-loaders'
-import { forms } from 'kea-forms'
-import {
-    applyAllCriteriaGroup,
-    applyAllNestedCriteria,
-    cleanCriteria,
-    createCohortFormData,
-    isCohortCriteriaGroup,
-    validateGroup,
-} from 'scenes/cohorts/cohortUtils'
-import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
+
 import type { cohortEditLogicType } from './cohortEditLogicType'
-import { processCohort } from 'lib/utils'
-import { DataTableNode, Node, NodeKind } from '~/queries/schema'
-import { isDataTableNode } from '~/queries/utils'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export type CohortLogicProps = {
     id?: CohortType['id']
@@ -74,7 +75,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
 
     reducers(({ props, selectors }) => ({
         cohort: [
-            NEW_COHORT as CohortType,
+            NEW_COHORT,
             {
                 setOuterGroupsType: (state, { type }) => ({
                     ...state,
@@ -212,7 +213,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
 
     loaders(({ actions, values, key }) => ({
         cohort: [
-            NEW_COHORT as CohortType,
+            NEW_COHORT,
             {
                 setCohort: ({ cohort }) => processCohort(cohort),
                 fetchCohort: async ({ id }, breakpoint) => {
@@ -316,9 +317,15 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             cohortsModel.findMounted()?.actions.deleteCohort({ id: values.cohort.id, name: values.cohort.name })
             router.actions.push(urls.cohorts())
         },
+        submitCohort: () => {
+            if (values.cohortHasErrors) {
+                lemonToast.error('There was an error submiting this cohort. Make sure the cohort filters are correct.')
+            }
+        },
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
             if (cohort.is_calculating) {
                 actions.setPollTimeout(
+                    // eslint-disable-next-line @typescript-eslint/no-misused-promises
                     window.setTimeout(async () => {
                         const newCohort = await api.cohorts.get(cohort.id)
                         breakpoint()

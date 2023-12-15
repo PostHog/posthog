@@ -1,8 +1,9 @@
-import { useState } from 'react'
-import { useValues } from 'kea'
 import { LemonButton } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconPlusMini } from 'lib/lemon-ui/icons'
+import { useState } from 'react'
+
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 import { TaxonomicBreakdownPopover } from './TaxonomicBreakdownPopover'
 

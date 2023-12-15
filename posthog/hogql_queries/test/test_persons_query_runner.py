@@ -12,6 +12,7 @@ from posthog.schema import (
     DateRange,
     EventsNode,
     IntervalType,
+    InsightPersonsQuery,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -64,14 +65,7 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = clear_locations(query)
         expected = ast.SelectQuery(
             select=[
-                ast.Tuple(
-                    exprs=[
-                        ast.Field(chain=["id"]),
-                        ast.Field(chain=["properties"]),
-                        ast.Field(chain=["created_at"]),
-                        ast.Field(chain=["is_identified"]),
-                    ]
-                ),
+                ast.Field(chain=["id"]),
                 ast.Field(chain=["id"]),
                 ast.Field(chain=["created_at"]),
                 ast.Constant(value=1),
@@ -82,9 +76,13 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             offset=ast.Constant(value=0),
             order_by=[ast.OrderExpr(expr=ast.Field(chain=["created_at"]), order="DESC")],
         )
-        self.assertEqual(clear_locations(query), expected)
+        assert clear_locations(query) == expected
         response = runner.calculate()
-        self.assertEqual(len(response.results), 10)
+        assert len(response.results) == 10
+
+        assert set(response.results[0][0].keys()) == {"id", "created_at", "distinct_ids", "properties", "is_identified"}
+        assert response.results[0][0].get("properties").get("random_uuid") == self.random_uuid
+        assert len(response.results[0][0].get("distinct_ids")) > 0
 
     def test_persons_query_properties(self):
         self.random_uuid = self._create_random_persons()
@@ -152,6 +150,13 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = runner.calculate().results
         self.assertEqual(results[0], [f"jacob9@{self.random_uuid}.posthog.com"])
 
+    def test_persons_query_order_by_with_aliases(self):
+        # We use the first column by default as an order key. It used to cause "error redefining alias" errors.
+        self.random_uuid = self._create_random_persons()
+        runner = self._create_runner(PersonsQuery(select=["properties.email as email"]))
+        results = runner.calculate().results
+        self.assertEqual(results[0], [f"jacob0@{self.random_uuid}.posthog.com"])
+
     def test_persons_query_limit(self):
         self.random_uuid = self._create_random_persons()
         runner = self._create_runner(
@@ -204,7 +209,7 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query = PersonsQuery(
                 select=["properties.email"],
                 orderBy=["properties.email DESC"],
-                source=source_query,
+                source=InsightPersonsQuery(source=source_query),
             )
             runner = self._create_runner(query)
             response = runner.calculate()

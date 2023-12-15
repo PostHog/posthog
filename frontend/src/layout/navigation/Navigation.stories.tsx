@@ -1,11 +1,12 @@
-import { Meta } from '@storybook/react'
-import { TopBar } from './TopBar/TopBar'
-import { SideBar } from './SideBar/SideBar'
-import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { Meta } from '@storybook/react'
 import { useActions } from 'kea'
-import { navigationLogic } from './navigationLogic'
+import { PageHeader } from 'lib/components/PageHeader'
 import { useEffect } from 'react'
+
+import { navigationLogic } from './navigationLogic'
+import { SideBar } from './SideBar/SideBar'
+import { TopBar } from './TopBar/TopBar'
 
 const meta: Meta = {
     title: 'Layout/Navigation',

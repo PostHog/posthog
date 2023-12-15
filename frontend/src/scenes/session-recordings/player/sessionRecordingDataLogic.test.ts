@@ -1,21 +1,22 @@
+import { expectLogic } from 'kea-test-utils'
+import { api, MOCK_TEAM_ID } from 'lib/api.mock'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import {
     prepareRecordingSnapshots,
     sessionRecordingDataLogic,
-    convertSnapshotsByWindowId,
 } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
-import { api, MOCK_TEAM_ID } from 'lib/api.mock'
-import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import recordingMetaJson from '../__mocks__/recording_meta.json'
-import recordingEventsJson from '../__mocks__/recording_events_query'
-import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import { useMocks } from '~/mocks/jest'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
-import { AvailableFeature } from '~/types'
-import { useAvailableFeatures } from '~/mocks/features'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { useAvailableFeatures } from '~/mocks/features'
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+import { AvailableFeature } from '~/types'
+
+import recordingEventsJson from '../__mocks__/recording_events_query'
+import recordingMetaJson from '../__mocks__/recording_meta.json'
 import { snapshotsAsJSONLines, sortedRecordingSnapshots } from '../__mocks__/recording_snapshots'
 
 const sortedRecordingSnapshotsJson = sortedRecordingSnapshots()
@@ -23,7 +24,7 @@ const sortedRecordingSnapshotsJson = sortedRecordingSnapshots()
 describe('sessionRecordingDataLogic', () => {
     let logic: ReturnType<typeof sessionRecordingDataLogic.build>
 
-    beforeEach(async () => {
+    beforeEach(() => {
         useAvailableFeatures([AvailableFeature.RECORDINGS_PERFORMANCE])
         useMocks({
             get: {
@@ -66,7 +67,7 @@ describe('sessionRecordingDataLogic', () => {
         it('mounts other logics', async () => {
             await expectLogic(logic).toMount([eventUsageLogic, teamLogic, userLogic])
         })
-        it('has default values', async () => {
+        it('has default values', () => {
             expect(logic.values).toMatchObject({
                 bufferedToTime: null,
                 durationMs: 0,
@@ -191,7 +192,7 @@ describe('sessionRecordingDataLogic', () => {
                         kind: 'EventsQuery',
                         limit: 1000000,
                         orderBy: ['timestamp ASC'],
-                        personId: '11',
+                        personId: undefined,
                         properties: [{ key: '$session_id', operator: 'exact', type: 'event', value: ['2'] }],
                         select: [
                             'uuid',

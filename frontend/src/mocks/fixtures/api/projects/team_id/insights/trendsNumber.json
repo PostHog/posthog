@@ -1,0 +1,103 @@
+{
+    "id": 14,
+    "short_id": "sJslPafh",
+    "name": "Signups!",
+    "derived_name": "signed_up count",
+    "filters": {
+        "events": [
+            {
+                "id": "signed_up",
+                "name": "signed_up",
+                "type": "events",
+                "order": 0
+            }
+        ],
+        "actions": [],
+        "display": "BoldNumber",
+        "insight": "TRENDS",
+        "interval": "day",
+        "date_from": "-7d",
+        "new_entity": [],
+        "properties": [],
+        "filter_test_accounts": false
+    },
+    "filters_hash": "cache_e7e4a4edb0e8e08b135e84dd64714fc6",
+    "order": null,
+    "deleted": false,
+    "dashboards": [3],
+    "last_refresh": "2022-08-09T15:15:30.352651Z",
+    "refreshing": false,
+    "result": [
+        {
+            "action": {
+                "id": "signed_up",
+                "type": "events",
+                "order": 0,
+                "name": "signed_up",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "signed_up",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2022-08-02",
+                "2022-08-03",
+                "2022-08-04",
+                "2022-08-05",
+                "2022-08-06",
+                "2022-08-07",
+                "2022-08-08",
+                "2022-08-09"
+            ],
+            "aggregated_value": 3141592,
+            "filter": {
+                "breakdown_attribution_type": "first_touch",
+                "date_from": "-7d",
+                "display": "BoldNumber",
+                "events": "[{\"id\": \"signed_up\", \"type\": \"events\", \"order\": 0, \"name\": \"signed_up\", \"custom_name\": null, \"math\": null, \"math_property\": null, \"math_group_type_index\": null, \"properties\": {}}]",
+                "insight": "TRENDS",
+                "interval": "day",
+                "smoothing_intervals": 1
+            },
+            "persons": {
+                "filter": {
+                    "entity_id": "signed_up",
+                    "entity_type": "events",
+                    "entity_math": null,
+                    "entity_order": 0
+                },
+                "url": "api/projects/6/persons/trends/?breakdown_attribution_type=first_touch&date_from=-7d&display=BoldNumber&events=%5B%7B%22id%22%3A+%22signed_up%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22signed_up%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&smoothing_intervals=1&entity_id=signed_up&entity_type=events&entity_order=0"
+            }
+        }
+    ],
+    "created_at": "2022-08-08T14:30:15.912394Z",
+    "created_by": {
+        "id": 6,
+        "uuid": "01827ddb-2c5a-0000-8b59-d02c5e3a4cdc",
+        "distinct_id": "NbZZRONLD9Jn2FUgBbwKkGP0L6qemQZ0x3l7T5HBuCT",
+        "first_name": "Employee 427",
+        "email": "427@posthog.com"
+    },
+    "description": "",
+    "updated_at": "2022-08-08T14:32:27.143626Z",
+    "favorited": false,
+    "saved": true,
+    "last_modified_at": "2022-08-08T14:32:27.095209Z",
+    "last_modified_by": {
+        "id": 6,
+        "uuid": "01827ddb-2c5a-0000-8b59-d02c5e3a4cdc",
+        "distinct_id": "NbZZRONLD9Jn2FUgBbwKkGP0L6qemQZ0x3l7T5HBuCT",
+        "first_name": "Employee 427",
+        "email": "427@posthog.com"
+    },
+    "is_sample": false,
+    "effective_restriction_level": 21,
+    "effective_privilege_level": 37,
+    "timezone": null,
+    "tags": []
+}

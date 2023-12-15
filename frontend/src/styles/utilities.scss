@@ -1,5 +1,4 @@
 @use 'sass:string';
-
 @import 'vars';
 @import 'mixins';
 
@@ -49,13 +48,13 @@
     }
 
     .mx-#{escape-number($space)} {
-        margin-left: #{$space * 0.25}rem;
         margin-right: #{$space * 0.25}rem;
+        margin-left: #{$space * 0.25}rem;
     }
 
     .-mx-#{escape-number($space)} {
-        margin-left: #{-$space * 0.25}rem;
         margin-right: #{-$space * 0.25}rem;
+        margin-left: #{-$space * 0.25}rem;
     }
 
     .my-#{escape-number($space)} {
@@ -69,8 +68,8 @@
     }
 
     .px-#{escape-number($space)} {
-        padding-left: #{$space * 0.25}rem;
         padding-right: #{$space * 0.25}rem;
+        padding-left: #{$space * 0.25}rem;
     }
 
     .py-#{escape-number($space)} {
@@ -83,15 +82,12 @@
     }
 
     .inset-#{escape-number($space)} {
-        top: #{$space * 0.25}rem;
-        right: #{$space * 0.25}rem;
-        bottom: #{$space * 0.25}rem;
-        left: #{$space * 0.25}rem;
+        inset: #{$space * 0.25}rem #{$space * 0.25}rem #{$space * 0.25}rem #{$space * 0.25}rem;
     }
 
     .inset-x-#{escape-number($space)} {
-        left: #{$space * 0.25}rem;
         right: #{$space * 0.25}rem;
+        left: #{$space * 0.25}rem;
     }
 
     .inset-y-#{escape-number($space)} {
@@ -115,15 +111,15 @@
     }
 
     @each $side in $sides {
-        .m#{str-slice($side, 0, 1)}-#{escape-number($space)} {
+        .m#{string.slice($side, 0, 1)}-#{escape-number($space)} {
             margin-#{$side}: #{$space * 0.25}rem;
         }
 
-        .-m#{str-slice($side, 0, 1)}-#{escape-number($space)} {
+        .-m#{string.slice($side, 0, 1)}-#{escape-number($space)} {
             margin-#{$side}: #{-$space * 0.25}rem;
         }
 
-        .p#{str-slice($side, 0, 1)}-#{escape-number($space)} {
+        .p#{string.slice($side, 0, 1)}-#{escape-number($space)} {
             padding-#{$side}: #{$space * 0.25}rem;
         }
     }
@@ -132,18 +128,23 @@
 .w-px {
     width: 1px;
 }
+
 .h-px {
     height: 1px;
 }
+
 .min-w-px {
     min-width: 1px;
 }
+
 .max-w-px {
     max-width: 1px;
 }
+
 .min-h-px {
     min-height: 1px;
 }
+
 .max-h-px {
     max-height: 1px;
 }
@@ -212,7 +213,7 @@
 
 // Margins/padding
 @each $kind in ('margin', 'padding') {
-    $char: str-slice($kind, 0, 1);
+    $char: string.slice($kind, 0, 1);
 
     .#{$char}-auto {
         #{$kind}: auto;
@@ -241,11 +242,11 @@
     }
 
     @each $side in $sides {
-        .#{$char}#{str-slice($side, 0, 1)}-auto {
+        .#{$char}#{string.slice($side, 0, 1)}-auto {
             #{$kind}-#{$side}: auto;
         }
 
-        .#{$char}#{str-slice($side, 0, 1)}-px {
+        .#{$char}#{string.slice($side, 0, 1)}-px {
             #{$kind}-#{$side}: 1px;
         }
     }
@@ -257,89 +258,117 @@
 
 // Border
 .border-0 {
-    border-width: 0px;
+    border-width: 0;
 }
+
 .border-2 {
     border-width: 2px;
 }
+
 .border-4 {
     border-width: 4px;
 }
+
 .border-6 {
     border-width: 6px;
 }
+
 .border-8 {
     border-width: 8px;
 }
+
 .border-t-0 {
-    border-top-width: 0px;
+    border-top-width: 0;
 }
+
 .border-t-2 {
     border-top-width: 2px;
 }
+
 .border-t-4 {
     border-top-width: 4px;
 }
+
 .border-t-6 {
     border-top-width: 6px;
 }
+
 .border-t-8 {
     border-top-width: 8px;
 }
+
 .border-t {
     border-top-width: 1px;
 }
+
 .border-r-0 {
-    border-right-width: 0px;
+    border-right-width: 0;
 }
+
 .border-r-2 {
     border-right-width: 2px;
 }
+
 .border-r-4 {
     border-right-width: 4px;
 }
+
 .border-r-6 {
     border-right-width: 6px;
 }
+
 .border-r-8 {
     border-right-width: 8px;
 }
+
 .border-r {
     border-right-width: 1px;
 }
+
 .border-b-0 {
-    border-bottom-width: 0px;
+    border-bottom-width: 0;
 }
+
 .border-b-2 {
     border-bottom-width: 2px;
 }
+
 .border-b-4 {
     border-bottom-width: 4px;
 }
+
 .border-b-6 {
     border-bottom-width: 6px;
 }
+
 .border-b-8 {
     border-bottom-width: 8px;
 }
+
 .border-b {
     border-bottom-width: 1px;
 }
+
 .border-l-0 {
-    border-left-width: 0px;
+    border-left-width: 0;
 }
+
 .border-l-2 {
     border-left-width: 2px;
 }
+
 .border-l-4 {
     border-left-width: 4px;
 }
+
 .border-l-6 {
     border-left-width: 6px;
 }
+
 .border-l-8 {
     border-left-width: 8px;
 }
+
 .border-l {
     border-left-width: 1px;
 }
@@ -347,23 +376,29 @@
 .border-solid {
     border-style: solid;
 }
+
 .border-dashed {
     border-style: dashed;
 }
+
 .border-dotted {
     border-style: dotted;
 }
+
 .border-double {
     border-style: double;
 }
+
 .border-hidden {
     border-style: hidden;
 }
+
 .border-none {
     border-style: none;
 }
 
 $decorations: underline, overline, line-through, no-underline;
+
 @each $decoration in $decorations {
     .#{$decoration} {
         text-decoration-line: $decoration;
@@ -376,9 +411,11 @@ $decorations: underline, overline, line-through, no-underline;
 .decoration-inherit {
     text-decoration-color: inherit;
 }
+
 .decoration-current {
     text-decoration-color: currentColor;
 }
+
 .decoration-transparent {
     text-decoration-color: transparent;
 }
@@ -394,8 +431,8 @@ $decorations: underline, overline, line-through, no-underline;
         border-color: var(--#{$name});
     }
     .border-x-#{$name} {
-        border-left-color: var(--#{$name});
         border-right-color: var(--#{$name});
+        border-left-color: var(--#{$name});
     }
     .border-y-#{$name} {
         border-top-color: var(--#{$name});
@@ -408,6 +445,10 @@ $decorations: underline, overline, line-through, no-underline;
 
 .text-inherit {
     color: inherit;
+}
+
+.text-current {
+    color: currentColor;
 }
 
 @each $name, $hex in $colors {
@@ -425,7 +466,7 @@ $decorations: underline, overline, line-through, no-underline;
 // Widths / heights
 
 @each $kind in ('width', 'height') {
-    $char: str-slice($kind, 1, 1);
+    $char: string.slice($kind, 1, 1);
     .#{$char}-auto {
         #{$kind}: auto;
     }
@@ -433,7 +474,7 @@ $decorations: underline, overline, line-through, no-underline;
         #{$kind}: 100%;
     }
     .#{$char}-screen {
-        #{$kind}: unquote('100v' + $char);
+        #{$kind}: string.unquote('100v' + $char);
     }
     .#{$char}-min {
         #{$kind}: min-content;
@@ -449,14 +490,14 @@ $decorations: underline, overline, line-through, no-underline;
         min-#{$kind}: 100%;
     }
     .min-#{$char}-screen {
-        min-#{$kind}: unquote('100v' + $char);
+        min-#{$kind}: string.unquote('100v' + $char);
     }
 
     .max-#{$char}-full {
         max-#{$kind}: 100%;
     }
     .max-#{$char}-screen {
-        max-#{$kind}: unquote('100v' + $char);
+        max-#{$kind}: string.unquote('100v' + $char);
     }
 
     @each $variant in ('', 'max-', 'min-') {
@@ -465,11 +506,11 @@ $decorations: underline, overline, line-through, no-underline;
         }
 
         .#{$variant}#{$char}-1\/3 {
-            #{$variant}#{$kind}: 33.333333%;
+            #{$variant}#{$kind}: 33.3333%;
         }
 
         .#{$variant}#{$char}-2\/3 {
-            #{$variant}#{$kind}: 66.666667%;
+            #{$variant}#{$kind}: 66.6667%;
         }
 
         .#{$variant}#{$char}-1\/4 {
@@ -498,6 +539,26 @@ $decorations: underline, overline, line-through, no-underline;
 
         .#{$variant}#{$char}-4\/5 {
             #{$variant}#{$kind}: 80%;
+        }
+
+        .#{$variant}#{$char}-1\/6 {
+            #{$variant}#{$kind}: 16.66667%;
+        }
+
+        .#{$variant}#{$char}-2\/6 {
+            #{$variant}#{$kind}: 33.33333%;
+        }
+
+        .#{$variant}#{$char}-3\/6 {
+            #{$variant}#{$kind}: 50%;
+        }
+
+        .#{$variant}#{$char}-4\/6 {
+            #{$variant}#{$kind}: 66.66667%;
+        }
+
+        .#{$variant}#{$char}-5\/6 {
+            #{$variant}#{$kind}: 83.33333%;
         }
     }
 }
@@ -613,21 +674,30 @@ $decorations: underline, overline, line-through, no-underline;
     flex-grow: 0;
 }
 
+.basis-0 {
+    flex-basis: 0;
+}
+
 .justify-start {
     justify-content: flex-start;
 }
+
 .justify-end {
     justify-content: flex-end;
 }
+
 .justify-center {
     justify-content: center;
 }
+
 .justify-between {
     justify-content: space-between;
 }
+
 .justify-around {
     justify-content: space-around;
 }
+
 .justify-evenly {
     justify-content: space-evenly;
 }
@@ -635,15 +705,19 @@ $decorations: underline, overline, line-through, no-underline;
 .items-start {
     align-items: flex-start;
 }
+
 .items-end {
     align-items: flex-end;
 }
+
 .items-center {
     align-items: center;
 }
+
 .items-baseline {
     align-items: baseline;
 }
+
 .items-stretch {
     align-items: stretch;
 }
@@ -651,18 +725,23 @@ $decorations: underline, overline, line-through, no-underline;
 .self-auto {
     align-self: auto;
 }
+
 .self-start {
     align-self: flex-start;
 }
+
 .self-end {
     align-self: flex-end;
 }
+
 .self-center {
     align-self: center;
 }
+
 .self-stretch {
     align-self: stretch;
 }
+
 .self-baseline {
     align-self: baseline;
 }
@@ -680,11 +759,6 @@ $decorations: underline, overline, line-through, no-underline;
     $prefix: if($name == 'base', '', $name + '\\:');
 
     @include screen($size) {
-        @for $i from 1 through 12 {
-            .#{$prefix}grid-cols-#{$i} {
-                grid-template-columns: repeat(#{$i}, minmax(0, 1fr));
-            }
-        }
         .#{$prefix}grid-cols-none {
             grid-template-columns: none;
         }
@@ -693,29 +767,11 @@ $decorations: underline, overline, line-through, no-underline;
         .#{$prefix}col-auto {
             grid-column: auto;
         }
-
-        @for $i from 1 through 12 {
-            .#{$prefix}col-span-#{$i} {
-                grid-column: span #{$i} / span #{$i};
-            }
-        }
         .#{$prefix}col-span-full {
             grid-column: 1 / -1;
         }
-
-        @for $i from 1 through 13 {
-            .#{$prefix}col-start-#{$i} {
-                grid-column-start: #{$i};
-            }
-        }
         .#{$prefix}col-start-auto {
             grid-column-start: auto;
-        }
-
-        @for $i from 1 through 13 {
-            .#{$prefix}col-end-#{$i} {
-                grid-column-end: #{$i};
-            }
         }
         .#{$prefix}col-end-auto {
             grid-column-end: auto;
@@ -725,14 +781,53 @@ $decorations: underline, overline, line-through, no-underline;
         .#{$prefix}row-auto {
             grid-row: auto;
         }
+        .#{$prefix}row-span-full {
+            grid-row: 1 / -1;
+        }
+        .#{$prefix}row-start-auto {
+            grid-row-start: auto;
+        }
+        .#{$prefix}row-end-auto {
+            grid-row-end: auto;
+        }
+        .#{$prefix}gap-px {
+            gap: 1px;
+        }
+        .#{$prefix}gap-x-px {
+            column-gap: 1px;
+        }
+        .#{$prefix}gap-y-px {
+            row-gap: 1px;
+        }
+
+        @for $i from 1 through 12 {
+            .#{$prefix}grid-cols-#{$i} {
+                grid-template-columns: repeat(#{$i}, minmax(0, 1fr));
+            }
+        }
+
+        @for $i from 1 through 12 {
+            .#{$prefix}col-span-#{$i} {
+                grid-column: span #{$i} / span #{$i};
+            }
+        }
+
+        @for $i from 1 through 13 {
+            .#{$prefix}col-start-#{$i} {
+                grid-column-start: #{$i};
+            }
+        }
+
+        @for $i from 1 through 13 {
+            .#{$prefix}col-end-#{$i} {
+                grid-column-end: #{$i};
+            }
+        }
 
         @for $i from 1 through 6 {
             .#{$prefix}row-span-#{$i} {
                 grid-row: span #{$i} / span #{$i};
             }
-        }
-        .#{$prefix}row-span-full {
-            grid-row: 1 / -1;
         }
 
         @for $i from 1 through 7 {
@@ -740,17 +835,11 @@ $decorations: underline, overline, line-through, no-underline;
                 grid-row-start: #{$i};
             }
         }
-        .#{$prefix}row-start-auto {
-            grid-row-start: auto;
-        }
 
         @for $i from 1 through 7 {
             .#{$prefix}row-end-#{$i} {
                 grid-row-end: #{$i};
             }
-        }
-        .#{$prefix}row-end-auto {
-            grid-row-end: auto;
         }
 
         // Gap
@@ -765,15 +854,6 @@ $decorations: underline, overline, line-through, no-underline;
                 row-gap: #{$space * 0.25}rem;
             }
         }
-        .#{$prefix}gap-px {
-            gap: 1px;
-        }
-        .#{$prefix}gap-x-px {
-            column-gap: 1px;
-        }
-        .#{$prefix}gap-y-px {
-            row-gap: 1px;
-        }
     }
 }
 
@@ -781,40 +861,50 @@ $decorations: underline, overline, line-through, no-underline;
 .font-thin {
     font-weight: 100;
 }
+
 .font-extralight {
     font-weight: 200;
 }
+
 .font-light {
     font-weight: 300;
 }
+
 .font-normal {
     font-weight: 400;
 }
+
 .font-medium {
     font-weight: 500;
 }
+
 .font-semibold {
     font-weight: 600;
 }
+
 .font-bold {
     font-weight: 700;
 }
+
 .font-extrabold {
     font-weight: 800;
 }
+
 .font-black {
     font-weight: 900;
 }
+
 .italic {
     font-style: italic;
 }
+
 .not-italic {
     font-style: normal;
 }
 
 .break-normal {
-    overflow-wrap: normal;
     word-break: normal;
+    overflow-wrap: normal;
 }
 
 .break-words {
@@ -828,15 +918,19 @@ $decorations: underline, overline, line-through, no-underline;
 .whitespace-normal {
     white-space: normal;
 }
+
 .whitespace-nowrap {
     white-space: nowrap;
 }
+
 .whitespace-pre {
     white-space: pre;
 }
+
 .whitespace-pre-line {
     white-space: pre-line;
 }
+
 .whitespace-pre-wrap {
     white-space: pre-wrap;
 }
@@ -845,54 +939,67 @@ $decorations: underline, overline, line-through, no-underline;
     font-size: 0.625rem; /* 10px */
     line-height: 0.75rem; /* 12px */
 }
+
 .text-xs {
     font-size: 0.75rem; /* 12px */
     line-height: 1rem; /* 16px */
 }
+
 .text-sm {
     font-size: 0.875rem; /* 14px */
     line-height: 1.25rem; /* 20px */
 }
+
 .text-base {
     font-size: 1rem; /* 16px */
     line-height: 1.5rem; /* 24px */
 }
+
 .text-lg {
     font-size: 1.125rem; /* 18px */
     line-height: 1.75rem; /* 28px */
 }
+
 .text-xl {
     font-size: 1.25rem; /* 20px */
     line-height: 1.75rem; /* 28px */
 }
+
 .text-2xl {
     font-size: 1.5rem; /* 24px */
     line-height: 2rem; /* 32px */
 }
+
 .text-3xl {
     font-size: 1.875rem; /* 30px */
     line-height: 2.25rem; /* 36px */
 }
+
 .text-4xl {
     font-size: 2.25rem; /* 36px */
     line-height: 2.5rem; /* 40px */
 }
+
 .text-5xl {
     font-size: 3rem; /* 48px */
     line-height: 1;
 }
+
 .text-6xl {
     font-size: 3.75rem; /* 60px */
     line-height: 1;
 }
+
 .text-7xl {
     font-size: 4.5rem; /* 72px */
     line-height: 1;
 }
+
 .text-8xl {
     font-size: 6rem; /* 96px */
     line-height: 1;
 }
+
 .text-9xl {
     font-size: 8rem; /* 128px */
     line-height: 1;
@@ -905,32 +1012,38 @@ $decorations: underline, overline, line-through, no-underline;
 }
 
 .rounded {
-    border-radius: var(--radius); /* 4px */
+    border-radius: 0.25rem;
 }
+
 .rounded-l {
-    border-top-left-radius: var(--radius); /* 4px */
-    border-bottom-left-radius: var(--radius); /* 4px */
+    border-top-left-radius: 0.25rem;
+    border-bottom-left-radius: 0.25rem;
 }
+
 .rounded-r {
-    border-top-right-radius: var(--radius); /* 4px */
-    border-bottom-right-radius: var(--radius); /* 4px */
+    border-top-right-radius: 0.25rem;
+    border-bottom-right-radius: 0.25rem;
 }
+
 .rounded-t {
-    border-top-left-radius: var(--radius); /* 4px */
-    border-top-right-radius: var(--radius); /* 4px */
+    border-top-left-radius: 0.25rem;
+    border-top-right-radius: 0.25rem;
 }
+
 .rounded-b {
-    border-bottom-left-radius: var(--radius); /* 4px */
-    border-bottom-right-radius: var(--radius); /* 4px */
+    border-bottom-right-radius: 0.25rem;
+    border-bottom-left-radius: 0.25rem;
 }
 
 .rounded-none {
     border-radius: 0;
 }
+
 .rounded-r-none {
     border-top-right-radius: 0;
     border-bottom-right-radius: 0;
 }
+
 .rounded-l-none {
     border-top-left-radius: 0;
     border-bottom-left-radius: 0;
@@ -941,23 +1054,29 @@ $decorations: underline, overline, line-through, no-underline;
 }
 
 .rounded-md {
-    border-radius: calc(var(--radius) * 1.5); /* 6px */
+    border-radius: 0.375rem;
 }
+
 .rounded-lg {
-    border-radius: calc(var(--radius) * 2); /* 8px */
+    border-radius: 0.5rem;
 }
+
 .rounded-xl {
-    border-radius: calc(var(--radius) * 3); /* 12px */
+    border-radius: 0.75rem;
 }
+
 .rounded-2xl {
-    border-radius: calc(var(--radius) * 4); /* 16px */
+    border-radius: 1rem;
 }
+
 .rounded-3xl {
-    border-radius: calc(var(--radius) * 6); /* 24px */
+    border-radius: 1.5rem;
 }
+
 .rounded-4xl {
-    border-radius: calc(var(--radius) * 8); /* 32px */
+    border-radius: 2rem;
 }
+
 .rounded-full {
     border-radius: 1000rem;
 }
@@ -965,36 +1084,49 @@ $decorations: underline, overline, line-through, no-underline;
 .overflow-auto {
     overflow: auto;
 }
+
 .overflow-hidden {
     overflow: hidden;
 }
+
 .overflow-clip {
     overflow: clip;
 }
+
 .overflow-visible {
     overflow: visible;
 }
+
 .overflow-scroll {
     overflow: scroll;
 }
+
 .overflow-x-scroll {
     overflow-x: scroll;
 }
+
 .overflow-y-scroll {
     overflow-y: scroll;
 }
+
 .overflow-x-auto {
     overflow-x: auto;
 }
+
 .overflow-y-auto {
     overflow-y: auto;
 }
+
 .overflow-x-hidden {
     overflow-x: hidden;
 }
 
 .font-sans {
     font-family: var(--font-sans);
+}
+
+.font-title {
+    font-family: var(--font-title);
 }
 
 .font-mono {
@@ -1004,45 +1136,59 @@ $decorations: underline, overline, line-through, no-underline;
 .opacity-0 {
     opacity: 0;
 }
+
 .opacity-5 {
     opacity: 0.05;
 }
+
 .opacity-10 {
     opacity: 0.1;
 }
+
 .opacity-20 {
     opacity: 0.2;
 }
+
 .opacity-25 {
     opacity: 0.25;
 }
+
 .opacity-30 {
     opacity: 0.3;
 }
+
 .opacity-40 {
     opacity: 0.4;
 }
+
 .opacity-50 {
     opacity: 0.5;
 }
+
 .opacity-60 {
     opacity: 0.6;
 }
+
 .opacity-70 {
     opacity: 0.7;
 }
+
 .opacity-75 {
     opacity: 0.75;
 }
+
 .opacity-80 {
     opacity: 0.8;
 }
+
 .opacity-90 {
     opacity: 0.9;
 }
+
 .opacity-95 {
     opacity: 0.95;
 }
+
 .opacity-100 {
     opacity: 1;
 }
@@ -1050,6 +1196,7 @@ $decorations: underline, overline, line-through, no-underline;
 .pointer-events-none {
     pointer-events: none;
 }
+
 .pointer-events-auto {
     pointer-events: auto;
 }
@@ -1059,9 +1206,11 @@ $decorations: underline, overline, line-through, no-underline;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+
 .text-ellipsis {
     text-overflow: ellipsis;
 }
+
 .text-clip {
     text-overflow: clip;
 }
@@ -1081,6 +1230,7 @@ $decorations: underline, overline, line-through, no-underline;
 .list-inside {
     list-style-position: inside;
 }
+
 .list-outside {
     list-style-position: outside;
 }
@@ -1101,18 +1251,23 @@ $decorations: underline, overline, line-through, no-underline;
 .tracking-tighter {
     letter-spacing: -0.05em;
 }
+
 .tracking-tight {
     letter-spacing: -0.025em;
 }
+
 .tracking-normal {
-    letter-spacing: 0em;
+    letter-spacing: 0;
 }
+
 .tracking-wide {
     letter-spacing: 0.025em;
 }
+
 .tracking-wider {
     letter-spacing: 0.05em;
 }
+
 .tracking-widest {
     letter-spacing: 0.1em;
 }
@@ -1120,12 +1275,15 @@ $decorations: underline, overline, line-through, no-underline;
 .select-none {
     user-select: none;
 }
+
 .select-text {
     user-select: text;
 }
+
 .select-all {
     user-select: all;
 }
+
 .select-auto {
     user-select: auto;
 }
@@ -1133,6 +1291,7 @@ $decorations: underline, overline, line-through, no-underline;
 .rotate-90 {
     transform: rotate(90deg);
 }
+
 .rotate-180 {
     transform: rotate(180deg);
 }
@@ -1173,6 +1332,14 @@ $decorations: underline, overline, line-through, no-underline;
     visibility: hidden;
 }
 
+.resize {
+    resize: both;
+}
+
+.resize-x {
+    resize: horizontal;
+}
+
 .resize-y {
     resize: vertical;
 }
@@ -1200,16 +1367,16 @@ $decorations: underline, overline, line-through, no-underline;
 }
 
 .line-clamp-2 {
-    overflow: hidden;
     display: -webkit-box;
+    overflow: hidden;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
 }
 
 .transition-all {
-    transition-property: all;
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
     transition-duration: 150ms;
+    transition-property: all;
 }
 
 .aspect-auto {

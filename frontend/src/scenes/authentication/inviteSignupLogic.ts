@@ -1,9 +1,11 @@
-import { kea, path, actions, reducers, listeners } from 'kea'
+import { actions, kea, listeners, path, reducers } from 'kea'
+import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
-import { forms } from 'kea-forms'
 import api from 'lib/api'
+
 import { PrevalidatedInvite } from '~/types'
+
 import type { inviteSignupLogicType } from './inviteSignupLogicType'
 
 export enum ErrorCodes {
@@ -88,7 +90,7 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                 first_name: !first_name ? 'Please enter your name' : undefined,
             }),
             submit: async (payload, breakpoint) => {
-                await breakpoint()
+                breakpoint()
 
                 if (!values.invite) {
                     return

@@ -1,17 +1,19 @@
 import './TaxonomicFilter.scss'
-import { useEffect, useMemo, useRef } from 'react'
+
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { InfiniteSelectResults } from './InfiniteSelectResults'
-import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 import {
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
     TaxonomicFilterProps,
 } from 'lib/components/TaxonomicFilter/types'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { IconKeyboard } from 'lib/lemon-ui/icons'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import clsx from 'clsx'
+import { useEffect, useMemo, useRef } from 'react'
+
+import { InfiniteSelectResults } from './InfiniteSelectResults'
+import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 
 let uniqueMemoizedIndex = 0
 
@@ -30,6 +32,7 @@ export function TaxonomicFilter({
     excludedProperties,
     popoverEnabled = true,
     selectFirstItem = true,
+    propertyAllowList,
 }: TaxonomicFilterProps): JSX.Element {
     // Generate a unique key for each unique TaxonomicFilter that's rendered
     const taxonomicFilterLogicKey = useMemo(
@@ -52,6 +55,7 @@ export function TaxonomicFilter({
         selectFirstItem,
         excludedProperties,
         hogQLTable,
+        propertyAllowList,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
@@ -98,10 +102,10 @@ export function TaxonomicFilter({
                                         <>
                                             You can easily navigate between tabs with your keyboard.{' '}
                                             <div>
-                                                Use <b>tab</b> or <b>right arrow</b> to move to the next tab.
+                                                Use <b>tab</b> to move to the next tab.
                                             </div>
                                             <div>
-                                                Use <b>shift + tab</b> or <b>left arrow</b> to move to the previous tab.
+                                                Use <b>shift + tab</b> to move to the previous tab.
                                             </div>
                                         </>
                                     }

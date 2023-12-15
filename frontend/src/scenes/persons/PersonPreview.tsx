@@ -1,14 +1,16 @@
-import { useValues } from 'kea'
-import { personLogic } from './personLogic'
-import { Spinner } from 'lib/lemon-ui/Spinner'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { LemonButton, Link } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
+import { useValues } from 'kea'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { NotebookNodeType, PropertyDefinitionType } from '~/types'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { asDisplay } from './person-utils'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { urls } from 'scenes/urls'
+
+import { NotebookNodeType, PropertyDefinitionType } from '~/types'
+
+import { asDisplay } from './person-utils'
+import { personLogic } from './personLogic'
 
 export type PersonPreviewProps = {
     distinctId: string | undefined
@@ -43,10 +45,8 @@ export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
 
                 <NotebookSelectButton
                     resource={{
-                        attrs: {
-                            id: person?.distinct_ids[0],
-                        },
                         type: NotebookNodeType.Person,
+                        attrs: { id: person?.distinct_ids[0] },
                     }}
                     onNotebookOpened={() => props.onClose?.()}
                     size="small"

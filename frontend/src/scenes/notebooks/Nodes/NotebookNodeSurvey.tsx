@@ -1,5 +1,5 @@
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { FeatureFlagBasicType, NotebookNodeType, Survey, SurveyQuestionType } from '~/types'
+import { FeatureFlagBasicType, NotebookNodeType, Survey } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
 import { IconSurveys } from 'lib/lemon-ui/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
@@ -78,16 +78,9 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttribute
 
                                     <div className="w-full flex flex-col items-center">
                                         <SurveyAppearance
-                                            type={survey.questions[0].type}
+                                            surveyType={survey.type}
                                             surveyQuestionItem={survey.questions[0]}
                                             appearance={survey.appearance || defaultSurveyAppearance}
-                                            question={survey.questions[0].question}
-                                            description={survey.questions[0].description}
-                                            link={
-                                                survey.questions[0].type === SurveyQuestionType.Link
-                                                    ? survey.questions[0].link
-                                                    : undefined
-                                            }
                                         />
                                     </div>
                                 </div>

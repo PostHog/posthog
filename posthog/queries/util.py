@@ -107,7 +107,7 @@ def get_start_of_interval_sql(
     elif "%(timezone)s" not in source:
         source = f"toTimeZone(toDateTime({source}, 'UTC'), %(timezone)s)"
     trunc_func_args = [source]
-    if interval == "week":
+    if trunc_func == "toStartOfWeek":
         trunc_func_args.append((WeekStartDay(team.week_start_day or 0)).clickhouse_mode)
     interval_sql = f"{trunc_func}({', '.join(trunc_func_args)})"
     # For larger intervals dates are returned instead of datetimes, and we always want datetimes for comparisons
