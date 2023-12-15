@@ -6,10 +6,10 @@
   FROM events LEFT JOIN (
   SELECT cohortpeople.person_id AS person_id, 1 AS matched 
   FROM cohortpeople 
-  WHERE and(equals(cohortpeople.team_id, 420), equals(cohortpeople.cohort_id, 10)) 
+  WHERE and(equals(cohortpeople.team_id, 420), equals(cohortpeople.cohort_id, 1)) 
   GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version 
-  HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0)) AS in_cohort__10 ON equals(in_cohort__10.person_id, events.person_id) 
-  WHERE and(equals(events.team_id, 420), ifNull(equals(in_cohort__10.matched, 1), 0), equals(events.event, %(hogql_val_0)s)) 
+  HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0)) AS in_cohort__1 ON equals(in_cohort__1.person_id, events.person_id) 
+  WHERE and(equals(events.team_id, 420), ifNull(equals(in_cohort__1.matched, 1), 0), equals(events.event, %(hogql_val_0)s)) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1
   
@@ -19,10 +19,10 @@
   FROM events LEFT JOIN (
   SELECT person_id, 1 AS matched 
   FROM raw_cohort_people 
-  WHERE equals(cohort_id, 10) 
+  WHERE equals(cohort_id, 1) 
   GROUP BY person_id, cohort_id, version 
-  HAVING greater(sum(sign), 0)) AS in_cohort__10 ON equals(in_cohort__10.person_id, person_id) 
-  WHERE and(equals(in_cohort__10.matched, 1), equals(event, '018c6a03-e2f4-0000-1b43-0b8b068eedf9')) 
+  HAVING greater(sum(sign), 0)) AS in_cohort__1 ON equals(in_cohort__1.person_id, person_id) 
+  WHERE and(equals(in_cohort__1.matched, 1), equals(event, '018c6ca4-34e1-0000-d14a-902570c098a4')) 
   LIMIT 100
   '
 ---
@@ -34,8 +34,8 @@
   FROM events LEFT JOIN (
   SELECT person_static_cohort.person_id AS person_id, 1 AS matched 
   FROM person_static_cohort 
-  WHERE and(equals(person_static_cohort.team_id, 420), equals(person_static_cohort.cohort_id, 11))) AS in_cohort__11 ON equals(in_cohort__11.person_id, events.person_id) 
-  WHERE and(equals(events.team_id, 420), ifNull(equals(in_cohort__11.matched, 1), 0)) 
+  WHERE and(equals(person_static_cohort.team_id, 420), equals(person_static_cohort.cohort_id, 2))) AS in_cohort__2 ON equals(in_cohort__2.person_id, events.person_id) 
+  WHERE and(equals(events.team_id, 420), ifNull(equals(in_cohort__2.matched, 1), 0)) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1
   
@@ -45,8 +45,8 @@
   FROM events LEFT JOIN (
   SELECT person_id, 1 AS matched 
   FROM static_cohort_people 
-  WHERE equals(cohort_id, 11)) AS in_cohort__11 ON equals(in_cohort__11.person_id, person_id) 
-  WHERE equals(in_cohort__11.matched, 1) 
+  WHERE equals(cohort_id, 2)) AS in_cohort__2 ON equals(in_cohort__2.person_id, person_id) 
+  WHERE equals(in_cohort__2.matched, 1) 
   LIMIT 100
   '
 ---
@@ -58,8 +58,8 @@
   FROM events LEFT JOIN (
   SELECT person_static_cohort.person_id AS person_id, 1 AS matched 
   FROM person_static_cohort 
-  WHERE and(equals(person_static_cohort.team_id, 420), equals(person_static_cohort.cohort_id, 12))) AS in_cohort__12 ON equals(in_cohort__12.person_id, events.person_id) 
-  WHERE and(equals(events.team_id, 420), ifNull(equals(in_cohort__12.matched, 1), 0)) 
+  WHERE and(equals(person_static_cohort.team_id, 420), equals(person_static_cohort.cohort_id, 3))) AS in_cohort__3 ON equals(in_cohort__3.person_id, events.person_id) 
+  WHERE and(equals(events.team_id, 420), ifNull(equals(in_cohort__3.matched, 1), 0)) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1
   
@@ -69,8 +69,8 @@
   FROM events LEFT JOIN (
   SELECT person_id, 1 AS matched 
   FROM static_cohort_people 
-  WHERE equals(cohort_id, 12)) AS in_cohort__12 ON equals(in_cohort__12.person_id, person_id) 
-  WHERE equals(in_cohort__12.matched, 1) 
+  WHERE equals(cohort_id, 3)) AS in_cohort__3 ON equals(in_cohort__3.person_id, person_id) 
+  WHERE equals(in_cohort__3.matched, 1) 
   LIMIT 100
   '
 ---
