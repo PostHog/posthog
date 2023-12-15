@@ -234,7 +234,7 @@
                     "type": ["number", "null"]
                 },
                 "breakdown_hide_other_aggregation": {
-                    "type": "boolean"
+                    "type": ["boolean", "null"]
                 },
                 "breakdown_histogram_bin_count": {
                     "type": "number"
@@ -1115,6 +1115,9 @@
                 },
                 "breakdown_group_type_index": {
                     "type": ["number", "null"]
+                },
+                "breakdown_hide_other_aggregation": {
+                    "type": ["boolean", "null"]
                 },
                 "breakdown_normalize_url": {
                     "type": "boolean"
