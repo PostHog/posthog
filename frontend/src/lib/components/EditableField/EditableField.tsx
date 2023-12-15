@@ -243,6 +243,7 @@ export function EditableField({
                                 <Tooltip
                                     title={isDisplayTooltipNeeded ? localTentativeValue : undefined}
                                     placement="bottomLeft"
+                                    delayMs={0}
                                 >
                                     <span className="EditableField__display" ref={displayRef}>
                                         {localTentativeValue || <i>{placeholder}</i>}
