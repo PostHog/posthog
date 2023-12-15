@@ -945,14 +945,21 @@ def overrides_manager(request):
 
 
 @pytest.fixture
-def person_overrides(query_inputs, team_id, pg_connection, overrides_manager):
+def person_overrides(query_inputs: QueryInputs, team_id, pg_connection, overrides_manager):
     """Create a PersonOverrideMapping and a PersonOverride.
 
     We cannot use the Django ORM safely in an async context, so we INSERT INTO directly
     on the database. This means we need to clean up after ourselves, which we do after
     yielding.
     """
-    query_inputs.overrides_manager = overrides_manager  # XXX this is truly awful
+    # XXX: Several activity-based tests use this person overrides fixture and
+    # should vary their behavior to ensure that they work with both the old
+    # (mappings) and new (flat) approaches, but not all tests that use
+    # `query_inputs` need to be vary on the overrides manager type as many of
+    # them don't use Postgres overrides at all. To ensure that whenever Postgres
+    # overrides *are* used, we need to update the fixture here. This indirection
+    # isn't good, but this code should be short-lived, right? (... right???)
+    query_inputs.postgres_person_overrides_manager = overrides_manager
 
     old_person_id = uuid4()
     override_person_id = uuid4()
