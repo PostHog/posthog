@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -29,6 +29,7 @@ export const commentsLogic = kea<commentsLogicType>([
             null as CommentType | null,
             {
                 setEditingComment: (_, { comment }) => comment,
+                persistEditedCommentSuccess: () => null,
             },
         ],
         composedComment: [
@@ -94,12 +95,6 @@ export const commentsLogic = kea<commentsLogicType>([
                 },
             },
         ],
-    })),
-
-    listeners(({ actions, values }) => ({
-        persistEditedCommentSuccess: () => {
-            actions.setEditingComment(null)
-        },
     })),
 
     selectors({

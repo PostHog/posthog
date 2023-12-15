@@ -3228,6 +3228,7 @@ export enum ActivityScope {
 export type CommentType = {
     id: string
     content: string
+    version: number
     created_at: string
     created_by: UserBasicType | null
     source_comment_id?: string | null

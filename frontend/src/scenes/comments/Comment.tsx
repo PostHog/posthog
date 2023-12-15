@@ -57,6 +57,7 @@ export const Comment = ({ comment }: CommentProps): JSX.Element => {
                         </LemonMenu>
                     </div>
                     <LemonMarkdown lowKeyHeadings>{comment.content}</LemonMarkdown>
+                    {comment.version ? <span className="text-xs text-muted italic">(edited)</span> : null}
                 </div>
             </div>
 
