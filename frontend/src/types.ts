@@ -2845,9 +2845,6 @@ interface RenamableBreadcrumb extends BreadcrumbBase {
     forceEditMode?: boolean
 }
 export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb
-export type FinalizedBreadcrumb =
-    | (LinkBreadcrumb & { globalKey: string })
-    | (RenamableBreadcrumb & { globalKey: string })
 
 export enum GraphType {
     Bar = 'bar',

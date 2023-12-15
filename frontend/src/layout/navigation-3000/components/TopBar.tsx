@@ -12,7 +12,7 @@ import React, { useLayoutEffect, useState } from 'react'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { FinalizedBreadcrumb } from '~/types'
+import { Breadcrumb as IBreadcrumb } from '~/types'
 
 import { navigation3000Logic } from '../navigationLogic'
 
@@ -106,7 +106,7 @@ export function TopBar(): JSX.Element | null {
 }
 
 interface BreadcrumbProps {
-    breadcrumb: FinalizedBreadcrumb
+    breadcrumb: IBreadcrumb
     here?: boolean
 }
 
@@ -115,20 +115,22 @@ function Breadcrumb({ breadcrumb, here }: BreadcrumbProps): JSX.Element {
     const { tentativelyRename, finishRenaming } = useActions(breadcrumbsLogic)
     const [popoverShown, setPopoverShown] = useState(false)
 
+    const joinedKey = Array.isArray(breadcrumb.key) ? breadcrumb.key.map(String).join(':') : String(breadcrumb.key)
+
     let nameElement: JSX.Element
     if (breadcrumb.name != null && breadcrumb.onRename) {
         nameElement = (
             <EditableField
                 name="item-name-small"
-                value={renameState && renameState[0] === breadcrumb.globalKey ? renameState[1] : breadcrumb.name}
-                onChange={(newName) => tentativelyRename(breadcrumb.globalKey, newName)}
+                value={renameState && renameState[0] === joinedKey ? renameState[1] : breadcrumb.name}
+                onChange={(newName) => tentativelyRename(joinedKey, newName)}
                 onSave={(newName) => {
                     void breadcrumb.onRename?.(newName)
                 }}
-                mode={renameState && renameState[0] === breadcrumb.globalKey ? 'edit' : 'view'}
+                mode={renameState && renameState[0] === joinedKey ? 'edit' : 'view'}
                 onModeToggle={(newMode) => {
                     if (newMode === 'edit') {
-                        tentativelyRename(breadcrumb.globalKey, breadcrumb.name as string)
+                        tentativelyRename(joinedKey, breadcrumb.name as string)
                     } else {
                         finishRenaming()
                     }
@@ -188,12 +190,14 @@ function Breadcrumb({ breadcrumb, here }: BreadcrumbProps): JSX.Element {
 }
 
 interface HereProps {
-    breadcrumb: FinalizedBreadcrumb
+    breadcrumb: IBreadcrumb
 }
 
 function Here({ breadcrumb }: HereProps): JSX.Element {
     const { renameState } = useValues(breadcrumbsLogic)
     const { tentativelyRename, finishRenaming } = useActions(breadcrumbsLogic)
+
+    const joinedKey = Array.isArray(breadcrumb.key) ? breadcrumb.key.map(String).join(':') : String(breadcrumb.key)
 
     return (
         <h1 className="TopBar3000__here">
@@ -202,9 +206,9 @@ function Here({ breadcrumb }: HereProps): JSX.Element {
             ) : breadcrumb.onRename ? (
                 <EditableField
                     name="item-name-large"
-                    value={renameState && renameState[0] === breadcrumb.globalKey ? renameState[1] : breadcrumb.name}
+                    value={renameState && renameState[0] === joinedKey ? renameState[1] : breadcrumb.name}
                     onChange={(newName) => {
-                        tentativelyRename(breadcrumb.globalKey, newName)
+                        tentativelyRename(joinedKey, newName)
                         if (breadcrumb.forceEditMode) {
                             // In this case there's no "Save" button, we update on input
                             void breadcrumb.onRename?.(newName)
@@ -213,16 +217,12 @@ function Here({ breadcrumb }: HereProps): JSX.Element {
                     onSave={(newName) => {
                         void breadcrumb.onRename?.(newName)
                     }}
-                    mode={
-                        breadcrumb.forceEditMode || (renameState && renameState[0] === breadcrumb.globalKey)
-                            ? 'edit'
-                            : 'view'
-                    }
+                    mode={breadcrumb.forceEditMode || (renameState && renameState[0] === joinedKey) ? 'edit' : 'view'}
                     onModeToggle={
                         !breadcrumb.forceEditMode
                             ? (newMode) => {
                                   if (newMode === 'edit') {
-                                      tentativelyRename(breadcrumb.globalKey, breadcrumb.name as string)
+                                      tentativelyRename(joinedKey, breadcrumb.name as string)
                                   } else {
                                       finishRenaming()
                                   }

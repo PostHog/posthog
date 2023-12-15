@@ -13,7 +13,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { OrganizationSwitcherOverlay } from '~/layout/navigation/OrganizationSwitcher'
 import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
-import { Breadcrumb, FinalizedBreadcrumb } from '~/types'
+import { Breadcrumb } from '~/types'
 
 import type { breadcrumbsLogicType } from './breadcrumbsLogicType'
 
@@ -170,26 +170,8 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
         ],
         breadcrumbs: [
             (s) => [s.appBreadcrumbs, s.sceneBreadcrumbs],
-            (appBreadcrumbs, sceneBreadcrumbs): FinalizedBreadcrumb[] => {
-                const breadcrumbs = Array<FinalizedBreadcrumb>(appBreadcrumbs.length + sceneBreadcrumbs.length)
-                const globalPathSoFar: string[] = []
-                for (let i = 0; i < appBreadcrumbs.length; i++) {
-                    const { key } = appBreadcrumbs[i]
-                    globalPathSoFar.push(Array.isArray(key) ? key.map(String).join(':') : String(key))
-                    breadcrumbs[i] = {
-                        ...appBreadcrumbs[i],
-                        globalKey: globalPathSoFar.join('.'),
-                    }
-                }
-                for (let i = 0; i < sceneBreadcrumbs.length; i++) {
-                    const { key } = sceneBreadcrumbs[i]
-                    globalPathSoFar.push(Array.isArray(key) ? key.map(String).join(':') : String(key))
-                    breadcrumbs[i + appBreadcrumbs.length] = {
-                        ...sceneBreadcrumbs[i],
-                        globalKey: globalPathSoFar.join('.'),
-                    }
-                }
-                return breadcrumbs
+            (appBreadcrumbs, sceneBreadcrumbs): Breadcrumb[] => {
+                return appBreadcrumbs.concat(sceneBreadcrumbs)
             },
         ],
         firstBreadcrumb: [(s) => [s.breadcrumbs], (breadcrumbs) => breadcrumbs[0]],
