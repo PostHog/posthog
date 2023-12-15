@@ -1,5 +1,5 @@
 import { eventWithTime } from '@rrweb/types'
-import { captureException } from '@sentry/react'
+import { captureException, captureMessage } from '@sentry/react'
 import Ajv, { ErrorObject } from 'ajv'
 
 import { mobileEventWithTime } from './mobile.types'
@@ -50,7 +50,7 @@ export function transformEventToWeb(event: unknown): eventWithTime {
                 result = transformed
             }
         } else {
-            console.warn(`No type in event: ${JSON.stringify(event)}`)
+            captureMessage(`No type in event`, { extra: { event } })
         }
     } catch (e) {
         captureException(e, { extra: { event } })
@@ -70,8 +70,7 @@ export function validateAgainstWebSchema(data: unknown): boolean {
     const validationResult = webSchemaValidator(data)
     if (!validationResult) {
         // we are passing all data through this validation now and don't know how safe the schema is
-        console.error(webSchemaValidator.errors)
-        captureException(new Error('transformation did not match schema'), {
+        captureMessage('transformation did not match schema', {
             extra: { data, errors: webSchemaValidator.errors },
         })
     }
