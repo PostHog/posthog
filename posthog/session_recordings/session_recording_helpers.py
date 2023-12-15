@@ -124,6 +124,7 @@ def preprocess_replay_events(
     distinct_id = events[0]["properties"]["distinct_id"]
     session_id = events[0]["properties"]["$session_id"]
     window_id = events[0]["properties"].get("$window_id")
+    snapshot_source = events[0]["properties"].get("$snapshot_source", "web")
 
     def new_event(items: List[dict] | None = None) -> Event:
         return {
@@ -135,6 +136,7 @@ def preprocess_replay_events(
                 "$window_id": window_id,
                 # We instantiate here instead of in the arg to avoid mutable default args
                 "$snapshot_items": items or [],
+                "$snapshot_source": snapshot_source,
             },
         }
 

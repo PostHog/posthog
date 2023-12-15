@@ -323,6 +323,7 @@ export interface SummarizedSessionRecordingEvent {
     size: number
     event_count: number
     message_count: number
+    snapshot_source: string | null
 }
 
 export type ConsoleLogEntry = {
@@ -441,7 +442,8 @@ export const createSessionReplayEvent = (
     team_id: number,
     distinct_id: string,
     session_id: string,
-    events: RRWebEvent[]
+    events: RRWebEvent[],
+    snapshot_source: string | null
 ) => {
     const timestamps = getTimestampsFrom(events)
 
@@ -509,6 +511,7 @@ export const createSessionReplayEvent = (
         size: Math.trunc(Buffer.byteLength(JSON.stringify(events), 'utf8')),
         event_count: Math.trunc(events.length),
         message_count: 1,
+        snapshot_source: snapshot_source || 'web',
     }
 
     return data

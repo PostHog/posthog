@@ -109,6 +109,7 @@ export enum ProductKey {
     EARLY_ACCESS_FEATURES = 'early_access_features',
     PRODUCT_ANALYTICS = 'product_analytics',
     PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
+    PIPELINE_DESTINATIONS = 'pipeline_destinations',
 }
 
 export enum LicensePlan {
@@ -1576,10 +1577,10 @@ export interface PluginConfigTypeNew {
     team_id: number
     enabled: boolean
     order: number
-    error?: PluginErrorType
     name: string
     description?: string
     updated_at: string
+    delivery_rate_24h?: number | null
 }
 
 export interface PluginConfigWithPluginInfo extends PluginConfigType {

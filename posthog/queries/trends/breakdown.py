@@ -81,6 +81,9 @@ from posthog.utils import (
 )
 from posthog.queries.person_on_events_v2_sql import PERSON_OVERRIDES_JOIN_SQL
 
+BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
+BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991  # pow(2, 53) - 1, for JS compatibility
+
 
 class TrendsBreakdown:
     DISTINCT_ID_TABLE_ALIAS = EventQuery.DISTINCT_ID_TABLE_ALIAS
@@ -448,6 +451,7 @@ class TrendsBreakdown:
         assert isinstance(self.filter.breakdown, str)
 
         breakdown_value = self._get_breakdown_value(self.filter.breakdown)
+        breakdown_other_value: str | int = BREAKDOWN_OTHER_STRING_LABEL
         numeric_property_filter = ""
         if self.filter.using_histogram:
             numeric_property_filter = f"AND {breakdown_value} is not null"
@@ -457,13 +461,18 @@ class TrendsBreakdown:
             # Not adding "Other" for the custom session duration filter.
             pass
         else:
-            # Adding "Other" breakdown option
-            breakdown_value = (
-                f"transform({breakdown_value}, (%(values)s), (%(values)s), '$$_posthog_breakdown_other_$$')"
-            )
+            all_values_are_numeric = all(isinstance(value, int) or isinstance(value, float) for value in values_arr)
+            all_values_are_string = all(isinstance(value, str) for value in values_arr)
+
+            if all_values_are_numeric:
+                breakdown_other_value = BREAKDOWN_OTHER_NUMERIC_LABEL
+            elif not all_values_are_string:
+                breakdown_value = f"toString({breakdown_value})"
+
+            breakdown_value = f"transform({breakdown_value}, (%(values)s), (%(values)s), %(other_value)s)"
 
         return (
-            {"values": values_arr},
+            {"values": values_arr, "other_value": breakdown_other_value},
             BREAKDOWN_PROP_JOIN_SQL if not self.filter.using_histogram else BREAKDOWN_HISTOGRAM_PROP_JOIN_SQL,
             {
                 "breakdown_value_expr": breakdown_value,

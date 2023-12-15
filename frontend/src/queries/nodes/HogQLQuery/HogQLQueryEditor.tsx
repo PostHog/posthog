@@ -49,7 +49,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
         <div className="space-y-2">
             <div
                 data-attr="hogql-query-editor"
-                className={clsx('flex flex-col rounded bg-bg-light space-y-2 w-full', !props.embedded && 'p-2 border')}
+                className={clsx('flex flex-col rounded space-y-2 w-full', !props.embedded && 'p-2 border')}
             >
                 <FlaggedFeature flag={FEATURE_FLAGS.ARTIFICIAL_HOG}>
                     <div className="flex gap-2">
@@ -86,7 +86,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                 </FlaggedFeature>
                 {promptError ? <LemonBanner type="warning">{promptError}</LemonBanner> : null}
                 <div className="relative flex-1 overflow-hidden">
-                    <span className="absolute top-0 right-0 mt-1 mr-1 z-10">
+                    <span className="absolute top-0 right-0 mt-1 mr-5 z-10 bg-bg-light">
                         <LemonButtonWithDropdown
                             icon={<IconInfo />}
                             type="secondary"
@@ -121,7 +121,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                     {/* eslint-disable-next-line react/forbid-dom-props */}
                     <div className="resize-y overflow-hidden" style={{ height: 222 }}>
                         <CodeEditor
-                            className="py-2 border rounded overflow-hidden h-full"
+                            className="border rounded overflow-hidden h-full"
                             language="mysql"
                             value={queryInput}
                             onChange={(v) => setQueryInput(v ?? '')}
@@ -237,7 +237,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             }
                             data-attr="hogql-query-editor-save-as-view"
                         >
-                            {'Save as View'}
+                            Save as View
                         </LemonButton>
                     ) : null}
                     {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS] && (

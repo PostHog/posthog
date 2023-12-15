@@ -1,5 +1,6 @@
 import { afterMount, beforeUnmount, connect, kea, listeners, path } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { commandPaletteLogic } from '../CommandPalette/commandPaletteLogic'
 import type { actionBarLogicType } from './actionBarLogicType'
@@ -24,6 +25,8 @@ export const actionBarLogic = kea<actionBarLogicType>([
                 'onMouseEnterResult',
                 'onMouseLeaveResult',
             ],
+            eventUsageLogic,
+            ['reportCommandBarActionSearch', 'reportCommandBarActionResultExecuted'],
         ],
         values: [
             commandBarLogic,
@@ -43,6 +46,12 @@ export const actionBarLogic = kea<actionBarLogicType>([
         hidePalette: () => {
             // listen on hide action from legacy palette, and hide command bar
             actions.hideCommandBar()
+        },
+        setInput: ({ input }) => {
+            actions.reportCommandBarActionSearch(input)
+        },
+        executeResult: ({ result }) => {
+            actions.reportCommandBarActionResultExecuted(result.display)
         },
     })),
     subscriptions(({ values, actions }) => ({
