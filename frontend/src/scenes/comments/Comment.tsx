@@ -21,7 +21,7 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
     return (
         <div
             className={clsx(
-                'border rounded bg-bg-light ',
+                'border rounded bg-bg-light',
                 (replyingCommentId === comment.id || editingComment?.id === comment.id) && 'border-primary-3000'
             )}
         >
