@@ -109,7 +109,7 @@ export const CommentWithReplies = ({ commentWithReplies }: CommentProps): JSX.El
     // TODO: Permissions
 
     return (
-        <>
+        <div className="relative space-y-2">
             {comment ? (
                 <Comment comment={comment} />
             ) : (
@@ -130,6 +130,6 @@ export const CommentWithReplies = ({ commentWithReplies }: CommentProps): JSX.El
                     />
                 ))}
             </div>
-        </>
+        </div>
     )
 }
