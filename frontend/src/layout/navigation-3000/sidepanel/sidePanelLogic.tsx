@@ -80,8 +80,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         ],
 
         enabledTabs: [
-            (s) => [s.isCloudOrDev, s.isReady, s.hasCompletedAllTasks],
-            (isCloudOrDev, isReady, hasCompletedAllTasks) => {
+            (s) => [s.isCloudOrDev, s.isReady, s.hasCompletedAllTasks, s.featureFlags],
+            (isCloudOrDev, isReady, hasCompletedAllTasks, featureflags) => {
                 const tabs: SidePanelTab[] = []
 
                 tabs.push(SidePanelTab.Notebooks)
@@ -93,7 +93,9 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 if (isReady && !hasCompletedAllTasks) {
                     tabs.push(SidePanelTab.Activation)
                 }
-                tabs.push(SidePanelTab.Discussion)
+                if (featureflags[FEATURE_FLAGS.DISCUSSIONS]) {
+                    tabs.push(SidePanelTab.Discussion)
+                }
                 tabs.push(SidePanelTab.Activity)
                 tabs.push(SidePanelTab.FeaturePreviews)
                 tabs.push(SidePanelTab.Welcome)
