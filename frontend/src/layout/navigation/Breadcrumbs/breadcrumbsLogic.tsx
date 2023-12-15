@@ -2,8 +2,10 @@ import './Breadcrumbs.scss'
 
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, objectsEqual, stripHTTP } from 'lib/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -100,8 +102,18 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                 s.currentOrganization,
                 s.currentTeam,
                 s.otherOrganizations,
+                featureFlagLogic.selectors.featureFlags,
             ],
-            (preflight, sceneConfig, activeScene, user, currentOrganization, currentTeam, otherOrganizations) => {
+            (
+                preflight,
+                sceneConfig,
+                activeScene,
+                user,
+                currentOrganization,
+                currentTeam,
+                otherOrganizations,
+                featureFlags
+            ) => {
                 const breadcrumbs: Breadcrumb[] = []
                 if (!activeScene || !sceneConfig) {
                     return breadcrumbs
@@ -129,7 +141,10 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                     })
                 }
                 // Organization
-                if (sceneConfig.organizationBased || sceneConfig.projectBased) {
+                if (
+                    (sceneConfig.organizationBased || sceneConfig.projectBased) &&
+                    !featureFlags[FEATURE_FLAGS.POSTHOG_3000]
+                ) {
                     if (!currentOrganization) {
                         return breadcrumbs
                     }
