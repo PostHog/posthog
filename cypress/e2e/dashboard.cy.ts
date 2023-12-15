@@ -124,7 +124,7 @@ describe('Dashboard', () => {
         cy.get('[data-attr=breadcrumb-organization]').should('contain', 'Hogflix')
         cy.get('[data-attr=breadcrumb-project]').should('contain', 'Hogflix Demo App')
         cy.get('[data-attr=breadcrumb-Dashboards]').should('have.text', 'Dashboards')
-        cy.get('[data-attr=breadcrumb-Dashboard:*]').should('have.text', TEST_DASHBOARD_NAME)
+        cy.get('[data-attr^="breadcrumb-Dashboard:"]').should('have.text', TEST_DASHBOARD_NAME)
     })
 
     it('Click on a dashboard item dropdown and view graph', () => {

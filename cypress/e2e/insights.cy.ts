@@ -26,7 +26,7 @@ describe('Insights', () => {
         cy.get('[data-attr=breadcrumb-organization]').should('contain', 'Hogflix')
         cy.get('[data-attr=breadcrumb-project]').should('contain', 'Hogflix Demo App')
         cy.get('[data-attr=breadcrumb-SavedInsights]').should('have.text', 'Product analytics')
-        cy.get('[data-attr=breadcrumb-SavedInsight:*]').should('have.text', 'insight name')
+        cy.get('[data-attr^="breadcrumb-SavedInsight:"]').should('have.text', 'insight name')
     })
 
     it('Can change insight name', () => {
