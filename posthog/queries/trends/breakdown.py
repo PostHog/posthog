@@ -58,6 +58,7 @@ from posthog.queries.trends.sql import (
     SESSION_DURATION_BREAKDOWN_INNER_SQL,
     VOLUME_PER_ACTOR_BREAKDOWN_AGGREGATE_SQL,
     VOLUME_PER_ACTOR_BREAKDOWN_INNER_SQL,
+    BREAKDOWN_PROP_JOIN_WITH_OTHER_SQL,
 )
 from posthog.queries.trends.util import (
     COUNT_PER_ACTOR_MATH_FUNCTIONS,
@@ -460,7 +461,7 @@ class TrendsBreakdown:
         elif self.filter.breakdown_type == "session" and self.filter.breakdown == "$session_duration":
             # Not adding "Other" for the custom session duration filter.
             pass
-        elif not self.filter.breakdown_hide_other_aggregation:
+        else:
             all_values_are_numeric = all(isinstance(value, int) or isinstance(value, float) for value in values_arr)
             all_values_are_string = all(isinstance(value, str) for value in values_arr)
 
@@ -468,12 +469,18 @@ class TrendsBreakdown:
                 breakdown_other_value = BREAKDOWN_OTHER_NUMERIC_LABEL
             elif not all_values_are_string:
                 breakdown_value = f"toString({breakdown_value})"
-
             breakdown_value = f"transform({breakdown_value}, (%(values)s), (%(values)s), %(other_value)s)"
+
+        if self.filter.using_histogram:
+            sql_query = BREAKDOWN_HISTOGRAM_PROP_JOIN_SQL
+        elif self.filter.breakdown_hide_other_aggregation:
+            sql_query = BREAKDOWN_PROP_JOIN_SQL
+        else:
+            sql_query = BREAKDOWN_PROP_JOIN_WITH_OTHER_SQL
 
         return (
             {"values": values_arr, "other_value": breakdown_other_value},
-            BREAKDOWN_PROP_JOIN_SQL if not self.filter.using_histogram else BREAKDOWN_HISTOGRAM_PROP_JOIN_SQL,
+            sql_query,
             {
                 "breakdown_value_expr": breakdown_value,
                 "numeric_property_filter": numeric_property_filter,

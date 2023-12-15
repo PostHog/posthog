@@ -372,8 +372,14 @@ BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL = """
 WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from_prev_range} {parsed_date_to} {actions_query} {null_person_filter}
 """
 
+BREAKDOWN_PROP_JOIN_WITH_OTHER_SQL = """
+WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to} {null_person_filter}
+  {actions_query}
+"""
+
 BREAKDOWN_PROP_JOIN_SQL = """
 WHERE e.team_id = %(team_id)s {event_filter} {filters} {parsed_date_from} {parsed_date_to} {null_person_filter}
+  AND {breakdown_value_expr} in (%(values)s)
   {actions_query}
 """
 
