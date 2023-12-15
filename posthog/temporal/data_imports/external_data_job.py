@@ -190,7 +190,6 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 schemas=schemas,
             )
 
-            # TODO: can make this a child workflow for separate worker pool
             await workflow.execute_activity(
                 run_external_data_job,
                 job_inputs,
