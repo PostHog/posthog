@@ -320,6 +320,7 @@ def _insight_filter(filter: Dict):
                 aggregation_axis_format=filter.get("aggregation_axis_format"),
                 aggregation_axis_prefix=filter.get("aggregation_axis_prefix"),
                 aggregation_axis_postfix=filter.get("aggregation_axis_postfix"),
+                decimal_places=filter.get("decimal_places"),
                 formula=filter.get("formula"),
                 display=clean_display(filter.get("display")),
                 show_values_on_series=filter.get("show_values_on_series"),
