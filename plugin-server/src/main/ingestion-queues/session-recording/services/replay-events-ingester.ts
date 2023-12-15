@@ -109,7 +109,8 @@ export class ReplayEventsIngester {
                 event.team_id,
                 event.distinct_id,
                 event.session_id,
-                event.events
+                event.events,
+                event.snapshot_source
             )
 
             try {
