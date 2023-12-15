@@ -248,6 +248,7 @@ UPDATE
 SET
     finished_at = NOW(),
     status = 'failed'::job_status
+    errors = array_append("{0}".errors, $3)
 WHERE
     "{0}".id = $2
     AND queue = $1
@@ -261,6 +262,7 @@ RETURNING
         sqlx::query(&base_query)
             .bind(&failed_job.queue)
             .bind(failed_job.id)
+            .bind(&failed_job.error)
             .execute(&mut *self.connection)
             .await
             .map_err(|error| PgJobError::QueryError {
@@ -394,6 +396,7 @@ UPDATE
 SET
     finished_at = NOW(),
     status = 'failed'::job_status
+    errors = array_append("{0}".errors, $3)
 WHERE
     "{0}".id = $2
     AND queue = $1
@@ -406,6 +409,7 @@ RETURNING
         sqlx::query(&base_query)
             .bind(&failed_job.queue)
             .bind(failed_job.id)
+            .bind(&failed_job.error)
             .execute(&mut *self.transaction)
             .await
             .map_err(|error| PgJobError::QueryError {

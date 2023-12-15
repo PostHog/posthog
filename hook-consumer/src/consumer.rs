@@ -32,7 +32,7 @@ impl<'p> WebhookConsumer<'p> {
         poll_interval: time::Duration,
         request_timeout: time::Duration,
         max_concurrent_jobs: usize,
-    ) -> Result<Self, WebhookConsumerError> {
+    ) -> Self {
         let mut headers = header::HeaderMap::new();
         headers.insert(
             header::CONTENT_TYPE,
@@ -42,15 +42,16 @@ impl<'p> WebhookConsumer<'p> {
         let client = reqwest::Client::builder()
             .default_headers(headers)
             .timeout(request_timeout)
-            .build()?;
+            .build()
+            .expect("failed to construct reqwest client for webhook consumer");
 
-        Ok(Self {
+        Self {
             name: name.to_owned(),
             queue,
             poll_interval,
             client,
             max_concurrent_jobs,
-        })
+        }
     }
 
     /// Wait until a job becomes available in our queue.
@@ -174,7 +175,11 @@ async fn send_webhook(
         .headers(headers)
         .body(body)
         .send()
-        .await?;
+        .await
+        .map_err(|e| WebhookConsumerError::RetryableWebhookError {
+            reason: e.to_string(),
+            retry_after: None,
+        })?;
 
     let status = response.status();
 
@@ -328,8 +333,8 @@ mod tests {
             time::Duration::from_millis(100),
             time::Duration::from_millis(5000),
             10,
-        )
-        .expect("consumer failed to initialize");
+        );
+
         let consumed_job = consumer
             .wait_for_job()
             .await
