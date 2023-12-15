@@ -3226,11 +3226,11 @@ export enum ActivityScope {
 }
 
 export type CommentType = {
-    id: string | null
+    id: string
     content: string
-    created_at?: string
-    created_by?: UserBasicType | null
-    source_comment_id: string | null
+    created_at: string
+    created_by: UserBasicType | null
+    source_comment_id?: string | null
     scope: ActivityScope
     item_id?: string
 }

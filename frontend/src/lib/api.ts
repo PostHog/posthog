@@ -290,7 +290,7 @@ class ApiRequest {
     public comments(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('comments')
     }
-    public comment(id: string, teamId?: TeamType['id']): ApiRequest {
+    public comment(id: CommentType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.comments(teamId).addPathComponent(id)
     }
 
@@ -869,7 +869,16 @@ const api = {
             return new ApiRequest().comments(teamId).withQueryString(toParams(params)).create({ data })
         },
 
-        async get(id: string, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<CommentType> {
+        async update(
+            id: CommentType['id'],
+            data: Partial<CommentType>,
+            params: Record<string, any> = {},
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+        ): Promise<CommentType> {
+            return new ApiRequest().comment(id, teamId).withQueryString(toParams(params)).update({ data })
+        },
+
+        async get(id: CommentType['id'], teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<CommentType> {
             return new ApiRequest().comment(id, teamId).get()
         },
 
