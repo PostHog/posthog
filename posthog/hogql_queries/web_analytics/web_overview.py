@@ -44,10 +44,10 @@ WITH pages_query AS (
     ),
 sessions_query AS (
     SELECT
-        avg(if(min_timestamp > {mid}, duration_s, NULL)) AS avg_duration_s,
-        avg(if(min_timestamp <= {mid}, duration_s, NULL)) AS prev_avg_duration_s,
-        avg(if(min_timestamp > {mid}, is_bounce, NULL)) AS bounce_rate,
-        avg(if(min_timestamp <= {mid}, is_bounce, NULL)) AS prev_bounce_rate
+        avg(if(min_timestamp >= {mid}, duration_s, NULL)) AS avg_duration_s,
+        avg(if(min_timestamp < {mid}, duration_s, NULL)) AS prev_avg_duration_s,
+        avg(if(min_timestamp >= {mid}, is_bounce, NULL)) AS bounce_rate,
+        avg(if(min_timestamp < {mid}, is_bounce, NULL)) AS prev_bounce_rate
     FROM (SELECT
             events.properties.`$session_id` AS session_id,
             min(events.timestamp) AS min_timestamp,
@@ -129,7 +129,7 @@ CROSS JOIN sessions_query
         )
 
     def event_properties(self) -> ast.Expr:
-        return property_to_expr(self.query.properties, team=self.team)
+        return property_to_expr(self.query.properties + self._test_account_filters, team=self.team)
 
 
 def to_data(

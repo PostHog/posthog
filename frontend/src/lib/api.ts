@@ -31,6 +31,7 @@ import {
     EventType,
     Experiment,
     ExportedAssetType,
+    ExternalDataSourceSchema,
     ExternalDataStripeSource,
     ExternalDataStripeSourceCreatePayload,
     FeatureFlagAssociatedRoleType,
@@ -664,6 +665,14 @@ class ApiRequest {
 
     public externalDataSource(sourceId: ExternalDataStripeSource['id'], teamId?: TeamType['id']): ApiRequest {
         return this.externalDataSources(teamId).addPathComponent(sourceId)
+    }
+
+    public externalDataSchemas(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('external_data_schemas')
+    }
+
+    public externalDataSourceSchema(schemaId: ExternalDataSourceSchema['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.externalDataSchemas(teamId).addPathComponent(schemaId)
     }
 
     // Request finalization
@@ -1760,6 +1769,15 @@ const api = {
         },
         async reload(sourceId: ExternalDataStripeSource['id']): Promise<void> {
             await new ApiRequest().externalDataSource(sourceId).withAction('reload').create()
+        },
+    },
+
+    externalDataSchemas: {
+        async update(
+            schemaId: ExternalDataSourceSchema['id'],
+            data: Partial<ExternalDataSourceSchema>
+        ): Promise<ExternalDataSourceSchema> {
+            return await new ApiRequest().externalDataSourceSchema(schemaId).update({ data })
         },
     },
 

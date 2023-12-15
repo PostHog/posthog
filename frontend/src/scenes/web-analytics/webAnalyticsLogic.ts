@@ -263,6 +263,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     date_from: dateFrom,
                     date_to: dateTo,
                 }
+                const compare = !!dateRange.date_from
+
                 const tiles: (WebDashboardTile | null)[] = [
                     {
                         layout: {
@@ -300,7 +302,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                             },
                                         ],
                                         trendsFilter: {
-                                            compare: true,
+                                            compare,
                                             display: ChartDisplayType.ActionsLineGraph,
                                         },
                                         filterTestAccounts: true,
@@ -330,7 +332,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                             },
                                         ],
                                         trendsFilter: {
-                                            compare: true,
+                                            compare,
                                             display: ChartDisplayType.ActionsLineGraph,
                                         },
                                         filterTestAccounts: true,
@@ -360,7 +362,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                             },
                                         ],
                                         trendsFilter: {
-                                            compare: true,
+                                            compare,
                                             display: ChartDisplayType.ActionsLineGraph,
                                         },
                                         filterTestAccounts: true,

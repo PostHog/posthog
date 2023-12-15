@@ -1125,6 +1125,10 @@ $decorations: underline, overline, line-through, no-underline;
     font-family: var(--font-sans);
 }
 
+.font-title {
+    font-family: var(--font-title);
+}
+
 .font-mono {
     font-family: var(--font-mono);
 }

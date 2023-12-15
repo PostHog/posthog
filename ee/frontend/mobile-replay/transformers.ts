@@ -12,11 +12,13 @@ import {
     textNode,
     wireframe,
     wireframeButton,
+    wireframeCheckBox,
     wireframeDiv,
     wireframeImage,
     wireframeInputComponent,
     wireframePlaceholder,
     wireframeProgress,
+    wireframeRadio,
     wireframeRadioGroup,
     wireframeRectangle,
     wireframeSelect,
@@ -29,6 +31,7 @@ import {
     makeHTMLStyles,
     makeIndeterminateProgressStyles,
     makeMinimalStyles,
+    makePositionStyles,
     makeStylesString,
 } from './wireframeStyle'
 
@@ -378,6 +381,85 @@ function makeProgressElement(
                 ...children,
             ],
         }
+    } else if (wireframe.style?.bar === 'rating') {
+        // value needs to be expressed as a number between 0 and 100
+        const max = wireframe.max || 1
+        let value = wireframe.value || null
+        if (_isPositiveInteger(value) && value <= max) {
+            value = (value / max) * 100
+        } else {
+            value = null
+        }
+
+        if (value === null) {
+            return makePlaceholderElement(wireframe, children)
+        }
+
+        const stylingChildren: serializedNodeWithId[] = [
+            {
+                type: NodeType.Element,
+                tagName: 'style',
+                attributes: {
+                    type: 'text/css',
+                },
+                id: idSequence.next().value,
+                childNodes: [
+                    {
+                        type: NodeType.Text,
+                        textContent: `.stars {position: relative;display:inline-block;font-size: ${
+                            wireframe.height
+                        }px;height: ${wireframe.height}px;line-height: ${
+                            wireframe.height
+                        }px;}.stars:before {content: "\\2606\\2606\\2606\\2606\\2606";}.stars:after {content: "\\2605\\2605\\2605\\2605\\2605";position:absolute;  left:0;overflow:hidden;width:var(--w,50%);color: ${
+                            wireframe.style?.color || 'rgb(255, 200, 0)'
+                        };z-index:-1;}`,
+                        id: idSequence.next().value,
+                    },
+                ],
+            },
+        ]
+
+        const ratingBar = {
+            type: NodeType.Element,
+            tagName: 'ul',
+            id: idSequence.next().value,
+            attributes: {
+                // unset UL styles
+                style: 'list-style-type: none; margin: 0; padding: 0;',
+            },
+            childNodes: [
+                {
+                    type: NodeType.Element,
+                    tagName: 'li',
+                    id: idSequence.next().value,
+                    attributes: {
+                        style: 'list-style-type: none;',
+                    },
+                    childNodes: [
+                        {
+                            type: NodeType.Element,
+                            tagName: 'div',
+                            attributes: {
+                                style: `--w: ${value}%;`,
+                                class: 'stars',
+                            },
+                            id: idSequence.next().value,
+                            childNodes: [],
+                        },
+                    ],
+                },
+            ],
+        } as serializedNodeWithId
+
+        return {
+            type: NodeType.Element,
+            tagName: 'div',
+            attributes: {
+                style: makeMinimalStyles(wireframe),
+            },
+            id: wireframe.id,
+            childNodes: [...stylingChildren, ratingBar, ...children],
+        }
     } else {
         return {
             type: NodeType.Element,
@@ -389,20 +471,84 @@ function makeProgressElement(
     }
 }
 
-function makeToggleElement(
-    wireframe: wireframeToggle,
-    children: serializedNodeWithId[]
-): (elementNode & { id: number }) | null {
-    // first return simply a checkbox
+function makeToggleParts(wireframe: wireframeToggle): serializedNodeWithId[] {
+    const togglePosition = wireframe.checked ? 'right' : 'left'
+    const defaultColor = wireframe.checked ? '#1d4aff' : BACKGROUND
+    return [
+        {
+            type: NodeType.Element,
+            tagName: 'div',
+            attributes: {
+                'data-toggle-part': 'slider',
+                style: `position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;background-color:${
+                    wireframe.style?.color || defaultColor
+                };opacity: 0.2;border-radius:7.5%;`,
+            },
+            id: idSequence.next().value,
+            childNodes: [],
+        },
+        {
+            type: NodeType.Element,
+            tagName: 'div',
+            attributes: {
+                'data-toggle-part': 'handle',
+                style: `position:absolute;top:1.5%;${togglePosition}:5%;display:flex;align-items:center;justify-content:center;width:40%;height:75%;cursor:inherit;background-color:${
+                    wireframe.style?.color || defaultColor
+                };border:2px solid ${
+                    wireframe.style?.borderColor || wireframe.style?.color || defaultColor
+                };border-radius:50%;`,
+            },
+            id: idSequence.next().value,
+            childNodes: [],
+        },
+    ]
+}
+
+function makeToggleElement(wireframe: wireframeToggle): (elementNode & { id: number }) | null {
+    const isLabelled = 'label' in wireframe
     return {
         type: NodeType.Element,
-        tagName: 'input',
+        tagName: 'div',
         attributes: {
-            ...inputAttributes(wireframe),
-            type: 'checkbox',
+            // if labelled take up available space, otherwise use provided positioning
+            style: isLabelled ? `height:100%;flex:1` : makePositionStyles(wireframe),
         },
         id: wireframe.id,
-        childNodes: children,
+        childNodes: [
+            {
+                type: NodeType.Element,
+                tagName: 'div',
+                attributes: {
+                    // relative position, fills parent
+                    style: 'position:relative;width:100%;height:100%;',
+                },
+                id: idSequence.next().value,
+                childNodes: makeToggleParts(wireframe),
+            },
+        ],
+    }
+}
+
+function makeLabelledInput(
+    wireframe: wireframeCheckBox | wireframeRadio | wireframeToggle,
+    theInputElement: serializedNodeWithId
+): serializedNodeWithId {
+    const theLabel: serializedNodeWithId = {
+        type: NodeType.Text,
+        textContent: wireframe.label || '',
+        id: idSequence.next().value,
+    }
+
+    const orderedChildren = wireframe.inputType === 'toggle' ? [theLabel, theInputElement] : [theInputElement, theLabel]
+
+    return {
+        type: NodeType.Element,
+        tagName: 'label',
+        attributes: {
+            style: makeStylesString(wireframe),
+        },
+        id: idSequence.next().value,
+        childNodes: orderedChildren,
     }
 }
 
@@ -426,9 +572,9 @@ function makeInputElement(
         return makeProgressElement(wireframe, children)
     }
 
-    const theInputElement: (elementNode & { id: number }) | null =
+    const theInputElement: serializedNodeWithId | null =
         wireframe.inputType === 'toggle'
-            ? makeToggleElement(wireframe, children)
+            ? makeToggleElement(wireframe)
             : {
                   type: NodeType.Element,
                   tagName: 'input',
@@ -436,27 +582,13 @@ function makeInputElement(
                   id: wireframe.id,
                   childNodes: children,
               }
+
     if (!theInputElement) {
         return null
     }
 
     if ('label' in wireframe) {
-        return {
-            type: NodeType.Element,
-            tagName: 'label',
-            attributes: {
-                style: makeStylesString(wireframe),
-            },
-            id: idSequence.next().value,
-            childNodes: [
-                theInputElement,
-                {
-                    type: NodeType.Text,
-                    textContent: wireframe.label || '',
-                    id: idSequence.next().value,
-                },
-            ],
-        }
+        return makeLabelledInput(wireframe, theInputElement)
     } else {
         return {
             ...theInputElement,

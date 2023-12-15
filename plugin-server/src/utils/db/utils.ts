@@ -65,6 +65,7 @@ const eventToPersonProperties = new Set([
     'utm_name',
     'utm_term',
     'gclid',
+    'gad_source',
     'gbraid',
     'wbraid',
     'fbclid',

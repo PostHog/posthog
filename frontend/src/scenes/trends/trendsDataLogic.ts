@@ -3,6 +3,7 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { BREAKDOWN_OTHER_NUMERIC_LABEL, BREAKDOWN_OTHER_STRING_LABEL } from 'scenes/insights/utils'
 
 import { ChartDisplayType, InsightLogicProps, LifecycleToggle, TrendAPIResponse, TrendResult } from '~/types'
 
@@ -85,7 +86,12 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 }
                 const results = insightData.result ?? insightData.results
                 return !!(
-                    Array.isArray(results) && results.find((r) => r.breakdown_value === '$$_posthog_breakdown_other_$$')
+                    Array.isArray(results) &&
+                    results.find(
+                        (r) =>
+                            r.breakdown_value === BREAKDOWN_OTHER_STRING_LABEL ||
+                            r.breakdown_value === BREAKDOWN_OTHER_NUMERIC_LABEL
+                    )
                 )
             },
         ],
