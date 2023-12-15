@@ -47,15 +47,19 @@ class StripeJobInputs(PipelineInputs):
 def create_pipeline(inputs: PipelineInputs):
     pipeline_name = f"{inputs.job_type}_pipeline_{inputs.team_id}_run_{inputs.run_id}"
     pipelines_dir = f"{os.getcwd()}/.dlt/{inputs.team_id}/{inputs.run_id}/{inputs.job_type}"
+
     return dlt.pipeline(
         pipeline_name=pipeline_name,
-        pipelines_dir=pipelines_dir,  # workers can be created and destroyed so it doesn't matter where the metadata gets put temporarily
-        destination="filesystem",
+        pipelines_dir=pipelines_dir,
+        destination=dlt.destinations.filesystem(
+            credentials={
+                "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
+                "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
+                "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+            },
+            bucket_url=settings.BUCKET_URL,
+        ),
         dataset_name=inputs.dataset_name,
-        credentials={
-            "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-            "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
-        },
     )
 
 
