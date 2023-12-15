@@ -3281,6 +3281,7 @@ export interface DataWarehouseTable {
     credential: DataWarehouseCredential
     columns: DatabaseSchemaQueryResponseField[]
     external_data_source?: ExternalDataStripeSource
+    external_schema?: SimpleExternalDataSourceSchema
 }
 
 export type DataWarehouseTableTypes = 'CSV' | 'Parquet'
@@ -3319,11 +3320,14 @@ export interface ExternalDataStripeSource {
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]
 }
-
-export interface ExternalDataSourceSchema {
+export interface SimpleExternalDataSourceSchema {
     id: string
     name: string
     should_sync: boolean
+    last_synced_at?: Dayjs
+}
+
+export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
 }
 
