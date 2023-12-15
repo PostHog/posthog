@@ -29,7 +29,6 @@ export class GraphileWorker {
     producerPool: Pool | null
     workerUtilsPromise: Promise<WorkerUtils> | null
     started: boolean
-    paused: boolean
     jobHandlers: TaskList
     timeout: NodeJS.Timeout | null
     intervalSeconds: number
@@ -38,7 +37,6 @@ export class GraphileWorker {
     constructor(hub: Hub) {
         this.hub = hub
         this.started = false
-        this.paused = false
         this.jobHandlers = {}
         this.timeout = null
         this.intervalSeconds = 10
@@ -126,7 +124,7 @@ export class GraphileWorker {
     // TODO: Split this legacy generic "toggle" function into proper `startWorker` and `stopWorker` methods
     async syncState(): Promise<void> {
         // start running the graphile worker
-        if (this.started && !this.paused && !this.runner) {
+        if (this.started && !this.runner) {
             status.info('🔄', 'Creating new Graphile worker runner...')
             this.consumerPool = await this.createPool()
             this.runner = await run({
@@ -213,23 +211,5 @@ export class GraphileWorker {
         this.started = false
         await this.syncState()
         status.info('🛑', 'Stopped Graphile worker...')
-    }
-
-    async pause(): Promise<void> {
-        status.info('🔄', 'Pausing Graphile worker...')
-        this.paused = true
-        await this.syncState()
-    }
-
-    isPaused(): boolean {
-        return this.paused
-    }
-
-    async resumeConsumer(): Promise<void> {
-        if (this.paused) {
-            status.info('🔄', 'Resuming Graphile worker...')
-            this.paused = false
-            await this.syncState()
-        }
     }
 }

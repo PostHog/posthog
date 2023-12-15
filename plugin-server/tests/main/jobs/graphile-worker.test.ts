@@ -52,28 +52,6 @@ describe('graphileWorker', () => {
             expect(graphileWorker.consumerPool).not.toBeNull()
             expect(graphileWorker.runner).not.toBeNull()
         })
-
-        it('calls end() on consumerPool if the worker is in a stopped state', async () => {
-            jest.spyOn(graphileWorker, 'createPool').mockImplementation(() =>
-                Promise.resolve({ end: jest.fn() } as any)
-            )
-            expect(graphileWorker.started).toBeFalsy()
-
-            await graphileWorker.start({})
-            await graphileWorker.pause()
-            await graphileWorker.syncState()
-
-            expect(graphileWorker.consumerPool!.end).toHaveBeenCalled()
-        })
-    })
-
-    test('pause()', async () => {
-        jest.spyOn(graphileWorker, 'syncState')
-        expect(graphileWorker.isPaused()).toBeFalsy()
-        await graphileWorker.pause()
-
-        expect(graphileWorker.isPaused()).toBeTruthy()
-        expect(graphileWorker.syncState).toHaveBeenCalled()
     })
 
     test('stop()', async () => {
@@ -86,21 +64,6 @@ describe('graphileWorker', () => {
 
         await graphileWorker.stop()
         expect(graphileWorker.started).toBeFalsy()
-        expect(graphileWorker.syncState).toHaveBeenCalled()
-    })
-
-    test('resumeConsumer()', async () => {
-        jest.spyOn(graphileWorker, 'syncState')
-
-        expect(graphileWorker.isPaused()).toBeFalsy()
-        await graphileWorker.resumeConsumer()
-        expect(graphileWorker.syncState).not.toHaveBeenCalled()
-
-        await graphileWorker.pause()
-        expect(graphileWorker.isPaused()).toBeTruthy()
-
-        await graphileWorker.resumeConsumer()
-        expect(graphileWorker.isPaused()).toBeFalsy()
         expect(graphileWorker.syncState).toHaveBeenCalled()
     })
 })

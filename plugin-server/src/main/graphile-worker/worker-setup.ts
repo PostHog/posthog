@@ -28,10 +28,6 @@ const jobsExecutionFailureCounter = new Counter({
 export async function startGraphileWorker(hub: Hub, graphileWorker: GraphileWorker, piscina: Piscina) {
     status.info('🔄', 'Starting Graphile Worker...')
 
-    piscina.on('drain', () => {
-        void graphileWorker.resumeConsumer()
-    })
-
     let jobHandlers: TaskList = {}
 
     const crontab: CronItem[] = []
