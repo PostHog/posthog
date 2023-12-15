@@ -66,27 +66,58 @@ export function TrendInsight({ view, context }: Props): JSX.Element {
             {series && <div className={`TrendsInsight TrendsInsight--${display}`}>{renderViz()}</div>}
             {display !== ChartDisplayType.WorldMap && // the world map doesn't need this cta
                 breakdown &&
-                (hasBreakdownOther || loadMoreBreakdownUrl) && (
+                (hasBreakdownOther || loadMoreBreakdownUrl || breakdown.breakdown_hide_other_aggregation) && (
                     <div className="my-4 flex flex-col items-center">
                         <div className="text-muted mb-2">
-                            For readability, <b>not all breakdown values are displayed</b>. Click below to load them.
+                            For readability, <b>not all breakdown values are displayed</b>. Click below to load more.
                         </div>
-                        <LemonButton
-                            onClick={
-                                hasBreakdownOther
-                                    ? () =>
-                                          updateBreakdown({
-                                              ...breakdown,
-                                              breakdown_limit: (breakdown.breakdown_limit || 25) * 2,
-                                          })
-                                    : loadMoreBreakdownValues
-                            }
-                            loading={breakdownValuesLoading}
-                            size="small"
-                            type="secondary"
-                        >
-                            Load more breakdown values
-                        </LemonButton>
+                        <div className="flex gap-2">
+                            <LemonButton
+                                onClick={
+                                    hasBreakdownOther
+                                        ? () =>
+                                              updateBreakdown({
+                                                  ...breakdown,
+                                                  breakdown_limit: (breakdown.breakdown_limit || 25) * 2,
+                                              })
+                                        : loadMoreBreakdownValues
+                                }
+                                loading={breakdownValuesLoading}
+                                size="small"
+                                type="secondary"
+                            >
+                                Load more breakdown values
+                            </LemonButton>
+                            {hasBreakdownOther ? (
+                                <LemonButton
+                                    onClick={() =>
+                                        updateBreakdown({
+                                            ...breakdown,
+                                            breakdown_hide_other_aggregation: true,
+                                        })
+                                    }
+                                    loading={breakdownValuesLoading}
+                                    size="small"
+                                    type="secondary"
+                                >
+                                    Hide "Other" column
+                                </LemonButton>
+                            ) : breakdown.breakdown_hide_other_aggregation ? (
+                                <LemonButton
+                                    onClick={() =>
+                                        updateBreakdown({
+                                            ...breakdown,
+                                            breakdown_hide_other_aggregation: false,
+                                        })
+                                    }
+                                    loading={breakdownValuesLoading}
+                                    size="small"
+                                    type="secondary"
+                                >
+                                    Show "Other" column
+                                </LemonButton>
+                            ) : null}
+                        </div>
                     </div>
                 )}
         </>

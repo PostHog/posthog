@@ -218,6 +218,10 @@ export function formatAggregationValue(
 export const BREAKDOWN_OTHER_STRING_LABEL = '$$_posthog_breakdown_other_$$'
 export const BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991 // pow(2, 53) - 1
 
+export function isOtherBreakdown(breakdown_value: string | number | null | undefined): boolean {
+    return breakdown_value === BREAKDOWN_OTHER_STRING_LABEL || breakdown_value === BREAKDOWN_OTHER_NUMERIC_LABEL
+}
+
 export function formatBreakdownLabel(
     cohorts: CohortType[] | undefined,
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined,
@@ -253,14 +257,14 @@ export function formatBreakdownLabel(
         }
         return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name ?? (breakdown_value || '').toString()
     } else if (typeof breakdown_value == 'number') {
-        if (breakdown_value === BREAKDOWN_OTHER_NUMERIC_LABEL) {
+        if (isOtherBreakdown(breakdown_value)) {
             return 'Other'
         }
         return formatPropertyValueForDisplay
             ? formatPropertyValueForDisplay(breakdown, breakdown_value)?.toString() ?? 'None'
             : breakdown_value.toString()
     } else if (typeof breakdown_value == 'string') {
-        return breakdown_value === 'nan' || breakdown_value === BREAKDOWN_OTHER_STRING_LABEL
+        return breakdown_value === 'nan' || isOtherBreakdown(breakdown_value)
             ? 'Other'
             : breakdown_value === ''
             ? 'None'

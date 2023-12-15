@@ -215,10 +215,13 @@ class BreakdownMixin(BaseParamMixin):
         return None
 
     @cached_property
-    def breakdown_hide_other_aggregation(self) -> Optional[int]:
+    def breakdown_hide_other_aggregation(self) -> Optional[bool]:
         if BREAKDOWN_HIDE_OTHER_AGGREGATION in self._data:
             try:
-                return bool(self._data[BREAKDOWN_HIDE_OTHER_AGGREGATION])
+                return (
+                    self._data[BREAKDOWN_HIDE_OTHER_AGGREGATION] == "True"
+                    or self._data[BREAKDOWN_HIDE_OTHER_AGGREGATION] == "true"
+                )
             except ValueError:
                 pass
         return None
