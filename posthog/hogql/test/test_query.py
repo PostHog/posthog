@@ -33,7 +33,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def _create_random_events(self) -> str:
-        random_uuid = str(UUIDT())
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         _create_person(
             properties={"sneaky_mail": "tim@posthog.com", "random_uuid": random_uuid},
             team=self.team,
@@ -657,7 +657,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
     def test_window_functions_simple(self):
-        random_uuid = str(UUIDT())
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for person in range(5):
             distinct_id = f"person_{person}_{random_uuid}"
             with freeze_time("2020-01-10 00:00:00"):
@@ -732,7 +732,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results, expected)
 
     def test_window_functions_with_window(self):
-        random_uuid = str(UUIDT())
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for person in range(5):
             distinct_id = f"person_{person}_{random_uuid}"
             with freeze_time("2020-01-10 00:00:00"):
@@ -919,7 +919,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     def test_property_access_with_arrays(self):
         with freeze_time("2020-01-10"):
-            random_uuid = str(UUIDT())
+            random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
             _create_person(team=self.team, distinct_ids=[f"P{random_uuid}"], is_identified=True)
             _create_event(
                 distinct_id=f"P{random_uuid}",

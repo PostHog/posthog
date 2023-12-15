@@ -25,7 +25,7 @@ class TestCohort(BaseTest):
     maxDiff = None
 
     def _create_random_events(self) -> str:
-        random_uuid = str(UUIDT())
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         _create_person(
             properties={"$os": "Chrome", "random_uuid": random_uuid},
             team=self.team,
