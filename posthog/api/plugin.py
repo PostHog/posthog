@@ -543,8 +543,6 @@ class PluginConfigSerializer(serializers.ModelSerializer):
     plugin_info = serializers.SerializerMethodField()
     delivery_rate_24h = serializers.SerializerMethodField()
     error = serializers.SerializerMethodField()
-    name = serializers.SerializerMethodField()
-    description = serializers.SerializerMethodField()
 
     class Meta:
         model = PluginConfig
@@ -607,11 +605,11 @@ class PluginConfigSerializer(serializers.ModelSerializer):
 
         return new_plugin_config
 
-    def get_name(self, plugin_config: PluginConfig):
-        return plugin_config.name or plugin_config.plugin.name
-
-    def get_description(self, plugin_config: PluginConfig):
-        return plugin_config.description or plugin_config.plugin.description
+    def to_representation(self, instance: Any) -> Any:
+        representation = super().to_representation(instance)
+        representation["name"] = representation["name"] or instance.plugin.name
+        representation["description"] = representation["description"] or instance.plugin.description
+        return representation
 
     def get_plugin_info(self, plugin_config: PluginConfig):
         if "view" in self.context and self.context["view"].action == "retrieve":
