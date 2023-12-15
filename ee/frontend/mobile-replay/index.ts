@@ -36,7 +36,7 @@ function couldBeEventWithTime(x: unknown): x is eventWithTime | mobileEventWithT
     return typeof x === 'object' && x !== null && 'type' in x && 'timestamp' in x
 }
 
-export function transformEventToWeb(event: unknown): eventWithTime {
+export function transformEventToWeb(event: unknown, validateTransformation?: boolean): eventWithTime {
     // the transformation needs to never break a recording itself
     // so, we default to returning what we received
     // replacing it only if there's a valid transformation
@@ -46,7 +46,9 @@ export function transformEventToWeb(event: unknown): eventWithTime {
             const transformer = transformers[event.type]
             if (transformer) {
                 const transformed = transformer(event)
-                validateAgainstWebSchema(transformed)
+                if (validateTransformation) {
+                    validateAgainstWebSchema(transformed)
+                }
                 result = transformed
             }
         } else {
