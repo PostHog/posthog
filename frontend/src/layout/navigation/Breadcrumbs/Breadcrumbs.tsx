@@ -12,7 +12,7 @@ import { Breadcrumb as IBreadcrumb } from '~/types'
 
 import { breadcrumbsLogic } from './breadcrumbsLogic'
 
-function Breadcrumb({ breadcrumb, index }: { breadcrumb: IBreadcrumb; index: number }): JSX.Element {
+function Breadcrumb({ breadcrumb }: { breadcrumb: IBreadcrumb }): JSX.Element {
     const [popoverShown, setPopoverShown] = useState(false)
 
     let breadcrumbContent = (
@@ -24,7 +24,7 @@ function Breadcrumb({ breadcrumb, index }: { breadcrumb: IBreadcrumb; index: num
             onClick={() => {
                 breadcrumb.popover && setPopoverShown(!popoverShown)
             }}
-            data-attr={`breadcrumb-${index}`}
+            data-attr={`breadcrumb-${breadcrumb.key}`}
         >
             {breadcrumb.symbol}
             <span>{breadcrumb.name}</span>
@@ -60,11 +60,11 @@ export function Breadcrumbs(): JSX.Element | null {
 
     return firstBreadcrumb ? (
         <div className="Breadcrumbs">
-            <Breadcrumb breadcrumb={firstBreadcrumb} index={0} />
-            {tailBreadcrumbs.map((breadcrumb, index) => (
+            <Breadcrumb breadcrumb={firstBreadcrumb} />
+            {tailBreadcrumbs.map((breadcrumb) => (
                 <React.Fragment key={breadcrumb.name || '…'}>
                     <IconChevronRight className="Breadcrumbs__separator" />
-                    <Breadcrumb breadcrumb={breadcrumb} index={index + 1} />
+                    <Breadcrumb breadcrumb={breadcrumb} />
                 </React.Fragment>
             ))}
         </div>

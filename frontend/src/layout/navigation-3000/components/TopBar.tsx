@@ -88,17 +88,13 @@ export function TopBar(): JSX.Element | null {
                 <div className="TopBar3000__breadcrumbs">
                     {breadcrumbs.length > 1 && (
                         <div className="TopBar3000__trail">
-                            {breadcrumbs.slice(0, -1).map((breadcrumb, index) => (
+                            {breadcrumbs.slice(0, -1).map((breadcrumb) => (
                                 <React.Fragment key={breadcrumb.name || '…'}>
-                                    <Breadcrumb breadcrumb={breadcrumb} index={index} />
+                                    <Breadcrumb breadcrumb={breadcrumb} />
                                     <div className="TopBar3000__separator" />
                                 </React.Fragment>
                             ))}
-                            <Breadcrumb
-                                breadcrumb={breadcrumbs[breadcrumbs.length - 1]}
-                                index={breadcrumbs.length - 1}
-                                here
-                            />
+                            <Breadcrumb breadcrumb={breadcrumbs[breadcrumbs.length - 1]} here />
                         </div>
                     )}
                     <Here breadcrumb={breadcrumbs[breadcrumbs.length - 1]} />
@@ -111,11 +107,10 @@ export function TopBar(): JSX.Element | null {
 
 interface BreadcrumbProps {
     breadcrumb: FinalizedBreadcrumb
-    index: number
     here?: boolean
 }
 
-function Breadcrumb({ breadcrumb, index, here }: BreadcrumbProps): JSX.Element {
+function Breadcrumb({ breadcrumb, here }: BreadcrumbProps): JSX.Element {
     const { renameState } = useValues(breadcrumbsLogic)
     const { tentativelyRename, finishRenaming } = useActions(breadcrumbsLogic)
     const [popoverShown, setPopoverShown] = useState(false)
@@ -160,7 +155,7 @@ function Breadcrumb({ breadcrumb, index, here }: BreadcrumbProps): JSX.Element {
             onClick={() => {
                 breadcrumb.popover && setPopoverShown(!popoverShown)
             }}
-            data-attr={`breadcrumb-${index}`}
+            data-attr={`breadcrumb-${breadcrumb.key}`}
             to={breadcrumb.path}
         >
             {nameElement}
