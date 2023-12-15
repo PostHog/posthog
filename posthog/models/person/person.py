@@ -185,12 +185,11 @@ class PendingPersonOverride(models.Model):
     have occurred, but have not yet been integrated into the person overrides
     table.
 
-    This table should generally be considered as log table or queue. When a
+    This table should generally be considered as a log table or queue. When a
     merge occurs, it is recorded to the log (added to the queue) as part of the
     merge transaction. Later, another process comes along, reading from the
     other end of the log (popping from the queue) and applying the necessary
-    updates to the person overrides table as part of secondary transaction that
-    does not adversely impact the ingestion pipeline.
+    updates to the person overrides table as part of secondary transaction.
 
     This approach allows us to decouple the set of operations that must occur as
     part of an atomic transactional unit during person merging (moving distinct
