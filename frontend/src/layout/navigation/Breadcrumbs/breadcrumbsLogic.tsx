@@ -174,14 +174,16 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                 const breadcrumbs = Array<FinalizedBreadcrumb>(appBreadcrumbs.length + sceneBreadcrumbs.length)
                 const globalPathSoFar: string[] = []
                 for (let i = 0; i < appBreadcrumbs.length; i++) {
-                    globalPathSoFar.push(String(appBreadcrumbs[i].key))
+                    const { key } = appBreadcrumbs[i]
+                    globalPathSoFar.push(Array.isArray(key) ? key.map(String).join(':') : String(key))
                     breadcrumbs[i] = {
                         ...appBreadcrumbs[i],
                         globalKey: globalPathSoFar.join('.'),
                     }
                 }
                 for (let i = 0; i < sceneBreadcrumbs.length; i++) {
-                    globalPathSoFar.push(String(sceneBreadcrumbs[i].key))
+                    const { key } = sceneBreadcrumbs[i]
+                    globalPathSoFar.push(Array.isArray(key) ? key.map(String).join(':') : String(key))
                     breadcrumbs[i + appBreadcrumbs.length] = {
                         ...sceneBreadcrumbs[i],
                         globalKey: globalPathSoFar.join('.'),

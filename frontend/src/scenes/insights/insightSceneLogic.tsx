@@ -108,7 +108,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     path: urls.savedInsights(),
                 },
                 {
-                    key: insight?.short_id || 'new',
+                    key: [Scene.Insight, insight?.short_id || 'new'],
                     name:
                         insight?.name ||
                         summarizeInsight(insight?.query, filters, {

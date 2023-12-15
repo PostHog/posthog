@@ -650,7 +650,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     path: urls.experiments(),
                 },
                 {
-                    key: experimentId,
+                    key: [Scene.Experiment, experimentId],
                     name: experiment?.name || 'New',
                     path: urls.experiment(experimentId || 'new'),
                 },

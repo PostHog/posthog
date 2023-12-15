@@ -742,7 +742,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     path: urls.dashboards(),
                 },
                 {
-                    key: dashboard?.id || 'new',
+                    key: [Scene.Dashboard, dashboard?.id || 'new'],
                     name: dashboard?.id ? dashboard.name || 'Unnamed' : null,
                     onRename: async (name) => {
                         if (dashboard) {
