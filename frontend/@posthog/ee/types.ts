@@ -5,7 +5,7 @@ import { eventWithTime } from '@rrweb/types'
 export type PostHogEE = {
     enabled: boolean
     mobileReplay?: {
-        transformEventToWeb(x: unknown, validationTransformation?: boolean): eventWithTime | null
+        transformEventToWeb(x: unknown, validateTransformation?: boolean): eventWithTime | null
         transformToWeb(x: unknown[]): eventWithTime[]
     }
 }
