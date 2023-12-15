@@ -72,8 +72,8 @@ async def minio_client(bucket_name):
     """
     async with create_test_client(
         "s3",
-        aws_access_key_id=settings.AIRBYTE_BUCKET_KEY,
-        aws_secret_access_key=settings.AIRBYTE_BUCKET_SECRET,
+        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
     ) as minio_client:
         await minio_client.create_bucket(Bucket=bucket_name)
 
@@ -247,7 +247,11 @@ async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs
 
     with mock.patch("stripe.Customer.list") as mock_customer_list, mock.patch(
         "stripe.Invoice.list"
-    ) as mock_invoice_list:
+    ) as mock_invoice_list, override_settings(
+        BUCKET_URL=f"s3://{BUCKET_NAME}",
+        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    ):
         mock_customer_list.return_value = {
             "data": [
                 {

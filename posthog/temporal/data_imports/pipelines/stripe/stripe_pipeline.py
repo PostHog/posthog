@@ -12,6 +12,7 @@ from posthog.temporal.data_imports.pipelines.stripe.settings import ENDPOINTS
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 import asyncio
 import os
+from posthog.settings.base_variables import TEST
 
 
 @dataclass
@@ -55,7 +56,7 @@ def create_pipeline(inputs: PipelineInputs):
             credentials={
                 "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
                 "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
-                "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
+                "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT if TEST else None,
             },
             bucket_url=settings.BUCKET_URL,
         ),
