@@ -87,6 +87,7 @@ export const defaultMocks: Mocks = {
         ],
         '/api/projects/@current/': MOCK_DEFAULT_TEAM,
         '/api/billing-v2/': (): MockSignature => [200, {}],
+        '/api/projects/:team_id/comments/count': { count: 0},
         '/_preflight': require('./fixtures/_preflight.json'),
         '/_system_status': require('./fixtures/_system_status.json'),
         '/api/instance_status': require('./fixtures/_instance_status.json'),
@@ -101,6 +102,7 @@ export const defaultMocks: Mocks = {
         'https://app.posthog.com/api/early_access_features': {
             earlyAccessFeatures: [],
         },
+
     },
     post: {
         'https://app.posthog.com/e/': (): MockSignature => [200, 'ok'],
