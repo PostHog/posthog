@@ -444,7 +444,7 @@ export async function startPluginsServer(
             personOverridesPeriodicTask = new DeferredPersonOverrideWorker(
                 postgres,
                 kafkaProducer,
-                hub?.POE_DEFERRED_WRITES_USE_FLAT_OVERRIDES // XXX: should we ensure there is a valid hub instance here for config?
+                serverConfig.POE_DEFERRED_WRITES_USE_FLAT_OVERRIDES
                     ? new FlatPersonOverrideWriter(postgres)
                     : new PersonOverrideWriter(postgres)
             ).runTask(5000)
