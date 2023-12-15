@@ -1,5 +1,5 @@
 import { TZLabel } from '@posthog/apps-common'
-import { IconCheck, IconEllipsis, IconPencil } from '@posthog/icons'
+import { IconCheck, IconEllipsis, IconPencil, IconShare } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonTextAreaMarkdown, ProfilePicture } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -15,14 +15,17 @@ export type CommentProps = {
 }
 
 export const Comment = ({ comment }: CommentProps): JSX.Element => {
-    const { editingComment, commentsLoading } = useValues(commentsLogic)
-    const { deleteComment, setEditingComment, persistEditedComment } = useActions(commentsLogic)
+    const { editingComment, commentsLoading, replyingCommentId } = useValues(commentsLogic)
+    const { deleteComment, setEditingComment, persistEditedComment, setReplyingComment } = useActions(commentsLogic)
 
     // TODO: Permissions
 
     return (
         <div
-            className={clsx('border rounded bg-bg-light ', editingComment?.id === comment.id && 'border-primary-3000')}
+            className={clsx(
+                'border rounded bg-bg-light ',
+                (replyingCommentId === comment.id || editingComment?.id === comment.id) && 'border-primary-3000'
+            )}
         >
             <div className="flex-1 flex justify-start p-2 gap-2">
                 <ProfilePicture size="xl" name={comment.created_by?.first_name} email={comment.created_by?.email} />
@@ -41,19 +44,24 @@ export const Comment = ({ comment }: CommentProps): JSX.Element => {
                         <LemonMenu
                             items={[
                                 {
+                                    icon: <IconShare />,
+                                    label: 'Reply',
+                                    onClick: () => setReplyingComment(comment.source_comment_id ?? comment.id),
+                                },
+                                {
                                     icon: <IconPencil />,
-                                    label: 'Edit comment',
+                                    label: 'Edit',
                                     onClick: () => setEditingComment(comment),
                                 },
                                 {
                                     icon: <IconCheck />,
-                                    label: 'Delete comment',
+                                    label: 'Delete',
                                     onClick: () => deleteComment(comment),
                                     // disabledReason: "Only admins can archive other peoples comments"
                                 },
                             ]}
                         >
-                            <LemonButton icon={<IconEllipsis />} status="stealth" size="small" />
+                            <LemonButton icon={<IconEllipsis />} status="stealth" size="xsmall" />
                         </LemonMenu>
                     </div>
                     <LemonMarkdown lowKeyHeadings>{comment.content}</LemonMarkdown>

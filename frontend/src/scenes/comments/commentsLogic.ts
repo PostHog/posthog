@@ -22,9 +22,17 @@ export const commentsLogic = kea<commentsLogicType>([
         sendComposedContent: true,
         deleteComment: (comment: CommentType) => ({ comment }),
         setEditingComment: (comment: CommentType | null) => ({ comment }),
+        setReplyingComment: (commentId: string | null) => ({ commentId }),
         persistEditedComment: true,
     }),
     reducers({
+        replyingCommentId: [
+            null as string | null,
+            {
+                setReplyingComment: (_, { commentId }) => commentId,
+                sendComposedContentSuccess: () => null,
+            },
+        ],
         editingComment: [
             null as CommentType | null,
             {
@@ -60,6 +68,7 @@ export const commentsLogic = kea<commentsLogicType>([
                         content: values.composedComment,
                         scope: props.scope,
                         item_id: props.item_id,
+                        source_comment_id: values.replyingCommentId ?? undefined,
                     })
                     return [...existingComments, newComment]
                 },
