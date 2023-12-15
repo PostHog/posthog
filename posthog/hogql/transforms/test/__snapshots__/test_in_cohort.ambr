@@ -22,7 +22,7 @@
   WHERE equals(cohort_id, 1) 
   GROUP BY person_id, cohort_id, version 
   HAVING greater(sum(sign), 0)) AS in_cohort__1 ON equals(in_cohort__1.person_id, person_id) 
-  WHERE and(equals(in_cohort__1.matched, 1), equals(event, '018c6b91-183a-0000-0a76-d943f66c765f')) 
+  WHERE and(equals(in_cohort__1.matched, 1), equals(event, '018c6b9c-833b-0000-0afd-aed9b40bc604')) 
   LIMIT 100
   '
 ---
