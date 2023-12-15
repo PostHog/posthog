@@ -42,7 +42,8 @@ impl<'p> WebhookConsumer<'p> {
         let client = reqwest::Client::builder()
             .default_headers(headers)
             .timeout(request_timeout)
-            .build()?;
+            .build()
+            .expect("failed to construct reqwest client for webhook consumer");
 
         Ok(Self {
             name: name.to_owned(),
@@ -174,7 +175,11 @@ async fn send_webhook(
         .headers(headers)
         .body(body)
         .send()
-        .await?;
+        .await
+        .map_err(|e| WebhookConsumerError::RetryableWebhookError {
+            reason: e.to_string(),
+            retry_after: None,
+        })?;
 
     let status = response.status();
 

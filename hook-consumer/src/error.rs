@@ -18,8 +18,6 @@ pub enum WebhookConsumerError {
     QueueError(#[from] pgqueue::PgQueueError),
     #[error("an error occurred in the underlying job")]
     PgJobError(String),
-    #[error("an error occurred when attempting to send a request")]
-    RequestError(#[from] reqwest::Error),
     #[error("a webhook could not be delivered but it could be retried later: {reason}")]
     RetryableWebhookError {
         reason: String,
