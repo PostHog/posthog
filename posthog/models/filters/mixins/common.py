@@ -218,10 +218,7 @@ class BreakdownMixin(BaseParamMixin):
     def breakdown_hide_other_aggregation(self) -> Optional[bool]:
         if BREAKDOWN_HIDE_OTHER_AGGREGATION in self._data:
             try:
-                return (
-                    self._data[BREAKDOWN_HIDE_OTHER_AGGREGATION] == "True"
-                    or self._data[BREAKDOWN_HIDE_OTHER_AGGREGATION] == "true"
-                )
+                return self._data[BREAKDOWN_HIDE_OTHER_AGGREGATION] in ("True", "true", True)
             except ValueError:
                 pass
         return None
