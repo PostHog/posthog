@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
 import { DataTableNode, NodeKind, PersonsQuery, RetentionQuery } from '~/queries/schema'
-import { isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
+import { isInsightPersonsQuery, isLifecycleQuery, isRetentionQuery, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 import type { retentionModalLogicType } from './retentionModalLogicType'
@@ -65,6 +65,14 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
                     kind: NodeKind.DataTableNode,
                     source: personsQuery,
                     full: true,
+                }
+                if (
+                    isInsightPersonsQuery(personsQuery.source) &&
+                    isRetentionQuery(personsQuery.source.source) &&
+                    personsQuery.source.source.aggregation_group_type_index !== undefined
+                ) {
+                    query.showSearch = false
+                    query.showPropertyFilter = false
                 }
                 return urls.insightNew(undefined, undefined, JSON.stringify(query))
             },
