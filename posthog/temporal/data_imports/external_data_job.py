@@ -9,11 +9,7 @@ from temporalio.common import RetryPolicy
 
 # TODO: remove dependency
 from posthog.temporal.batch_exports.base import PostHogWorkflow
-from posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline import (
-    PIPELINE_TYPE_INPUTS_MAPPING,
-    PIPELINE_TYPE_RUN_MAPPING,
-    PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
-)
+
 from posthog.warehouse.data_load.validate_schema import validate_schema_and_update_table
 from posthog.warehouse.external_data_source.jobs import (
     create_external_data_job,
@@ -133,19 +129,28 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
         team_id=inputs.team_id,
         run_id=inputs.run_id,
     )
+    logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
 
-    job_inputs = PIPELINE_TYPE_INPUTS_MAPPING[model.pipeline.source_type](
-        source_id=inputs.source_id,
-        schemas=inputs.schemas,
-        run_id=inputs.run_id,
-        team_id=inputs.team_id,
-        job_type=model.pipeline.source_type,
-        dataset_name=model.folder_path,
-        **model.pipeline.job_inputs,
-    )
-    job_fn = PIPELINE_TYPE_RUN_MAPPING[model.pipeline.source_type]
+    job_inputs = None
+    pipeline = None
 
-    await job_fn(job_inputs)
+    if model.pipeline.source_type == 'stripe':
+        from posthog.temporal.data_imports.pipelines.stripe import Inputs, Pipeline
+        job_inputs = Inputs(
+            source_id=inputs.source_id,
+            schemas=inputs.schemas,
+            run_id=inputs.run_id,
+            team_id=inputs.team_id,
+            job_type=model.pipeline.source_type,
+            dataset_name=model.folder_path,
+            **model.pipeline.job_inputs,
+        )
+        pipeline = Pipeline
+
+    if job_inputs and pipeline:
+        await pipeline(job_inputs, logger).run()
+    else:
+        raise ValueError(f"Pipeline for job type {model.pipeline.source_type} not found")
 
 
 # TODO: update retry policies
