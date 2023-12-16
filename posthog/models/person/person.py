@@ -235,7 +235,7 @@ class FlatPersonOverride(models.Model):
     * A person should only appear as an "old" person at most once for a given
       team (as appearing more than once would imply they were merged into
       multiple people.)
-    * A person cannot be merged into themselves (i.e. be both the "old" and .
+    * A person cannot be merged into themselves (i.e. be both the "old" and
       "override" person within a given row.)
     * A person should only appear in a table as _either_ an "old" person or
       "override" person for a given team -- but never both, as this would
