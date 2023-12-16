@@ -65,8 +65,12 @@ export enum GraphsTab {
 
 export enum SourceTab {
     REFERRING_DOMAIN = 'REFERRING_DOMAIN',
+    CHANNEL = 'CHANNEL',
     UTM_SOURCE = 'UTM_SOURCE',
+    UTM_MEDIUM = 'UTM_MEDIUM',
     UTM_CAMPAIGN = 'UTM_CAMPAIGN',
+    UTM_CONTENT = 'UTM_CONTENT',
+    UTM_TERM = 'UTM_TERM',
 }
 
 export enum DeviceTab {
@@ -427,7 +431,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             {
                                 id: SourceTab.REFERRING_DOMAIN,
                                 title: 'Top referrers',
-                                linkText: 'Referrer',
+                                linkText: 'Referrering domain',
                                 query: {
                                     full: true,
                                     kind: NodeKind.DataTableNode,
@@ -435,6 +439,21 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         kind: NodeKind.WebStatsTableQuery,
                                         properties: webAnalyticsFilters,
                                         breakdownBy: WebStatsBreakdown.InitialReferringDomain,
+                                        dateRange,
+                                    },
+                                },
+                            },
+                            {
+                                id: SourceTab.CHANNEL,
+                                title: 'Top channels',
+                                linkText: 'Channel',
+                                query: {
+                                    full: true,
+                                    kind: NodeKind.DataTableNode,
+                                    source: {
+                                        kind: NodeKind.WebStatsTableQuery,
+                                        properties: webAnalyticsFilters,
+                                        breakdownBy: WebStatsBreakdown.InitialChannelType,
                                         dateRange,
                                     },
                                 },
@@ -455,8 +474,23 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 },
                             },
                             {
+                                id: SourceTab.UTM_MEDIUM,
+                                title: 'Top UTM medium',
+                                linkText: 'UTM medium',
+                                query: {
+                                    full: true,
+                                    kind: NodeKind.DataTableNode,
+                                    source: {
+                                        kind: NodeKind.WebStatsTableQuery,
+                                        properties: webAnalyticsFilters,
+                                        breakdownBy: WebStatsBreakdown.InitialUTMMedium,
+                                        dateRange,
+                                    },
+                                },
+                            },
+                            {
                                 id: SourceTab.UTM_CAMPAIGN,
-                                title: 'Top campaigns',
+                                title: 'Top UTM campaigns',
                                 linkText: 'UTM campaign',
                                 query: {
                                     full: true,
@@ -465,6 +499,36 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         kind: NodeKind.WebStatsTableQuery,
                                         properties: webAnalyticsFilters,
                                         breakdownBy: WebStatsBreakdown.InitialUTMCampaign,
+                                        dateRange,
+                                    },
+                                },
+                            },
+                            {
+                                id: SourceTab.UTM_CONTENT,
+                                title: 'Top UTM content',
+                                linkText: 'UTM content',
+                                query: {
+                                    full: true,
+                                    kind: NodeKind.DataTableNode,
+                                    source: {
+                                        kind: NodeKind.WebStatsTableQuery,
+                                        properties: webAnalyticsFilters,
+                                        breakdownBy: WebStatsBreakdown.InitialUTMContent,
+                                        dateRange,
+                                    },
+                                },
+                            },
+                            {
+                                id: SourceTab.UTM_TERM,
+                                title: 'Top UTM terms',
+                                linkText: 'UTM term',
+                                query: {
+                                    full: true,
+                                    kind: NodeKind.DataTableNode,
+                                    source: {
+                                        kind: NodeKind.WebStatsTableQuery,
+                                        properties: webAnalyticsFilters,
+                                        breakdownBy: WebStatsBreakdown.InitialUTMTerm,
                                         dateRange,
                                     },
                                 },

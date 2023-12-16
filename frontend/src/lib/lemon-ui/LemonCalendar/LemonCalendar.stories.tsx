@@ -15,6 +15,9 @@ const meta: Meta<typeof LemonCalendar> = {
     },
     parameters: {
         mockDate: '2023-01-26',
+        testOptions: {
+            include3000: true,
+        },
     },
     tags: ['autodocs'],
 }

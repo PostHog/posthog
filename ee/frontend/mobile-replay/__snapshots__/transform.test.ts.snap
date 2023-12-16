@@ -802,12 +802,12 @@ exports[`replay/transform transform inputs input - checkbox - $value 1`] = `
                           "type": 2,
                         },
                         {
-                          "id": 134,
+                          "id": 133,
                           "textContent": "first",
                           "type": 3,
                         },
                       ],
-                      "id": 133,
+                      "id": 134,
                       "tagName": "label",
                       "type": 2,
                     },
@@ -888,12 +888,12 @@ exports[`replay/transform transform inputs input - checkbox - $value 2`] = `
                           "type": 2,
                         },
                         {
-                          "id": 137,
+                          "id": 136,
                           "textContent": "second",
                           "type": 3,
                         },
                       ],
-                      "id": 136,
+                      "id": 137,
                       "tagName": "label",
                       "type": 2,
                     },
@@ -976,12 +976,12 @@ exports[`replay/transform transform inputs input - checkbox - $value 3`] = `
                           "type": 2,
                         },
                         {
-                          "id": 140,
+                          "id": 139,
                           "textContent": "third",
                           "type": 3,
                         },
                       ],
-                      "id": 139,
+                      "id": 140,
                       "tagName": "label",
                       "type": 2,
                     },
@@ -2189,6 +2189,11 @@ exports[`replay/transform transform inputs input - toggle - $value 1`] = `
                       },
                       "childNodes": [
                         {
+                          "id": 146,
+                          "textContent": "first",
+                          "type": 3,
+                        },
+                        {
                           "attributes": {
                             "style": "height:100%;flex:1",
                           },
@@ -2228,13 +2233,8 @@ exports[`replay/transform transform inputs input - toggle - $value 1`] = `
                           "tagName": "div",
                           "type": 2,
                         },
-                        {
-                          "id": 147,
-                          "textContent": "first",
-                          "type": 3,
-                        },
                       ],
-                      "id": 146,
+                      "id": 147,
                       "tagName": "label",
                       "type": 2,
                     },
@@ -2305,6 +2305,11 @@ exports[`replay/transform transform inputs input - toggle - $value 2`] = `
                       },
                       "childNodes": [
                         {
+                          "id": 152,
+                          "textContent": "second",
+                          "type": 3,
+                        },
+                        {
                           "attributes": {
                             "style": "height:100%;flex:1",
                           },
@@ -2344,13 +2349,8 @@ exports[`replay/transform transform inputs input - toggle - $value 2`] = `
                           "tagName": "div",
                           "type": 2,
                         },
-                        {
-                          "id": 153,
-                          "textContent": "second",
-                          "type": 3,
-                        },
                       ],
-                      "id": 152,
+                      "id": 153,
                       "tagName": "label",
                       "type": 2,
                     },
@@ -2421,6 +2421,11 @@ exports[`replay/transform transform inputs input - toggle - $value 3`] = `
                       },
                       "childNodes": [
                         {
+                          "id": 158,
+                          "textContent": "third",
+                          "type": 3,
+                        },
+                        {
                           "attributes": {
                             "style": "height:100%;flex:1",
                           },
@@ -2460,13 +2465,8 @@ exports[`replay/transform transform inputs input - toggle - $value 3`] = `
                           "tagName": "div",
                           "type": 2,
                         },
-                        {
-                          "id": 159,
-                          "textContent": "third",
-                          "type": 3,
-                        },
                       ],
-                      "id": 158,
+                      "id": 159,
                       "tagName": "label",
                       "type": 2,
                     },
@@ -3208,12 +3208,12 @@ exports[`replay/transform transform inputs wrapping with labels 1`] = `
                           "type": 2,
                         },
                         {
-                          "id": 117,
+                          "id": 116,
                           "textContent": "i will wrap the checkbox",
                           "type": 3,
                         },
                       ],
-                      "id": 116,
+                      "id": 117,
                       "tagName": "label",
                       "type": 2,
                     },

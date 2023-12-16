@@ -130,7 +130,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                 ),
                             },
                             {
-                                label: 'Link',
+                                label: 'Link/Notification',
                                 value: SurveyQuestionType.Link,
                                 tooltip: () => (
                                     <BaseAppearance
