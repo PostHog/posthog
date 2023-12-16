@@ -70,15 +70,18 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         runner = RetentionQueryRunner(team=self.team, query=query)
         return runner.calculate().model_dump()["results"]
 
-    def run_actors_query(self, query):
+    def run_actors_query(self, selected_interval, query):
         query["kind"] = "RetentionQuery"
+        if not query.get("retentionFilter"):
+            query["retentionFilter"] = {}
         runner = PersonsQueryRunner(
             team=self.team,
             query={
-                "select": ["person", "appearances"],
+                "select": ["actor", "appearances"],
                 "orderBy": ["appearances_count DESC", "actor_id"],
                 "source": {
                     "kind": "InsightPersonsQuery",
+                    "selected_interval": selected_interval,
                     "source": query,
                 },
             },
@@ -741,12 +744,10 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         # even if set to hour 6 it should default to beginning of day and include all pageviews above
         result = self.run_actors_query(
+            selected_interval=0,
             query={
                 "dateRange": {"date_to": _date(10, hour=6)},
-                "retentionFilter": {
-                    "selected_interval": 0,
-                },
-            }
+            },
         )
         self.assertEqual(len(result), 1, result)
         self.assertEqual(result[0][0]["id"], person1.uuid, person1.uuid)
@@ -756,30 +757,30 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         # even if set to hour 6 it should default to beginning of day and include all pageviews above
 
         result = self.run_actors_query(
+            selected_interval=0,
             query={
                 "dateRange": {"date_to": _date(10, hour=6)},
                 "retentionFilter": {
                     "target_entity": {"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS},
                     "returning_entity": {"id": "$pageview", "type": "events"},
                     "retention_type": RETENTION_FIRST_TIME,
-                    "selected_interval": 0,
                 },
-            }
+            },
         )
 
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][0]["id"], p3.uuid)
 
         result = self.run_actors_query(
+            selected_interval=0,
             query={
                 "dateRange": {"date_to": _date(14, hour=6)},
                 "retentionFilter": {
                     "target_entity": {"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS},
                     "returning_entity": {"id": "$pageview", "type": "events"},
                     "retention_type": RETENTION_FIRST_TIME,
-                    "selected_interval": 0,
                 },
-            }
+            },
         )
 
         self.assertEqual(len(result), 0)
@@ -841,11 +842,9 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         # even if set to hour 6 it should default to beginning of day and include all pageviews above
         result = self.run_actors_query(
+            selected_interval=2,
             query={
                 "dateRange": {"date_to": _date(10, hour=6)},
-                "retentionFilter": {
-                    "selected_interval": 2,
-                },
             },
         )
 
@@ -860,15 +859,15 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         p1, p2, p3, p4 = self._create_first_time_retention_events()
         # even if set to hour 6 it should default to beginning of day and include all pageviews above
         result = self.run_actors_query(
+            selected_interval=0,
             query={
                 "dateRange": {"date_to": _date(10, hour=6)},
                 "retentionFilter": {
                     "target_entity": {"id": "$user_signed_up", "type": TREND_FILTER_TYPE_EVENTS},
                     "returning_entity": {"id": "$pageview", "type": "events"},
                     "retention_type": RETENTION_FIRST_TIME,
-                    "selected_interval": 0,
                 },
-            }
+            },
         )
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][0]["id"], p3.uuid)
