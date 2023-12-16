@@ -1,4 +1,4 @@
-from typing import List, Any, Optional, cast
+from typing import List, Any, Optional, cast, Sequence
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -13,7 +13,7 @@ class HogQLHasMorePaginator:
 
     def __init__(self, limit: int, offset: int):
         self.response: Optional[HogQLQueryResponse] = None
-        self.results: List[Any] = []
+        self.results: Sequence[Any] = []
         self.limit = limit
         self.offset = offset
 

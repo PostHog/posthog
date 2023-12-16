@@ -1,13 +1,13 @@
 from datetime import timedelta
-from typing import List, cast, Literal, Union
-
+from typing import List, cast, Literal, Dict, Generator, Sequence, Iterator
+from django.db.models.query import Prefetch
 from posthog.hogql import ast
 from posthog.hogql.constants import get_max_limit_for_context, get_default_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import property_to_expr, has_aggregation
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
-from posthog.queries.actor_base_query import SerializedGroup, SerializedPerson, get_groups, get_people
+from posthog.models import Person, Group
 from posthog.schema import PersonsQuery, PersonsQueryResponse, InsightPersonsQuery, StickinessQuery, LifecycleQuery
 
 
@@ -20,7 +20,7 @@ class PersonsQueryRunner(QueryRunner):
         self.paginator = HogQLHasMorePaginator(limit=self.query_limit(), offset=self.query.offset or 0)
 
     @property
-    def aggregation_group_type_index(self):
+    def aggregation_group_type_index(self) -> int | None:
         if (
             not self.query.source
             or not isinstance(self.query.source, InsightPersonsQuery)
@@ -33,37 +33,47 @@ class PersonsQueryRunner(QueryRunner):
         except AttributeError:
             return None
 
-    def get_actors_from_result(self, actor_ids):
-        serialized_actors: Union[List[SerializedGroup], List[SerializedPerson]]
-
-        value_per_actor_id = None
-
-        if self.aggregation_group_type_index is not None:
-            _, serialized_actors = get_groups(
-                self.team.pk,
-                self.aggregation_group_type_index,
-                actor_ids,
-                value_per_actor_id,
+    def get_persons(self, person_ids) -> Dict[str, Dict]:
+        return {
+            str(p.uuid): {
+                "id": p.uuid,
+                **{field: getattr(p, field) for field in ("distinct_ids", "properties", "created_at", "is_identified")},
+            }  # TODO: Use pydantic model?
+            for p in Person.objects.filter(
+                team_id=self.team.pk, persondistinctid__team_id=self.team.pk, uuid__in=person_ids
             )
-        else:
-            _, serialized_actors = get_people(self.team, actor_ids, value_per_actor_id)
+            .prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+            .iterator(chunk_size=self.paginator.limit)
+        }
 
-        return serialized_actors
+    def get_groups(self, group_type_index, group_ids) -> Dict[str, Dict]:
+        return {
+            str(p["group_key"]): {
+                "id": p["group_key"],
+                "type": "group",
+                "properties": p["group_properties"],  # TODO: Legacy for frontend
+                **p,
+            }
+            for p in Group.objects.filter(
+                team_id=self.team.pk, group_type_index=group_type_index, group_key__in=group_ids
+            )
+            .values("group_key", "group_type_index", "created_at", "group_properties")
+            .iterator(chunk_size=self.paginator.limit)
+        }
 
-    def enrich_with_actors(self, results, actor_column_index):
-        actor_ids = [row[actor_column_index] for row in self.paginator.results]
-        serialized_actors = self.get_actors_from_result(actor_ids)
-        actors_lookup = {str(actor["id"]): actor for actor in serialized_actors}
+    def get_actors_from_result(self, actor_ids) -> Dict[str, Dict]:
+        if self.aggregation_group_type_index is not None:
+            return self.get_groups(self.aggregation_group_type_index, actor_ids)
 
-        enriched_results = []
+        return self.get_persons(actor_ids)
+
+    def enrich_with_actors(self, results, actor_column_index, actors_lookup) -> Generator[List, None, None]:
         for result in results:
             new_row = list(result)
             actor_id = str(result[actor_column_index])
             actor = actors_lookup.get(actor_id)
             new_row[actor_column_index] = actor if actor else {"id": actor_id}
-            enriched_results.append(new_row)
-        missing_actors_count = len(self.paginator.results) - len(actors_lookup)
-        return enriched_results, missing_actors_count
+            yield new_row
 
     def calculate(self) -> PersonsQueryResponse:
         response = self.paginator.execute_hogql_query(
@@ -75,11 +85,14 @@ class PersonsQueryRunner(QueryRunner):
         )
         input_columns = self.input_columns()
         missing_actors_count = None
-        results = self.paginator.results
+        results: Sequence[List] | Iterator[List] = self.paginator.results
 
         enrich_columns = filter(lambda column: column in ("person", "group", "actor"), input_columns)
         for column_name in enrich_columns:
-            results, missing_actors_count = self.enrich_with_actors(results, input_columns.index(column_name))
+            actor_ids = (row[input_columns.index(column_name)] for row in self.paginator.results)
+            actors_lookup = self.get_actors_from_result(actor_ids)
+            missing_actors_count = len(self.paginator.results) - len(actors_lookup)
+            results = self.enrich_with_actors(results, input_columns.index(column_name), actors_lookup)
 
         return PersonsQueryResponse(
             results=results,
@@ -151,6 +164,7 @@ class PersonsQueryRunner(QueryRunner):
         raise ValueError("Source query must have an id column")
 
     def source_table_join(self) -> ast.JoinExpr:
+        assert self.query.source is not None  # For type checking
         source_query_runner = get_query_runner(self.query.source, self.team, self.timings)
         source_query = source_query_runner.to_persons_query()
         source_id_chain = self.source_id_column(source_query)
