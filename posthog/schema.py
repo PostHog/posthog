@@ -973,7 +973,6 @@ class RetentionFilter(BaseModel):
     retention_reference: Optional[RetentionReference] = None
     retention_type: Optional[RetentionType] = None
     returning_entity: Optional[RetentionEntity] = None
-    selected_interval: Optional[int] = None
     target_entity: Optional[RetentionEntity] = None
     total_intervals: Optional[int] = None
 
@@ -1878,6 +1877,9 @@ class InsightPersonsQuery(BaseModel):
     day: Optional[str] = None
     kind: Literal["InsightPersonsQuery"] = "InsightPersonsQuery"
     response: Optional[PersonsQueryResponse] = None
+    selected_interval: Optional[int] = Field(
+        default=None, description="An interval selected out of available intervals in source query"
+    )
     source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
     status: Optional[str] = None
 

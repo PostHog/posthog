@@ -775,6 +775,11 @@ export interface InsightPersonsQuery {
     source: InsightQueryNode
     day?: string
     status?: string
+    /**
+     * An interval selected out of available intervals in source query
+     * @asType integer
+     */
+    selected_interval?: number
     // TODO: add breakdowns
     // TODO: add fields for other insights (funnels dropdown, compare_previous choice, etc)
     response?: PersonsQueryResponse

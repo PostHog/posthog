@@ -1717,6 +1717,10 @@
                 "response": {
                     "$ref": "#/definitions/PersonsQueryResponse"
                 },
+                "selected_interval": {
+                    "description": "An interval selected out of available intervals in source query",
+                    "type": "integer"
+                },
                 "source": {
                     "$ref": "#/definitions/InsightQueryNode"
                 },
@@ -2618,9 +2622,6 @@
                 },
                 "returning_entity": {
                     "$ref": "#/definitions/RetentionEntity"
-                },
-                "selected_interval": {
-                    "type": "integer"
                 },
                 "target_entity": {
                     "$ref": "#/definitions/RetentionEntity"

@@ -1880,11 +1880,7 @@ export interface RetentionFilterType extends FilterType {
     /**
      * @asType integer
      */
-    total_intervals?: number // retention total intervals
-    /**
-     * @asType integer
-     */
-    selected_interval?: number // retention selected interval
+    total_intervals?: number
     returning_entity?: RetentionEntity
     target_entity?: RetentionEntity
     period?: RetentionPeriod

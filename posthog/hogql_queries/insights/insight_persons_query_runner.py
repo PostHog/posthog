@@ -30,7 +30,7 @@ class InsightPersonsQueryRunner(QueryRunner):
             return trends_runner.to_persons_query()
         elif isinstance(self.source_runner, RetentionQueryRunner):
             retention_runner = cast(RetentionQueryRunner, self.source_runner)
-            return retention_runner.to_persons_query()
+            return retention_runner.to_persons_query(selected_interval=self.query.selected_interval)
 
         raise ValueError(f"Cannot convert source query of type {self.query.source.kind} to persons query")
 

@@ -10,11 +10,11 @@ export function retentionToActorsQuery(query: RetentionQuery, selectedInterval: 
         orderBy: ['appearances_count DESC', 'actor_id'],
         source: {
             kind: NodeKind.InsightPersonsQuery,
+            selected_interval: selectedInterval,
             source: {
                 ...query,
                 retentionFilter: {
                     ...query.retentionFilter,
-                    selected_interval: selectedInterval,
                 },
             },
         },
