@@ -7,102 +7,48 @@ from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import property_to_expr, has_aggregation
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
-from posthog.models import Person, Group
+from posthog.models import Person, Group, Team
 from posthog.schema import PersonsQuery, PersonsQueryResponse, InsightPersonsQuery, StickinessQuery, LifecycleQuery
 
 
-class PersonsQueryRunner(QueryRunner):
-    query: PersonsQuery
-    query_type = PersonsQuery
+class ActorStrategy:
+    origin: str
+    origin_id: str
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.paginator = HogQLHasMorePaginator(limit=self.query_limit(), offset=self.query.offset or 0)
+    def __init__(self, team: Team, query: PersonsQuery, paginator: HogQLHasMorePaginator):
+        self.team = team
+        self.paginator = paginator
+        self.query = query
 
-    @property
-    def aggregation_group_type_index(self) -> int | None:
-        if (
-            not self.query.source
-            or not isinstance(self.query.source, InsightPersonsQuery)
-            or isinstance(self.query.source.source, StickinessQuery)
-            or isinstance(self.query.source.source, LifecycleQuery)
-        ):
-            return None
-        try:
-            return self.query.source.source.aggregation_group_type_index
-        except AttributeError:
-            return None
+    def get_actors(self, actor_ids) -> Dict[str, Dict]:
+        raise NotImplementedError()
 
-    def get_persons(self, person_ids) -> Dict[str, Dict]:
+    def input_columns(self) -> List[str]:
+        raise NotImplementedError()
+
+    def filter_conditions(self) -> List[ast.Expr]:
+        return []
+
+
+class PersonStrategy(ActorStrategy):
+    origin = "persons"
+    origin_id = "id"
+
+    def get_actors(self, actor_ids) -> Dict[str, Dict]:
         return {
             str(p.uuid): {
                 "id": p.uuid,
                 **{field: getattr(p, field) for field in ("distinct_ids", "properties", "created_at", "is_identified")},
             }  # TODO: Use pydantic model?
             for p in Person.objects.filter(
-                team_id=self.team.pk, persondistinctid__team_id=self.team.pk, uuid__in=person_ids
+                team_id=self.team.pk, persondistinctid__team_id=self.team.pk, uuid__in=actor_ids
             )
             .prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
             .iterator(chunk_size=self.paginator.limit)
         }
 
-    def get_groups(self, group_type_index, group_ids) -> Dict[str, Dict]:
-        return {
-            str(p["group_key"]): {
-                "id": p["group_key"],
-                "type": "group",
-                "properties": p["group_properties"],  # TODO: Legacy for frontend
-                **p,
-            }
-            for p in Group.objects.filter(
-                team_id=self.team.pk, group_type_index=group_type_index, group_key__in=group_ids
-            )
-            .values("group_key", "group_type_index", "created_at", "group_properties")
-            .iterator(chunk_size=self.paginator.limit)
-        }
-
-    def get_actors_from_result(self, actor_ids) -> Dict[str, Dict]:
-        if self.aggregation_group_type_index is not None:
-            return self.get_groups(self.aggregation_group_type_index, actor_ids)
-
-        return self.get_persons(actor_ids)
-
-    def enrich_with_actors(self, results, actor_column_index, actors_lookup) -> Generator[List, None, None]:
-        for result in results:
-            new_row = list(result)
-            actor_id = str(result[actor_column_index])
-            actor = actors_lookup.get(actor_id)
-            new_row[actor_column_index] = actor if actor else {"id": actor_id}
-            yield new_row
-
-    def calculate(self) -> PersonsQueryResponse:
-        response = self.paginator.execute_hogql_query(
-            query_type="PersonsQuery",
-            query=self.to_query(),
-            team=self.team,
-            timings=self.timings,
-            modifiers=self.modifiers,
-        )
-        input_columns = self.input_columns()
-        missing_actors_count = None
-        results: Sequence[List] | Iterator[List] = self.paginator.results
-
-        enrich_columns = filter(lambda column: column in ("person", "group", "actor"), input_columns)
-        for column_name in enrich_columns:
-            actor_ids = (row[input_columns.index(column_name)] for row in self.paginator.results)
-            actors_lookup = self.get_actors_from_result(actor_ids)
-            missing_actors_count = len(self.paginator.results) - len(actors_lookup)
-            results = self.enrich_with_actors(results, input_columns.index(column_name), actors_lookup)
-
-        return PersonsQueryResponse(
-            results=results,
-            timings=response.timings,
-            types=[t for _, t in response.types] if response.types else None,
-            columns=input_columns,
-            hogql=response.hogql,
-            missing_actors_count=missing_actors_count,
-            **self.paginator.response_params(),
-        )
+    def input_columns(self) -> List[str]:
+        return ["person", "id", "created_at", "person.$delete"]
 
     def filter_conditions(self) -> List[ast.Expr]:
         where_exprs: List[ast.Expr] = []
@@ -142,14 +88,129 @@ class PersonsQueryRunner(QueryRunner):
             )
         return where_exprs
 
+
+class GroupStrategy(ActorStrategy):
+    origin = "groups"
+    origin_id = "key"
+
+    def __init__(self, group_type_index: int, **kwargs):
+        self.group_type_index = group_type_index
+        super().__init__(**kwargs)
+
+    def get_actors(self, actor_ids) -> Dict[str, Dict]:
+        return {
+            str(p["group_key"]): {
+                "id": p["group_key"],
+                "type": "group",
+                "properties": p["group_properties"],  # TODO: Legacy for frontend
+                **p,
+            }
+            for p in Group.objects.filter(
+                team_id=self.team.pk, group_type_index=self.group_type_index, group_key__in=actor_ids
+            )
+            .values("group_key", "group_type_index", "created_at", "group_properties")
+            .iterator(chunk_size=self.paginator.limit)
+        }
+
+    def input_columns(self) -> List[str]:
+        return ["group"]
+
+    def filter_conditions(self) -> List[ast.Expr]:
+        where_exprs: List[ast.Expr] = []
+
+        if self.query.search is not None and self.query.search != "":
+            where_exprs.append(
+                ast.Or(
+                    exprs=[
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.ILike,
+                            left=ast.Field(chain=["properties", "name"]),
+                            right=ast.Constant(value=f"%{self.query.search}%"),
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.ILike,
+                            left=ast.Call(name="toString", args=[ast.Field(chain=["key"])]),
+                            right=ast.Constant(value=f"%{self.query.search}%"),
+                        ),
+                    ]
+                )
+            )
+
+        return where_exprs
+
+
+class PersonsQueryRunner(QueryRunner):
+    query: PersonsQuery
+    query_type = PersonsQuery
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.paginator = HogQLHasMorePaginator(limit=self.query_limit(), offset=self.query.offset or 0)
+        self.strategy = self.determine_strategy()
+
+    @property
+    def aggregation_group_type_index(self) -> int | None:
+        if (
+            not self.query.source
+            or not isinstance(self.query.source, InsightPersonsQuery)
+            or isinstance(self.query.source.source, StickinessQuery)
+            or isinstance(self.query.source.source, LifecycleQuery)
+        ):
+            return None
+        try:
+            return self.query.source.source.aggregation_group_type_index
+        except AttributeError:
+            return None
+
+    def determine_strategy(self) -> ActorStrategy:
+        if self.aggregation_group_type_index is not None:
+            return GroupStrategy(
+                self.aggregation_group_type_index, team=self.team, query=self.query, paginator=self.paginator
+            )
+        return PersonStrategy(team=self.team, query=self.query, paginator=self.paginator)
+
+    def enrich_with_actors(self, results, actor_column_index, actors_lookup) -> Generator[List, None, None]:
+        for result in results:
+            new_row = list(result)
+            actor_id = str(result[actor_column_index])
+            actor = actors_lookup.get(actor_id)
+            new_row[actor_column_index] = actor if actor else {"id": actor_id}
+            yield new_row
+
+    def calculate(self) -> PersonsQueryResponse:
+        response = self.paginator.execute_hogql_query(
+            query_type="PersonsQuery",
+            query=self.to_query(),
+            team=self.team,
+            timings=self.timings,
+            modifiers=self.modifiers,
+        )
+        input_columns = self.input_columns()
+        missing_actors_count = None
+        results: Sequence[List] | Iterator[List] = self.paginator.results
+
+        enrich_columns = filter(lambda column: column in ("person", "group", "actor"), input_columns)
+        for column_name in enrich_columns:
+            actor_ids = (row[input_columns.index(column_name)] for row in self.paginator.results)
+            actors_lookup = self.strategy.get_actors(actor_ids)
+            missing_actors_count = len(self.paginator.results) - len(actors_lookup)
+            results = self.enrich_with_actors(results, input_columns.index(column_name), actors_lookup)
+
+        return PersonsQueryResponse(
+            results=results,
+            timings=response.timings,
+            types=[t for _, t in response.types] if response.types else None,
+            columns=input_columns,
+            hogql=response.hogql,
+            missing_actors_count=missing_actors_count,
+            **self.paginator.response_params(),
+        )
+
     def input_columns(self) -> List[str]:
         if self.query.select:
             return self.query.select
 
-        if self.aggregation_group_type_index is not None:
-            return ["group"]
-
-        return ["person", "id", "created_at", "person.$delete"]
+        return self.strategy.input_columns()
 
     def query_limit(self) -> int:
         max_rows = get_max_limit_for_context(self.limit_context)
@@ -169,11 +230,9 @@ class PersonsQueryRunner(QueryRunner):
         source_query = source_query_runner.to_persons_query()
         source_id_chain = self.source_id_column(source_query)
         source_alias = "source"
-        origin = "persons" if self.aggregation_group_type_index is None else "groups"
-        origin_id = "id" if self.aggregation_group_type_index is None else "key"
 
         return ast.JoinExpr(
-            table=ast.Field(chain=[origin]),
+            table=ast.Field(chain=[self.strategy.origin]),
             next_join=ast.JoinExpr(
                 table=source_query,
                 join_type="INNER JOIN",
@@ -181,7 +240,7 @@ class PersonsQueryRunner(QueryRunner):
                 constraint=ast.JoinConstraint(
                     expr=ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=[origin, origin_id]),
+                        left=ast.Field(chain=[self.strategy.origin, self.strategy.origin_id]),
                         right=ast.Field(chain=[source_alias, *source_id_chain]),
                     )
                 ),
@@ -210,7 +269,7 @@ class PersonsQueryRunner(QueryRunner):
             has_any_aggregation = len(aggregations) > 0
 
         with self.timings.measure("filters"):
-            filter_conditions = self.filter_conditions()
+            filter_conditions = self.strategy.filter_conditions()
             where_list = [expr for expr in filter_conditions if not has_aggregation(expr)]
             if len(where_list) == 0:
                 where = None
@@ -261,7 +320,7 @@ class PersonsQueryRunner(QueryRunner):
             if self.query.source:
                 join_expr = self.source_table_join()
             else:
-                join_expr = ast.JoinExpr(table=ast.Field(chain=["persons"]))
+                join_expr = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
 
             stmt = ast.SelectQuery(
                 select=columns,

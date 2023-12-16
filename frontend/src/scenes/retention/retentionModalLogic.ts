@@ -71,7 +71,6 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
                     isRetentionQuery(personsQuery.source.source) &&
                     personsQuery.source.source.aggregation_group_type_index !== undefined
                 ) {
-                    query.showSearch = false
                     query.showPropertyFilter = false
                 }
                 return urls.insightNew(undefined, undefined, JSON.stringify(query))
