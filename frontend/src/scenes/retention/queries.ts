@@ -6,7 +6,7 @@ import { NodeKind, PersonsQuery, RetentionQuery } from '~/queries/schema'
 export function retentionToActorsQuery(query: RetentionQuery, selectedInterval: number, offset = 0): PersonsQuery {
     return {
         kind: NodeKind.PersonsQuery,
-        select: ['person', 'appearances'],
+        select: ['actor', 'appearances'],
         orderBy: ['appearances_count DESC', 'actor_id'],
         source: {
             kind: NodeKind.InsightPersonsQuery,

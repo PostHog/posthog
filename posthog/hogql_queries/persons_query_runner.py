@@ -33,13 +33,11 @@ class PersonsQueryRunner(QueryRunner):
         except AttributeError:
             return None
 
-    def get_actors_from_result(self, result):
+    def get_actors_from_result(self, actor_ids):
         serialized_actors: Union[List[SerializedGroup], List[SerializedPerson]]
 
-        actor_ids = [row[0] for row in result]
         value_per_actor_id = None
 
-        # TODO: Make sure group stuff is correct
         if self.aggregation_group_type_index is not None:
             _, serialized_actors = get_groups(
                 self.team.pk,
@@ -52,12 +50,13 @@ class PersonsQueryRunner(QueryRunner):
 
         return serialized_actors
 
-    def enrich_with_actors(self, actor_column_index):
-        serialized_actors = self.get_actors_from_result(self.paginator.results)
+    def enrich_with_actors(self, results, actor_column_index):
+        actor_ids = [row[actor_column_index] for row in self.paginator.results]
+        serialized_actors = self.get_actors_from_result(actor_ids)
         actors_lookup = {str(actor["id"]): actor for actor in serialized_actors}
 
         enriched_results = []
-        for result in self.paginator.results:
+        for result in results:
             new_row = list(result)
             actor_id = str(result[actor_column_index])
             actor = actors_lookup.get(actor_id)
@@ -78,8 +77,9 @@ class PersonsQueryRunner(QueryRunner):
         missing_actors_count = None
         results = self.paginator.results
 
-        if "person" in input_columns:
-            results, missing_actors_count = self.enrich_with_actors(input_columns.index("person"))
+        enrich_columns = filter(lambda column: column in ("person", "group", "actor"), input_columns)
+        for column_name in enrich_columns:
+            results, missing_actors_count = self.enrich_with_actors(results, input_columns.index(column_name))
 
         return PersonsQueryResponse(
             results=results,
@@ -130,7 +130,13 @@ class PersonsQueryRunner(QueryRunner):
         return where_exprs
 
     def input_columns(self) -> List[str]:
-        return self.query.select or ["person", "id", "created_at", "person.$delete"]
+        if self.query.select:
+            return self.query.select
+
+        if self.aggregation_group_type_index is not None:
+            return ["group"]
+
+        return ["person", "id", "created_at", "person.$delete"]
 
     def query_limit(self) -> int:
         max_rows = get_max_limit_for_context(self.limit_context)
@@ -149,9 +155,11 @@ class PersonsQueryRunner(QueryRunner):
         source_query = source_query_runner.to_persons_query()
         source_id_chain = self.source_id_column(source_query)
         source_alias = "source"
+        origin = "persons" if self.aggregation_group_type_index is None else "groups"
+        origin_id = "id" if self.aggregation_group_type_index is None else "key"
 
         return ast.JoinExpr(
-            table=ast.Field(chain=["persons"]),
+            table=ast.Field(chain=[origin]),
             next_join=ast.JoinExpr(
                 table=source_query,
                 join_type="INNER JOIN",
@@ -159,7 +167,7 @@ class PersonsQueryRunner(QueryRunner):
                 constraint=ast.JoinConstraint(
                     expr=ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["persons", "id"]),
+                        left=ast.Field(chain=[origin, origin_id]),
                         right=ast.Field(chain=[source_alias, *source_id_chain]),
                     )
                 ),
@@ -167,12 +175,6 @@ class PersonsQueryRunner(QueryRunner):
         )
 
     def to_query(self) -> ast.SelectQuery:
-        # TODO: Make sure this group stuff is correct
-        if self.aggregation_group_type_index is not None:
-            # Take shortcut and deliver the source query as is
-            source_query_runner = get_query_runner(self.query.source, self.team, self.timings)  # type: ignore
-            return source_query_runner.to_persons_query()
-
         with self.timings.measure("columns"):
             columns = []
             group_by = []
@@ -180,8 +182,10 @@ class PersonsQueryRunner(QueryRunner):
             for expr in self.input_columns():
                 if expr == "person.$delete":
                     column = ast.Constant(value=1)
-                elif expr == "person":
+                elif expr == "person" or (expr == "actor" and self.aggregation_group_type_index is None):
                     column = ast.Field(chain=["id"])
+                elif expr == "group" or (expr == "actor" and self.aggregation_group_type_index is not None):
+                    column = ast.Field(chain=["key"])
                 else:
                     column = parse_expr(expr)
                 columns.append(column)
