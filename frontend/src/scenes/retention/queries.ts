@@ -4,9 +4,11 @@ import { query } from '~/queries/query'
 import { NodeKind, PersonsQuery, RetentionQuery } from '~/queries/schema'
 
 export function retentionToActorsQuery(query: RetentionQuery, selectedInterval: number, offset = 0): PersonsQuery {
+    const group = query.aggregation_group_type_index !== undefined
+    const select = group ? 'group' : 'person'
     return {
         kind: NodeKind.PersonsQuery,
-        select: ['actor', 'appearances'],
+        select: [select, 'appearances'],
         orderBy: ['appearances_count DESC', 'actor_id'],
         source: {
             kind: NodeKind.InsightPersonsQuery,
