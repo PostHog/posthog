@@ -90,7 +90,7 @@ def handler500(request):
 
 @ensure_csrf_cookie
 def home(request, *args, **kwargs):
-    if settings.REDIRECT_APP_TO_US and request.build_absolute_uri().startswith("http://app.posthog.com"):
+    if settings.REDIRECT_APP_TO_US and request.build_absolute_uri().startswith("https://app.posthog.com"):
         return HttpResponseRedirect("https://us.posthog.com{}".format(request.get_full_path()))
     return render_template("index.html", request)
 
