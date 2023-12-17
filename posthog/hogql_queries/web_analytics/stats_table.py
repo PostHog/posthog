@@ -166,70 +166,90 @@ LIMIT 10
             top_sources_query = parse_select(
                 """
 SELECT
-    multiIf(
-        match(person.properties.$initial_utm_campaign, 'cross-network'),
-        'Cross Network',
-
-        (
-            match(person.properties.$initial_utm_medium, '^(.*cp.*|ppc|retargeting|paid.*)$') OR
-            person.properties.$initial_gclid IS NOT NULL OR
-            person.properties.$initial_gad_source IS NOT NULL
-        ),
-        coalesce(
-            hogql_lookupPaidSourceType(person.properties.$initial_utm_source),
-            hogql_lookupPaidDomainType(person.properties.$initial_referring_domain),
-            if(
-                match(person.properties.$initial_utm_campaign, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
-                'Paid Shopping',
-                NULL
-            ),
-            hogql_lookupPaidMediumType(person.properties.$initial_utm_medium),
-            multiIf (
-                person.properties.$initial_gad_source = '1',
-                'Paid Search',
-
-                match(person.properties.$initial_utm_campaign, '^(.*video.*)$'),
-                'Paid Video',
-
-                'Paid Other'
-            )
-        ),
-
-        (
-            person.properties.$initial_referring_domain = '$direct'
-            AND (person.properties.$initial_utm_medium IS NULL OR person.properties.$initial_utm_medium = '')
-            AND (person.properties.$initial_utm_source IS NULL OR person.properties.$initial_utm_source IN ('', '(direct)', 'direct'))
-        ),
-        'Direct',
-
-        coalesce(
-            hogql_lookupOrganicSourceType(person.properties.$initial_utm_source),
-            hogql_lookupOrganicDomainType(person.properties.$initial_referring_domain),
-            if(
-                match(person.properties.$initial_utm_campaign, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
-                'Organic Shopping',
-                NULL
-            ),
-            hogql_lookupOrganicMediumType(person.properties.$initial_utm_medium),
-            multiIf(
-                match(person.properties.$initial_utm_campaign, '^(.*video.*)$'),
-                'Organic Video',
-
-                match(person.properties.$initial_utm_medium, 'push$'),
-                'Push',
-
-                NULL
-            )
-        )
-    ) AS "context.columns.breakdown_value",
-    count() as "context.columns.views",
-    uniq(events.person_id) as "context.columns.visitors"
+    counts.breakdown_value as "context.columns.breakdown_value",
+    counts.total_pageviews as "context.columns.views",
+    counts.unique_visitors as "context.columns.visitors"
 FROM
-    events
+    (SELECT
+
+
+        multiIf(
+            match(initial_utm_campaign, 'cross-network'),
+            'Cross Network',
+
+            (
+                match(initial_utm_medium, '^(.*cp.*|ppc|retargeting|paid.*)$') OR
+                initial_gclid IS NOT NULL OR
+                initial_gad_source IS NOT NULL
+            ),
+            coalesce(
+                hogql_lookupPaidSourceType(initial_utm_source),
+                hogql_lookupPaidDomainType(initial_referring_domain),
+                if(
+                    match(initial_utm_campaign, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
+                    'Paid Shopping',
+                    NULL
+                ),
+                hogql_lookupPaidMediumType(initial_utm_medium),
+                multiIf (
+                    initial_gad_source = '1',
+                    'Paid Search',
+
+                    match(initial_utm_campaign, '^(.*video.*)$'),
+                    'Paid Video',
+
+                    'Paid Other'
+                )
+            ),
+
+            (
+                initial_referring_domain = '$direct'
+                AND (initial_utm_medium IS NULL OR initial_utm_medium = '')
+                AND (initial_utm_source IS NULL OR initial_utm_source IN ('', '(direct)', 'direct'))
+            ),
+            'Direct',
+
+            coalesce(
+                hogql_lookupOrganicSourceType(initial_utm_source),
+                hogql_lookupOrganicDomainType(initial_referring_domain),
+                if(
+                    match(initial_utm_campaign, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
+                    'Organic Shopping',
+                    NULL
+                ),
+                hogql_lookupOrganicMediumType(initial_utm_medium),
+                multiIf(
+                    match(initial_utm_campaign, '^(.*video.*)$'),
+                    'Organic Video',
+
+                    match(initial_utm_medium, 'push$'),
+                    'Push',
+
+                    NULL
+                )
+            )
+        ) AS breakdown_value,
+        count() as total_pageviews,
+        uniq(pid) as unique_visitors
+    FROM
+        (SELECT
+            person.properties.$initial_utm_campaign AS initial_utm_campaign,
+            person.properties.$initial_utm_medium AS initial_utm_medium,
+            person.properties.$initial_utm_source AS initial_utm_source,
+            person.properties.$initial_referring_domain AS initial_referring_domain,
+            person.properties.$initial_gclid AS initial_gclid,
+            person.properties.$initial_gad_source AS initial_gad_source,
+            person_id AS pid
+        FROM events
+        WHERE
+            (event = '$pageview')
+            AND ({counts_where})
+        )
+
+        GROUP BY breakdown_value
+    ) AS counts
 WHERE
-    (event = '$pageview')
-    AND ({counts_where})
-    GROUP BY "context.columns.breakdown_value"
+    {where_breakdown}
 ORDER BY
     "context.columns.views" DESC,
     "context.columns.breakdown_value" DESC
@@ -239,6 +259,7 @@ LIMIT 10
                 backend="cpp",
                 placeholders={
                     "counts_where": self.events_where(),
+                    "where_breakdown": self.where_breakdown(),
                 },
             )
 
