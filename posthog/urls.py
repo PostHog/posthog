@@ -17,6 +17,7 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 from revproxy.views import ProxyView
+from django.utils.http import url_has_allowed_host_and_scheme
 from sentry_sdk import last_event_id
 from two_factor.urls import urlpatterns as tf_urls
 
@@ -91,7 +92,9 @@ def handler500(request):
 @ensure_csrf_cookie
 def home(request, *args, **kwargs):
     if settings.REDIRECT_APP_TO_US and request.get_host().split(":")[0] == "app.posthog.com":
-        return HttpResponseRedirect("https://us.posthog.com{}".format(request.get_full_path()))
+        url = "https://us.posthog.com{}".format(request.get_full_path())
+        if url_has_allowed_host_and_scheme(url, "us.posthog.com", True):
+            return HttpResponseRedirect(url)
     return render_template("index.html", request)
 
 
