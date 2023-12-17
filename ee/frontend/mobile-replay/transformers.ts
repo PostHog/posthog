@@ -27,6 +27,7 @@ import {
 } from './mobile.types'
 import {
     makeBodyStyles,
+    makeColorStyles,
     makeDeterminateProgressStyles,
     makeHTMLStyles,
     makeIndeterminateProgressStyles,
@@ -317,6 +318,110 @@ function makeRadioGroupElement(
     }
 }
 
+function makeStar(title: string, path: string): serializedNodeWithId {
+    return {
+        type: NodeType.Element,
+        tagName: 'svg',
+        isSVG: true,
+        attributes: {
+            style: 'height: 100%;overflow-clip-margin: content-box;overflow:hidden',
+            viewBox: '0 0 24 24',
+            fill: 'currentColor',
+        },
+        id: idSequence.next().value,
+        childNodes: [
+            {
+                type: NodeType.Element,
+                tagName: 'title',
+                attributes: {},
+                id: idSequence.next().value,
+                childNodes: [
+                    {
+                        type: NodeType.Text,
+                        textContent: title,
+                        id: idSequence.next().value,
+                    },
+                ],
+            },
+            {
+                type: NodeType.Element,
+                tagName: 'path',
+                attributes: {
+                    d: path,
+                },
+                id: idSequence.next().value,
+                childNodes: [],
+            },
+        ],
+    }
+}
+
+function filledStar(): serializedNodeWithId {
+    return makeStar(
+        'filled star',
+        'M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z'
+    )
+}
+
+function halfStar(): serializedNodeWithId {
+    return makeStar(
+        'half-filled star',
+        'M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z'
+    )
+}
+
+function emptyStar(): serializedNodeWithId {
+    return makeStar(
+        'empty star',
+        'M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z'
+    )
+}
+
+function makeRatingBar(wireframe: wireframeProgress, children: serializedNodeWithId[]): serializedNodeWithId | null {
+    // max is the number of stars... and value is the number of stars to fill
+
+    // deliberate double equals, because we want to allow null and undefined
+    if (wireframe.value == null || wireframe.max == null) {
+        return makePlaceholderElement(wireframe, children)
+    }
+
+    const numberOfFilledStars = Math.floor(wireframe.value)
+    const numberOfHalfStars = wireframe.value - numberOfFilledStars > 0 ? 1 : 0
+    const numberOfEmptyStars = wireframe.max - numberOfFilledStars - numberOfHalfStars
+
+    const filledStars = Array(numberOfFilledStars)
+        .fill(undefined)
+        .map(() => filledStar())
+    const halfStars = Array(numberOfHalfStars)
+        .fill(undefined)
+        .map(() => halfStar())
+    const emptyStars = Array(numberOfEmptyStars)
+        .fill(undefined)
+        .map(() => emptyStar())
+
+    const ratingBar = {
+        type: NodeType.Element,
+        tagName: 'div',
+        id: idSequence.next().value,
+        attributes: {
+            style:
+                makeColorStyles(wireframe, { color: FOREGROUND, backgroundColor: BACKGROUND }) +
+                'position: relative; display: flex; flex-direction: row; padding: 2px 4px;',
+        },
+        childNodes: [...filledStars, ...halfStars, ...emptyStars],
+    } as serializedNodeWithId
+
+    return {
+        type: NodeType.Element,
+        tagName: 'div',
+        attributes: {
+            style: makeMinimalStyles(wireframe),
+        },
+        id: wireframe.id,
+        childNodes: [ratingBar, ...children],
+    }
+}
+
 function makeProgressElement(
     wireframe: wireframeProgress,
     children: serializedNodeWithId[]
@@ -382,84 +487,7 @@ function makeProgressElement(
             ],
         }
     } else if (wireframe.style?.bar === 'rating') {
-        // value needs to be expressed as a number between 0 and 100
-        const max = wireframe.max || 1
-        let value = wireframe.value || null
-        if (_isPositiveInteger(value) && value <= max) {
-            value = (value / max) * 100
-        } else {
-            value = null
-        }
-
-        if (value === null) {
-            return makePlaceholderElement(wireframe, children)
-        }
-
-        const stylingChildren: serializedNodeWithId[] = [
-            {
-                type: NodeType.Element,
-                tagName: 'style',
-                attributes: {
-                    type: 'text/css',
-                },
-                id: idSequence.next().value,
-                childNodes: [
-                    {
-                        type: NodeType.Text,
-                        textContent: `.stars {position: relative;display:inline-block;font-size: ${
-                            wireframe.height
-                        }px;height: ${wireframe.height}px;line-height: ${
-                            wireframe.height
-                        }px;}.stars:before {content: "\\2606\\2606\\2606\\2606\\2606";}.stars:after {content: "\\2605\\2605\\2605\\2605\\2605";position:absolute;  left:0;overflow:hidden;width:var(--w,50%);color: ${
-                            wireframe.style?.color || 'rgb(255, 200, 0)'
-                        };z-index:-1;}`,
-                        id: idSequence.next().value,
-                    },
-                ],
-            },
-        ]
-
-        const ratingBar = {
-            type: NodeType.Element,
-            tagName: 'ul',
-            id: idSequence.next().value,
-            attributes: {
-                // unset UL styles
-                style: 'list-style-type: none; margin: 0; padding: 0;',
-            },
-            childNodes: [
-                {
-                    type: NodeType.Element,
-                    tagName: 'li',
-                    id: idSequence.next().value,
-                    attributes: {
-                        style: 'list-style-type: none;',
-                    },
-                    childNodes: [
-                        {
-                            type: NodeType.Element,
-                            tagName: 'div',
-                            attributes: {
-                                style: `--w: ${value}%;`,
-                                class: 'stars',
-                            },
-                            id: idSequence.next().value,
-                            childNodes: [],
-                        },
-                    ],
-                },
-            ],
-        } as serializedNodeWithId
-
-        return {
-            type: NodeType.Element,
-            tagName: 'div',
-            attributes: {
-                style: makeMinimalStyles(wireframe),
-            },
-            id: wireframe.id,
-            childNodes: [...stylingChildren, ratingBar, ...children],
-        }
+        return makeRatingBar(wireframe, children)
     } else {
         return {
             type: NodeType.Element,
