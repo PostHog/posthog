@@ -77,7 +77,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         runner = PersonsQueryRunner(
             team=self.team,
             query={
-                "select": ["actor", "appearances"],
+                "select": ["person", "appearances"],
                 "orderBy": ["appearances_count DESC", "actor_id"],
                 "source": {
                     "kind": "InsightPersonsQuery",

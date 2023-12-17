@@ -1,13 +1,14 @@
 from datetime import timedelta
-from typing import List, cast, Literal, Generator, Sequence, Iterator
+from typing import List, cast, Literal, Generator, Sequence, Iterator, Optional
 from posthog.hogql import ast
 from posthog.hogql.constants import get_max_limit_for_context, get_default_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import has_aggregation
 from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy, GroupStrategy
+from posthog.hogql_queries.insights.insight_persons_query_runner import InsightPersonsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
-from posthog.schema import PersonsQuery, PersonsQueryResponse, InsightPersonsQuery, StickinessQuery, LifecycleQuery
+from posthog.schema import PersonsQuery, PersonsQueryResponse
 
 
 class PersonsQueryRunner(QueryRunner):
@@ -17,27 +18,23 @@ class PersonsQueryRunner(QueryRunner):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.paginator = HogQLHasMorePaginator(limit=self.query_limit(), offset=self.query.offset or 0)
+        self.source_query_runner: Optional[QueryRunner] = None
+
+        if self.query.source:
+            self.source_query_runner = get_query_runner(self.query.source, self.team, self.timings, self.limit_context)
+
         self.strategy = self.determine_strategy()
 
     @property
-    def aggregation_group_type_index(self) -> int | None:
-        if (
-            not self.query.source
-            or not isinstance(self.query.source, InsightPersonsQuery)
-            or isinstance(self.query.source.source, StickinessQuery)
-            or isinstance(self.query.source.source, LifecycleQuery)
-        ):
-            return None
-        try:
-            return self.query.source.source.aggregation_group_type_index
-        except AttributeError:
+    def group_type_index(self) -> int | None:
+        if not self.source_query_runner or not isinstance(self.source_query_runner, InsightPersonsQueryRunner):
             return None
 
+        return self.source_query_runner.group_type_index
+
     def determine_strategy(self) -> ActorStrategy:
-        if self.aggregation_group_type_index is not None:
-            return GroupStrategy(
-                self.aggregation_group_type_index, team=self.team, query=self.query, paginator=self.paginator
-            )
+        if self.group_type_index is not None:
+            return GroupStrategy(self.group_type_index, team=self.team, query=self.query, paginator=self.paginator)
         return PersonStrategy(team=self.team, query=self.query, paginator=self.paginator)
 
     def enrich_with_actors(self, results, actor_column_index, actors_lookup) -> Generator[List, None, None]:
@@ -97,8 +94,7 @@ class PersonsQueryRunner(QueryRunner):
 
     def source_table_join(self) -> ast.JoinExpr:
         assert self.query.source is not None  # For type checking
-        source_query_runner = get_query_runner(self.query.source, self.team, self.timings)
-        source_query = source_query_runner.to_persons_query()
+        source_query = self.source_query_runner.to_persons_query()
         source_id_chain = self.source_id_column(source_query)
         source_alias = "source"
 
@@ -126,10 +122,8 @@ class PersonsQueryRunner(QueryRunner):
             for expr in self.input_columns():
                 if expr == "person.$delete":
                     column = ast.Constant(value=1)
-                elif expr == "person" or (expr == "actor" and self.aggregation_group_type_index is None):
-                    column = ast.Field(chain=["id"])
-                elif expr == "group" or (expr == "actor" and self.aggregation_group_type_index is not None):
-                    column = ast.Field(chain=["key"])
+                elif expr == self.strategy.field:
+                    column = ast.Field(chain=[self.strategy.origin_id])
                 else:
                     column = parse_expr(expr)
                 columns.append(column)

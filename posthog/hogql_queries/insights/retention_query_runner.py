@@ -47,6 +47,10 @@ class RetentionQueryRunner(QueryRunner):
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
 
+    @property
+    def group_type_index(self) -> int | None:
+        return self.query.aggregation_group_type_index
+
     def get_applicable_entity(self, event_query_type):
         default_entity = RetentionEntity(
             **{
@@ -71,8 +75,8 @@ class RetentionQueryRunner(QueryRunner):
             event_date_expr = start_of_interval_sql
 
         target_field = "person_id"
-        if self.query.aggregation_group_type_index is not None:
-            group_index = int(self.query.aggregation_group_type_index)
+        if self.group_type_index is not None:
+            group_index = int(self.group_type_index)
             if 0 <= group_index <= 4:
                 target_field = f"$group_{group_index}"
 

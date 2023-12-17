@@ -37,6 +37,13 @@ class InsightPersonsQueryRunner(QueryRunner):
     def to_persons_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         return self.to_query()
 
+    @property
+    def group_type_index(self) -> int | None:
+        if not self.source_runner or not isinstance(self.source_runner, RetentionQueryRunner):
+            return None
+
+        return cast(RetentionQueryRunner, self.source_runner).group_type_index
+
     def calculate(self) -> HogQLQueryResponse:
         return execute_hogql_query(
             query_type="InsightPersonsQuery",

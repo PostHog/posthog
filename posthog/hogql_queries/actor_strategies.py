@@ -10,6 +10,7 @@ from posthog.schema import PersonsQuery
 
 
 class ActorStrategy:
+    field: str
     origin: str
     origin_id: str
 
@@ -29,6 +30,7 @@ class ActorStrategy:
 
 
 class PersonStrategy(ActorStrategy):
+    field = "person"
     origin = "persons"
     origin_id = "id"
 
@@ -88,6 +90,7 @@ class PersonStrategy(ActorStrategy):
 
 
 class GroupStrategy(ActorStrategy):
+    field = "group"
     origin = "groups"
     origin_id = "key"
 
