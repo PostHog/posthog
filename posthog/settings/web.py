@@ -345,6 +345,3 @@ SALT_KEY = os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz")
 # temporary flag to control new UUID version setting in posthog-js
 # is set to v7 to test new generation but can be set to "og" to revert
 POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")
-
-# Temporary option to redirect all traffic from app.posthog.com to us.posthog.com
-REDIRECT_APP_TO_US = get_from_env("REDIRECT_APP_TO_US", False, type_cast=str_to_bool)

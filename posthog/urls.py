@@ -1,4 +1,5 @@
 from typing import Any, Callable, List, Optional, cast
+from posthog.models.instance_setting import get_instance_setting
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -91,7 +92,7 @@ def handler500(request):
 
 @ensure_csrf_cookie
 def home(request, *args, **kwargs):
-    if settings.REDIRECT_APP_TO_US and request.get_host().split(":")[0] == "app.posthog.com":
+    if get_instance_setting("REDIRECT_APP_TO_US") and request.get_host().split(":")[0] == "app.posthog.com":
         url = "https://us.posthog.com{}".format(request.get_full_path())
         if url_has_allowed_host_and_scheme(url, "us.posthog.com", True):
             return HttpResponseRedirect(url)
