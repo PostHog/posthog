@@ -333,6 +333,7 @@ function makeStar(title: string, path: string): serializedNodeWithId {
             {
                 type: NodeType.Element,
                 tagName: 'title',
+                isSVG: true,
                 attributes: {},
                 id: idSequence.next().value,
                 childNodes: [
@@ -346,6 +347,7 @@ function makeStar(title: string, path: string): serializedNodeWithId {
             {
                 type: NodeType.Element,
                 tagName: 'path',
+                isSVG: true,
                 attributes: {
                     d: path,
                 },
@@ -405,8 +407,10 @@ function makeRatingBar(wireframe: wireframeProgress, children: serializedNodeWit
         id: idSequence.next().value,
         attributes: {
             style:
-                makeColorStyles(wireframe, { color: FOREGROUND, backgroundColor: BACKGROUND }) +
-                'position: relative; display: flex; flex-direction: row; padding: 2px 4px;',
+                makeColorStyles(wireframe, {
+                    color: wireframe.style?.color || FOREGROUND,
+                    backgroundColor: wireframe.style?.backgroundColor || BACKGROUND,
+                }) + 'position: relative; display: flex; flex-direction: row; padding: 2px 4px;',
         },
         childNodes: [...filledStars, ...halfStars, ...emptyStars],
     } as serializedNodeWithId
@@ -415,7 +419,7 @@ function makeRatingBar(wireframe: wireframeProgress, children: serializedNodeWit
         type: NodeType.Element,
         tagName: 'div',
         attributes: {
-            style: makeMinimalStyles(wireframe),
+            style: makeStylesString(wireframe),
         },
         id: wireframe.id,
         childNodes: [ratingBar, ...children],
