@@ -1,24 +1,85 @@
-import { LemonButton, LemonCheckbox, LemonDivider, LemonSelect, LemonTable } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonDivider,
+    LemonSelect,
+    LemonTable,
+    LemonTableColumn,
+    LemonTableColumns,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DatePicker } from 'lib/components/DatePicker'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { useEffect } from 'react'
+
+import { ScheduledChangeType } from '~/types'
 
 import { featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 
-const logic = featureFlagLogic({ id: 'schedule' })
+const featureFlagScheduleLogic = featureFlagLogic({ id: 'schedule' })
 export const DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
 
-const columns = [createdByColumn() as any, createdAtColumn() as any]
-
 export default function FeatureFlagSchedule(): JSX.Element {
-    const { featureFlag, scheduledChanges, scheduleChangeType, scheduleDateMarker } = useValues(logic)
-    const { setFeatureFlag, loadScheduledChanges, setScheduleDateMarker, setScheduleChangeType } = useActions(logic)
+    const { featureFlag, scheduledChanges, scheduledChangeField, scheduleDateMarker } =
+        useValues(featureFlagScheduleLogic)
+    const {
+        setFeatureFlagId,
+        setFeatureFlag,
+        loadScheduledChanges,
+        createScheduledChange,
+        deleteScheduledChange,
+        setScheduleDateMarker,
+        setScheduledChangeField,
+    } = useActions(featureFlagScheduleLogic)
+
+    const featureFlagId = useValues(featureFlagLogic).featureFlag.id
 
     useEffect(() => {
+        // Set the feature flag ID from the main flag logic to the current logic
+        setFeatureFlagId(featureFlagId)
+
         loadScheduledChanges()
     }, [])
+
+    const columns: LemonTableColumns<ScheduledChangeType> = [
+        {
+            title: 'Change',
+            dataIndex: 'payload',
+            render: (dataValue) => {
+                return JSON.stringify(dataValue)
+            },
+        },
+        atColumn('scheduled_at', 'Scheduled at') as LemonTableColumn<
+            ScheduledChangeType,
+            keyof ScheduledChangeType | undefined
+        >,
+        atColumn('executed_at', 'Executed at') as LemonTableColumn<
+            ScheduledChangeType,
+            keyof ScheduledChangeType | undefined
+        >,
+        createdByColumn() as LemonTableColumn<ScheduledChangeType, keyof ScheduledChangeType | undefined>,
+        createdAtColumn() as LemonTableColumn<ScheduledChangeType, keyof ScheduledChangeType | undefined>,
+        {
+            width: 0,
+            render: function Render(_: any, scheduledChange: ScheduledChangeType) {
+                return (
+                    <More
+                        overlay={
+                            <LemonButton
+                                status="danger"
+                                onClick={() => deleteScheduledChange(scheduledChange.id)}
+                                fullWidth
+                            >
+                                Delete scheduled change
+                            </LemonButton>
+                        }
+                    />
+                )
+            },
+        },
+    ]
 
     return (
         <div>
@@ -30,11 +91,11 @@ export default function FeatureFlagSchedule(): JSX.Element {
                     <LemonSelect
                         className="w-50"
                         placeholder="Select variant"
-                        value={scheduleChangeType}
-                        onChange={(value) => setScheduleChangeType(value)}
+                        value={scheduledChangeField}
+                        onChange={(value) => setScheduledChangeField(value)}
                         options={[
-                            { label: 'Add a condition', value: 'add_condition' },
-                            { label: 'Change status', value: 'change_status' },
+                            { label: 'Change status', value: 'active' },
+                            { label: 'Add a condition', value: 'filters' },
                         ]}
                     />
                 </div>
@@ -53,8 +114,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
             </div>
 
             <div className="space-y-4">
-                {scheduleChangeType === 'add_condition' && <FeatureFlagReleaseConditions usageContext="schedule" />}
-                {scheduleChangeType === 'change_status' && (
+                {scheduledChangeField === 'active' && (
                     <>
                         <div className="border rounded p-4">
                             <LemonCheckbox
@@ -69,8 +129,15 @@ export default function FeatureFlagSchedule(): JSX.Element {
                         </div>
                     </>
                 )}
+                {scheduledChangeField === 'filters' && <FeatureFlagReleaseConditions usageContext="schedule" />}
                 <div className="flex items-center justify-end">
-                    <LemonButton type="primary">Schedule</LemonButton>
+                    <LemonButton
+                        disabledReason={!scheduleDateMarker ? 'Select the scheduled date and time' : null}
+                        type="primary"
+                        onClick={() => createScheduledChange()}
+                    >
+                        Schedule
+                    </LemonButton>
                 </div>
                 <LemonDivider className="" />
             </div>
@@ -79,6 +146,10 @@ export default function FeatureFlagSchedule(): JSX.Element {
                 loading={false}
                 dataSource={scheduledChanges}
                 columns={columns}
+                defaultSorting={{
+                    columnKey: 'scheduled_at',
+                    order: 1,
+                }}
                 emptyState="You do not have any scheduled changes"
             />
         </div>
