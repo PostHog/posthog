@@ -2,7 +2,7 @@ from typing import Any, Callable, List, Optional, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
-from django.http import HttpRequest, HttpResponse, HttpResponseServerError
+from django.http import HttpRequest, HttpResponse, HttpResponseServerError, HttpResponseRedirect
 from django.template import loader
 from django.urls import URLPattern, include, path, re_path
 from django.views.decorators.csrf import (
@@ -90,6 +90,8 @@ def handler500(request):
 
 @ensure_csrf_cookie
 def home(request, *args, **kwargs):
+    if settings.REDIRECT_APP_TO_US and request.build_absolute_uri().startswith("http://app.posthog.com"):
+        return HttpResponseRedirect("https://us.posthog.com{}".format(request.get_full_path()))
     return render_template("index.html", request)
 
 
