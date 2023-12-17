@@ -8,7 +8,7 @@ describe('redirectToLoggedInInstance', () => {
         ['handles not URLs', 'yo ho ho', null],
         ['handles EU', 'https://eu.posthog.com', 'eu'],
         ['handles app', 'https://app.posthog.com', null],
-        ['handles US', 'https://us.posthog.com', null],
+        ['handles US', 'https://us.posthog.com', 'us'],
         ['handles leading quotes', '"https://eu.posthog.com', 'eu'],
         ['handles trailing quotes', 'https://eu.posthog.com"', 'eu'],
         ['handles wrapping quotes', '"https://eu.posthog.com"', 'eu'],
