@@ -3240,7 +3240,7 @@ export type CommentType = {
     source_comment_id?: string | null
     scope: ActivityScope
     item_id?: string
-    reference?: string
+    item_context?: Record<string, any>
 }
 
 export type NotebookListItemType = {
