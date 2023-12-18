@@ -5,10 +5,29 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { BREAKDOWN_OTHER_NUMERIC_LABEL, BREAKDOWN_OTHER_STRING_LABEL } from 'scenes/insights/utils'
 
-import { ChartDisplayType, InsightLogicProps, LifecycleToggle, TrendAPIResponse, TrendResult } from '~/types'
+import { EntityNode } from '~/queries/schema'
+import {
+    ChartDisplayType,
+    CountPerActorMathType,
+    HogQLMathType,
+    InsightLogicProps,
+    LifecycleToggle,
+    PropertyMathType,
+    TrendAPIResponse,
+    TrendResult,
+} from '~/types'
 
 import type { trendsDataLogicType } from './trendsDataLogicType'
 import { IndexedTrendResult } from './types'
+
+type MathType = Required<EntityNode>['math']
+
+/** All math types that can result in non-whole numbers. */
+const POSSIBLY_FRACTIONAL_MATH_TYPES: Set<MathType> = new Set(
+    [CountPerActorMathType.Average as MathType]
+        .concat(Object.values(HogQLMathType))
+        .concat(Object.values(PropertyMathType))
+)
 
 export const trendsDataLogic = kea<trendsDataLogicType>([
     props({} as InsightLogicProps),
@@ -155,6 +174,21 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         pieChartVizOptions: [
             () => [() => values.vizSpecificOptions],
             (vizSpecificOptions) => vizSpecificOptions?.[ChartDisplayType.ActionsPie],
+        ],
+
+        mightContainFractionalNumbers: [
+            (s) => [s.formula, s.series],
+            (formula, series): boolean => {
+                // Whether data points might contain fractional numbers, which involve extra display considerations,
+                // such as rounding
+                if (formula) {
+                    return true
+                }
+                if (series) {
+                    return series.some((s) => s.math && POSSIBLY_FRACTIONAL_MATH_TYPES.has(s.math))
+                }
+                return false
+            },
         ],
     })),
 

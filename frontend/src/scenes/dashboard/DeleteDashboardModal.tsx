@@ -29,7 +29,7 @@ export function DeleteDashboardModal(): JSX.Element {
                     <LemonButton
                         form="delete-dashboard-form"
                         htmlType="submit"
-                        type="primary"
+                        type="secondary"
                         status={'danger'}
                         data-attr="dashboard-delete-submit"
                         loading={isDeleteDashboardSubmitting}

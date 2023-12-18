@@ -65,7 +65,7 @@ export function DataTableVisualization(props: DataTableVisualizationProps): JSX.
     let component: JSX.Element | null = null
     if (!response && responseLoading) {
         return (
-            <div className="flex flex-col flex-1 justify-center items-center border rounded">
+            <div className="flex flex-col flex-1 justify-center items-center border rounded bg-bg-light">
                 <Animation type={AnimationType.LaptopHog} />
             </div>
         )

@@ -1069,7 +1069,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(1, len(response.results))
-        self.assertEqual([0.33], response.results[0]["data"])
+        self.assertEqual([1 / 3], response.results[0]["data"])
 
     @also_test_with_materialized_columns(["$some_property"])
     def test_properties_filtering_with_materialized_columns_and_empty_string_as_property(self):

@@ -15,12 +15,18 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExternalDataSchema
 
-        fields = ["id", "name", "table", "should_sync", "latest_error"]
+        fields = ["id", "name", "table", "should_sync", "last_synced_at", "latest_error"]
 
     def get_table(self, schema: ExternalDataSchema) -> Optional[dict]:
         from posthog.warehouse.api.table import SimpleTableSerializer
 
         return SimpleTableSerializer(schema.table).data or None
+
+
+class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExternalDataSchema
+        fields = ["id", "name", "should_sync", "last_synced_at"]
 
 
 class ExternalDataSchemaViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
