@@ -222,11 +222,21 @@ function ThemeSwitcher(): JSX.Element {
     return (
         <LemonSelect
             options={[
-                { icon: <IconLaptop />, value: null, label: `Theme synced with system` },
+                { icon: <IconLaptop />, value: null, label: `Sync with system` },
                 { icon: <IconDay />, value: 'light', label: 'Light mode' },
                 { icon: <IconNight />, value: 'dark', label: 'Dark mode' },
             ]}
             value={user?.theme_mode}
+            renderButtonContent={(leaf) => {
+                return (
+                    <>
+                        <span className="flex-1 flex justify-between items-baseline">
+                            <span>Color theme</span>
+                            <span className="font-normal text-xs">{leaf ? leaf.label : 'Sync with system'}</span>
+                        </span>
+                    </>
+                )
+            }}
             onChange={(value) => updateUser({ theme_mode: value })}
             type="tertiary"
             fullWidth
