@@ -28,6 +28,7 @@ def process_scheduled_changes() -> None:
                 except Exception as e:
                     # Store the failure reason
                     scheduled_change.failure_reason = str(e)
+                    scheduled_change.executed_at = timezone.now()
                     scheduled_change.save()
     except OperationalError:
         # Failed to obtain the lock
