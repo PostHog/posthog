@@ -225,7 +225,7 @@ FROM
                     match(initial_utm_medium, 'push$'),
                     'Push',
 
-                    NULL
+                    'Other'
                 )
             )
         ) AS breakdown_value,
