@@ -297,6 +297,17 @@ class FeatureFlag(models.Model):
 
         return list(cohort_ids)
 
+    def scheduled_changes_dispatcher(self, payload):
+        if "field" not in payload or "value" not in payload:
+            raise Exception("Invalid payload")
+        elif payload["field"] == "active":
+            self.active = payload["value"]
+        elif payload["field"] == "filters":
+            for group in payload["value"]["groups"]:
+                self.filters["groups"].append(group)
+
+        self.save()
+
     @property
     def uses_cohorts(self) -> bool:
         for condition in self.conditions:
