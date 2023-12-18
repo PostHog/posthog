@@ -188,6 +188,11 @@ CONSTANCE_CONFIG = {
         "The number of rows that the heatmap query tries to sample.",
         int,
     ),
+    "REDIRECT_APP_TO_US": (
+        get_from_env("REDIRECT_APP_TO_US", False, type_cast=str_to_bool),
+        "Temporary option to redirect all app traffic from app.posthog.com to us.posthog.com.",
+        bool,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -225,6 +230,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SENTRY_AUTH_TOKEN",
     "SENTRY_ORGANIZATION",
     "HEATMAP_SAMPLE_N",
+    "REDIRECT_APP_TO_US",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)

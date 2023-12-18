@@ -250,9 +250,9 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(
             self._run({"formula": "(A/3600)/B"})[0]["data"],
-            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 0.0, 0.0, 1 / 1200, 1 / 1800, 0.0],
         )
-        self.assertEqual(self._run({"formula": "(A/3600)/B"})[0]["count"], 0)
+        self.assertEqual(self._run({"formula": "(A/3600)/B"})[0]["count"], 1 / 720)
 
         self.assertEqual(
             self._run({"formula": "A/0"})[0]["data"],

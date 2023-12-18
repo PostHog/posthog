@@ -40,6 +40,7 @@ import {
     IntegrationType,
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
+    NotebookListItemType,
     NotebookNodeResource,
     NotebookType,
     OrganizationFeatureFlags,
@@ -55,6 +56,7 @@ import {
     RoleMemberType,
     RolesListParams,
     RoleType,
+    ScheduledChangeType,
     SearchListParams,
     SearchResponse,
     SessionRecordingPlaylistType,
@@ -512,6 +514,30 @@ class ApiRequest {
         return this.featureFlags(teamId).addPathComponent('activity')
     }
 
+    public featureFlagScheduledChanges(teamId: TeamType['id'], featureFlagId: FeatureFlagType['id']): ApiRequest {
+        return this.projectsDetail(teamId)
+            .addPathComponent('scheduled_changes')
+            .withQueryString(
+                toParams({
+                    model_name: 'FeatureFlag',
+                    record_id: featureFlagId,
+                })
+            )
+    }
+
+    public featureFlagCreateScheduledChange(teamId: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('scheduled_changes')
+    }
+
+    public featureFlagDeleteScheduledChange(
+        teamId: TeamType['id'],
+        scheduledChangeId: ScheduledChangeType['id']
+    ): ApiRequest {
+        return this.projectsDetail(teamId)
+            .addPathComponent('scheduled_changes')
+            .addPathComponent(`${scheduledChangeId}`)
+    }
+
     // # Features
     public earlyAccessFeatures(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('early_access_feature')
@@ -762,6 +788,24 @@ const api = {
         },
         async createStaticCohort(id: FeatureFlagType['id']): Promise<{ cohort: CohortType }> {
             return await new ApiRequest().featureFlagCreateStaticCohort(id).create()
+        },
+        async getScheduledChanges(
+            teamId: TeamType['id'],
+            featureFlagId: FeatureFlagType['id']
+        ): Promise<CountedPaginatedResponse<ScheduledChangeType>> {
+            return await new ApiRequest().featureFlagScheduledChanges(teamId, featureFlagId).get()
+        },
+        async createScheduledChange(
+            teamId: TeamType['id'],
+            data: any
+        ): Promise<{ scheduled_change: ScheduledChangeType }> {
+            return await new ApiRequest().featureFlagCreateScheduledChange(teamId).create({ data })
+        },
+        async deleteScheduledChange(
+            teamId: TeamType['id'],
+            scheduledChangeId: ScheduledChangeType['id']
+        ): Promise<{ scheduled_change: ScheduledChangeType }> {
+            return await new ApiRequest().featureFlagDeleteScheduledChange(teamId, scheduledChangeId).delete()
         },
     },
 
@@ -1553,7 +1597,7 @@ const api = {
                 offset?: number
                 limit?: number
             } = {}
-        ): Promise<CountedPaginatedResponse<NotebookType>> {
+        ): Promise<CountedPaginatedResponse<NotebookListItemType>> {
             // TODO attrs could be a union of types like NotebookNodeRecordingAttributes
             const apiRequest = new ApiRequest().notebooks()
             const { contains, ...queryParams } = objectClean(params)
