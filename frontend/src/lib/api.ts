@@ -40,6 +40,7 @@ import {
     IntegrationType,
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
+    NotebookListItemType,
     NotebookNodeResource,
     NotebookType,
     OrganizationFeatureFlags,
@@ -1596,7 +1597,7 @@ const api = {
                 offset?: number
                 limit?: number
             } = {}
-        ): Promise<CountedPaginatedResponse<NotebookType>> {
+        ): Promise<CountedPaginatedResponse<NotebookListItemType>> {
             // TODO attrs could be a union of types like NotebookNodeRecordingAttributes
             const apiRequest = new ApiRequest().notebooks()
             const { contains, ...queryParams } = objectClean(params)

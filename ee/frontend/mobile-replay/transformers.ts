@@ -407,10 +407,8 @@ function makeRatingBar(wireframe: wireframeProgress, children: serializedNodeWit
         id: idSequence.next().value,
         attributes: {
             style:
-                makeColorStyles(wireframe, {
-                    color: wireframe.style?.color || FOREGROUND,
-                    backgroundColor: wireframe.style?.backgroundColor || BACKGROUND,
-                }) + 'position: relative; display: flex; flex-direction: row; padding: 2px 4px;',
+                makeColorStyles(wireframe) +
+                'position: relative; display: flex; flex-direction: row; padding: 2px 4px;',
         },
         childNodes: [...filledStars, ...halfStars, ...emptyStars],
     } as serializedNodeWithId
