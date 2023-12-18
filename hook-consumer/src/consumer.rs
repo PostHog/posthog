@@ -4,7 +4,7 @@ use std::time;
 
 use async_std::task;
 use hook_common::pgqueue::{PgJobError, PgQueue, PgQueueError, PgTransactionJob};
-use hook_common::webhook::{HttpMethod, WebhookJobParameters};
+use hook_common::webhook::{HttpMethod, WebhookJobMetadata, WebhookJobParameters};
 use http::StatusCode;
 use reqwest::header;
 use tokio::sync;
@@ -57,7 +57,8 @@ impl<'p> WebhookConsumer<'p> {
     /// Wait until a job becomes available in our queue.
     async fn wait_for_job<'a>(
         &self,
-    ) -> Result<PgTransactionJob<'a, WebhookJobParameters>, WebhookConsumerError> {
+    ) -> Result<PgTransactionJob<'a, WebhookJobParameters, WebhookJobMetadata>, WebhookConsumerError>
+    {
         loop {
             if let Some(job) = self.queue.dequeue_tx(&self.name).await? {
                 return Ok(job);
@@ -102,7 +103,7 @@ impl<'p> WebhookConsumer<'p> {
 /// * `request_timeout`: A timeout for the HTTP request.
 async fn process_webhook_job(
     client: reqwest::Client,
-    webhook_job: PgTransactionJob<'_, WebhookJobParameters>,
+    webhook_job: PgTransactionJob<'_, WebhookJobParameters, WebhookJobMetadata>,
 ) -> Result<(), WebhookConsumerError> {
     match send_webhook(
         client,
@@ -261,9 +262,10 @@ mod tests {
         queue: &PgQueue,
         max_attempts: i32,
         job_parameters: WebhookJobParameters,
+        job_metadata: WebhookJobMetadata,
     ) -> Result<(), PgQueueError> {
         let job_target = job_parameters.url.to_owned();
-        let new_job = NewJob::new(max_attempts, job_parameters, &job_target);
+        let new_job = NewJob::new(max_attempts, job_metadata, job_parameters, &job_target);
         queue.enqueue(new_job).await?;
         Ok(())
     }
@@ -308,25 +310,29 @@ mod tests {
             .await
             .expect("failed to connect to PG");
 
-        let webhook_job = WebhookJobParameters {
+        let webhook_job_parameters = WebhookJobParameters {
             body: "a webhook job body. much wow.".to_owned(),
             headers: collections::HashMap::new(),
             method: HttpMethod::POST,
             url: "localhost".to_owned(),
-
-            team_id: Some(1),
-            plugin_id: Some(2),
-            plugin_config_id: Some(3),
-
-            max_attempts: 1,
+        };
+        let webhook_job_metadata = WebhookJobMetadata {
+            team_id: None,
+            plugin_id: None,
+            plugin_config_id: None,
         };
         // enqueue takes ownership of the job enqueued to avoid bugs that can cause duplicate jobs.
         // Normally, a separate application would be enqueueing jobs for us to consume, so no ownership
         // conflicts would arise. However, in this test we need to do the enqueueing ourselves.
         // So, we clone the job to keep it around and assert the values returned by wait_for_job.
-        enqueue_job(&queue, 1, webhook_job.clone())
-            .await
-            .expect("failed to enqueue job");
+        enqueue_job(
+            &queue,
+            1,
+            webhook_job_parameters.clone(),
+            webhook_job_metadata,
+        )
+        .await
+        .expect("failed to enqueue job");
         let consumer = WebhookConsumer::new(
             &worker_id,
             &queue,
@@ -344,9 +350,12 @@ mod tests {
         assert!(consumed_job.job.attempted_by.contains(&worker_id));
         assert_eq!(consumed_job.job.attempted_by.len(), 1);
         assert_eq!(consumed_job.job.max_attempts, 1);
-        assert_eq!(*consumed_job.job.parameters.as_ref(), webhook_job);
+        assert_eq!(
+            *consumed_job.job.parameters.as_ref(),
+            webhook_job_parameters
+        );
         assert_eq!(consumed_job.job.status, JobStatus::Running);
-        assert_eq!(consumed_job.job.target, webhook_job.url);
+        assert_eq!(consumed_job.job.target, webhook_job_parameters.url);
 
         consumed_job
             .complete()

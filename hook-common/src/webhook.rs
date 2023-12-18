@@ -124,16 +124,14 @@ pub struct WebhookJobParameters {
     pub headers: collections::HashMap<String, String>,
     pub method: HttpMethod,
     pub url: String,
+}
 
-    // These should be set if the Webhook is associated with a plugin `composeWebhook` invocation.
+/// `JobParameters` required for the `WebhookConsumer` to execute a webhook.
+/// These parameters should match the exported Webhook interface that PostHog plugins.
+/// implement. See: https://github.com/PostHog/plugin-scaffold/blob/main/src/types.ts#L15.
+#[derive(Deserialize, Serialize, Debug, PartialEq, Clone)]
+pub struct WebhookJobMetadata {
     pub team_id: Option<i32>,
     pub plugin_id: Option<i32>,
     pub plugin_config_id: Option<i32>,
-
-    #[serde(default = "default_max_attempts")]
-    pub max_attempts: i32,
-}
-
-fn default_max_attempts() -> i32 {
-    3
 }
