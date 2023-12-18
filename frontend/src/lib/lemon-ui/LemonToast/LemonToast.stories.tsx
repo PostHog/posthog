@@ -1,16 +1,17 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { useEffect } from 'react'
-import { ToastContainer } from 'react-toastify'
+import { Slide, ToastContainer } from 'react-toastify'
 
-import { lemonToast, ToastContent, ToastContentProps } from './LemonToast'
+import { lemonToast, ToastCloseButton, ToastContent, ToastContentProps } from './LemonToast'
 
 const meta: Meta<typeof ToastContent> = {
     title: 'Lemon UI/Lemon Toast',
     component: ToastContent,
-    tags: ['autodocs'],
     parameters: {
         testOptions: {
             include3000: true,
+            waitForLoadersToDisappear: false,
+            // waitForSelector
         },
     },
 }
@@ -22,7 +23,7 @@ type ToastStory = {
 export default meta
 type Story = StoryObj<ToastStory>
 
-export const LemonToast: Story = {
+export const ToastTypes: Story = {
     args: {
         toasts: [
             {
@@ -43,18 +44,31 @@ export const LemonToast: Story = {
             },
         ],
     },
-    render: (args) => {
+    render: (args, { globals }) => {
+        const isDarkModeOn = globals.theme === 'dark'
+
         useEffect(() => {
             args.toasts.forEach((toast) => {
                 lemonToast[toast.type](toast.message)
             })
         }, [])
-        return <ToastContainer position="top-left" autoClose={false} />
+
+        return (
+            <ToastContainer
+                position="top-left" // different from app
+                autoClose={false} // different from app
+                transition={Slide}
+                closeOnClick={false}
+                draggable={false}
+                closeButton={<ToastCloseButton />}
+                theme={isDarkModeOn ? 'dark' : 'light'}
+            />
+        )
     },
 }
 
-export const ApiError: Story = {
-    ...LemonToast,
+export const BillingError: Story = {
+    ...ToastTypes,
     args: {
         toasts: [
             {
