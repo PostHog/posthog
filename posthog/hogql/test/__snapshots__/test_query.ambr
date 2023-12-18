@@ -797,7 +797,7 @@
   FROM (
   SELECT count() AS count, event 
   FROM events 
-  WHERE equals(properties.random_uuid, '016f8cc0-2400-0016-8a52-c803389c2009') 
+  WHERE equals(properties.random_uuid, 'RANDOM_TEST_ID::UUID') 
   GROUP BY event) 
   GROUP BY count, event 
   LIMIT 100
