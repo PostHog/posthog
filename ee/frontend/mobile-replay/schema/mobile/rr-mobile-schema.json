@@ -350,7 +350,7 @@
             "additionalProperties": false,
             "properties": {
                 "base64": {
-                    "description": "this will be used as base64 encoded image source, with no other attributes it is assumed to be a PNG",
+                    "description": "this will be used as base64 encoded image source, with no other attributes it is assumed to be a PNG, if omitted a placeholder is rendered",
                     "type": "string"
                 },
                 "childWireframes": {
@@ -382,7 +382,7 @@
                     "type": "number"
                 }
             },
-            "required": ["base64", "height", "id", "type", "width", "x", "y"],
+            "required": ["height", "id", "type", "width", "x", "y"],
             "type": "object"
         },
         "wireframeInput": {
@@ -521,7 +521,7 @@
                     "type": "string"
                 },
                 "max": {
-                    "description": "The max attribute, if present, must have a value greater than 0 and be a valid floating point number. The default value is 1.",
+                    "description": "The max attribute, if present, must have a value greater than 0 and be a valid floating point number. The default value is 1. When bar style is rating this is the number of stars.",
                     "type": "number"
                 },
                 "style": {
@@ -531,7 +531,7 @@
                     "$ref": "#/definitions/MobileNodeType"
                 },
                 "value": {
-                    "description": "This attribute specifies how much of the task that has been completed. It must be a valid floating point number between 0 and max, or between 0 and 1 if max is omitted. If there is no value attribute, the progress bar is indeterminate; this indicates that an activity is ongoing with no indication of how long it is expected to take.",
+                    "description": "This attribute specifies how much of the task that has been completed. It must be a valid floating point number between 0 and max, or between 0 and 1 if max is omitted. If there is no value attribute, the progress bar is indeterminate; this indicates that an activity is ongoing with no indication of how long it is expected to take. When bar style is rating this is the number of filled stars.",
                     "type": "number"
                 },
                 "width": {

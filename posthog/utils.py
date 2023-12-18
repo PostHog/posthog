@@ -371,7 +371,7 @@ def render_template(
             "current_user": None,
             "current_team": None,
             "preflight": json.loads(preflight_check(request).getvalue()),
-            "default_event_name": get_default_event_name(),
+            "default_event_name": "$pageview",
             "switched_team": getattr(request, "switched_team", None),
             **posthog_app_context,
         }
@@ -399,6 +399,7 @@ def render_template(
                 )
                 posthog_app_context["current_team"] = team_serialized.data
                 posthog_app_context["frontend_apps"] = get_frontend_apps(user.team.pk)
+                posthog_app_context["default_event_name"] = get_default_event_name(user.team)
 
     context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
 
@@ -456,12 +457,12 @@ def get_self_capture_api_token(request: Optional[HttpRequest]) -> Optional[str]:
     return None
 
 
-def get_default_event_name():
+def get_default_event_name(team: "Team"):
     from posthog.models import EventDefinition
 
-    if EventDefinition.objects.filter(name="$pageview").exists():
+    if EventDefinition.objects.filter(team=team, name="$pageview").exists():
         return "$pageview"
-    elif EventDefinition.objects.filter(name="$screen").exists():
+    elif EventDefinition.objects.filter(team=team, name="$screen").exists():
         return "$screen"
     return "$pageview"
 

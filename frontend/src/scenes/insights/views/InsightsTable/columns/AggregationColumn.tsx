@@ -1,6 +1,7 @@
-// eslint-disable-next-line no-restricted-imports
-import { DownOutlined } from '@ant-design/icons'
-import { Dropdown, Menu } from 'antd'
+import './AggregationColumn.scss'
+
+import { IconChevronDown } from '@posthog/icons'
+import { LemonMenu, LemonMenuItem } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { average, median } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -37,29 +38,26 @@ export function AggregationColumnTitle({
         return <span>{CALC_COLUMN_LABELS.total}</span>
     }
 
-    const calcColumnMenu = (
-        <Menu>
-            {Object.keys(CALC_COLUMN_LABELS).map((key) => (
-                <Menu.Item
-                    key={key}
-                    onClick={(e) => {
-                        setAggregationType(key as CalcColumnState)
-                        reportInsightsTableCalcToggled(key)
-                        e.domEvent.stopPropagation() // Prevent click here from affecting table sorting
-                    }}
-                >
-                    {CALC_COLUMN_LABELS[key as CalcColumnState]}
-                </Menu.Item>
-            ))}
-        </Menu>
-    )
+    const items: LemonMenuItem[] = Object.entries(CALC_COLUMN_LABELS).map(([key, label]) => ({
+        label,
+        onClick: () => {
+            setAggregationType(key as CalcColumnState)
+            reportInsightsTableCalcToggled(key)
+        },
+    }))
+
     return (
-        <Dropdown overlay={calcColumnMenu}>
-            <span className="cursor-pointer whitespace-nowrap">
+        <LemonMenu items={items}>
+            <span
+                className="AggregationColumn__title LemonTable__header--no-hover flex cursor-pointer whitespace-nowrap"
+                onClick={(e) => {
+                    e.stopPropagation()
+                }}
+            >
                 {CALC_COLUMN_LABELS[aggregation]}
-                <DownOutlined className="ml-1" />
+                <IconChevronDown className="text-lg" />
             </span>
-        </Dropdown>
+        </LemonMenu>
     )
 }
 

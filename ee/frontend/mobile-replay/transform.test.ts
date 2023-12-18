@@ -463,9 +463,11 @@ describe('replay/transform', () => {
                                     id: 12365,
                                     width: 100,
                                     height: 30,
-                                    type: 'progress',
+                                    type: 'input',
+                                    inputType: 'progress',
+                                    style: { bar: 'rating' },
                                     max: '12',
-                                    value: '6', // i.e 50%
+                                    value: '6.5',
                                 },
                             ],
                         },

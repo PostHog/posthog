@@ -32,7 +32,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
     account_id = serializers.CharField(write_only=True)
     client_secret = serializers.CharField(write_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
-    schemas = ExternalDataSchemaSerializer(many=True, read_only=True)
+    schemas = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = ExternalDataSource
@@ -58,6 +58,10 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         )
 
         return latest_completed_run.created_at if latest_completed_run else None
+
+    def get_schemas(self, instance: ExternalDataSource):
+        schemas = instance.schemas.order_by("name").all()
+        return ExternalDataSchemaSerializer(schemas, many=True, read_only=True).data
 
 
 class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):

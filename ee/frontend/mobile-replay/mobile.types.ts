@@ -193,11 +193,11 @@ export type wireframeButton = wireframeInputBase & {
 export type wireframeProgress = wireframeInputBase & {
     inputType: 'progress'
     /**
-     * @description This attribute specifies how much of the task that has been completed. It must be a valid floating point number between 0 and max, or between 0 and 1 if max is omitted. If there is no value attribute, the progress bar is indeterminate; this indicates that an activity is ongoing with no indication of how long it is expected to take.
+     * @description This attribute specifies how much of the task that has been completed. It must be a valid floating point number between 0 and max, or between 0 and 1 if max is omitted. If there is no value attribute, the progress bar is indeterminate; this indicates that an activity is ongoing with no indication of how long it is expected to take. When bar style is rating this is the number of filled stars.
      */
     value?: number
     /**
-     * @description The max attribute, if present, must have a value greater than 0 and be a valid floating point number. The default value is 1.
+     * @description The max attribute, if present, must have a value greater than 0 and be a valid floating point number. The default value is 1. When bar style is rating this is the number of stars.
      */
     max?: number
     style?: MobileStyles & {
@@ -224,9 +224,9 @@ export type wireframeText = wireframeBase & {
 export type wireframeImage = wireframeBase & {
     type: 'image'
     /**
-     * @description this will be used as base64 encoded image source, with no other attributes it is assumed to be a PNG
+     * @description this will be used as base64 encoded image source, with no other attributes it is assumed to be a PNG, if omitted a placeholder is rendered
      */
-    base64: string
+    base64?: string
 }
 
 export type wireframeRectangle = wireframeBase & {
