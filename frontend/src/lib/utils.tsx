@@ -431,8 +431,13 @@ export function slugify(text: string): string {
         .replace(/--+/g, '-')
 }
 
+export const DEFAULT_DECIMAL_PLACES = 2
+
 /** Format number with comma as the thousands separator. */
-export function humanFriendlyNumber(d: number, precision: number = 2): string {
+export function humanFriendlyNumber(d: number, precision: number = DEFAULT_DECIMAL_PLACES): string {
+    if (isNaN(precision) || precision < 0) {
+        precision = DEFAULT_DECIMAL_PLACES
+    }
     return d.toLocaleString('en-US', { maximumFractionDigits: precision })
 }
 

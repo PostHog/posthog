@@ -29,6 +29,9 @@
         "services:clean": "cd .. && docker compose -f docker-compose.dev.yml rm -v",
         "services": "pnpm services:stop && pnpm services:clean && pnpm services:start"
     },
+    "graphile-worker": {
+        "maxContiguousErrors": 300
+    },
     "bin": {
         "posthog-plugin-server": "bin/posthog-plugin-server"
     },
