@@ -1,5 +1,3 @@
-import './LemonSelect.scss'
-
 import clsx from 'clsx'
 import React, { useMemo } from 'react'
 
