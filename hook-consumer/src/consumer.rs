@@ -4,12 +4,12 @@ use std::time;
 
 use async_std::task;
 use hook_common::pgqueue::{PgJobError, PgQueue, PgQueueError, PgTransactionJob};
-use hook_common::webhook::{HttpMethod, WebhookJobMetadata, WebhookJobParameters};
+use hook_common::webhook::{HttpMethod, WebhookJobError, WebhookJobMetadata, WebhookJobParameters};
 use http::StatusCode;
 use reqwest::header;
 use tokio::sync;
 
-use crate::error::WebhookConsumerError;
+use crate::error::{ConsumerError, WebhookError};
 
 /// A consumer to poll `PgQueue` and spawn tasks to process webhooks when a job becomes available.
 pub struct WebhookConsumer<'p> {
@@ -57,8 +57,7 @@ impl<'p> WebhookConsumer<'p> {
     /// Wait until a job becomes available in our queue.
     async fn wait_for_job<'a>(
         &self,
-    ) -> Result<PgTransactionJob<'a, WebhookJobParameters, WebhookJobMetadata>, WebhookConsumerError>
-    {
+    ) -> Result<PgTransactionJob<'a, WebhookJobParameters, WebhookJobMetadata>, ConsumerError> {
         loop {
             if let Some(job) = self.queue.dequeue_tx(&self.name).await? {
                 return Ok(job);
@@ -69,7 +68,7 @@ impl<'p> WebhookConsumer<'p> {
     }
 
     /// Run this consumer to continuously process any jobs that become available.
-    pub async fn run(&self) -> Result<(), WebhookConsumerError> {
+    pub async fn run(&self) -> Result<(), ConsumerError> {
         let semaphore = Arc::new(sync::Semaphore::new(self.max_concurrent_jobs));
 
         loop {
@@ -104,7 +103,7 @@ impl<'p> WebhookConsumer<'p> {
 async fn process_webhook_job(
     client: reqwest::Client,
     webhook_job: PgTransactionJob<'_, WebhookJobParameters, WebhookJobMetadata>,
-) -> Result<(), WebhookConsumerError> {
+) -> Result<(), ConsumerError> {
     match send_webhook(
         client,
         &webhook_job.job.parameters.method,
@@ -118,31 +117,54 @@ async fn process_webhook_job(
             webhook_job
                 .complete()
                 .await
-                .map_err(|error| WebhookConsumerError::PgJobError(error.to_string()))?;
+                .map_err(|error| ConsumerError::PgJobError(error.to_string()))?;
             Ok(())
         }
-        Err(WebhookConsumerError::RetryableWebhookError {
-            reason,
-            retry_after,
-        }) => match webhook_job.retry(reason.to_string(), retry_after).await {
-            Ok(_) => Ok(()),
-            Err(PgJobError::RetryInvalidError {
-                job: webhook_job,
-                error: fail_error,
-            }) => {
-                webhook_job
-                    .fail(fail_error.to_string())
-                    .await
-                    .map_err(|job_error| WebhookConsumerError::PgJobError(job_error.to_string()))?;
-                Ok(())
-            }
-            Err(job_error) => Err(WebhookConsumerError::PgJobError(job_error.to_string())),
-        },
-        Err(error) => {
+        Err(WebhookError::ParseHeadersError(e)) => {
             webhook_job
-                .fail(error.to_string())
+                .fail(WebhookJobError::new_parse(&e.to_string()))
                 .await
-                .map_err(|job_error| WebhookConsumerError::PgJobError(job_error.to_string()))?;
+                .map_err(|job_error| ConsumerError::PgJobError(job_error.to_string()))?;
+            Ok(())
+        }
+        Err(WebhookError::ParseHttpMethodError(e)) => {
+            webhook_job
+                .fail(WebhookJobError::new_parse(&e))
+                .await
+                .map_err(|job_error| ConsumerError::PgJobError(job_error.to_string()))?;
+            Ok(())
+        }
+        Err(WebhookError::ParseUrlError(e)) => {
+            webhook_job
+                .fail(WebhookJobError::new_parse(&e.to_string()))
+                .await
+                .map_err(|job_error| ConsumerError::PgJobError(job_error.to_string()))?;
+            Ok(())
+        }
+        Err(WebhookError::RetryableRequestError { error, retry_after }) => {
+            match webhook_job
+                .retry(WebhookJobError::from(error), retry_after)
+                .await
+            {
+                Ok(_) => Ok(()),
+                Err(PgJobError::RetryInvalidError {
+                    job: webhook_job, ..
+                }) => {
+                    let max_attempts = webhook_job.job.max_attempts;
+                    webhook_job
+                        .fail(WebhookJobError::new_max_attempts(max_attempts))
+                        .await
+                        .map_err(|job_error| ConsumerError::PgJobError(job_error.to_string()))?;
+                    Ok(())
+                }
+                Err(job_error) => Err(ConsumerError::PgJobError(job_error.to_string())),
+            }
+        }
+        Err(WebhookError::NonRetryableRetryableRequestError(error)) => {
+            webhook_job
+                .fail(WebhookJobError::from(error))
+                .await
+                .map_err(|job_error| ConsumerError::PgJobError(job_error.to_string()))?;
             Ok(())
         }
     }
@@ -163,12 +185,12 @@ async fn send_webhook(
     url: &str,
     headers: &collections::HashMap<String, String>,
     body: String,
-) -> Result<reqwest::Response, WebhookConsumerError> {
+) -> Result<(), WebhookError> {
     let method: http::Method = method.into();
-    let url: reqwest::Url = (url).parse().map_err(WebhookConsumerError::ParseUrlError)?;
+    let url: reqwest::Url = (url).parse().map_err(WebhookError::ParseUrlError)?;
     let headers: reqwest::header::HeaderMap = (headers)
         .try_into()
-        .map_err(WebhookConsumerError::ParseHeadersError)?;
+        .map_err(WebhookError::ParseHeadersError)?;
     let body = reqwest::Body::from(body);
 
     let response = client
@@ -177,27 +199,28 @@ async fn send_webhook(
         .body(body)
         .send()
         .await
-        .map_err(|e| WebhookConsumerError::RetryableWebhookError {
-            reason: e.to_string(),
+        .map_err(|e| WebhookError::RetryableRequestError {
+            error: e,
             retry_after: None,
         })?;
 
-    let status = response.status();
+    match response.error_for_status_ref() {
+        Ok(_) => Ok(()),
+        Err(err) => {
+            if is_retryable_status(
+                err.status()
+                    .expect("status code is set as error is generated from a response"),
+            ) {
+                let retry_after = parse_retry_after_header(response.headers());
 
-    if status.is_success() {
-        Ok(response)
-    } else if is_retryable_status(status) {
-        let retry_after = parse_retry_after_header(response.headers());
-
-        Err(WebhookConsumerError::RetryableWebhookError {
-            reason: format!("retryable status code {}", status),
-            retry_after,
-        })
-    } else {
-        Err(WebhookConsumerError::NonRetryableWebhookError(format!(
-            "non-retryable status code {}",
-            status
-        )))
+                Err(WebhookError::RetryableRequestError {
+                    error: err,
+                    retry_after,
+                })
+            } else {
+                Err(WebhookError::NonRetryableRetryableRequestError(err))
+            }
+        }
     }
 }
 

@@ -1,9 +1,11 @@
 use std::collections;
+use std::convert::From;
 use std::fmt;
 use std::str::FromStr;
 
 use serde::{de::Visitor, Deserialize, Serialize};
 
+use crate::kafka_messages::{app_metrics, serialize_uuid};
 use crate::pgqueue::PgQueueError;
 
 /// Supported HTTP methods for webhooks.
@@ -133,4 +135,118 @@ pub struct WebhookJobMetadata {
     pub team_id: Option<i32>,
     pub plugin_id: Option<i32>,
     pub plugin_config_id: Option<i32>,
+}
+
+/// An error originating during a Webhook Job invocation.
+#[derive(Serialize, Debug)]
+pub struct WebhookJobError {
+    pub r#type: app_metrics::ErrorType,
+    pub details: app_metrics::ErrorDetails,
+    #[serde(serialize_with = "serialize_uuid")]
+    pub uuid: uuid::Uuid,
+}
+
+impl From<reqwest::Error> for WebhookJobError {
+    fn from(error: reqwest::Error) -> Self {
+        if error.is_body() || error.is_decode() {
+            WebhookJobError::new_parse(&error.to_string())
+        } else if error.is_timeout() {
+            WebhookJobError::new_timeout(&error.to_string())
+        } else if error.is_status() {
+            WebhookJobError::new_http_status(
+                error.status().expect("status code is defined").into(),
+                &error.to_string(),
+            )
+        } else if error.is_connect()
+            || error.is_builder()
+            || error.is_request()
+            || error.is_redirect()
+        {
+            // Builder errors seem to be related to unable to setup TLS, so I'm bundling them in connection.
+            WebhookJobError::new_connection(&error.to_string())
+        } else {
+            // We can't match on Kind as some types do not have an associated variant in Kind (e.g. Timeout).
+            unreachable!("We have covered all reqwest::Error types.")
+        }
+    }
+}
+
+impl WebhookJobError {
+    pub fn new_timeout(message: &str) -> Self {
+        let error_details = app_metrics::Error {
+            name: "timeout".to_owned(),
+            message: Some(message.to_owned()),
+            stack: None,
+        };
+        Self {
+            r#type: app_metrics::ErrorType::Timeout,
+            details: app_metrics::ErrorDetails {
+                error: error_details,
+            },
+            uuid: uuid::Uuid::now_v7(),
+        }
+    }
+
+    pub fn new_connection(message: &str) -> Self {
+        let error_details = app_metrics::Error {
+            name: "connection error".to_owned(),
+            message: Some(message.to_owned()),
+            stack: None,
+        };
+        Self {
+            r#type: app_metrics::ErrorType::Connection,
+            details: app_metrics::ErrorDetails {
+                error: error_details,
+            },
+            uuid: uuid::Uuid::now_v7(),
+        }
+    }
+
+    pub fn new_http_status(status_code: u16, message: &str) -> Self {
+        let error_details = app_metrics::Error {
+            name: "http status".to_owned(),
+            message: Some(message.to_owned()),
+            stack: None,
+        };
+        Self {
+            r#type: app_metrics::ErrorType::HttpStatus(status_code),
+            details: app_metrics::ErrorDetails {
+                error: error_details,
+            },
+            uuid: uuid::Uuid::now_v7(),
+        }
+    }
+
+    pub fn new_parse(message: &str) -> Self {
+        let error_details = app_metrics::Error {
+            name: "parse error".to_owned(),
+            message: Some(message.to_owned()),
+            stack: None,
+        };
+        Self {
+            r#type: app_metrics::ErrorType::Parse,
+            details: app_metrics::ErrorDetails {
+                error: error_details,
+            },
+            uuid: uuid::Uuid::now_v7(),
+        }
+    }
+
+    pub fn new_max_attempts(max_attempts: i32) -> Self {
+        let error_details = app_metrics::Error {
+            name: "maximum attempts exceeded".to_owned(),
+            message: Some(format!(
+                "Exceeded maximum number of attempts ({}) for webhook",
+                max_attempts
+            )),
+            stack: None,
+        };
+        Self {
+            r#type: app_metrics::ErrorType::MaxAttempts,
+            details: app_metrics::ErrorDetails {
+                error: error_details,
+            },
+            uuid: uuid::Uuid::now_v7(),
+        }
+    }
 }

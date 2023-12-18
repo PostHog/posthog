@@ -13,14 +13,16 @@ pub enum AppMetricCategory {
     ComposeWebhook,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub enum ErrorType {
     Timeout,
     Connection,
     HttpStatus(u16),
+    Parse,
+    MaxAttempts,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct ErrorDetails {
     pub error: Error,
     // TODO: The plugin-server sends the entire raw event with errors. In order to do this, we'll
@@ -30,7 +32,7 @@ pub struct ErrorDetails {
     // event: Value,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct Error {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -84,6 +86,8 @@ where
         ErrorType::Connection => "Connection Error".to_owned(),
         ErrorType::Timeout => "Timeout".to_owned(),
         ErrorType::HttpStatus(s) => format!("HTTP Status: {}", s),
+        ErrorType::Parse => "Parse Error".to_owned(),
+        ErrorType::MaxAttempts => "Maximum attempts exceeded".to_owned(),
     };
     serializer.serialize_str(&error_type)
 }

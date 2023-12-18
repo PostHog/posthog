@@ -3,10 +3,10 @@ use envconfig::Envconfig;
 use hook_common::pgqueue::{PgQueue, RetryPolicy};
 use hook_consumer::config::Config;
 use hook_consumer::consumer::WebhookConsumer;
-use hook_consumer::error::WebhookConsumerError;
+use hook_consumer::error::ConsumerError;
 
 #[tokio::main]
-async fn main() -> Result<(), WebhookConsumerError> {
+async fn main() -> Result<(), ConsumerError> {
     let config = Config::init_from_env().expect("Invalid configuration:");
 
     let retry_policy = RetryPolicy::new(
