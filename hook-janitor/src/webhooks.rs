@@ -6,6 +6,7 @@ use sqlx::postgres::{PgPool, PgPoolOptions};
 use crate::cleanup::{Cleaner, CleanerError};
 use crate::kafka_producer::KafkaContext;
 
+#[allow(dead_code)]
 pub struct WebhookCleaner {
     queue_name: String,
     table_name: String,

@@ -1,11 +1,8 @@
 use crate::config::KafkaConfig;
 
-use rdkafka::error::{KafkaError, RDKafkaErrorCode};
-use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
-use rdkafka::util::Timeout;
+use rdkafka::error::KafkaError;
+use rdkafka::producer::FutureProducer;
 use rdkafka::ClientConfig;
-use std::{str::FromStr, time::Duration};
-use tokio::sync::Semaphore;
 use tracing::debug;
 
 // TODO: Take stats recording pieces that we want from `capture-rs`.
