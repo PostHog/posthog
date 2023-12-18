@@ -241,7 +241,7 @@ function ThemeSwitcher(): JSX.Element {
                         <span className="flex-1 flex justify-between items-baseline">
                             <span>Color theme</span>{' '}
                             <span className="font-normal text-xs">
-                                {leaf?.value ? <>{leaf?.value} mode</> : 'Sync with system'}
+                                {leaf?.value ? <>{leaf?.label}</> : 'Sync with system'}
                             </span>
                         </span>
                     </>
