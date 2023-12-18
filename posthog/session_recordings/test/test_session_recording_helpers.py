@@ -183,6 +183,36 @@ def test_new_ingestion(raw_snapshot_events, mocker: MockerFixture):
     ]
 
 
+def test_absent_window_id_is_added(raw_snapshot_events, mocker: MockerFixture):
+    mocker.patch("time.time", return_value=0)
+
+    events = [
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$snapshot_data": {"type": 3, "timestamp": MILLISECOND_TIMESTAMP},
+                "distinct_id": "abc123",
+            },
+        },
+    ]
+
+    assert list(mock_capture_flow(events, max_size_bytes=2000)[1]) == [
+        {
+            "event": "$snapshot_items",
+            "properties": {
+                "distinct_id": "abc123",
+                "$session_id": "1234",
+                "$window_id": "1234",  # window_id is defaulted to session id
+                "$snapshot_items": [
+                    {"type": 3, "timestamp": 1546300800000},
+                ],
+                "$snapshot_source": "web",
+            },
+        }
+    ]
+
+
 def test_received_snapshot_source_is_respected_for_first_event(raw_snapshot_events, mocker: MockerFixture):
     mocker.patch("time.time", return_value=0)
 

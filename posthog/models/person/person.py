@@ -134,14 +134,6 @@ class PersonOverrideMapping(models.Model):
     uuid = models.UUIDField()
 
 
-class PendingPersonOverride(models.Model):
-    id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
-    team_id = models.BigIntegerField()
-    old_person_id = models.UUIDField()
-    override_person_id = models.UUIDField()
-    oldest_event = models.DateTimeField()
-
-
 class PersonOverride(models.Model):
     """A model of persons to be overriden in merge or merge-like events.
 
@@ -185,6 +177,101 @@ class PersonOverride(models.Model):
 
     oldest_event: models.DateTimeField = models.DateTimeField()
     version: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
+
+
+class PendingPersonOverride(models.Model):
+    """
+    The pending person overrides model/table contains records of merges that
+    have occurred, but have not yet been integrated into the person overrides
+    table.
+
+    This table should generally be considered as a log table or queue. When a
+    merge occurs, it is recorded to the log (added to the queue) as part of the
+    merge transaction. Later, another process comes along, reading from the
+    other end of the log (popping from the queue) and applying the necessary
+    updates to the person overrides table as part of secondary transaction.
+
+    This approach allows us to decouple the set of operations that must occur as
+    part of an atomic transactional unit during person merging (moving distinct
+    IDs, merging properties, deleting the subsumed person, etc.) from those that
+    are more tolerant to eventual consistency (updating person overrides in
+    Postgres and subsequently relaying those updates to ClickHouse in various
+    forms to update the person associated with an event.) This decoupling helps
+    us to minimize the overhead of the primary merge transaction by reducing the
+    degree of contention within the ingestion pipeline caused by long-running
+    transactions. This decoupling also allows us to serialize the execution of
+    all updates to the person overrides table through a single writer, which
+    allows us to safely update the person overrides table while handling tricky
+    cases like applying transitive updates without the need for expensive table
+    constraints to ensure their validity.
+    """
+
+    id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
+    team_id = models.BigIntegerField()
+    old_person_id = models.UUIDField()
+    override_person_id = models.UUIDField()
+    oldest_event = models.DateTimeField()
+
+
+class FlatPersonOverride(models.Model):
+    """
+    The (flat) person overrides model/table contains a consolidated record of
+    all merges that have occurred, but have not yet been integrated into the
+    ClickHouse events table through a squash operation. Once the effects of a
+    merge have been integrated into the events table, the associated override
+    record can be deleted from this table.
+
+    This table is in some sense a materialized view over the pending person
+    overrides table (i.e. the merge log.) It differs from that base table in
+    that it should be maintained during updates to account for the effects of
+    transitive merges. For example, if person A is merged into person B, and
+    then person B is merged into person C, we'd expect the first record (A->B)
+    to be updated to reflect that person A has been merged into person C (A->C,
+    eliding the intermediate step.)
+
+    There are several important expectations about the nature of the data within
+    this table:
+
+    * A person should only appear as an "old" person at most once for a given
+      team (as appearing more than once would imply they were merged into
+      multiple people.)
+    * A person cannot be merged into themselves (i.e. be both the "old" and
+      "override" person within a given row.)
+    * A person should only appear in a table as _either_ an "old" person or
+      "override" person for a given team -- but never both, as this would
+      indicate a failure to account for a transitive merge.
+
+    The first two of these expectations can be enforced as constraints, but
+    unfortunately we've found the third to be too costly to enforce in practice.
+    Instead, we try to ensure that this invariant holds by serializing all
+    writes to this table through the ``PendingPersonOverride`` model above.
+
+    The "flat" in the table name is used to distinguish this table from a prior
+    approach that required multiple tables to maintain the same state but
+    otherwise has little significance of its own.
+    """
+
+    id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
+    team_id = models.BigIntegerField()
+    old_person_id = models.UUIDField()
+    override_person_id = models.UUIDField()
+    oldest_event = models.DateTimeField()
+    version = models.BigIntegerField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["team_id", "override_person_id"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team_id", "old_person_id"],
+                name="flatpersonoverride_unique_old_person_by_team",
+            ),
+            models.CheckConstraint(
+                check=~Q(old_person_id__exact=F("override_person_id")),
+                name="flatpersonoverride_check_circular_reference",
+            ),
+        ]
 
 
 def get_distinct_ids_for_subquery(person: Person | None, team: Team) -> List[str]:

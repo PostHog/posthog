@@ -702,20 +702,24 @@ export function LineGraph_({
                         precision,
                         autoSkip: true,
                         callback: function _renderYLabel(_, i) {
-                            const labelDescriptors = (
-                                datasets?.[0]?.labels?.[i]
-                                    ? [
-                                          // prefer to use the label over the action name if it exists
-                                          datasets?.[0]?.labels?.[i],
-                                          datasets?.[0]?.compareLabels?.[i],
-                                      ]
-                                    : [
-                                          datasets?.[0]?.actions?.[i]?.custom_name ?? datasets?.[0]?.actions?.[i]?.name, // action name
-                                          datasets?.[0]?.breakdownValues?.[i], // breakdown value
-                                          datasets?.[0]?.compareLabels?.[i], // compare value
-                                      ]
-                            ).filter((l) => !!l)
-                            return labelDescriptors.join(' - ')
+                            const d = datasets?.[0]
+                            if (!d) {
+                                return ''
+                            }
+                            // prefer custom name, then label, then action name
+                            let labelDescriptors: (string | number | undefined | null)[]
+                            if (d.actions?.[i]?.custom_name) {
+                                labelDescriptors = [
+                                    d.actions?.[i]?.custom_name,
+                                    d.breakdownValues?.[i],
+                                    d.compareLabels?.[i],
+                                ]
+                            } else if (d.labels?.[i]) {
+                                labelDescriptors = [d.labels[i], d.compareLabels?.[i]]
+                            } else {
+                                labelDescriptors = [d.actions?.[i]?.name, d.breakdownValues?.[i], d.compareLabels?.[i]]
+                            }
+                            return labelDescriptors.filter((l) => !!l).join(' - ')
                         },
                     },
                     grid: {
