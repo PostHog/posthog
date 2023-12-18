@@ -48,11 +48,12 @@ export const ToastTypes: Story = {
         const isDarkModeOn = globals.theme === 'dark'
 
         useEffect(() => {
+            lemonToast.dismiss()
             args.toasts.forEach((toast) => {
                 const { type, message, ...rest } = toast
                 lemonToast[type](message, rest)
             })
-        }, [])
+        }, [isDarkModeOn])
 
         return (
             <ToastContainer
