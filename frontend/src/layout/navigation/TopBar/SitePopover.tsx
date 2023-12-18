@@ -234,16 +234,19 @@ function ThemeSwitcher(): JSX.Element {
                 { icon: <IconDay />, value: 'light', label: 'Light mode' },
                 { icon: <IconNight />, value: 'dark', label: 'Dark mode' },
             ]}
-            value={
-                <>
-                    <span className="flex justify-between items-baseline">
-                        <span>Color theme</span>{' '}
-                        <span className="font-normal" style={{ fontSize: 13 }}>
-                            {user?.theme_mode ? <>{user?.theme_mode} mode</> : 'Sync with system'}
+            value={user?.theme_mode}
+            renderButtonContent={(leaf) => {
+                return (
+                    <>
+                        <span className="flex-1 flex justify-between items-baseline">
+                            <span>Color theme</span>{' '}
+                            <span className="font-normal text-xs">
+                                {leaf?.value ? <>{leaf?.value} mode</> : 'Sync with system'}
+                            </span>
                         </span>
-                    </span>
-                </>
-            }
+                    </>
+                )
+            }}
             onChange={(value) => updateUser({ theme_mode: value })}
             type="tertiary"
             fullWidth
