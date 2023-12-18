@@ -706,13 +706,142 @@ export class PersonOverrideWriter {
 
         return id
     }
+
+    public async getPersonOverrides(teamId: number): Promise<PersonOverrideDetails[]> {
+        const { rows } = await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            SQL`
+                SELECT
+                    override.team_id,
+                    old_person.uuid as old_person_id,
+                    override_person.uuid as override_person_id,
+                    oldest_event
+                FROM posthog_personoverride override
+                LEFT OUTER JOIN posthog_personoverridemapping old_person
+                    ON override.team_id = old_person.team_id AND override.old_person_id = old_person.id
+                LEFT OUTER JOIN posthog_personoverridemapping override_person
+                    ON override.team_id = override_person.team_id AND override.override_person_id = override_person.id
+                WHERE override.team_id = ${teamId}
+            `,
+            undefined,
+            'getPersonOverrides'
+        )
+        return rows.map((row) => ({
+            ...row,
+            oldest_event: DateTime.fromISO(row.oldest_event),
+        }))
+    }
+}
+
+export class FlatPersonOverrideWriter {
+    constructor(private postgres: PostgresRouter) {}
+
+    public async addPersonOverride(
+        tx: TransactionClient,
+        overrideDetails: PersonOverrideDetails
+    ): Promise<ProducerRecord[]> {
+        const mergedAt = DateTime.now()
+
+        await this.postgres.query(
+            tx,
+            SQL`
+                INSERT INTO posthog_flatpersonoverride (
+                    team_id,
+                    old_person_id,
+                    override_person_id,
+                    oldest_event,
+                    version
+                ) VALUES (
+                    ${overrideDetails.team_id},
+                    ${overrideDetails.old_person_id},
+                    ${overrideDetails.override_person_id},
+                    ${overrideDetails.oldest_event},
+                    0
+                )
+            `,
+            undefined,
+            'personOverride'
+        )
+
+        const { rows: transitiveUpdates } = await this.postgres.query(
+            tx,
+            SQL`
+                UPDATE
+                    posthog_flatpersonoverride
+                SET
+                    override_person_id = ${overrideDetails.override_person_id},
+                    version = COALESCE(version, 0)::numeric + 1
+                WHERE
+                    team_id = ${overrideDetails.team_id} AND override_person_id = ${overrideDetails.old_person_id}
+                RETURNING
+                    old_person_id,
+                    version,
+                    oldest_event
+            `,
+            undefined,
+            'transitivePersonOverrides'
+        )
+
+        status.debug('🔁', 'person_overrides_updated', { transitiveUpdates })
+
+        const personOverrideMessages: ProducerRecord[] = [
+            {
+                topic: KAFKA_PERSON_OVERRIDE,
+                messages: [
+                    {
+                        value: JSON.stringify({
+                            team_id: overrideDetails.team_id,
+                            old_person_id: overrideDetails.old_person_id,
+                            override_person_id: overrideDetails.override_person_id,
+                            oldest_event: castTimestampOrNow(overrideDetails.oldest_event, TimestampFormat.ClickHouse),
+                            merged_at: castTimestampOrNow(mergedAt, TimestampFormat.ClickHouse),
+                            version: 0,
+                        }),
+                    },
+                    ...transitiveUpdates.map(({ old_person_id, version, oldest_event }) => ({
+                        value: JSON.stringify({
+                            team_id: overrideDetails.team_id,
+                            old_person_id: old_person_id,
+                            override_person_id: overrideDetails.override_person_id,
+                            oldest_event: castTimestampOrNow(oldest_event, TimestampFormat.ClickHouse),
+                            merged_at: castTimestampOrNow(mergedAt, TimestampFormat.ClickHouse),
+                            version: version,
+                        }),
+                    })),
+                ],
+            },
+        ]
+
+        return personOverrideMessages
+    }
+
+    public async getPersonOverrides(teamId: number): Promise<PersonOverrideDetails[]> {
+        const { rows } = await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            SQL`
+                SELECT
+                    team_id,
+                    old_person_id,
+                    override_person_id,
+                    oldest_event
+                FROM posthog_flatpersonoverride
+                WHERE team_id = ${teamId}
+            `,
+            undefined,
+            'getPersonOverrides'
+        )
+        return rows.map((row) => ({
+            ...row,
+            team_id: parseInt(row.team_id), // XXX: pg returns bigint as str (reasonably so)
+            oldest_event: DateTime.fromISO(row.oldest_event),
+        }))
+    }
 }
 
 const deferredPersonOverridesWrittenCounter = new Counter({
     name: 'deferred_person_overrides_written',
     help: 'Number of person overrides that have been written as pending',
 })
-
 export class DeferredPersonOverrideWriter {
     constructor(private postgres: PostgresRouter) {}
 
@@ -759,11 +888,11 @@ export class DeferredPersonOverrideWorker {
     // it just needs to be consistent across all processes.
     public readonly lockId = 567
 
-    private writer: PersonOverrideWriter
-
-    constructor(private postgres: PostgresRouter, private kafkaProducer: KafkaProducerWrapper) {
-        this.writer = new PersonOverrideWriter(this.postgres)
-    }
+    constructor(
+        private postgres: PostgresRouter,
+        private kafkaProducer: KafkaProducerWrapper,
+        private writer: PersonOverrideWriter | FlatPersonOverrideWriter
+    ) {}
 
     /**
      * Process all (or up to the given limit) pending overrides.
