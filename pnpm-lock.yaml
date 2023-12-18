@@ -1,4 +1,4 @@
-lockfileVersion: '6.0'
+lockfileVersion: '6.1'
 
 settings:
   autoInstallPeers: true
@@ -228,8 +228,8 @@ dependencies:
     specifier: 1.96.0
     version: 1.96.0
   posthog-js-lite:
-    specifier: 2.0.0-alpha5
-    version: 2.0.0-alpha5
+    specifier: 2.5.0
+    version: 2.5.0
   prettier:
     specifier: ^2.8.8
     version: 2.8.8
@@ -327,7 +327,7 @@ dependencies:
 optionalDependencies:
   fsevents:
     specifier: ^2.3.2
-    version: 2.3.3
+    version: 2.3.2
 
 devDependencies:
   '@babel/core':
@@ -12227,7 +12227,6 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
     requiresBuild: true
-    dev: true
     optional: true
 
   /fsevents@2.3.3:
@@ -16504,8 +16503,8 @@ packages:
       source-map-js: 1.0.2
     dev: true
 
-  /posthog-js-lite@2.0.0-alpha5:
-    resolution: {integrity: sha512-tlkBdypJuvK/s00n4EiQjwYVfuuZv6vt8BF3g1ooIQa2Gz9Vz80p8q3qsPLZ0V5ErGRy6i3Q4fWC9TDzR7GNRQ==}
+  /posthog-js-lite@2.5.0:
+    resolution: {integrity: sha512-Urvlp0Vu9h3td0BVFWt0QXFJDoOZcaAD83XM9d91NKMKTVPZtfU0ysoxstIf5mw/ce9ZfuMgpWPaagrZI4rmSg==}
     dev: false
 
   /posthog-js@1.96.0:
