@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, urlToAction } from 'kea-router'
 import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
 import { RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
@@ -135,6 +136,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setGeographyTab: (tab: string) => ({ tab }),
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setInterval: (interval: IntervalType) => ({ interval }),
+        setDateFilter: (dateFrom: string | null, dateTo: string | null, interval: IntervalType) => ({
+            dateFrom,
+            dateTo,
+            interval,
+        }),
     }),
     reducers({
         webAnalyticsFilters: [
@@ -187,31 +193,31 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
         graphsTab: [
-            GraphsTab.UNIQUE_USERS as string,
+            undefined as string | undefined,
             {
                 setGraphsTab: (_, { tab }) => tab,
             },
         ],
         sourceTab: [
-            SourceTab.REFERRING_DOMAIN as string,
+            undefined as string | undefined,
             {
                 setSourceTab: (_, { tab }) => tab,
             },
         ],
         deviceTab: [
-            DeviceTab.DEVICE_TYPE as string,
+            undefined as string | undefined,
             {
                 setDeviceTab: (_, { tab }) => tab,
             },
         ],
         pathTab: [
-            PathTab.PATH as string,
+            undefined as string | undefined,
             {
                 setPathTab: (_, { tab }) => tab,
             },
         ],
         geographyTab: [
-            GeographyTab.MAP as string,
+            undefined as string | undefined,
             {
                 setGeographyTab: (_, { tab }) => tab,
             },
@@ -236,6 +242,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         interval,
                     }
                 },
+                setDateFilter: (_, { dateFrom, dateTo, interval }) => ({
+                    dateTo,
+                    dateFrom,
+                    interval,
+                }),
             },
         ],
     }),
@@ -284,7 +295,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         layout: {
                             colSpan: 6,
                         },
-                        activeTabId: graphsTab,
+                        activeTabId: graphsTab || GraphsTab.UNIQUE_USERS,
                         setTabId: actions.setGraphsTab,
                         tabs: [
                             {
@@ -384,7 +395,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         layout: {
                             colSpan: 6,
                         },
-                        activeTabId: pathTab,
+                        activeTabId: pathTab || PathTab.PATH,
                         setTabId: actions.setPathTab,
                         tabs: [
                             {
@@ -425,7 +436,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         layout: {
                             colSpan: 6,
                         },
-                        activeTabId: sourceTab,
+                        activeTabId: sourceTab || SourceTab.REFERRING_DOMAIN,
                         setTabId: actions.setSourceTab,
                         tabs: [
                             {
@@ -539,7 +550,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         layout: {
                             colSpan: 6,
                         },
-                        activeTabId: deviceTab,
+                        activeTabId: deviceTab || DeviceTab.DEVICE_TYPE,
                         setTabId: actions.setDeviceTab,
                         tabs: [
                             {
@@ -644,7 +655,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               layout: {
                                   colSpan: 12,
                               },
-                              activeTabId: geographyTab,
+                              activeTabId: geographyTab || GeographyTab.MAP,
                               setTabId: actions.setGeographyTab,
                               tabs: [
                                   {
@@ -837,9 +848,98 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     windowValues({
         isGreaterThanMd: (window: Window) => window.innerWidth > 768,
     }),
+
+    actionToUrl(({ values }) => ({
+        setWebAnalyticsFilters: () => stateToUrl(values),
+        togglePropertyFilter: () => stateToUrl(values),
+        setDates: () => stateToUrl(values),
+        setInterval: () => stateToUrl(values),
+        setDeviceTab: () => stateToUrl(values),
+        setSourceTab: () => stateToUrl(values),
+        setGraphsTab: () => stateToUrl(values),
+        setPathTab: () => stateToUrl(values),
+        setGeographyTab: () => stateToUrl(values),
+    })),
+
+    urlToAction(({ actions }) => ({
+        '/web': (
+            _,
+            { filters, date_from, date_to, interval, device_tab, source_tab, graphs_tab, path_tab, geography_tab }
+        ) => {
+            if (filters) {
+                actions.setWebAnalyticsFilters(filters)
+            }
+            if (date_from || date_to || interval) {
+                actions.setDateFilter(date_from || null, date_to || null, interval || undefined)
+            }
+            if (device_tab) {
+                actions.setDeviceTab(device_tab)
+            }
+            if (source_tab) {
+                actions.setSourceTab(source_tab)
+            }
+            if (graphs_tab) {
+                actions.setGraphsTab(graphs_tab)
+            }
+            if (path_tab) {
+                actions.setPathTab(path_tab)
+            }
+            if (geography_tab) {
+                actions.setGeographyTab(geography_tab)
+            }
+        },
+    })),
 ])
 
 const isDefinitionStale = (definition: EventDefinition | PropertyDefinition): boolean => {
     const parsedLastSeen = definition.last_seen_at ? dayjs(definition.last_seen_at) : null
     return !!parsedLastSeen && dayjs().diff(parsedLastSeen, 'seconds') > STALE_EVENT_SECONDS
+}
+
+const stateToUrl = ({
+    webAnalyticsFilters,
+    dateFilter: { dateFrom, dateTo, interval },
+    deviceTab,
+    sourceTab,
+    graphsTab,
+    pathTab,
+    geographyTab,
+}: {
+    webAnalyticsFilters: WebAnalyticsPropertyFilters
+    dateFilter: {
+        dateFrom: string | null
+        dateTo: string | null
+        interval: string | undefined
+    }
+    deviceTab: string | undefined
+    sourceTab: string | undefined
+    graphsTab: string | undefined
+    pathTab: string | undefined
+    geographyTab: string | undefined
+}): string => {
+    const urlParams = new URLSearchParams()
+    if (webAnalyticsFilters.length > 0) {
+        urlParams.set('filters', JSON.stringify(webAnalyticsFilters))
+    }
+    if (dateFrom !== initialDateFrom || dateTo !== initialDateTo || interval !== initialInterval) {
+        urlParams.set('date_from', dateFrom ?? '')
+        urlParams.set('date_to', dateTo ?? '')
+        urlParams.set('interval', interval ?? '')
+    }
+    if (deviceTab) {
+        urlParams.set('device_tab', deviceTab)
+    }
+    if (sourceTab) {
+        urlParams.set('source_tab', sourceTab)
+    }
+    if (graphsTab) {
+        urlParams.set('graphs_tab', graphsTab)
+    }
+    if (pathTab) {
+        urlParams.set('path_tab', pathTab)
+    }
+    if (geographyTab) {
+        urlParams.set('geography_tab', geographyTab)
+    }
+    return `/web?${urlParams.toString()}`
 }
