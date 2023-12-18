@@ -19,13 +19,14 @@
         gap: 0.5rem;
 
         .LemonButton .LemonIcon {
-            color: #fff;
+            color: var(--default);
         }
     }
 }
 
 .posthog-3000 .CodeSnippet pre {
-    background: var(--accent-3000-dark) !important;
-    border: solid 1px var(--border-3000-dark) !important;
+    padding: 1rem;
+    background: var(--accent-3000) !important;
+    border: solid 1px var(--border-3000) !important;
     border-radius: var(--radius) !important;
 }

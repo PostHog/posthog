@@ -76,6 +76,7 @@ export enum PluginServerMode {
     scheduler = 'scheduler',
     analytics_ingestion = 'analytics-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
+    person_overrides = 'person-overrides',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -198,7 +199,10 @@ export interface PluginsServerConfig {
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
     DROP_EVENTS_BY_TOKEN: string
     POE_EMBRACE_JOIN_FOR_TEAMS: string
+    POE_DEFERRED_WRITES_ENABLED: boolean
     RELOAD_PLUGIN_JITTER_MAX_MS: number
+    RUSTY_HOOK_FOR_TEAMS: string
+    RUSTY_HOOK_URL: string
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
 
     // dump profiles to disk, covering the first N seconds of runtime
@@ -219,6 +223,9 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: boolean
     SESSION_RECORDING_PARALLEL_CONSUMPTION: boolean
     SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: boolean
+    // a single partition which will output many more log messages to the console
+    // useful when that partition is lagging unexpectedly
+    SESSION_RECORDING_DEBUG_PARTITION: string | undefined
 
     // Dedicated infra values
     SESSION_RECORDING_KAFKA_HOSTS: string | undefined
@@ -271,6 +278,7 @@ export interface Hub extends PluginsServerConfig {
     // ValueMatchers used for various opt-in/out features
     pluginConfigsToSkipElementsParsing: ValueMatcher<number>
     poeEmbraceJoinForTeams: ValueMatcher<number>
+    rustyHookForTeams: ValueMatcher<number>
     // lookups
     eventsToDropByToken: Map<string, string[]>
 }
@@ -286,6 +294,7 @@ export interface PluginServerCapabilities {
     processAsyncOnEventHandlers?: boolean
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
+    personOverrides?: boolean
     transpileFrontendApps?: boolean // TODO: move this away from pod startup, into a graphile job
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     http?: boolean

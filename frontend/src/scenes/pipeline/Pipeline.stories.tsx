@@ -63,6 +63,19 @@ export function PipelineTransformationsPage(): JSX.Element {
     }, [])
     return <App />
 }
+export function PipelineDestinationsPage(): JSX.Element {
+    useStorybookMocks({
+        get: {
+            'api/organizations/@current/pipeline_destinations/': require('./__mocks__/plugins.json'),
+            'api/projects/:team_id/pipeline_destinations_configs/': require('./__mocks__/transformationPluginConfigs.json'),
+        },
+    })
+    useEffect(() => {
+        router.actions.push(urls.pipeline(PipelineTabs.Destinations))
+        pipelineLogic.mount()
+    }, [])
+    return <App />
+}
 
 export function PipelineAppConfiguration(): JSX.Element {
     useEffect(() => {

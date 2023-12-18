@@ -3,14 +3,16 @@ import { playerConfig, ReplayPlugin } from 'rrweb/typings/types'
 const PROXY_URL = 'https://replay.ph-proxy.com' as const
 
 export const CorsPlugin: ReplayPlugin & {
-    _replaceFontCssUrls: (value: string) => string
+    _replaceFontCssUrls: (value: string | null) => string | null
     _replaceFontUrl: (value: string) => string
     _replaceJSUrl: (value: string) => string
 } = {
-    _replaceFontCssUrls: (value: string): string => {
-        return value.replace(
-            /url\("(https:\/\/\S*(?:.eot|.woff2|.ttf|.woff)\S*)"\)/gi,
-            `url("${PROXY_URL}/proxy?url=$1")`
+    _replaceFontCssUrls: (value: string | null): string | null => {
+        return (
+            value?.replace(
+                /url\("(https:\/\/\S*(?:.eot|.woff2|.ttf|.woff)\S*)"\)/gi,
+                `url("${PROXY_URL}/proxy?url=$1")`
+            ) || null
         )
     },
 
@@ -25,7 +27,7 @@ export const CorsPlugin: ReplayPlugin & {
     onBuild: (node) => {
         if (node.nodeName === 'STYLE') {
             const styleElement = node as HTMLStyleElement
-            styleElement.innerText = CorsPlugin._replaceFontCssUrls(styleElement.innerText)
+            styleElement.textContent = CorsPlugin._replaceFontCssUrls(styleElement.textContent)
         }
 
         if (node.nodeName === 'LINK') {

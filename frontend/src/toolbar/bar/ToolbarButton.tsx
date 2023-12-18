@@ -7,8 +7,6 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { FunctionComponent, useEffect } from 'react'
 import React from 'react'
 
-import { getShadowRootPopoverContainer } from '~/toolbar/utils'
-
 import { MenuState, toolbarLogic } from './toolbarLogic'
 
 export type ToolbarButtonProps = {
@@ -62,10 +60,9 @@ export const ToolbarButton: FunctionComponent<ToolbarButtonProps> = React.forwar
             </button>
         </div>
     )
+
     return ((minimized && titleMinimized) || theTitle) && !active && !isDragging ? (
-        <Tooltip title={minimized ? titleMinimized : theTitle} getPopupContainer={getShadowRootPopoverContainer}>
-            {theButton}
-        </Tooltip>
+        <Tooltip title={minimized ? titleMinimized : theTitle}>{theButton}</Tooltip>
     ) : (
         theButton
     )

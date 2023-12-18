@@ -295,13 +295,12 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            if(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 'le%ss', 'more') as breakdown_value
+                            transform(if(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 'le%ss', 'more'), (['more', 'le%ss']), (['more', 'le%ss']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-             AND if(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 'le%ss', 'more') in (['more', 'le%ss'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -359,13 +358,12 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            if(ifNull(less(toInt64OrNull(nullIf(nullIf(events.mat_int_value, ''), 'null')), 10), 0), 'le%ss', 'more') as breakdown_value
+                            transform(if(ifNull(less(toInt64OrNull(nullIf(nullIf(events.mat_int_value, ''), 'null')), 10), 0), 'le%ss', 'more'), (['more', 'le%ss']), (['more', 'le%ss']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-             AND if(ifNull(less(toInt64OrNull(nullIf(nullIf(events.mat_int_value, ''), 'null')), 10), 0), 'le%ss', 'more') in (['more', 'le%ss'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,

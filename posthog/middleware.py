@@ -31,7 +31,6 @@ from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
 from posthog.rate_limit import DecideRateThrottle
 from posthog.settings import SITE_URL, DEBUG
-from posthog.settings.statsd import STATSD_HOST
 from posthog.user_permissions import UserPermissions
 from .auth import PersonalAPIKeyAuthentication
 from .utils_cors import cors_response
@@ -368,13 +367,6 @@ class CaptureMiddleware:
 
         # List of middlewares we want to run, that would've been shortcircuited otherwise
         self.CAPTURE_MIDDLEWARE = middlewares
-
-        if STATSD_HOST is not None:
-            # import here to avoid log-spew about failure to connect to statsd,
-            # as this connection is created on import
-            from django_statsd.middleware import StatsdMiddlewareTimer
-
-            self.CAPTURE_MIDDLEWARE.append(StatsdMiddlewareTimer())
 
     def __call__(self, request: HttpRequest):
         if request.path in (

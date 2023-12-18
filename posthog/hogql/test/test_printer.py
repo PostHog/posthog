@@ -1357,3 +1357,129 @@ class TestPrinter(BaseTest):
             f"FROM events WHERE equals(events.team_id, {self.team.pk})) LIMIT 10000 "
             f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1",
         )
+
+    def test_lookup_domain_type(self):
+        query = parse_select("select hogql_lookupDomainType('www.google.com') from events")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        self.assertEqual(
+            (
+                "SELECT dictGetOrNull('channel_definition_dict', 'domain_type', "
+                "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source')) "
+                f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000 SETTINGS "
+                "readonly=2, max_execution_time=10, allow_experimental_object_type=1"
+            ),
+            printed,
+        )
+
+    def test_lookup_paid_domain_type(self):
+        query = parse_select("select hogql_lookupPaidDomainType('www.google.com') from events")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        self.assertEqual(
+            (
+                "SELECT dictGetOrNull('channel_definition_dict', 'type_if_paid', "
+                "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source')) "
+                f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000 SETTINGS "
+                "readonly=2, max_execution_time=10, allow_experimental_object_type=1"
+            ),
+            printed,
+        )
+
+    def test_lookup_paid_source_type(self):
+        query = parse_select("select hogql_lookupPaidSourceType('google') from events")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        self.assertEqual(
+            (
+                "SELECT dictGetOrNull('channel_definition_dict', 'type_if_paid', "
+                "(coalesce(%(hogql_val_0)s, ''), 'source')) "
+                f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000 SETTINGS "
+                "readonly=2, max_execution_time=10, allow_experimental_object_type=1"
+            ),
+            printed,
+        )
+
+    def test_lookup_paid_medium_type(self):
+        query = parse_select("select hogql_lookupPaidMediumType('social') from events")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        self.assertEqual(
+            (
+                "SELECT dictGetOrNull('channel_definition_dict', 'type_if_paid', "
+                "(coalesce(%(hogql_val_0)s, ''), 'medium')) "
+                f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000 SETTINGS "
+                "readonly=2, max_execution_time=10, allow_experimental_object_type=1"
+            ),
+            printed,
+        )
+
+    def test_lookup_organic_domain_type(self):
+        query = parse_select("select hogql_lookupOrganicDomainType('www.google.com') from events")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        self.assertEqual(
+            (
+                "SELECT dictGetOrNull('channel_definition_dict', 'type_if_organic', "
+                "(cutToFirstSignificantSubdomain(coalesce(%(hogql_val_0)s, '')), 'source')) "
+                f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000 SETTINGS "
+                "readonly=2, max_execution_time=10, allow_experimental_object_type=1"
+            ),
+            printed,
+        )
+
+    def test_lookup_organic_source_type(self):
+        query = parse_select("select hogql_lookupOrganicSourceType('google') from events")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        self.assertEqual(
+            (
+                "SELECT dictGetOrNull('channel_definition_dict', 'type_if_organic', "
+                "(coalesce(%(hogql_val_0)s, ''), 'source')) "
+                f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000 SETTINGS "
+                "readonly=2, max_execution_time=10, allow_experimental_object_type=1"
+            ),
+            printed,
+        )
+
+    def test_lookup_organic_medium_type(self):
+        query = parse_select("select hogql_lookupOrganicMediumType('social') from events")
+        printed = print_ast(
+            query,
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+            dialect="clickhouse",
+            settings=HogQLGlobalSettings(max_execution_time=10),
+        )
+        self.assertEqual(
+            (
+                "SELECT dictGetOrNull('channel_definition_dict', 'type_if_organic', "
+                "(coalesce(%(hogql_val_0)s, ''), 'medium')) "
+                f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000 SETTINGS "
+                "readonly=2, max_execution_time=10, allow_experimental_object_type=1"
+            ),
+            printed,
+        )

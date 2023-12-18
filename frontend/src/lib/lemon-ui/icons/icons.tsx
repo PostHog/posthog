@@ -940,15 +940,6 @@ export function IconRecording(props: LemonIconProps): JSX.Element {
     )
 }
 
-/** Material Design Arrow Drop Down icon. */
-export function IconArrowDropDown(props: LemonIconProps): JSX.Element {
-    return (
-        <LemonIconBase {...props}>
-            <path d="m7 10 5 5 5-5z" fill="currentColor" />
-        </LemonIconBase>
-    )
-}
-
 /** Material Design Article icon. */
 export function IconArticle(props: LemonIconProps): JSX.Element {
     return (

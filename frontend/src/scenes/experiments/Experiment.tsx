@@ -527,7 +527,6 @@ export function Experiment(): JSX.Element {
                 <div className="view-experiment">
                     <div className="draft-header">
                         <PageHeader
-                            style={{ paddingRight: 8 }}
                             title={
                                 <div className="flex items-center gap-2">
                                     <span>{experiment?.name}</span>

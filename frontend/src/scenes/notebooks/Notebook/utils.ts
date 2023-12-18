@@ -15,7 +15,7 @@ import { Node as PMNode } from '@tiptap/pm/model'
 
 import { NotebookNodeResource, NotebookNodeType } from '~/types'
 
-import { NotebookNodeLogicProps } from '../Nodes/notebookNodeLogic'
+import type { NotebookNodeLogicProps } from '../Nodes/notebookNodeLogic'
 
 // TODO: fix the typing of string to NotebookNodeType
 export const KNOWN_NODES: Record<string, CreatePostHogWidgetNodeOptions<any>> = {}
@@ -53,7 +53,7 @@ export type NodeWrapperProps<T extends CustomNotebookNodeAttributes> = Omit<Note
 export interface Node extends PMNode {}
 export interface JSONContent extends TTJSONContent {}
 
-export {
+export type {
     ChainedCommands as EditorCommands,
     FocusPosition as EditorFocusPosition,
     Range as EditorRange,

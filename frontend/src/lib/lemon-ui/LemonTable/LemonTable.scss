@@ -83,6 +83,15 @@
         }
     }
 
+    &--lowercase-header {
+        .LemonTable__content > table {
+            > thead {
+                text-transform: none;
+                letter-spacing: normal;
+            }
+        }
+    }
+
     &.LemonTable--inset {
         --row-horizontal-padding: 0.5rem;
     }
@@ -183,7 +192,10 @@
             &.LemonTable__row--status-highlighted {
                 font-weight: 600;
                 color: var(--default);
-                background: var(--primary-bg-hover);
+
+                > td:not(.LemonTable__cell--sticky) {
+                    background: var(--primary-bg-hover);
+                }
             }
 
             > td {
@@ -284,8 +296,10 @@
 
         .posthog-3000 & {
             &:hover {
-                .LemonTable__header-content {
-                    color: var(--default);
+                &:not(:has(.LemonTable__header--no-hover:hover)) {
+                    .LemonTable__header-content {
+                        color: var(--default);
+                    }
                 }
             }
 
@@ -354,7 +368,7 @@ body:not(.storybook-test-runner) {
     }
 
     tr.LemonTable__row--status-highlighted .LemonTable__cell--sticky::before {
-        background: #e8ecff; // TRICKY: This is a one-off opaque form of --primary-bg-hover, keep in sync with source
+        background: var(--primary-bg-hover);
     }
 
     .scrollable--left {

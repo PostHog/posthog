@@ -22,7 +22,6 @@ from posthog.temporal.common.schedule import (
 )
 from posthog.temporal.data_imports.external_data_job import (
     ExternalDataWorkflowInputs,
-    ExternalDataJobWorkflow,
 )
 from posthog.warehouse.models import ExternalDataSource
 import temporalio
@@ -33,7 +32,9 @@ from django.conf import settings
 import s3fs
 
 
-def sync_external_data_job_workflow(external_data_source: ExternalDataSource, create: bool = False) -> str:
+def sync_external_data_job_workflow(
+    external_data_source: ExternalDataSource, create: bool = False
+) -> ExternalDataSource:
     temporal = sync_connect()
     inputs = ExternalDataWorkflowInputs(
         team_id=external_data_source.team.id,
@@ -42,10 +43,10 @@ def sync_external_data_job_workflow(external_data_source: ExternalDataSource, cr
 
     schedule = Schedule(
         action=ScheduleActionStartWorkflow(
-            ExternalDataJobWorkflow.run,
+            "external-data-job",
             asdict(inputs),
             id=str(external_data_source.pk),
-            task_queue=DATA_WAREHOUSE_TASK_QUEUE,
+            task_queue=str(DATA_WAREHOUSE_TASK_QUEUE),
         ),
         spec=ScheduleSpec(
             intervals=[

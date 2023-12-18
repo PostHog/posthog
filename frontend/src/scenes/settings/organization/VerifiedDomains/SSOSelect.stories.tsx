@@ -32,7 +32,7 @@ const Template: StoryFn<typeof SSOSelect> = (args) => {
         },
     })
     return (
-        <div style={{ maxWidth: 600 }}>
+        <div className="max-h-140">
             <SSOSelect {...args} value={value} onChange={(val) => setValue(val)} />
         </div>
     )

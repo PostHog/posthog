@@ -274,3 +274,20 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             self.organization.refresh_from_db()
             self.assertFalse(self.organization.is_feature_available("whatever"))
         License.PLANS = current_plans
+
+    def test_get_organization_restricted_teams_hidden(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        Team.objects.create(
+            organization=self.organization,
+            name="FORBIDDEN",
+            access_control=True,
+        )
+
+        response = self.client.get(f"/api/organizations/{self.organization.id}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertListEqual(
+            [team["name"] for team in response.json()["teams"]],
+            [self.team.name],  # "FORBIDDEN" excluded
+        )

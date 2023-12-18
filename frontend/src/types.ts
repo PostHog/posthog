@@ -109,6 +109,7 @@ export enum ProductKey {
     EARLY_ACCESS_FEATURES = 'early_access_features',
     PRODUCT_ANALYTICS = 'product_analytics',
     PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
+    PIPELINE_DESTINATIONS = 'pipeline_destinations',
 }
 
 export enum LicensePlan {
@@ -702,6 +703,9 @@ export interface SessionPlayerSnapshotData {
     snapshots?: RecordingSnapshot[]
     sources?: SessionRecordingSnapshotSource[]
     blob_keys?: string[]
+    // used for a debug signal only for PostHog team, controlled by a feature flag
+    // DO NOT RELY ON THIS FOR NON DEBUG PURPOSES
+    untransformed_snapshots?: RecordingSnapshot[]
 }
 
 export interface SessionPlayerData {
@@ -1573,10 +1577,10 @@ export interface PluginConfigTypeNew {
     team_id: number
     enabled: boolean
     order: number
-    error?: PluginErrorType
     name: string
     description?: string
     updated_at: string
+    delivery_rate_24h?: number | null
 }
 
 export interface PluginConfigWithPluginInfo extends PluginConfigType {
@@ -1789,6 +1793,7 @@ export interface TrendsFilterType extends FilterType {
     aggregation_axis_format?: AggregationAxisFormat // a fixed format like duration that needs calculation
     aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
+    decimal_places?: number
     show_values_on_series?: boolean
     show_labels_on_series?: boolean
     show_percent_stack_view?: boolean
@@ -2236,7 +2241,7 @@ export enum SurveyUrlMatchType {
 
 export enum SurveyType {
     Popover = 'popover',
-    Button = 'button',
+    Widget = 'widget',
     FullScreen = 'full_screen',
     Email = 'email',
     API = 'api',
@@ -2257,6 +2262,11 @@ export interface SurveyAppearance {
     thankYouMessageDescription?: string
     autoDisappear?: boolean
     position?: string
+    // widget only
+    widgetType?: 'button' | 'tab' | 'selector'
+    widgetSelector?: string
+    widgetLabel?: string
+    widgetColor?: string
 }
 
 export interface SurveyQuestionBase {
@@ -2423,6 +2433,23 @@ export interface NewEarlyAccessFeatureType extends Omit<EarlyAccessFeatureType, 
 export interface UserBlastRadiusType {
     users_affected: number
     total_users: number
+}
+
+export enum ScheduledChangeModels {
+    FeatureFlag = 'FeatureFlag',
+}
+
+export interface ScheduledChangeType {
+    id: number
+    team_id: number
+    record_id: number | string
+    model_name: ScheduledChangeModels
+    payload: Record<string, any>
+    scheduled_at: string
+    executed_at: string | null
+    failure_reason: string | null
+    created_at: string | null
+    created_by: UserBasicType
 }
 
 export interface PrevalidatedInvite {
@@ -3308,6 +3335,20 @@ export interface ExternalDataStripeSource {
     source_type: string
     prefix: string
     last_run_at?: Dayjs
+    schemas: ExternalDataSourceSchema[]
+}
+
+export interface ExternalDataSourceSchema {
+    id: string
+    name: string
+    should_sync: boolean
+    table?: SimpleDataWarehouseTable
+}
+
+export interface SimpleDataWarehouseTable {
+    id: string
+    name: string
+    columns: DatabaseSchemaQueryResponseField[]
 }
 
 export type BatchExportDestinationS3 = {

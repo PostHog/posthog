@@ -4,11 +4,11 @@ import api, { PaginatedResponse } from 'lib/api'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, ExternalDataStripeSource } from '~/types'
+import { Breadcrumb, ExternalDataSourceSchema, ExternalDataStripeSource } from '~/types'
 
 import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
 
-const REFRESH_INTERVAL = 5000
+const REFRESH_INTERVAL = 10000
 
 export interface DataWarehouseSource {}
 
@@ -18,6 +18,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         deleteSource: (source: ExternalDataStripeSource) => ({ source }),
         reloadSource: (source: ExternalDataStripeSource) => ({ source }),
         loadingFinished: (source: ExternalDataStripeSource) => ({ source }),
+        updateSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
     }),
     loaders({
         dataWarehouseSources: [
@@ -82,6 +83,10 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             await api.externalDataSources.reload(source.id)
             actions.loadSources()
             actions.loadingFinished(source)
+        },
+        updateSchema: async ({ schema }) => {
+            await api.externalDataSchemas.update(schema.id, schema)
+            actions.loadSources()
         },
     })),
     afterMount(({ actions }) => {

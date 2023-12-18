@@ -23,7 +23,7 @@
 }
 
 .InsightVizDisplay {
-    --insight-viz-min-height: calc(80vh - 6rem);
+    --insight-viz-min-height: min(calc(80vh - 6rem), 32rem);
 
     display: flex;
     flex-direction: column;

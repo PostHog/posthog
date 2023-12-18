@@ -82,7 +82,7 @@ export function UnitPicker(): JSX.Element {
     }, [localAxisFormat, trendsFilter])
 
     return (
-        <div className="flex flex-1 pt-1.5 pb-2 pr-2">
+        <div className="flex-1 mb-2.5 mx-2">
             <CustomUnitModal
                 formativeElement={customUnitModal}
                 isOpen={customUnitModal !== null}
@@ -92,12 +92,12 @@ export function UnitPicker(): JSX.Element {
                 overlayRef={(ref) => (customUnitModalRef.current = ref)}
             />
             <LemonButtonWithDropdown
-                className="flex flex-1 ml-2"
                 onClick={() => setIsVisible(!isVisible)}
                 size={'small'}
                 type={'secondary'}
                 status="stealth"
                 data-attr="chart-aggregation-axis-format"
+                fullWidth
                 dropdown={{
                     onClickOutside: () => setIsVisible(false),
                     additionalRefs: [customUnitModalRef],

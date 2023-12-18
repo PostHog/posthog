@@ -9,6 +9,11 @@
     height: var(--breadcrumbs-height-full);
     white-space: nowrap;
     pointer-events: none;
+
+    .EditableField__display {
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
 }
 
 .TopBar3000__content {
@@ -38,6 +43,7 @@
     flex-grow: 1;
     flex-shrink: 1;
     min-width: 0;
+    overflow: hidden;
 }
 
 .TopBar3000__trail {
@@ -82,6 +88,7 @@
     }
 
     &.TopBar3000__breadcrumb--here {
+        flex-shrink: 1;
         cursor: default;
         visibility: var(--breadcrumbs-title-small-visibility);
 

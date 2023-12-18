@@ -176,6 +176,10 @@ input::-ms-clear {
     border-radius: var(--radius);
     box-shadow: var(--shadow-elevation);
     opacity: 1 !important;
+
+    .posthog-3000 & {
+        border-color: var(--secondary-3000-button-border);
+    }
 }
 
 .Toastify__toast-container {
@@ -595,7 +599,8 @@ body {
         h1,
         h2,
         h3,
-        h4 {
+        h4,
+        h5 {
             font-family: var(--font-title);
         }
 
@@ -616,7 +621,7 @@ body {
         line-height: 1.5rem;
         color: var(--muted-alt);
         text-transform: uppercase;
-        letter-spacing: 0.5px;
+        letter-spacing: 0.075em;
     }
 
     pre,
