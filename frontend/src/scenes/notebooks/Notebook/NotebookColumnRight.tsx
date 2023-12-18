@@ -4,14 +4,11 @@ import { uuid } from 'lib/utils'
 
 import { NotebookNodeChildRenderer } from '../Nodes/NodeWrapper'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
-import { notebookCommentLogic } from './notebookCommentLogic'
-import { NotebookComments } from './NotebookComments'
 import { notebookLogic } from './notebookLogic'
 
 export const NotebookColumnRight = (): JSX.Element | null => {
-    const { shortId, isShowingLeftColumn, nodeLogicsWithChildren } = useValues(notebookLogic)
-    const { isShowingComments } = useValues(notebookCommentLogic({ shortId }))
-    const isShowing = (nodeLogicsWithChildren.length || isShowingComments) && !isShowingLeftColumn
+    const { isShowingLeftColumn, nodeLogicsWithChildren } = useValues(notebookLogic)
+    const isShowing = nodeLogicsWithChildren.length && !isShowingLeftColumn
 
     return (
         <div
@@ -23,7 +20,6 @@ export const NotebookColumnRight = (): JSX.Element | null => {
             <div className="NotebookColumn__content">
                 {isShowing ? (
                     <>
-                        {isShowingComments && <NotebookComments />}
                         {nodeLogicsWithChildren.map((x, i) => (
                             <Widgets key={i} nodeLogic={x} />
                         ))}
