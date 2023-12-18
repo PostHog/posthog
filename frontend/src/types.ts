@@ -1793,6 +1793,7 @@ export interface TrendsFilterType extends FilterType {
     aggregation_axis_format?: AggregationAxisFormat // a fixed format like duration that needs calculation
     aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
+    decimal_places?: number
     show_values_on_series?: boolean
     show_labels_on_series?: boolean
     show_percent_stack_view?: boolean
@@ -2432,6 +2433,23 @@ export interface NewEarlyAccessFeatureType extends Omit<EarlyAccessFeatureType, 
 export interface UserBlastRadiusType {
     users_affected: number
     total_users: number
+}
+
+export enum ScheduledChangeModels {
+    FeatureFlag = 'FeatureFlag',
+}
+
+export interface ScheduledChangeType {
+    id: number
+    team_id: number
+    record_id: number | string
+    model_name: ScheduledChangeModels
+    payload: Record<string, any>
+    scheduled_at: string
+    executed_at: string | null
+    failure_reason: string | null
+    created_at: string | null
+    created_by: UserBasicType
 }
 
 export interface PrevalidatedInvite {

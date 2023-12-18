@@ -3168,6 +3168,9 @@
                 "compare": {
                     "type": "boolean"
                 },
+                "decimal_places": {
+                    "type": "number"
+                },
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType"
                 },
@@ -3443,6 +3446,7 @@
             "enum": [
                 "Page",
                 "InitialPage",
+                "InitialChannelType",
                 "InitialReferringDomain",
                 "InitialUTMSource",
                 "InitialUTMCampaign",
