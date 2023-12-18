@@ -25,7 +25,7 @@ async fn listen(app: Router, bind: String) -> Result<()> {
     Ok(())
 }
 
-async fn cleanup_loop(cleaner: Box<dyn Cleaner>, interval_secs: u64) -> Result<()> {
+async fn cleanup_loop(cleaner: Box<dyn Cleaner>, interval_secs: u64) {
     let semaphore = Semaphore::new(1);
     let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
 
@@ -78,9 +78,8 @@ async fn main() {
             Ok(_) => {}
             Err(e) => tracing::error!("failed to start hook-janitor http server, {}", e),
         },
-        Either::Right((cleanup_result, _)) => match cleanup_result {
-            Ok(_) => {}
-            Err(e) => tracing::error!("hook-janitor cleanup task exited, {}", e),
-        },
+        Either::Right((_, _)) => {
+            tracing::error!("hook-janitor cleanup task exited")
+        }
     };
 }
