@@ -3,11 +3,11 @@ use config::Config;
 use envconfig::Envconfig;
 use eyre::Result;
 
+use hook_common::metrics;
 use hook_common::pgqueue::{PgQueue, RetryPolicy};
 
 mod config;
 mod handlers;
-mod metrics;
 
 async fn listen(app: Router, bind: String) -> Result<()> {
     let listener = tokio::net::TcpListener::bind(bind).await?;
@@ -35,7 +35,7 @@ async fn main() {
     .await
     .expect("failed to initialize queue");
 
-    let recorder_handle = crate::metrics::setup_metrics_recorder();
+    let recorder_handle = metrics::setup_metrics_recorder();
 
     let app = handlers::app(pg_queue, Some(recorder_handle));
 

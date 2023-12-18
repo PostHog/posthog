@@ -1,6 +1,7 @@
 use axum::{routing, Router};
 use metrics_exporter_prometheus::PrometheusHandle;
 
+use hook_common::metrics;
 use hook_common::pgqueue::PgQueue;
 
 use super::webhook;
@@ -16,11 +17,11 @@ pub fn app(pg_pool: PgQueue, metrics: Option<PrometheusHandle>) -> Router {
             }),
         )
         .route("/webhook", routing::post(webhook::post).with_state(pg_pool))
-        .layer(axum::middleware::from_fn(crate::metrics::track_metrics))
+        .layer(axum::middleware::from_fn(metrics::track_metrics))
 }
 
 pub async fn index() -> &'static str {
-    "rusty hook"
+    "rusty-hook producer"
 }
 
 #[cfg(test)]
@@ -55,6 +56,6 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
-        assert_eq!(&body[..], b"rusty hook");
+        assert_eq!(&body[..], b"rusty-hook producer");
     }
 }
