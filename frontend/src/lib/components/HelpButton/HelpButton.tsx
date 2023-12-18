@@ -1,10 +1,10 @@
 import './HelpButton.scss'
 
 import { Placement } from '@floating-ui/react'
+import { IconChevronDown } from '@posthog/icons'
 import clsx from 'clsx'
 import { actions, connect, kea, key, listeners, path, props, reducers, useActions, useValues } from 'kea'
 import {
-    IconArrowDropDown,
     IconArticle,
     IconBugReport,
     IconFeedback,
@@ -177,7 +177,7 @@ export function HelpButton({
                     {customComponent || (
                         <>
                             <IconHelpOutline />
-                            <IconArrowDropDown />
+                            <IconChevronDown />
                         </>
                     )}
                 </div>

@@ -170,6 +170,7 @@ export function TaxonomicPropertyFilter({
                                 status={!valuePresent ? 'primary' : 'stealth'}
                                 icon={!valuePresent ? <IconPlusMini /> : undefined}
                                 data-attr={'property-select-toggle-' + index}
+                                sideIcon={null} // The null sideIcon is here on purpose - it prevents the dropdown caret
                                 onClick={() => (dropdownOpen ? closeDropdown() : openDropdown())}
                             >
                                 {filter?.type === 'cohort' ? (

@@ -105,25 +105,13 @@ export class ConsoleLogsIngester {
             return
         }
 
-        const logDebug = (text: string, labels: Record<string, any> = {}) =>
-            status.debug('⚠️', `[console-log-events-ingester] ${text}`, {
-                offset: event.metadata.offset,
-                partition: event.metadata.partition,
-                ...labels,
-            })
-
-        const drop = (reason: string, labels: Record<string, any> = {}) => {
+        const drop = (reason: string) => {
             eventDroppedCounter
                 .labels({
                     event_type: 'session_recordings_console_log_events',
                     drop_cause: reason,
                 })
                 .inc()
-
-            logDebug(reason, {
-                reason,
-                ...labels,
-            })
         }
 
         // capture the producer so that TypeScript knows it's not null below this check

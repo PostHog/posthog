@@ -345,9 +345,19 @@ export interface DataTableNode extends Node, DataTableNodeViewProps {
     hiddenColumns?: HogQLExpression[]
 }
 
+export interface GoalLine {
+    label: string
+    value: number
+}
+
+export interface ChartAxis {
+    column: string
+}
+
 interface ChartSettings {
-    xAxisIndex?: number[]
-    yAxisIndex?: number[]
+    xAxis?: ChartAxis
+    yAxis?: ChartAxis[]
+    goalLines?: GoalLine[]
 }
 
 export interface DataVisualizationNode extends Node {
@@ -701,6 +711,7 @@ export enum WebStatsBreakdown {
     Page = 'Page',
     InitialPage = 'InitialPage',
     // ExitPage = 'ExitPage'
+    InitialChannelType = 'InitialChannelType',
     InitialReferringDomain = 'InitialReferringDomain',
     InitialUTMSource = 'InitialUTMSource',
     InitialUTMCampaign = 'InitialUTMCampaign',
@@ -834,6 +845,7 @@ export interface DateRange {
 export interface BreakdownFilter {
     // TODO: unclutter
     breakdown_type?: BreakdownType | null
+    breakdown_limit?: number
     breakdown?: BreakdownKeyType
     breakdown_normalize_url?: boolean
     breakdowns?: Breakdown[]

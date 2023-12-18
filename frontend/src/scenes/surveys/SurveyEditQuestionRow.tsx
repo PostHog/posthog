@@ -48,6 +48,7 @@ export function SurveyEditQuestionHeader({
             className="flex flex-row w-full items-center justify-between"
             ref={setNodeRef}
             {...attributes}
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
                 position: 'relative',
                 zIndex: isDragging ? 1 : undefined,
@@ -129,7 +130,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                 ),
                             },
                             {
-                                label: 'Link',
+                                label: 'Link/Notification',
                                 value: SurveyQuestionType.Link,
                                 tooltip: () => (
                                     <BaseAppearance

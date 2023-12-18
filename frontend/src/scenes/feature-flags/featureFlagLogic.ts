@@ -42,6 +42,7 @@ import {
     PropertyFilterType,
     PropertyOperator,
     RolloutConditionType,
+    ScheduledChangeType,
     Survey,
     SurveyQuestionType,
     UserBlastRadiusType,
@@ -114,7 +115,7 @@ export function validateFeatureFlagKey(key: string): string | undefined {
 }
 
 export interface FeatureFlagLogicProps {
-    id: number | 'new' | 'link'
+    id: number | 'new' | 'link' | 'schedule'
 }
 
 // KLUDGE: Payloads are returned in a <variant-key>: <payload> mapping.
@@ -229,7 +230,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         triggerFeatureFlagUpdate: (payload: Partial<FeatureFlagType>) => ({ payload }),
         generateUsageDashboard: true,
         enrichUsageDashboard: true,
+        setFeatureFlagId: (id: number | null) => ({ id }),
         setCopyDestinationProject: (id: number | null) => ({ id }),
+        setScheduleDateMarker: (dateMarker: any) => ({ dateMarker }),
+        setScheduledChangeField: (changeType: string | null) => ({ changeType }),
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -441,6 +445,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         surveys: [...(state.surveys || []), newSurvey],
                     }
                 },
+                setFeatureFlagId: (state, { id }) => ({ ...state, id }),
             },
         ],
         featureFlagMissing: [false, { setFeatureFlagMissing: () => true }],
@@ -482,11 +487,23 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 setCopyDestinationProject: (_, { id }) => id,
             },
         ],
+        scheduleDateMarker: [
+            null as any,
+            {
+                setScheduleDateMarker: (_, { dateMarker }) => dateMarker,
+            },
+        ],
+        scheduledChangeField: [
+            'active' as string | null,
+            {
+                setScheduledChangeField: (_, { changeType }) => changeType,
+            },
+        ],
     }),
     loaders(({ values, props, actions }) => ({
         featureFlag: {
             loadFeatureFlag: async () => {
-                if (props.id && props.id !== 'new' && props.id !== 'link') {
+                if (props.id && props.id !== 'new' && props.id !== 'link' && props.id !== 'schedule') {
                     try {
                         const retrievedFlag: FeatureFlagType = await api.featureFlags.get(props.id)
                         return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
@@ -587,7 +604,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as CohortType | null,
             {
                 createStaticCohort: async () => {
-                    if (props.id && props.id !== 'new' && props.id !== 'link') {
+                    if (props.id && props.id !== 'new' && props.id !== 'link' && props.id !== 'schedule') {
                         return (await api.featureFlags.createStaticCohort(props.id)).cohort
                     }
                     return null
@@ -624,6 +641,43 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         from_project: currentTeamId,
                         target_project_ids: [copyDestinationProject],
                     })
+                }
+            },
+        },
+        scheduledChanges: {
+            __default: [] as ScheduledChangeType[],
+            loadScheduledChanges: async () => {
+                const { currentTeamId } = values
+                if (currentTeamId) {
+                    const response = await api.featureFlags.getScheduledChanges(currentTeamId, values.featureFlag.id)
+                    return response.results || []
+                }
+            },
+        },
+        scheduledChange: {
+            __default: {} as ScheduledChangeType,
+            createScheduledChange: async () => {
+                const { featureFlag, scheduledChangeField, scheduleDateMarker, currentTeamId } = values
+
+                if (currentTeamId && scheduledChangeField) {
+                    const data = {
+                        record_id: values.featureFlag.id,
+                        model_name: 'FeatureFlag',
+                        operation: scheduledChangeField,
+                        payload: {
+                            field: scheduledChangeField,
+                            value: featureFlag[scheduledChangeField],
+                        },
+                        scheduled_at: scheduleDateMarker.toISOString(),
+                    }
+
+                    return await api.featureFlags.createScheduledChange(currentTeamId, data)
+                }
+            },
+            deleteScheduledChange: async (scheduledChangeId) => {
+                const { currentTeamId } = values
+                if (currentTeamId) {
+                    return await api.featureFlags.deleteScheduledChange(currentTeamId, scheduledChangeId)
                 }
             },
         },
@@ -813,6 +867,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         action: () => router.actions.push(urls.cohort(newCohort.id)),
                     },
                 })
+            }
+        },
+        createScheduledChangeSuccess: ({ scheduledChange }) => {
+            if (scheduledChange && scheduledChange) {
+                lemonToast.success('Change scheduled successfully')
+                actions.loadScheduledChanges()
+            }
+        },
+        deleteScheduledChangeSuccess: ({ scheduledChange }) => {
+            if (scheduledChange) {
+                lemonToast.success('Change has been deleted')
+                actions.loadScheduledChanges()
             }
         },
     })),
@@ -1038,7 +1104,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.setFeatureFlag(formatPayloads)
             actions.loadRelatedInsights()
             actions.loadAllInsightsForFlag()
-        } else if (props.id !== 'new') {
+        } else if (props.id !== 'new' && props.id !== 'schedule') {
             actions.loadFeatureFlag()
         }
         actions.loadSentryStats()

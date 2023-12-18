@@ -1,4 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { promptLogic } from 'lib/logic/promptLogic'
 import { objectsEqual } from 'lib/utils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
@@ -54,15 +55,22 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
         actions: [
             insightLogic,
-            ['setInsight', 'loadInsightSuccess', 'saveInsight as insightLogicSaveInsight'],
+            [
+                'setInsight',
+                'loadInsightSuccess',
+                'saveInsight as insightLogicSaveInsight',
+                'saveAsNamingSuccess as insightLogicSaveAsNamingSuccess',
+            ],
             dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             ['loadData', 'loadDataSuccess', 'loadDataFailure', 'setResponse as setInsightData'],
         ],
-        logic: [insightDataTimingLogic(props)],
+        logic: [insightDataTimingLogic(props), promptLogic({ key: `save-as-insight` })],
     })),
 
     actions({
         setQuery: (query: Node | null) => ({ query }),
+        saveAs: true,
+        saveAsNamingSuccess: (name: string) => ({ name }),
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         toggleQueryEditorPanel: true,
         cancelChanges: true,
@@ -212,6 +220,40 @@ export const insightDataLogic = kea<insightDataLogicType>([
             )
 
             actions.insightLogicSaveInsight(redirectToViewMode)
+        },
+        saveAs: async () => {
+            promptLogic({ key: `save-as-insight` }).actions.prompt({
+                title: 'Save as new insight',
+                placeholder: 'Please enter the new name',
+                value: `${values.insight.name || values.insight.derived_name} (copy)`,
+                error: 'You must enter a name',
+                success: actions.saveAsNamingSuccess,
+            })
+        },
+        saveAsNamingSuccess: ({ name }) => {
+            let filters = values.insight.filters
+            if (isInsightVizNode(values.query)) {
+                const querySource = values.query.source
+                filters = queryNodeToFilter(querySource)
+            } else if (values.isQueryBasedInsight) {
+                filters = {}
+            }
+
+            let query = undefined
+            if (values.isQueryBasedInsight) {
+                query = values.query
+            }
+
+            actions.setInsight(
+                {
+                    ...values.insight,
+                    filters: filters,
+                    query: query ?? undefined,
+                },
+                { overrideFilter: true, fromPersistentApi: false }
+            )
+
+            actions.insightLogicSaveAsNamingSuccess(name)
         },
         cancelChanges: () => {
             const savedFilters = values.savedInsight.filters

@@ -1,4 +1,5 @@
 import { actions, connect, kea, listeners, path } from 'kea'
+import { BarStatus, ResultType } from 'lib/components/CommandBar/types'
 import { convertPropertyGroupToProperties, isGroupPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { Dayjs } from 'lib/dayjs'
@@ -491,6 +492,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportOnboardingProductSelected: (productKey: string) => ({ productKey }),
         reportOnboardingCompleted: (productKey: string) => ({ productKey }),
         reportSubscribedDuringOnboarding: (productKey: string) => ({ productKey }),
+        // command bar
+        reportCommandBarStatusChanged: (status: BarStatus) => ({ status }),
+        reportCommandBarSearch: (queryLength: number) => ({ queryLength }),
+        reportCommandBarSearchResultOpened: (type: ResultType) => ({ type }),
+        reportCommandBarActionSearch: (query: string) => ({ query }),
+        reportCommandBarActionResultExecuted: (resultDisplay) => ({ resultDisplay }),
     }),
     listeners(({ values }) => ({
         reportAxisUnitsChanged: (properties) => {
@@ -1199,6 +1206,22 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('subscribed during onboarding', {
                 product_key: productKey,
             })
+        },
+        // command bar
+        reportCommandBarStatusChanged: ({ status }) => {
+            posthog.capture('command bar status changed', { status })
+        },
+        reportCommandBarSearch: ({ queryLength }) => {
+            posthog.capture('command bar search', { queryLength })
+        },
+        reportCommandBarSearchResultOpened: ({ type }) => {
+            posthog.capture('command bar search result opened', { type })
+        },
+        reportCommandBarActionSearch: ({ query }) => {
+            posthog.capture('command bar action search', { query })
+        },
+        reportCommandBarActionResultExecuted: ({ resultDisplay }) => {
+            posthog.capture('command bar search result executed', { resultDisplay })
         },
     })),
 ])

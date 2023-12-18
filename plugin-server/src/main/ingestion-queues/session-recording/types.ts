@@ -15,6 +15,7 @@ export type IncomingRecordingMessage = {
     session_id: string
     window_id?: string
     events: RRWebEvent[]
+    snapshot_source: string | null
 }
 
 // This is the incoming message from Kafka

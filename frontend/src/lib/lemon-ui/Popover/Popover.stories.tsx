@@ -1,5 +1,5 @@
+import { IconChevronDown } from '@posthog/icons'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { IconArrowDropDown } from 'lib/lemon-ui/icons'
 
 import { Popover } from './Popover'
 
@@ -18,7 +18,7 @@ Popover_.args = {
     visible: true,
     children: (
         <span className="text-2xl">
-            <IconArrowDropDown />
+            <IconChevronDown />
         </span>
     ),
     overlay: (

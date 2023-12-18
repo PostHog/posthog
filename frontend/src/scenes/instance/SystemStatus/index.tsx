@@ -56,7 +56,7 @@ export function SystemStatus(): JSX.Element {
                 label: (
                     <>
                         Settings{' '}
-                        <LemonTag type="warning" className="uppercase">
+                        <LemonTag type="warning" className="uppercase ml-1">
                             Beta
                         </LemonTag>
                     </>
@@ -76,7 +76,7 @@ export function SystemStatus(): JSX.Element {
                 label: (
                     <>
                         Kafka Inspector{' '}
-                        <LemonTag type="warning" className="uppercase">
+                        <LemonTag type="warning" className="uppercase ml-1">
                             Beta
                         </LemonTag>
                     </>

@@ -12,7 +12,6 @@ interface PageHeaderProps {
     title: string | JSX.Element
     caption?: string | JSX.Element | null | false
     buttons?: JSX.Element | false
-    style?: React.CSSProperties
     tabbedPage?: boolean // Whether the page has tabs for secondary navigation
     delimited?: boolean
     notebookProps?: Pick<DraggableToNotebookProps, 'href' | 'node' | 'properties'>
@@ -22,7 +21,6 @@ export function PageHeader({
     title,
     caption,
     buttons,
-    style,
     tabbedPage,
     delimited,
     notebookProps,
@@ -33,8 +31,7 @@ export function PageHeader({
     return (
         <>
             {!is3000 && (
-                // eslint-disable-next-line react/forbid-dom-props
-                <div className="page-title-row flex justify-between" style={style}>
+                <div className="page-title-row flex justify-between">
                     <div className="min-w-0">
                         {!is3000 &&
                             (notebookProps ? (

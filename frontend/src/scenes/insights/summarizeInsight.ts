@@ -182,7 +182,7 @@ function summarizeInsightFilters(filters: AnyPartialFilterType, context: Summary
     return ''
 }
 
-function summarizeInsightQuery(query: InsightQueryNode, context: SummaryContext): string {
+export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryContext): string {
     if (isTrendsQuery(query)) {
         let summary = query.series
             .map((s, index) => {
@@ -343,15 +343,14 @@ export interface SummaryContext {
 
 export function summarizeInsight(
     query: Node | undefined | null,
-    filters: Partial<FilterType>,
+    filters: Partial<FilterType> | undefined | null,
     context: SummaryContext
 ): string {
-    const hasFilters = Object.keys(filters || {}).length > 0
     return isInsightVizNode(query)
         ? summarizeInsightQuery(query.source, context)
         : !!query && !isInsightVizNode(query)
         ? summarizeQuery(query)
-        : hasFilters
+        : filters && Object.keys(filters).length > 0
         ? summarizeInsightFilters(filters, context)
         : ''
 }
