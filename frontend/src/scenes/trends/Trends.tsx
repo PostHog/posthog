@@ -1,4 +1,4 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -88,34 +88,19 @@ export function TrendInsight({ view, context }: Props): JSX.Element {
                             >
                                 Load more breakdown values
                             </LemonButton>
-                            {hasBreakdownOther ? (
-                                <LemonButton
-                                    onClick={() =>
+                            {hasBreakdownOther || breakdown.breakdown_hide_other_aggregation ? (
+                                <LemonSwitch
+                                    bordered
+                                    checked={!breakdown.breakdown_hide_other_aggregation}
+                                    onChange={() =>
                                         updateBreakdown({
                                             ...breakdown,
-                                            breakdown_hide_other_aggregation: true,
+                                            breakdown_hide_other_aggregation:
+                                                !breakdown.breakdown_hide_other_aggregation,
                                         })
                                     }
-                                    loading={breakdownValuesLoading}
-                                    size="small"
-                                    type="secondary"
-                                >
-                                    Hide "Other" column
-                                </LemonButton>
-                            ) : breakdown.breakdown_hide_other_aggregation ? (
-                                <LemonButton
-                                    onClick={() =>
-                                        updateBreakdown({
-                                            ...breakdown,
-                                            breakdown_hide_other_aggregation: false,
-                                        })
-                                    }
-                                    loading={breakdownValuesLoading}
-                                    size="small"
-                                    type="secondary"
-                                >
-                                    Show "Other" column
-                                </LemonButton>
+                                    label='Group renaming values under "Other"'
+                                />
                             ) : null}
                         </div>
                     </div>
