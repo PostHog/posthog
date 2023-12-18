@@ -104,6 +104,7 @@ class TestSavedQuery(APIBaseTest):
             [
                 {
                     "id": str(schema.pk),
+                    "last_synced_at": schema.last_synced_at,
                     "name": schema.name,
                     "should_sync": schema.should_sync,
                     "latest_error": schema.latest_error,
