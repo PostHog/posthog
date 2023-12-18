@@ -9,7 +9,7 @@ export function retentionToActorsQuery(query: RetentionQuery, selectedInterval: 
     return {
         kind: NodeKind.PersonsQuery,
         select: [select, 'appearances'],
-        orderBy: ['appearances_count DESC', 'actor_id'],
+        orderBy: ['length(appearances) DESC', 'actor_id'],
         source: {
             kind: NodeKind.InsightPersonsQuery,
             selected_interval: selectedInterval,

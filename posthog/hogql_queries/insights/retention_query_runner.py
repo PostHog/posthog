@@ -335,8 +335,7 @@ class RetentionQueryRunner(QueryRunner):
                 """
                     SELECT
                         actor_id,
-                        groupArray(actor_activity.intervals_from_base) AS appearances,
-                        length(appearances) AS appearances_count -- Important so that we can sort by it later
+                        arraySort(groupArray(actor_activity.intervals_from_base)) AS appearances
 
                     FROM {actor_query} AS actor_activity
 

@@ -78,7 +78,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query={
                 "select": ["person", "appearances"],
-                "orderBy": ["appearances_count DESC", "actor_id"],
+                "orderBy": ["length(appearances) DESC", "actor_id"],
                 "source": {
                     "kind": "InsightPersonsQuery",
                     "selected_interval": selected_interval,
