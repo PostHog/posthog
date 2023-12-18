@@ -333,6 +333,10 @@
 // NOTE: this is outside of the storybook check for 3000 selective styling
 .LemonTable__cell--sticky::before {
     background: var(--lemon-table-background-color);
+
+    .InsightViz & {
+        background: var(--bg-light);
+    }
 }
 
 .LemonTable__header--sticky::before {

@@ -1282,6 +1282,7 @@ class TestFilterToQuery(BaseTest):
             "aggregation_axis_format": "duration_ms",
             "aggregation_axis_prefix": "pre",
             "aggregation_axis_postfix": "post",
+            "decimal_places": 5,
             "formula": "A + B",
             "shown_as": "Volume",
             "display": "ActionsAreaGraph",
@@ -1299,6 +1300,7 @@ class TestFilterToQuery(BaseTest):
                 aggregation_axis_postfix="post",
                 formula="A + B",
                 display=ChartDisplayType.ActionsAreaGraph,
+                decimal_places=5,
             ),
         )
 
