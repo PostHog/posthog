@@ -1,5 +1,6 @@
 import { IconChevronDown, IconDay, IconFeatures, IconLaptop, IconLive, IconNight } from '@posthog/icons'
 import { LemonButtonPropsBase, LemonSelect } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -39,9 +40,17 @@ import { userLogic } from '../../../scenes/userLogic'
 import { OrganizationBasicType } from '../../../types'
 import { navigationLogic } from '../navigationLogic'
 
-function SitePopoverSection({ title, children }: { title?: string | JSX.Element; children: any }): JSX.Element {
+function SitePopoverSection({
+    title,
+    className,
+    children,
+}: {
+    title?: string | JSX.Element
+    className?: string
+    children: any
+}): JSX.Element {
     return (
-        <div className="SitePopover__section">
+        <div className={clsx('SitePopover__section', className)}>
             {title && <h5 className="flex items-center">{title}</h5>}
             {children}
         </div>
@@ -295,7 +304,7 @@ export function SitePopoverOverlay(): JSX.Element {
                 </SitePopoverSection>
             )}
             {(!(preflight?.cloud || preflight?.demo) || user?.is_staff) && (
-                <SitePopoverSection title="PostHog instance">
+                <SitePopoverSection title="PostHog instance" className="font-title-3000">
                     <SystemStatus />
                     <AsyncMigrations />
                     <InstanceSettings />
