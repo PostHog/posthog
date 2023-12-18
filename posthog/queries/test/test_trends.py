@@ -38,6 +38,7 @@ from posthog.models.instance_setting import (
     set_instance_setting,
 )
 from posthog.models.person.util import create_person_distinct_id
+from posthog.queries.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.queries.trends.trends import Trends
 from posthog.test.base import (
     APIBaseTest,
@@ -4737,7 +4738,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
             assert len(response) == 26
             assert response[0]["label"] == "Other"
-            assert response[0]["breakdown_value"] == "$$_posthog_breakdown_other_$$"
+            assert response[0]["breakdown_value"] == BREAKDOWN_OTHER_STRING_LABEL
 
             response = Trends().run(
                 Filter(
@@ -4760,7 +4761,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
             assert len(response) == 51
             assert response[0]["label"] == "Other"
-            assert response[0]["breakdown_value"] == "$$_posthog_breakdown_other_$$"
+            assert response[0]["breakdown_value"] == BREAKDOWN_OTHER_STRING_LABEL
 
             response = Trends().run(
                 Filter(

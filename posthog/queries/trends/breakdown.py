@@ -84,6 +84,8 @@ from posthog.queries.person_on_events_v2_sql import PERSON_OVERRIDES_JOIN_SQL
 
 BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
 BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991  # pow(2, 53) - 1, for JS compatibility
+BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
+BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990  # pow(2, 53) - 2, for JS compatibility
 
 
 class TrendsBreakdown:
@@ -453,23 +455,33 @@ class TrendsBreakdown:
 
         breakdown_value = self._get_breakdown_value(self.filter.breakdown)
         breakdown_other_value: str | int = BREAKDOWN_OTHER_STRING_LABEL
+        breakdown_null_value: str | int = BREAKDOWN_NULL_STRING_LABEL
         numeric_property_filter = ""
         if self.filter.using_histogram:
             numeric_property_filter = f"AND {breakdown_value} is not null"
-            breakdown_value, values_arr = self._get_histogram_breakdown_values(breakdown_value, values_arr)
+            breakdown_value, values_arr = self._get_histogram_breakdown_values(
+                breakdown_value, [val for val in values_arr if val is not None]
+            )
 
         elif self.filter.breakdown_type == "session" and self.filter.breakdown == "$session_duration":
             # Not adding "Other" for the custom session duration filter.
             pass
         else:
-            all_values_are_numeric = all(isinstance(value, int) or isinstance(value, float) for value in values_arr)
-            all_values_are_string = all(isinstance(value, str) for value in values_arr)
+            all_values_are_numeric_or_none = all(
+                isinstance(value, int) or isinstance(value, float) or value is None for value in values_arr
+            )
+            all_values_are_string_or_none = all(isinstance(value, str) or value is None for value in values_arr)
 
-            if all_values_are_numeric:
+            if all_values_are_numeric_or_none:
                 breakdown_other_value = BREAKDOWN_OTHER_NUMERIC_LABEL
-            elif not all_values_are_string:
-                breakdown_value = f"toString({breakdown_value})"
-            breakdown_value = f"transform({breakdown_value}, (%(values)s), (%(values)s), %(other_value)s)"
+                breakdown_null_value = BREAKDOWN_NULL_NUMERIC_LABEL
+                values_arr = [BREAKDOWN_NULL_NUMERIC_LABEL if value is None else value for value in values_arr]
+            else:
+                if not all_values_are_string_or_none:
+                    breakdown_value = f"toString({breakdown_value})"
+                breakdown_value = f"nullIf({breakdown_value}, '')"
+                values_arr = [BREAKDOWN_NULL_STRING_LABEL if value in (None, "") else value for value in values_arr]
+            breakdown_value = f"transform(ifNull({breakdown_value}, %(breakdown_null_value)s), (%(values)s), (%(values)s), %(breakdown_other_value)s)"
 
         if self.filter.using_histogram:
             sql_query = BREAKDOWN_HISTOGRAM_PROP_JOIN_SQL
@@ -479,7 +491,11 @@ class TrendsBreakdown:
             sql_query = BREAKDOWN_PROP_JOIN_WITH_OTHER_SQL
 
         return (
-            {"values": values_arr, "other_value": breakdown_other_value},
+            {
+                "values": values_arr,
+                "breakdown_other_value": breakdown_other_value,
+                "breakdown_null_value": breakdown_null_value,
+            },
             sql_query,
             {
                 "breakdown_value_expr": breakdown_value,
@@ -720,10 +736,12 @@ class TrendsBreakdown:
     ) -> str:
         if breakdown_type == "cohort":
             return get_breakdown_cohort_name(breakdown_value)
-        elif str(value) == "$$_posthog_breakdown_other_$$":
+        elif str(value) == BREAKDOWN_OTHER_STRING_LABEL or value == BREAKDOWN_OTHER_NUMERIC_LABEL:
             return "Other"
+        elif str(value) == BREAKDOWN_NULL_STRING_LABEL or value == BREAKDOWN_NULL_NUMERIC_LABEL:
+            return "None"
         else:
-            return str(value) or "none"
+            return str(value) or "None"
 
     def _person_join_condition(self) -> Tuple[str, Dict]:
         if self.person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
