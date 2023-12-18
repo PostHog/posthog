@@ -8,7 +8,9 @@ import { commentsLogic, CommentsLogicProps } from './commentsLogic'
 
 export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
     const { composedComment, commentsLoading, replyingCommentId } = useValues(commentsLogic(props))
-    const { setComposedComment, sendComposedContent, setReplyingComment } = useActions(commentsLogic(props))
+    const { setComposedComment, sendComposedContent, setReplyingComment, setCommentComposerBlurred } = useActions(
+        commentsLogic(props)
+    )
 
     const placeholder = replyingCommentId
         ? 'Reply...'
@@ -33,6 +35,7 @@ export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
                 placeholder={placeholder}
                 value={composedComment}
                 onChange={setComposedComment}
+                onBlur={setCommentComposerBlurred}
                 disabled={commentsLoading}
                 onPressCmdEnter={sendComposedContent}
                 ref={ref}

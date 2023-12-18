@@ -1,21 +1,16 @@
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { Editor, isTextSelection } from '@tiptap/core'
 import { BubbleMenu } from '@tiptap/react'
+import { useActions } from 'kea'
 import { IconBold, IconComment, IconDelete, IconItalic, IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { isURL, uuid } from 'lib/utils'
 import { useRef } from 'react'
-import { commentsLogic } from 'scenes/comments/commentsLogic'
-
-import {
-    sidePanelDiscussionLogic,
-    urlToCommentsLogicProps,
-} from '~/layout/navigation-3000/sidepanel/panels/discussion/sidePanelDiscussionLogic'
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { SidePanelTab } from '~/types'
 
 import NotebookIconHeading from './NotebookIconHeading'
+import { notebookLogic } from './notebookLogic'
 
 export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
+    const { insertComment } = useActions(notebookLogic)
     const { href, target } = editor.getAttributes('link')
     const menuRef = useRef<HTMLDivElement>(null)
 
@@ -119,16 +114,9 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
                 <LemonDivider vertical />
                 <LemonButton
                     onClick={() => {
-                        const sidePanelLogic = sidePanelStateLogic.findMounted()
-                        const logic = commentsLogic.findMounted(urlToCommentsLogicProps(window.location.pathname))
-
-                        debugger
-                        if (sidePanelLogic && logic) {
-                            const markId = uuid()
-                            editor.chain().focus().setMark('comment', { id: markId }).run()
-                            sidePanelLogic.actions.openSidePanel(SidePanelTab.Discussion)
-                            logic.actions.setReferenceValue(markId)
-                        }
+                        const markId = uuid()
+                        editor.chain().focus().setMark('comment', { id: markId }).run()
+                        insertComment(markId)
                     }}
                     icon={<IconComment className="w-4 h-4" />}
                     status="stealth"

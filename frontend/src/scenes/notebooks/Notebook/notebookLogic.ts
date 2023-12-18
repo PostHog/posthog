@@ -6,13 +6,16 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { base64Decode, base64Encode, downloadFile, slugify } from 'lib/utils'
 import posthog from 'posthog-js'
+import { commentsLogic } from 'scenes/comments/commentsLogic'
 import {
     buildTimestampCommentContent,
     NotebookNodeReplayTimestampAttrs,
 } from 'scenes/notebooks/Nodes/NotebookNodeReplayTimestamp'
 
+import { urlToCommentsLogicProps } from '~/layout/navigation-3000/sidepanel/panels/discussion/sidePanelDiscussionLogic'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { notebooksModel, openNotebook, SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
-import { NotebookNodeType, NotebookSyncStatus, NotebookTarget, NotebookType } from '~/types'
+import { NotebookNodeType, NotebookSyncStatus, NotebookTarget, NotebookType, SidePanelTab } from '~/types'
 
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { migrate, NOTEBOOKS_VERSION } from './migrations/migrate'
@@ -58,7 +61,14 @@ export const notebookLogic = kea<notebookLogicType>([
     key(({ shortId, mode }) => `${shortId}-${mode}`),
     connect(() => ({
         values: [notebooksModel, ['scratchpadNotebook', 'notebookTemplates']],
-        actions: [notebooksModel, ['receiveNotebookUpdate']],
+        actions: [
+            notebooksModel,
+            ['receiveNotebookUpdate'],
+            sidePanelStateLogic,
+            ['openSidePanel'],
+            commentsLogic(urlToCommentsLogicProps(window.location.pathname)),
+            ['setReferenceValue', 'sendComposedContentSuccess', 'setCommentComposerBlurred'],
+        ],
     })),
     actions({
         setEditor: (editor: NotebookEditor) => ({ editor }),
@@ -102,6 +112,8 @@ export const notebookLogic = kea<notebookLogicType>([
         setShowHistory: (showHistory: boolean) => ({ showHistory }),
         setTextSelection: (selection: number | EditorRange) => ({ selection }),
         setContainerSize: (containerSize: 'small' | 'medium') => ({ containerSize }),
+        insertComment: (reference: string) => ({ reference }),
+        setCurrentlyCommentingReferenceId: (reference: string | null) => ({ reference }),
     }),
     reducers(({ props }) => ({
         localContent: [
@@ -182,6 +194,14 @@ export const notebookLogic = kea<notebookLogicType>([
             'small' as 'small' | 'medium',
             {
                 setContainerSize: (_, { containerSize }) => containerSize,
+            },
+        ],
+        currentlyCommentingReferenceId: [
+            null as string | null,
+            {
+                setCurrentlyCommentingReferenceId: (_, { reference }) => reference,
+                setReferenceValue: (_, { reference }) => reference,
+                sendComposedContentSuccess: () => null,
             },
         ],
     })),
@@ -589,6 +609,17 @@ export const notebookLogic = kea<notebookLogicType>([
             cache.refreshTimeout = setTimeout(() => {
                 actions.loadNotebook()
             }, NOTEBOOK_REFRESH_MS)
+        },
+
+        insertComment: ({ reference }) => {
+            actions.openSidePanel(SidePanelTab.Discussion)
+            actions.setReferenceValue(reference)
+        },
+        setCommentComposerBlurred: () => {
+            if (values.currentlyCommentingReferenceId) {
+                values.editor?.removeMark('comment')
+                actions.setCurrentlyCommentingReferenceId(null)
+            }
         },
     })),
 

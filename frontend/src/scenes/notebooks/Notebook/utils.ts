@@ -108,6 +108,7 @@ export interface NotebookEditor {
     focus: (position?: EditorFocusPosition) => void
     chain: () => EditorCommands
     destroy: () => void
+    removeMark: (type: string) => void
     deleteRange: (range: EditorRange) => EditorCommands
     insertContent: (content: JSONContent) => void
     insertContentAfterNode: (position: number, content: JSONContent) => void

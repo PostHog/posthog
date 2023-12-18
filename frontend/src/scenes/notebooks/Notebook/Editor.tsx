@@ -247,6 +247,7 @@ export function Editor(): JSX.Element {
                 focus: (position?: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
                 chain: () => editor.chain().focus(),
                 destroy: () => editor.destroy(),
+                removeMark: (type) => editor.commands.unsetMark(type),
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
                 insertContent: (content: JSONContent) => editor.chain().insertContent(content).focus().run(),
                 insertContentAfterNode: (position: number, content: JSONContent) => {

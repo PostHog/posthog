@@ -32,6 +32,7 @@ export const commentsLogic = kea<commentsLogicType>([
         setEditingComment: (comment: CommentType | null) => ({ comment }),
         setReplyingComment: (commentId: string | null) => ({ commentId }),
         setReferenceValue: (reference: string | null) => ({ reference }),
+        setCommentComposerBlurred: true,
         persistEditedComment: true,
     }),
     reducers({
