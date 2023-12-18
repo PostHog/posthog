@@ -40,7 +40,7 @@
   
   SELECT event, distinct_id 
   FROM events 
-  WHERE and(equals(distinct_id, '016f8cc0-2400-0000-b4fa-0b49fb31d6d3'), equals(properties.index, '4')) 
+  WHERE and(equals(distinct_id, 'RANDOM_TEST_ID::UUID'), equals(properties.index, '4')) 
   LIMIT 100
   '
 ---
@@ -49,7 +49,7 @@
   
   SELECT event, distinct_id 
   FROM events 
-  WHERE and(equals(distinct_id, '016f8cc0-2400-0000-b4fa-0b49fb31d6d3'), equals(properties.index, '4')) 
+  WHERE and(equals(distinct_id, 'RANDOM_TEST_ID::UUID'), equals(properties.index, '4')) 
   LIMIT 100
   '
 ---
@@ -67,7 +67,7 @@
   
   SELECT event, distinct_id 
   FROM events 
-  WHERE and(equals(distinct_id, '016f8cc0-2400-0000-b4fa-0b49fb31d6d3'), and(equals(properties.index, '4'), less(timestamp, toDateTime('2020-01-02 00:00:00.000000')), greaterOrEquals(timestamp, toDateTime('2020-01-01 00:00:00.000000')))) 
+  WHERE and(equals(distinct_id, 'RANDOM_TEST_ID::UUID'), and(equals(properties.index, '4'), less(timestamp, toDateTime('2020-01-02 00:00:00.000000')), greaterOrEquals(timestamp, toDateTime('2020-01-01 00:00:00.000000')))) 
   LIMIT 100
   '
 ---
@@ -76,7 +76,7 @@
   
   SELECT event, distinct_id 
   FROM events 
-  WHERE and(equals(distinct_id, '016f8cc0-2400-0000-b4fa-0b49fb31d6d3'), and(equals(properties.index, '4'), less(timestamp, toDateTime('2020-01-02 00:00:00.000000')), greaterOrEquals(timestamp, toDateTime('2020-01-01 00:00:00.000000')))) 
+  WHERE and(equals(distinct_id, 'RANDOM_TEST_ID::UUID'), and(equals(properties.index, '4'), less(timestamp, toDateTime('2020-01-02 00:00:00.000000')), greaterOrEquals(timestamp, toDateTime('2020-01-01 00:00:00.000000')))) 
   LIMIT 100
   '
 ---
@@ -94,7 +94,7 @@
   
   SELECT event, distinct_id 
   FROM events AS e 
-  WHERE equals(properties.random_uuid, '016f8cc0-2400-0001-c0f1-69ca93151ff2') 
+  WHERE equals(properties.random_uuid, 'RANDOM_TEST_ID::UUID') 
   LIMIT 100
   '
 ---
@@ -244,7 +244,7 @@
   WHERE and(equals(events.team_id, 420), ifNull(in(events__pdi.person_id, (
   SELECT cohortpeople.person_id AS person_id 
   FROM cohortpeople 
-  WHERE and(equals(cohortpeople.team_id, 420), equals(cohortpeople.cohort_id, 8)) 
+  WHERE and(equals(cohortpeople.team_id, 420), equals(cohortpeople.cohort_id, 13)) 
   GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version 
   HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), 0)) 
   GROUP BY events.event 
@@ -258,7 +258,7 @@
   WHERE in(person_id, (
   SELECT person_id 
   FROM raw_cohort_people 
-  WHERE equals(cohort_id, 8) 
+  WHERE equals(cohort_id, 13) 
   GROUP BY person_id, cohort_id, version 
   HAVING greater(sum(sign), 0))) 
   GROUP BY event 
@@ -274,7 +274,7 @@
   WHERE and(equals(events.team_id, 420), in(events.person_id, (
   SELECT cohortpeople.person_id AS person_id 
   FROM cohortpeople 
-  WHERE and(equals(cohortpeople.team_id, 420), equals(cohortpeople.cohort_id, 8)) 
+  WHERE and(equals(cohortpeople.team_id, 420), equals(cohortpeople.cohort_id, 13)) 
   GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version 
   HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0)))) 
   GROUP BY events.event 
@@ -288,7 +288,7 @@
   WHERE in(person_id, (
   SELECT person_id 
   FROM raw_cohort_people 
-  WHERE equals(cohort_id, 8) 
+  WHERE equals(cohort_id, 13) 
   GROUP BY person_id, cohort_id, version 
   HAVING greater(sum(sign), 0))) 
   GROUP BY event 
@@ -309,7 +309,7 @@
   WHERE and(equals(events.team_id, 420), ifNull(in(events__pdi.person_id, (
   SELECT person_static_cohort.person_id AS person_id 
   FROM person_static_cohort 
-  WHERE and(equals(person_static_cohort.team_id, 420), equals(person_static_cohort.cohort_id, 9)))), 0)) 
+  WHERE and(equals(person_static_cohort.team_id, 420), equals(person_static_cohort.cohort_id, 14)))), 0)) 
   GROUP BY events.event 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1
@@ -321,7 +321,7 @@
   WHERE in(person_id, (
   SELECT person_id 
   FROM static_cohort_people 
-  WHERE equals(cohort_id, 9))) 
+  WHERE equals(cohort_id, 14))) 
   GROUP BY event 
   LIMIT 100
   '
@@ -335,7 +335,7 @@
   WHERE and(equals(events.team_id, 420), in(events.person_id, (
   SELECT person_static_cohort.person_id AS person_id 
   FROM person_static_cohort 
-  WHERE and(equals(person_static_cohort.team_id, 420), equals(person_static_cohort.cohort_id, 9))))) 
+  WHERE and(equals(person_static_cohort.team_id, 420), equals(person_static_cohort.cohort_id, 14))))) 
   GROUP BY events.event 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1
@@ -347,7 +347,7 @@
   WHERE in(person_id, (
   SELECT person_id 
   FROM static_cohort_people 
-  WHERE equals(cohort_id, 9))) 
+  WHERE equals(cohort_id, 14))) 
   GROUP BY event 
   LIMIT 100
   '
@@ -367,7 +367,7 @@
   
   SELECT count(), event 
   FROM events 
-  WHERE equals(properties.random_uuid, '016f8cc0-2400-0004-f14f-e1c1436db92b') 
+  WHERE equals(properties.random_uuid, 'RANDOM_TEST_ID::UUID') 
   GROUP BY event 
   LIMIT 100
   '
@@ -395,7 +395,7 @@
   
   SELECT DISTINCT properties.sneaky_mail 
   FROM persons 
-  WHERE equals(properties.random_uuid, '016f8cc0-2400-0005-143b-3097b528d6b2') 
+  WHERE equals(properties.random_uuid, 'RANDOM_TEST_ID::UUID') 
   LIMIT 100
   '
 ---
@@ -797,7 +797,7 @@
   FROM (
   SELECT count() AS count, event 
   FROM events 
-  WHERE equals(properties.random_uuid, '016f8cc0-2400-0016-8a52-c803389c2009') 
+  WHERE equals(properties.random_uuid, 'RANDOM_TEST_ID::UUID') 
   GROUP BY event) 
   GROUP BY count, event 
   LIMIT 100
