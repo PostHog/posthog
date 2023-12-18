@@ -13,19 +13,17 @@
 # name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.1
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') AS value,
-            count(*) as count
-     FROM events e
-     WHERE team_id = 2
-       AND event = '$pageview'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event = '$pageview'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 25
+  OFFSET 0
   '
 ---
 # name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.2
@@ -51,13 +49,13 @@
            CROSS JOIN
              (SELECT breakdown_value
               FROM
-                (SELECT ['control', 'test', 'ablahebf', ''] as breakdown_value) ARRAY
+                (SELECT ['control', 'test', 'ablahebf', '$$_posthog_breakdown_null_$$'] as breakdown_value) ARRAY
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            transform(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', ''), (['control', 'test', 'ablahebf', '']), (['control', 'test', 'ablahebf', '']), '$$_posthog_breakdown_other_$$') as breakdown_value
+                            transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['control', 'test', 'ablahebf', '$$_posthog_breakdown_null_$$']), (['control', 'test', 'ablahebf', '$$_posthog_breakdown_null_$$']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
@@ -76,19 +74,17 @@
 # name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.3
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT groupArray(value)
-  FROM
-    (SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS value,
-            count(*) as count
-     FROM events e
-     WHERE team_id = 2
-       AND event IN ['$pageleave_funnel', '$pageview_funnel']
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
+  SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event IN ['$pageleave_funnel', '$pageview_funnel']
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 25
+  OFFSET 0
   '
 ---
 # name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.4
