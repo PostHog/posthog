@@ -11,7 +11,7 @@ const meta: Meta<typeof ToastContent> = {
         testOptions: {
             include3000: true,
             waitForLoadersToDisappear: false,
-            // waitForSelector
+            snapshotTargetSelector: '.Toastify__toast-container',
         },
     },
 }
