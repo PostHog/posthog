@@ -126,9 +126,8 @@ pub struct WebhookJobParameters {
     pub url: String,
 }
 
-/// `JobParameters` required for the `WebhookConsumer` to execute a webhook.
-/// These parameters should match the exported Webhook interface that PostHog plugins.
-/// implement. See: https://github.com/PostHog/plugin-scaffold/blob/main/src/types.ts#L15.
+/// `JobMetadata` required for the `WebhookConsumer` to execute a webhook.
+/// These should be set if the Webhook is associated with a plugin `composeWebhook` invocation.
 #[derive(Deserialize, Serialize, Debug, PartialEq, Clone)]
 pub struct WebhookJobMetadata {
     pub team_id: Option<i32>,
