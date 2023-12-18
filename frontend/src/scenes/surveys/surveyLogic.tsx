@@ -676,9 +676,6 @@ export const surveyLogic = kea<surveyLogicType>([
                 name: !name && 'Please enter a name.',
                 questions: questions.map((question) => ({
                     question: !question.question && 'Please enter a question.',
-                    ...(question.type === SurveyQuestionType.Link
-                        ? { link: !question.link && 'Please enter a url for the link.' }
-                        : {}),
                     ...(question.type === SurveyQuestionType.Rating
                         ? {
                               display: !question.display && 'Please choose a display type.',

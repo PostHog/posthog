@@ -367,7 +367,8 @@
       console_error_count Int64,
       size Int64,
       event_count Int64,
-      message_count Int64
+      message_count Int64,
+      snapshot_source LowCardinality(Nullable(String))
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
   '
@@ -998,7 +999,8 @@
       console_error_count Int64,
       size Int64,
       event_count Int64,
-      message_count Int64
+      message_count Int64,
+      snapshot_source LowCardinality(Nullable(String))
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_replay_events_test', 'group1', 'JSONEachRow')
   
   '
@@ -1482,6 +1484,8 @@
       -- often very useful in incidents or debugging
       -- because we batch events we expect message_count to be lower than event_count
       event_count SimpleAggregateFunction(sum, Int64),
+      -- which source the snapshots came from Android, iOS, Mobile, Web. Web if absent
+      snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime)
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
   
@@ -1519,6 +1523,7 @@
   -- we can count the number of kafka messages instead of sending it explicitly
   sum(message_count) as message_count,
   sum(event_count) as event_count,
+  argMinState(snapshot_source, first_timestamp) as snapshot_source,
   max(_timestamp) as _timestamp
   FROM posthog_test.kafka_session_replay_events
   group by session_id, team_id
@@ -1758,6 +1763,8 @@
       -- often very useful in incidents or debugging
       -- because we batch events we expect message_count to be lower than event_count
       event_count SimpleAggregateFunction(sum, Int64),
+      -- which source the snapshots came from Android, iOS, Mobile, Web. Web if absent
+      snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   
@@ -2433,6 +2440,8 @@
       -- often very useful in incidents or debugging
       -- because we batch events we expect message_count to be lower than event_count
       event_count SimpleAggregateFunction(sum, Int64),
+      -- which source the snapshots came from Android, iOS, Mobile, Web. Web if absent
+      snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
       _timestamp SimpleAggregateFunction(max, DateTime)
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events', '{replica}')
   

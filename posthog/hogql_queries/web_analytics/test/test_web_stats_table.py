@@ -35,9 +35,9 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 )
         return person_result
 
-    def _run_web_stats_table_query(self, date_from, date_to):
+    def _run_web_stats_table_query(self, date_from, date_to, breakdown_by=WebStatsBreakdown.Page):
         query = WebStatsTableQuery(
-            dateRange=DateRange(date_from=date_from, date_to=date_to), properties=[], breakdownBy=WebStatsBreakdown.Page
+            dateRange=DateRange(date_from=date_from, date_to=date_to), properties=[], breakdownBy=breakdown_by
         )
         runner = WebStatsTableQueryRunner(team=self.team, query=query)
         return runner.calculate()
@@ -92,4 +92,22 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             [],
             results,
+        )
+
+    def test_breakdown_channel_type_doesnt_throw(self):
+        # not really testing the functionality yet, which is tested elsewhere, just that it runs
+        self._create_events(
+            [
+                ("p1", [("2023-12-02", "s1a", "/"), ("2023-12-03", "s1a", "/login"), ("2023-12-13", "s1b", "/docs")]),
+                ("p2", [("2023-12-10", "s2", "/")]),
+            ]
+        )
+
+        results = self._run_web_stats_table_query(
+            "2023-12-01", "2023-12-03", breakdown_by=WebStatsBreakdown.InitialChannelType
+        ).results
+
+        self.assertEqual(
+            1,
+            len(results),
         )

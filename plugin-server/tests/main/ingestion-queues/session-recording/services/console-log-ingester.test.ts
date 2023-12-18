@@ -27,6 +27,7 @@ const makeIncomingMessage = (
         },
         session_id: '',
         team_id: 0,
+        snapshot_source: 'should not effect this ingestion route',
     }
 }
 

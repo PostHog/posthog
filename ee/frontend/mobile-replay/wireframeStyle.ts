@@ -166,7 +166,7 @@ export function makeMinimalStyles(wireframe: wireframe, styleOverride?: MobileSt
     return styles
 }
 
-export function makeStylesString(wireframe: wireframe, styleOverride?: MobileStyles): string {
+export function makeColorStyles(wireframe: wireframe, styleOverride?: MobileStyles): string {
     let styles = ''
 
     const combinedStyles = {
@@ -182,6 +182,14 @@ export function makeStylesString(wireframe: wireframe, styleOverride?: MobileSty
     }
 
     styles += makeBorderStyles(wireframe, styleOverride)
+
+    return styles
+}
+
+export function makeStylesString(wireframe: wireframe, styleOverride?: MobileStyles): string {
+    let styles = ''
+
+    styles += makeColorStyles(wireframe, styleOverride)
     styles += makeMinimalStyles(wireframe, styleOverride)
 
     return styles

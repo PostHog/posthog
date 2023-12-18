@@ -34,6 +34,8 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>Path</>
         case WebStatsBreakdown.InitialPage:
             return <>Initial Path</>
+        case WebStatsBreakdown.InitialChannelType:
+            return <>Initial Channel Type</>
         case WebStatsBreakdown.InitialReferringDomain:
             return <>Referring Domain</>
         case WebStatsBreakdown.InitialUTMSource:
@@ -114,12 +116,14 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
 
 export const webStatsBreakdownToPropertyName = (
     breakdownBy: WebStatsBreakdown
-): { key: string; type: PropertyFilterType.Person | PropertyFilterType.Event } => {
+): { key: string; type: PropertyFilterType.Person | PropertyFilterType.Event } | undefined => {
     switch (breakdownBy) {
         case WebStatsBreakdown.Page:
             return { key: '$pathname', type: PropertyFilterType.Event }
         case WebStatsBreakdown.InitialPage:
             return { key: '$initial_pathname', type: PropertyFilterType.Person }
+        case WebStatsBreakdown.InitialChannelType:
+            return undefined
         case WebStatsBreakdown.InitialReferringDomain:
             return { key: '$initial_referring_domain', type: PropertyFilterType.Person }
         case WebStatsBreakdown.InitialUTMSource:
@@ -189,11 +193,14 @@ export const WebStatsTrendTile = ({
         hasOSFilter,
         dateFilter: { interval },
     } = useValues(webAnalyticsLogic)
-    const { key: worldMapPropertyName } = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)
-    const { key: deviceTypePropertyName } = webStatsBreakdownToPropertyName(WebStatsBreakdown.DeviceType)
+    const worldMapPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)?.key
+    const deviceTypePropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.DeviceType)?.key
 
     const onWorldMapClick = useCallback(
         (breakdownValue: string) => {
+            if (!worldMapPropertyName) {
+                return
+            }
             togglePropertyFilter(PropertyFilterType.Event, worldMapPropertyName, breakdownValue)
             if (!hasCountryFilter) {
                 // if we just added a country filter, switch to the region tab, as the world map will not be useful
@@ -214,6 +221,9 @@ export const WebStatsTrendTile = ({
             }
             const breakdownValue = dataset.breakdownValues?.[graphPoint.index]
             if (!breakdownValue) {
+                return
+            }
+            if (!deviceTypePropertyName) {
                 return
             }
             togglePropertyFilter(PropertyFilterType.Event, deviceTypePropertyName, breakdownValue)
@@ -283,10 +293,13 @@ export const WebStatsTableTile = ({
     breakdownBy: WebStatsBreakdown
 }): JSX.Element => {
     const { togglePropertyFilter } = useActions(webAnalyticsLogic)
-    const { key, type } = webStatsBreakdownToPropertyName(breakdownBy)
+    const { key, type } = webStatsBreakdownToPropertyName(breakdownBy) || {}
 
     const onClick = useCallback(
         (breakdownValue: string) => {
+            if (!key || !type) {
+                return
+            }
             togglePropertyFilter(type, key, breakdownValue)
         },
         [togglePropertyFilter, type, key]
@@ -299,7 +312,7 @@ export const WebStatsTableTile = ({
                 return {}
             }
             return {
-                onClick: () => onClick(breakdownValue),
+                onClick: key && type ? () => onClick(breakdownValue) : undefined,
             }
         }
         return {
