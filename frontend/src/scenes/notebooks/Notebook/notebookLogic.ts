@@ -67,7 +67,7 @@ export const notebookLogic = kea<notebookLogicType>([
             sidePanelStateLogic,
             ['openSidePanel'],
             commentsLogic(urlToCommentsLogicProps(window.location.pathname)),
-            ['setReferenceValue', 'sendComposedContentSuccess', 'setCommentComposerBlurred'],
+            ['setReferenceValue', 'sendComposedContentSuccess', 'setCommentComposerBlurred', 'focusComposer'],
         ],
     })),
     actions({
@@ -614,6 +614,7 @@ export const notebookLogic = kea<notebookLogicType>([
         insertComment: ({ reference }) => {
             actions.openSidePanel(SidePanelTab.Discussion)
             actions.setReferenceValue(reference)
+            actions.focusComposer()
         },
         setCommentComposerBlurred: () => {
             if (values.currentlyCommentingReferenceId) {

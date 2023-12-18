@@ -1,5 +1,6 @@
-import { actions, afterMount, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
@@ -34,6 +35,8 @@ export const commentsLogic = kea<commentsLogicType>([
         setReferenceValue: (reference: string | null) => ({ reference }),
         setCommentComposerBlurred: true,
         persistEditedComment: true,
+        setComposerRef: (ref: HTMLTextAreaElement | null) => ({ ref }),
+        focusComposer: true,
     }),
     reducers({
         replyingCommentId: [
@@ -41,6 +44,7 @@ export const commentsLogic = kea<commentsLogicType>([
             {
                 setReplyingComment: (_, { commentId }) => commentId,
                 sendComposedContentSuccess: () => null,
+                setCommentComposerBlurred: () => null,
             },
         ],
         referenceValue: [
@@ -63,6 +67,12 @@ export const commentsLogic = kea<commentsLogicType>([
             {
                 setComposedComment: (_, { content }) => content,
                 sendComposedContentSuccess: () => '',
+            },
+        ],
+        composerRef: [
+            null as HTMLTextAreaElement | null,
+            {
+                setComposerRef: (_, { ref }) => ref,
             },
         ],
     }),
@@ -124,6 +134,12 @@ export const commentsLogic = kea<commentsLogicType>([
         ],
     })),
 
+    listeners(({ values }) => ({
+        focusComposer: () => {
+            values.composerRef?.focus()
+        },
+    })),
+
     selectors({
         sortedComments: [
             (s) => [s.comments],
@@ -163,6 +179,14 @@ export const commentsLogic = kea<commentsLogicType>([
             },
         ],
     }),
+
+    subscriptions(({ actions }) => ({
+        replyingCommentId: (value: string): void => {
+            if (value) {
+                actions.focusComposer()
+            }
+        },
+    })),
 
     afterMount(({ actions }) => {
         actions.loadComments()

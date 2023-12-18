@@ -115,7 +115,7 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
                 <LemonButton
                     onClick={() => {
                         const markId = uuid()
-                        editor.chain().focus().setMark('comment', { id: markId }).run()
+                        editor.chain().setMark('comment', { id: markId }).run()
                         insertComment(markId)
                     }}
                     icon={<IconComment className="w-4 h-4" />}
