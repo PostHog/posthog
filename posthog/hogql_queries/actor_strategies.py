@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict, List, cast, Literal, Optional
 
 from django.db.models import Prefetch
 
@@ -27,6 +27,9 @@ class ActorStrategy:
 
     def filter_conditions(self) -> List[ast.Expr]:
         return []
+
+    def order_by(self) -> Optional[List[ast.OrderExpr]]:
+        return None
 
 
 class PersonStrategy(ActorStrategy):
@@ -88,6 +91,23 @@ class PersonStrategy(ActorStrategy):
             )
         return where_exprs
 
+    def order_by(self) -> Optional[List[ast.OrderExpr]]:
+        if self.query.orderBy not in [["person"], ["person DESC"], ["person ASC"]]:
+            return
+
+        order_property = (
+            "email" if self.team.person_display_name_properties is None else self.team.person_display_name_properties[0]
+        )
+        return [
+            ast.OrderExpr(
+                expr=ast.Field(chain=["properties", order_property]),
+                order=cast(
+                    Literal["ASC", "DESC"],
+                    "DESC" if self.query.orderBy[0] == "person DESC" else "ASC",
+                ),
+            )
+        ]
+
 
 class GroupStrategy(ActorStrategy):
     field = "group"
@@ -138,3 +158,18 @@ class GroupStrategy(ActorStrategy):
             )
 
         return where_exprs
+
+    def order_by(self) -> Optional[List[ast.OrderExpr]]:
+        if self.query.orderBy not in [["group"], ["group DESC"], ["group ASC"]]:
+            return
+
+        order_property = "name"
+        return [
+            ast.OrderExpr(
+                expr=ast.Field(chain=["properties", order_property]),
+                order=cast(
+                    Literal["ASC", "DESC"],
+                    "DESC" if self.query.orderBy[0] == "group DESC" else "ASC",
+                ),
+            )
+        ]

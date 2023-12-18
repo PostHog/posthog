@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import List, cast, Literal, Generator, Sequence, Iterator, Optional
+from typing import List, Generator, Sequence, Iterator, Optional
 from posthog.hogql import ast
 from posthog.hogql.constants import get_max_limit_for_context, get_default_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_order_expr
@@ -57,7 +57,7 @@ class PersonsQueryRunner(QueryRunner):
         missing_actors_count = None
         results: Sequence[List] | Iterator[List] = self.paginator.results
 
-        enrich_columns = filter(lambda column: column in ("person", "group", "actor"), input_columns)
+        enrich_columns = filter(lambda column: column in ("person", "group"), input_columns)
         for column_name in enrich_columns:
             actor_ids = (row[input_columns.index(column_name)] for row in self.paginator.results)
             actors_lookup = self.strategy.get_actors(actor_ids)
@@ -153,21 +153,9 @@ class PersonsQueryRunner(QueryRunner):
 
         with self.timings.measure("order"):
             if self.query.orderBy is not None:
-                if self.query.orderBy in [["person"], ["person DESC"], ["person ASC"]]:
-                    order_property = (
-                        "email"
-                        if self.team.person_display_name_properties is None
-                        else self.team.person_display_name_properties[0]
-                    )
-                    order_by = [
-                        ast.OrderExpr(
-                            expr=ast.Field(chain=["properties", order_property]),
-                            order=cast(
-                                Literal["ASC", "DESC"],
-                                "DESC" if self.query.orderBy[0] == "person DESC" else "ASC",
-                            ),
-                        )
-                    ]
+                strategy_order_by = self.strategy.order_by()
+                if strategy_order_by is not None:
+                    order_by = strategy_order_by
                 else:
                     order_by = [parse_order_expr(column, timings=self.timings) for column in self.query.orderBy]
             elif "count()" in self.input_columns():
