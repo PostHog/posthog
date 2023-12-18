@@ -21,9 +21,10 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
     return (
         <div
             className={clsx(
-                'border rounded-lg bg-bg-light',
+                'Comment border rounded-lg bg-bg-light',
                 (replyingCommentId === comment.id || editingComment?.id === comment.id) && 'border-primary-3000'
             )}
+            data-comment-id={comment.id}
         >
             <div className="flex-1 flex justify-start p-2 gap-2">
                 <ProfilePicture

@@ -3258,7 +3258,7 @@ export type CommentType = {
     source_comment_id?: string | null
     scope: ActivityScope
     item_id?: string
-    item_context?: Record<string, any>
+    item_context: Record<string, any> | null
 }
 
 export type NotebookListItemType = {

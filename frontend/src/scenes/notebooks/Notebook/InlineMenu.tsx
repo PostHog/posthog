@@ -116,7 +116,7 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
                     onClick={() => {
                         const markId = uuid()
                         editor.chain().setMark('comment', { id: markId }).run()
-                        insertComment(markId)
+                        insertComment({ type: 'mark', id: markId })
                     }}
                     icon={<IconComment className="w-4 h-4" />}
                     status="stealth"
