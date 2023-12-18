@@ -248,6 +248,7 @@ export function Editor(): JSX.Element {
                 chain: () => editor.chain().focus(),
                 destroy: () => editor.destroy(),
                 removeMark: (type) => editor.commands.unsetMark(type),
+                removeComment: (commentId: string) => removeCommentMark(editor, commentId),
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
                 insertContent: (content: JSONContent) => editor.chain().insertContent(content).focus().run(),
                 insertContentAfterNode: (position: number, content: JSONContent) => {
@@ -385,4 +386,19 @@ export function hasMatchingNode(
                 attrEntries.every(([attr, value]: [string, any]) => node.attrs && node.attrs[attr] === value)
             )
     )
+}
+
+export function removeCommentMark(editor: TTEditor, commentId: string): void {
+    const doc = editor.state.doc
+
+    doc.descendants((node, pos) => {
+        const commentMark = node.marks.find((mark) => mark.type.name === 'comment' && mark.attrs.id === commentId)
+
+        if (!commentMark) {
+            return
+        }
+
+        editor.commands.setNodeSelection(pos)
+        editor.commands.unsetMark('comment', { extendEmptyMarkRange: true })
+    })
 }

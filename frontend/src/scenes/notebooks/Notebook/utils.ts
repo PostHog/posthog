@@ -109,6 +109,7 @@ export interface NotebookEditor {
     chain: () => EditorCommands
     destroy: () => void
     removeMark: (type: string) => void
+    removeComment: (commentId: string) => void
     deleteRange: (range: EditorRange) => EditorCommands
     insertContent: (content: JSONContent) => void
     insertContentAfterNode: (position: number, content: JSONContent) => void

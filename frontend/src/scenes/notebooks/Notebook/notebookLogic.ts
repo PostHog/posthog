@@ -67,7 +67,13 @@ export const notebookLogic = kea<notebookLogicType>([
             sidePanelStateLogic,
             ['openSidePanel'],
             commentsLogic(urlToCommentsLogicProps(window.location.pathname)),
-            ['setReferenceValue', 'sendComposedContentSuccess', 'setCommentComposerBlurred', 'focusComposer'],
+            [
+                'setReferenceValue',
+                'sendComposedContentSuccess',
+                'setCommentComposerBlurred',
+                'focusComposer',
+                'deleteCommentSuccess',
+            ],
         ],
     })),
     actions({
@@ -620,6 +626,11 @@ export const notebookLogic = kea<notebookLogicType>([
             if (values.currentlyCommentingReferenceId) {
                 values.editor?.removeMark('comment')
                 actions.setCurrentlyCommentingReferenceId(null)
+            }
+        },
+        deleteCommentSuccess({ payload }) {
+            if (payload?.comment) {
+                values.editor?.removeComment(payload.comment.id)
             }
         },
     })),
