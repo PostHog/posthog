@@ -459,9 +459,7 @@ class TrendsBreakdown:
         numeric_property_filter = ""
         if self.filter.using_histogram:
             numeric_property_filter = f"AND {breakdown_value} is not null"
-            breakdown_value, values_arr = self._get_histogram_breakdown_values(
-                breakdown_value, [val for val in values_arr if val is not None]
-            )
+            breakdown_value, values_arr = self._get_histogram_breakdown_values(breakdown_value, values_arr)
 
         elif self.filter.breakdown_type == "session" and self.filter.breakdown == "$session_duration":
             # Not adding "Other" for the custom session duration filter.
@@ -739,9 +737,9 @@ class TrendsBreakdown:
         elif str(value) == BREAKDOWN_OTHER_STRING_LABEL or value == BREAKDOWN_OTHER_NUMERIC_LABEL:
             return "Other"
         elif str(value) == BREAKDOWN_NULL_STRING_LABEL or value == BREAKDOWN_NULL_NUMERIC_LABEL:
-            return "None"
+            return "none"
         else:
-            return str(value) or "None"
+            return str(value) or "none"
 
     def _person_join_condition(self) -> Tuple[str, Dict]:
         if self.person_on_events_mode == PersonOnEventsMode.V1_ENABLED:
