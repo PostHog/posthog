@@ -1,5 +1,7 @@
 import { EitherMembershipLevel, FEATURE_FLAGS } from 'lib/constants'
 
+import { AvailableFeature } from '~/types'
+
 export type SettingsLogicProps = {
     logicKey?: string
     // Optional - if given, renders only the given level
@@ -77,6 +79,7 @@ export type Setting = {
     description?: JSX.Element | string
     component: JSX.Element
     flag?: keyof typeof FEATURE_FLAGS
+    features?: AvailableFeature[]
 }
 
 export type SettingSection = {
