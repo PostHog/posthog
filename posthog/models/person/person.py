@@ -241,6 +241,11 @@ class FlatPersonOverride(models.Model):
       "override" person for a given team -- but never both, as this would
       indicate a failure to account for a transitive merge.
 
+    The first two of these expectations can be enforced as constraints, but
+    unfortunately we've found the third to be too costly to enforce in practice.
+    Instead, we try to ensure that this invariant holds by serializing all
+    writes to this table through the ``PendingPersonOverride`` model above.
+
     The "flat" in the table name is used to distinguish this table from a prior
     approach that required multiple tables to maintain the same state but
     otherwise has little significance of its own.
@@ -256,6 +261,16 @@ class FlatPersonOverride(models.Model):
     class Meta:
         indexes = [
             models.Index(fields=["team_id", "override_person_id"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team_id", "old_person_id"],
+                name="flatpersonoverride_unique_old_person_by_team",
+            ),
+            models.CheckConstraint(
+                check=~Q(old_person_id__exact=F("override_person_id")),
+                name="flatpersonoverride_check_circular_reference",
+            ),
         ]
 
 
