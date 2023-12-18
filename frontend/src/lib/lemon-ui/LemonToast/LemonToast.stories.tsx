@@ -49,7 +49,8 @@ export const ToastTypes: Story = {
 
         useEffect(() => {
             args.toasts.forEach((toast) => {
-                lemonToast[toast.type](toast.message)
+                const { type, message, ...rest } = toast
+                lemonToast[type](message, rest)
             })
         }, [])
 
@@ -75,6 +76,22 @@ export const BillingError: Story = {
                 type: 'error',
                 message:
                     'Load experiment failed: This feature is part of the premium PostHog offering. To use it, subscribe to PostHog Cloud with a generous free tier: https://app.posthog.com/organization/billing',
+            },
+        ],
+    },
+}
+
+export const WithButton: Story = {
+    ...ToastTypes,
+    args: {
+        toasts: [
+            {
+                type: 'success',
+                message: 'Insight added to dashboard',
+                button: {
+                    label: 'View dashboard',
+                    action: (): void => {},
+                },
             },
         ],
     },
