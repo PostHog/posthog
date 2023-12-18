@@ -65,7 +65,7 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
             const OtherProductsStep = <OnboardingOtherProductsStep stepKey={OnboardingStepKey.OTHER_PRODUCTS} />
             steps = [...steps, OtherProductsStep]
         }
-        if (featureFlags[FEATURE_FLAGS.INVITE_TEAM_MEMBER_ONBOARDING] == 'test') {
+        if (featureFlags[FEATURE_FLAGS.INVITE_TEAM_MEMBER_ONBOARDING] === 'test') {
             const inviteTeammatesStep = <OnboardingInviteTeammates stepKey={OnboardingStepKey.INVITE_TEAMMATES} />
             steps = [...steps, inviteTeammatesStep]
         }
