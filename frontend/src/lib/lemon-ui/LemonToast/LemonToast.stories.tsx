@@ -96,3 +96,31 @@ export const WithButton: Story = {
         ],
     },
 }
+
+export const WithProgress: Story = {
+    ...ToastTypes,
+    args: {
+        toasts: [
+            {
+                type: 'info',
+                message: 'An info toast with progress',
+                progress: 0.4,
+            } as ToastContentProps,
+            {
+                type: 'success',
+                message: 'A success toast with progress',
+                progress: 0.4,
+            } as ToastContentProps,
+            {
+                type: 'warning',
+                message: 'A warning toast with progress',
+                progress: 0.4,
+            } as ToastContentProps,
+            {
+                type: 'error',
+                message: 'An error toast with progress',
+                progress: 0.4,
+            } as ToastContentProps,
+        ],
+    },
+}
