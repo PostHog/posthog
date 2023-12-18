@@ -1,3 +1,4 @@
+from typing import Any
 from unittest import mock
 
 from rest_framework import status
@@ -6,7 +7,7 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest
 
 
 class TestComments(APIBaseTest, QueryMatchingTest):
-    def _create_comment(self, data={}) -> None:
+    def _create_comment(self, data={}) -> Any:
         payload = {
             "content": "my content",
             "scope": "Notebook",

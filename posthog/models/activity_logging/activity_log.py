@@ -25,6 +25,7 @@ ActivityScope = Literal[
     "EventDefinition",
     "PropertyDefinition",
     "Notebook",
+    "Comment",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 

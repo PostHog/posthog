@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, cast
 from django.db import transaction
 from django.db.models import QuerySet
 
@@ -24,9 +24,10 @@ class CommentSerializer(serializers.ModelSerializer):
 
     def validate(self, data):
         request = self.context["request"]
+        instance = cast(Comment, self.instance)
 
-        if self.instance:
-            if self.instance.created_by != request.user:
+        if instance:
+            if instance.created_by != request.user:
                 raise exceptions.PermissionDenied("You can only modify your own comments")
         # TODO: Ensure created_by is set
         # And only allow updates to own comment
