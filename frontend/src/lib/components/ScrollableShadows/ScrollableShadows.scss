@@ -1,7 +1,7 @@
 .ScrollableShadows {
     position: relative;
-    overflow: hidden;
     display: flex;
+    overflow: hidden;
 
     &::before,
     &::after {
