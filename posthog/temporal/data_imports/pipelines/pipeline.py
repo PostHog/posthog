@@ -5,7 +5,6 @@ import dlt
 from django.conf import settings
 from dlt.pipeline.exceptions import PipelineStepFailed
 
-from posthog.temporal.data_imports.pipelines.stripe.helpers import stripe_source
 import asyncio
 import os
 from posthog.settings.base_variables import TEST
@@ -65,9 +64,6 @@ class DataImportPipeline:
             destination=destination,
             dataset_name=self.inputs.dataset_name,
         )
-
-    def _get_source(self) -> DltResource:
-        raise NotImplementedError()
 
     def _get_schemas(self):
         if not self.inputs.schemas:
