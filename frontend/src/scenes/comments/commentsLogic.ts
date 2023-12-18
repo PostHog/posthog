@@ -19,7 +19,7 @@ export type CommentWithRepliesType = {
 }
 
 export const commentsLogic = kea<commentsLogicType>([
-    path(() => ['scenes', 'notebooks', 'Notebook', 'notebookCommentLogic']),
+    path(() => ['scenes', 'notebooks', 'Notebook', 'commentsLogic']),
     props({} as CommentsLogicProps),
     key((props) => `${props.scope}-${props.item_id || ''}`),
 
@@ -31,6 +31,7 @@ export const commentsLogic = kea<commentsLogicType>([
         deleteComment: (comment: CommentType) => ({ comment }),
         setEditingComment: (comment: CommentType | null) => ({ comment }),
         setReplyingComment: (commentId: string | null) => ({ commentId }),
+        setReferenceValue: (reference: string | null) => ({ reference }),
         persistEditedComment: true,
     }),
     reducers({
@@ -38,6 +39,13 @@ export const commentsLogic = kea<commentsLogicType>([
             null as string | null,
             {
                 setReplyingComment: (_, { commentId }) => commentId,
+                sendComposedContentSuccess: () => null,
+            },
+        ],
+        referenceValue: [
+            null as string | null,
+            {
+                setReferenceValue: (_, { reference }) => reference,
                 sendComposedContentSuccess: () => null,
             },
         ],
@@ -76,6 +84,7 @@ export const commentsLogic = kea<commentsLogicType>([
                         content: values.composedComment,
                         scope: props.scope,
                         item_id: props.item_id,
+                        reference: values.referenceValue,
                         source_comment_id: values.replyingCommentId ?? undefined,
                     })
                     return [...existingComments, newComment]
