@@ -491,7 +491,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                     return (
                                         (result && 'uuid' in result ? (result as any).uuid : null) ??
                                         (result && 'id' in result ? (result as any).id : null) ??
-                                        JSON.stringify(result ?? rowIndex)
+                                        rowIndex
                                     )
                                 }
                                 return rowIndex
