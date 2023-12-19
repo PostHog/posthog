@@ -273,7 +273,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     add_periodic_task_with_expiry(
         sender,
-        30,
+        120,
         process_scheduled_changes.s(),
         name="process scheduled changes",
     )
