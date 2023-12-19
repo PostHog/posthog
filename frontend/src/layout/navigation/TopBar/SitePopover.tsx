@@ -137,17 +137,17 @@ export function InviteMembersButton({
 
 function SystemStatus(): JSX.Element {
     const { closeSitePopover } = useActions(navigationLogic)
-    const { systemStatus } = useValues(navigationLogic)
+    const { systemStatusHealthy } = useValues(navigationLogic)
 
     return (
         <LemonRow
-            status={systemStatus ? 'success' : 'danger'}
-            icon={systemStatus ? <IconCheckmark /> : <IconOffline />}
+            status={systemStatusHealthy ? 'success' : 'danger'}
+            icon={systemStatusHealthy ? <IconCheckmark /> : <IconOffline />}
             fullWidth
         >
             <>
                 <div className="SitePopover__main-info">
-                    {systemStatus ? 'All systems operational' : 'Potential system issue'}
+                    {systemStatusHealthy ? 'All systems operational' : 'Potential system issue'}
                 </div>
                 <Link
                     to={urls.instanceStatus()}
