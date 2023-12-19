@@ -185,7 +185,7 @@ async fn send_webhook(
     url: &str,
     headers: &collections::HashMap<String, String>,
     body: String,
-) -> Result<(), WebhookError> {
+) -> Result<reqwest::Response, WebhookError> {
     let method: http::Method = method.into();
     let url: reqwest::Url = (url).parse().map_err(WebhookError::ParseUrlError)?;
     let headers: reqwest::header::HeaderMap = (headers)
@@ -204,15 +204,15 @@ async fn send_webhook(
             retry_after: None,
         })?;
 
-    match response.error_for_status_ref() {
-        Ok(_) => Ok(()),
+    let retry_after = parse_retry_after_header(response.headers());
+
+    match response.error_for_status() {
+        Ok(response) => Ok(response),
         Err(err) => {
             if is_retryable_status(
                 err.status()
                     .expect("status code is set as error is generated from a response"),
             ) {
-                let retry_after = parse_retry_after_header(response.headers());
-
                 Err(WebhookError::RetryableRequestError {
                     error: err,
                     retry_after,
