@@ -8,7 +8,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0376_externaldataschema_last_synced_at"),
+        ("posthog", "0377_flatpersonoverride"),
     ]
 
     operations = [
