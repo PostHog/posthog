@@ -1,5 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
@@ -43,6 +43,7 @@ export interface ListActorsResponse {
 export const personsModalLogic = kea<personsModalLogicType>([
     path(['scenes', 'trends', 'personsModalLogic']),
     props({} as PersonModalLogicProps),
+    key((props) => props.url),
     actions({
         setSearchTerm: (search: string) => ({ search }),
         saveAsCohort: (cohortName: string) => ({ cohortName }),
