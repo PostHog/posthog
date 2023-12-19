@@ -1716,16 +1716,16 @@
                 "day": {
                     "type": "string"
                 },
+                "interval": {
+                    "description": "An interval selected out of available intervals in source query",
+                    "type": "integer"
+                },
                 "kind": {
                     "const": "InsightPersonsQuery",
                     "type": "string"
                 },
                 "response": {
                     "$ref": "#/definitions/PersonsQueryResponse"
-                },
-                "selected_interval": {
-                    "description": "An interval selected out of available intervals in source query",
-                    "type": "integer"
                 },
                 "source": {
                     "$ref": "#/definitions/InsightQueryNode"

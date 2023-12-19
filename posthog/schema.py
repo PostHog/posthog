@@ -1879,11 +1879,11 @@ class InsightPersonsQuery(BaseModel):
         extra="forbid",
     )
     day: Optional[str] = None
-    kind: Literal["InsightPersonsQuery"] = "InsightPersonsQuery"
-    response: Optional[PersonsQueryResponse] = None
-    selected_interval: Optional[int] = Field(
+    interval: Optional[int] = Field(
         default=None, description="An interval selected out of available intervals in source query"
     )
+    kind: Literal["InsightPersonsQuery"] = "InsightPersonsQuery"
+    response: Optional[PersonsQueryResponse] = None
     source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
     status: Optional[str] = None
 
