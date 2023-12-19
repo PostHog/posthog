@@ -79,9 +79,6 @@ export const personsLogic = kea<personsLogicType>([
                             ...(values.listFilters.properties || []),
                             ...values.hiddenListProperties,
                         ]
-                        if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test') {
-                            newFilters.include_total = true // The total count is slow, but needed for infinite loading
-                        }
                         if (props.cohort) {
                             result = {
                                 ...(await api.get(`api/cohort/${props.cohort}/persons/?${toParams(newFilters)}`)),

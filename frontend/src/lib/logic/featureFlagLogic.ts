@@ -23,22 +23,11 @@ function notifyFlagIfNeeded(flag: string, flagState: string | boolean | undefine
 
 function getPersistedFeatureFlags(appContext: AppContext | undefined = getAppContext()): FeatureFlagsSet {
     const persistedFeatureFlags = appContext?.persisted_feature_flags || []
-    /** :HACKY: Handle experiment (non-boolean) feature flag for 3000. */
-    let has3000Flag = false
     const flags = Object.fromEntries(
         persistedFeatureFlags.map((f) => {
-            if (f === FEATURE_FLAGS.POSTHOG_3000) {
-                has3000Flag = true
-                return [f, 'test']
-            } else {
-                return [f, true]
-            }
+            return [f, true]
         })
     )
-
-    if (!has3000Flag) {
-        flags[FEATURE_FLAGS.POSTHOG_3000] = 'control'
-    }
 
     return flags
 }
@@ -51,9 +40,7 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
             ? { ...persistedFlags, ...featureFlags }
             : persistedFlags
 
-    if (availableFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test') {
-        availableFlags[FEATURE_FLAGS.NOTEBOOKS] = true
-    }
+    availableFlags[FEATURE_FLAGS.NOTEBOOKS] = true
 
     if (typeof window.Proxy !== 'undefined') {
         return new Proxy(

@@ -3,7 +3,6 @@ import './Link.scss'
 import clsx from 'clsx'
 import { useActions } from 'kea'
 import { router } from 'kea-router'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { isExternalLink } from 'lib/utils'
 import React from 'react'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
@@ -87,7 +86,6 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             href: typeof to === 'string' ? to : undefined,
         })
 
-        const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
         const { openDocsPage } = useActions(sidePanelDocsLogic)
 
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
@@ -103,7 +101,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 return
             }
 
-            if (typeof to === 'string' && is3000 && isPostHogComDocs(to)) {
+            if (typeof to === 'string' && isPostHogComDocs(to)) {
                 event.preventDefault()
                 openDocsPage(to)
                 return

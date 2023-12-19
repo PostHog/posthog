@@ -1,7 +1,6 @@
 import { IconOpenSidebar } from '@posthog/icons'
 import { useActions } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconClose, IconOpenInNew, IconPlus } from 'lib/lemon-ui/icons'
+import { IconClose, IconPlus } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { userLogic } from 'scenes/userLogic'
 
@@ -39,7 +38,6 @@ export const ProductIntroduction = ({
     customHog?: React.ComponentType<{ className?: string }>
 }): JSX.Element => {
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
-    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
     const actionable = action || actionElementOverride
     return (
         <div className="border-2 border-dashed border-border w-full p-8 justify-center rounded-md mt-2 mb-4">
@@ -106,13 +104,7 @@ export const ProductIntroduction = ({
                             <LemonButton
                                 type={actionable ? 'tertiary' : 'secondary'}
                                 status="muted"
-                                sideIcon={
-                                    is3000 ? (
-                                        <IconOpenSidebar className="w-4 h-4" />
-                                    ) : (
-                                        <IconOpenInNew className="w-4 h-4" />
-                                    )
-                                }
+                                sideIcon={<IconOpenSidebar className="w-4 h-4" />}
                                 to={`${docsURL}?utm_medium=in-product&utm_campaign=empty-state-docs-link`}
                                 data-attr="product-introduction-docs-link"
                                 targetBlank

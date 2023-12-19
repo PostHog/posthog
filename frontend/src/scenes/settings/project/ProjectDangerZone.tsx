@@ -2,7 +2,6 @@ import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconDelete } from 'lib/lemon-ui/icons'
 import { Dispatch, SetStateAction, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
@@ -18,7 +17,6 @@ export function DeleteProjectModal({
 }): JSX.Element {
     const { currentTeam, teamBeingDeleted } = useValues(teamLogic)
     const { deleteTeam } = useActions(teamLogic)
-    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     const [isDeletionConfirmed, setIsDeletionConfirmed] = useState(false)
     const isDeletionInProgress = !!currentTeam && teamBeingDeleted?.id === currentTeam.id
@@ -33,7 +31,7 @@ export function DeleteProjectModal({
                         Cancel
                     </LemonButton>
                     <LemonButton
-                        type={is3000 ? 'secondary' : 'primary'}
+                        type="secondary"
                         disabled={!isDeletionConfirmed}
                         loading={isDeletionInProgress}
                         data-attr="delete-project-ok"

@@ -2,8 +2,7 @@ import { captureException } from '@sentry/react'
 import * as Sentry from '@sentry/react'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import { actionToUrl, router, urlToAction } from 'kea-router'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { urlToAction } from 'kea-router'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
@@ -334,19 +333,4 @@ export const supportLogic = kea<supportLogicType>([
             }
         },
     })),
-    actionToUrl(({ values }) => {
-        return {
-            closeSupportForm: () => {
-                if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test') {
-                    return
-                }
-
-                const hashParams = router.values.hashParams
-                delete hashParams['supportModal'] // legacy value
-                delete hashParams['panel']
-
-                return [router.values.location.pathname, router.values.searchParams, hashParams]
-            },
-        }
-    }),
 ])
