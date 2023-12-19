@@ -108,6 +108,26 @@ impl WebhookCleaner {
         })
     }
 
+    #[allow(dead_code)] // This is used in tests.
+    pub fn new_from_pool(
+        queue_name: &str,
+        table_name: &str,
+        pg_pool: PgPool,
+        kafka_producer: FutureProducer<KafkaContext>,
+        app_metrics_topic: String,
+    ) -> Result<Self> {
+        let queue_name = queue_name.to_owned();
+        let table_name = table_name.to_owned();
+
+        Ok(Self {
+            queue_name,
+            table_name,
+            pg_pool,
+            kafka_producer,
+            app_metrics_topic,
+        })
+    }
+
     async fn start_serializable_txn(&self) -> Result<Transaction<'_, Postgres>> {
         let mut tx = self
             .pg_pool
@@ -118,6 +138,9 @@ impl WebhookCleaner {
         // We use serializable isolation so that we observe a snapshot of the DB at the time we
         // start the cleanup process. This prevents us from accidentally deleting rows that are
         // added (or become 'completed' or 'failed') after we start the cleanup process.
+        //
+        // If we find that this has a significant performance impact, we could instead move
+        // rows to a temporary table for processing and then deletion.
         sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
             .execute(&mut *tx)
             .await
@@ -133,8 +156,8 @@ impl WebhookCleaner {
         let base_query = format!(
             r#"
             SELECT DATE_TRUNC('hour', finished_at) AS hour,
-                metadata->>'team_id' AS team_id,
-                metadata->>'plugin_config_id' AS plugin_config_id,
+                (metadata->>'team_id')::bigint AS team_id,
+                (metadata->>'plugin_config_id')::bigint AS plugin_config_id,
                 count(*) as successes
             FROM {0}
             WHERE status = 'completed'
@@ -185,9 +208,13 @@ impl WebhookCleaner {
         let base_query = format!(
             r#"
             SELECT DATE_TRUNC('hour', finished_at) AS hour,
-                   metadata->>'team_id' AS team_id,
-                   metadata->>'plugin_config_id' AS plugin_config_id,
-                   errors[-1] AS last_error,
+                   (metadata->>'team_id')::bigint AS team_id,
+                   (metadata->>'plugin_config_id')::bigint AS plugin_config_id,
+                   CASE
+                       WHEN array_length(errors, 1) > 1
+                       THEN errors[array_length(errors, 1)]
+                       ELSE errors[1]
+                   END AS last_error,
                    count(*) as failures
             FROM {0}
             WHERE status = 'failed'
@@ -302,27 +329,34 @@ impl WebhookCleaner {
         // Note that we select all completed and failed rows without any pagination at the moment.
         // We aggregrate as much as possible with GROUP BY, truncating the timestamp down to the
         // hour just like App Metrics does. A completed row is 24 bytes (and aggregates an entire
-        // hour per `plugin_config_id`), and a failed row is 104 + the message length (and
-        // aggregates an entire hour per `plugin_config_id` per `error`), so we can fit a lot of
-        // rows in memory. It seems unlikely we'll need to paginate, but that can be added in the
+        // hour per `plugin_config_id`), and a failed row is 104 bytes + the error message length
+        // (and aggregates an entire hour per `plugin_config_id` per `error`), so we can fit a lot
+        // of rows in memory. It seems unlikely we'll need to paginate, but that can be added in the
         // future if necessary.
 
         let mut tx = self.start_serializable_txn().await?;
+
         let completed_rows = self.get_completed_rows(&mut tx).await?;
-        let mut payloads = self.serialize_completed_rows(completed_rows)?;
+        let completed_agg_row_count = completed_rows.len();
+        let completed_kafka_payloads = self.serialize_completed_rows(completed_rows)?;
+
         let failed_rows = self.get_failed_rows(&mut tx).await?;
-        let mut failed_payloads = self.serialize_failed_rows(failed_rows)?;
-        payloads.append(&mut failed_payloads);
+        let failed_agg_row_count = failed_rows.len();
+        let mut failed_kafka_payloads = self.serialize_failed_rows(failed_rows)?;
+
+        let mut all_kafka_payloads = completed_kafka_payloads;
+        all_kafka_payloads.append(&mut failed_kafka_payloads);
+
         let mut rows_deleted: u64 = 0;
-        if !payloads.is_empty() {
-            self.send_messages_to_kafka(payloads).await?;
+        if !all_kafka_payloads.is_empty() {
+            self.send_messages_to_kafka(all_kafka_payloads).await?;
             rows_deleted = self.delete_observed_rows(&mut tx).await?;
             self.commit_txn(tx).await?;
         }
 
         debug!(
-            "WebhookCleaner finished cleanup, deleted {} rows",
-            rows_deleted
+            "WebhookCleaner finished cleanup, deleted {} rows ({} completed+aggregated, {} failed+aggregated)",
+            rows_deleted, completed_agg_row_count, failed_agg_row_count
         );
 
         Ok(())
@@ -343,6 +377,78 @@ impl Cleaner for WebhookCleaner {
 
 #[cfg(test)]
 mod tests {
-    #[tokio::test]
-    async fn test() {}
+    use super::*;
+    use crate::config;
+    use crate::kafka_producer::{create_kafka_producer, KafkaContext};
+    use rdkafka::mocking::MockCluster;
+    use rdkafka::producer::{DefaultProducerContext, FutureProducer};
+    use sqlx::PgPool;
+
+    const APP_METRICS_TOPIC: &str = "app_metrics";
+
+    async fn create_mock_kafka() -> (
+        MockCluster<'static, DefaultProducerContext>,
+        FutureProducer<KafkaContext>,
+    ) {
+        let cluster = MockCluster::new(1).expect("failed to create mock brokers");
+
+        let config = config::KafkaConfig {
+            kafka_producer_linger_ms: 0,
+            kafka_producer_queue_mib: 50,
+            kafka_message_timeout_ms: 5000,
+            kafka_compression_codec: "none".to_string(),
+            kafka_hosts: cluster.bootstrap_servers(),
+            app_metrics_topic: APP_METRICS_TOPIC.to_string(),
+            plugin_log_entries_topic: "plugin_log_entries".to_string(),
+            kafka_tls: false,
+        };
+
+        (
+            cluster,
+            create_kafka_producer(&config)
+                .await
+                .expect("failed to create mocked kafka producer"),
+        )
+    }
+
+    #[sqlx::test(migrations = "../migrations", fixtures("webhook_cleanup"))]
+    async fn test_cleanup_impl(db: PgPool) {
+        let (mock_cluster, mock_producer) = create_mock_kafka().await;
+        mock_cluster
+            .create_topic(APP_METRICS_TOPIC, 1, 1)
+            .expect("failed to create mock app_metrics topic");
+
+        let table_name = "job_queue";
+        let queue_name = "webhooks";
+
+        let webhook_cleaner = WebhookCleaner::new_from_pool(
+            &queue_name,
+            &table_name,
+            db,
+            mock_producer,
+            APP_METRICS_TOPIC.to_owned(),
+        )
+        .expect("unable to create webhook cleaner");
+
+        let _ = webhook_cleaner
+            .cleanup_impl()
+            .await
+            .expect("webbook cleanup_impl failed");
+
+        // TODO: I spent a lot of time trying to get the mock Kafka consumer to work, but I think
+        // I've identified an issue with the rust-rdkafka library:
+        //   https://github.com/fede1024/rust-rdkafka/issues/629#issuecomment-1863555417
+        //
+        // I wanted to test the messages put on the AppMetrics topic, but I think we need to figure
+        // out that issue about in order to do so. (Capture uses the MockProducer but not a
+        // Consumer, fwiw.)
+        //
+        // For now, I'll probably have to make `cleanup_impl` return the row information so at
+        // least we can inspect that for correctness.
+    }
+
+    // #[sqlx::test]
+    // async fn test_serializable_isolation() {
+    //   TODO: I'm going to add a test that verifies new rows aren't visible during the txn.
+    // }
 }

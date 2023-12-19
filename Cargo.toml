@@ -14,7 +14,7 @@ http = { version = "0.2" }
 http-body-util = "0.1.0"
 metrics = "0.21.1"
 metrics-exporter-prometheus = "0.12.1"
-rdkafka = { version = "0.35.0", features = ["cmake-build", "ssl"] }
+rdkafka = { version = "0.35.0", features = ["cmake-build", "ssl", "tracing"] }
 reqwest = { version = "0.11" }
 regex = "1.10.2"
 serde = { version = "1.0" }
