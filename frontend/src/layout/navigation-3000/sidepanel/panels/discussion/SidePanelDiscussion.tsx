@@ -1,10 +1,13 @@
 import { IconChat } from '@posthog/icons'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { IconWithCount } from 'lib/lemon-ui/icons'
+import { useEffect } from 'react'
 import { CommentComposer } from 'scenes/comments/CommentComposer'
 import { CommentsList } from 'scenes/comments/CommentsList'
+import { commentsLogic } from 'scenes/comments/commentsLogic'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
+import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import { sidePanelDiscussionLogic } from './sidePanelDiscussionLogic'
 
 export const SidePanelDiscussionIcon = (props: { className?: string }): JSX.Element => {
@@ -19,6 +22,12 @@ export const SidePanelDiscussionIcon = (props: { className?: string }): JSX.Elem
 
 export const SidePanelDiscussion = (): JSX.Element => {
     const { commentsLogicProps } = useValues(sidePanelDiscussionLogic)
+    const { selectedTabOptions } = useValues(sidePanelStateLogic)
+    const { setReplyingComment } = useActions(commentsLogic(commentsLogicProps))
+
+    useEffect(() => {
+        setReplyingComment(selectedTabOptions || null)
+    }, [selectedTabOptions])
 
     return (
         <div className="flex flex-col overflow-hidden flex-1">

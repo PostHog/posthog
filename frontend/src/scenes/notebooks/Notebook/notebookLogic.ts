@@ -67,7 +67,18 @@ export const notebookLogic = kea<notebookLogicType>([
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
     key(({ shortId, mode }) => `${shortId}-${mode}`),
     connect((props: NotebookLogicProps) => ({
-        values: [notebooksModel, ['scratchpadNotebook', 'notebookTemplates']],
+        values: [
+            notebooksModel,
+            ['scratchpadNotebook', 'notebookTemplates'],
+            commentsLogic({
+                scope: ActivityScope.MISC,
+                item_id: urls.notebook(props.shortId),
+                // TODO: Change to below once the side panel is correct
+                // scope: ActivityScope.NOTEBOOK,
+                // item_id: props.shortId,
+            }),
+            ['comments'],
+        ],
         actions: [
             notebooksModel,
             ['receiveNotebookUpdate'],
@@ -126,7 +137,7 @@ export const notebookLogic = kea<notebookLogicType>([
         setTextSelection: (selection: number | EditorRange) => ({ selection }),
         setContainerSize: (containerSize: 'small' | 'medium') => ({ containerSize }),
         insertComment: (context: Record<string, any>) => ({ context }),
-        selectComment: (commentId: string) => ({ commentId }),
+        selectComment: (markId: string) => ({ markId }),
     }),
     reducers(({ props }) => ({
         localContent: [
@@ -619,9 +630,11 @@ export const notebookLogic = kea<notebookLogicType>([
         // Comments
         insertComment: ({ context }) => {
             actions.openSidePanel(SidePanelTab.Discussion)
-            actions.setItemContext(context, () => {
-                if (!context.success) {
-                    values.editor?.removeComment(context.id)
+            actions.setItemContext(context, (result) => {
+                if (!result.sent) {
+                    queueMicrotask(() => {
+                        values.editor?.removeComment(context.id)
+                    })
                 }
             })
             // add callback for successful send
@@ -631,7 +644,9 @@ export const notebookLogic = kea<notebookLogicType>([
                 values.editor?.removeComment(payload.comment.id)
             }
         },
-        selectComment: ({ commentId }) => {
+        selectComment: ({ markId }) => {
+            const commentId = values.comments?.find((x) => x.item_context?.id === markId)?.id
+
             actions.openSidePanel(SidePanelTab.Discussion, commentId)
 
             if (router.values.currentLocation.pathname !== urls.notebook(values.shortId)) {

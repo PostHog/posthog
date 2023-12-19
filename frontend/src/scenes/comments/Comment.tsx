@@ -4,6 +4,7 @@ import { LemonButton, LemonMenu, LemonTextAreaMarkdown, ProfilePicture } from '@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { useEffect, useRef } from 'react'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { CommentType } from '~/types'
@@ -18,12 +19,20 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
     const { editingComment, commentsLoading, replyingCommentId } = useValues(commentsLogic)
     const { deleteComment, setEditingComment, persistEditedComment, setReplyingComment } = useActions(commentsLogic)
 
+    const ref = useRef<HTMLDivElement | null>(null)
+
+    const isHighlighted = replyingCommentId === comment.id || editingComment?.id === comment.id
+
+    useEffect(() => {
+        if (isHighlighted) {
+            ref.current?.scrollIntoView()
+        }
+    }, [isHighlighted])
+
     return (
         <div
-            className={clsx(
-                'Comment border rounded-lg bg-bg-light',
-                (replyingCommentId === comment.id || editingComment?.id === comment.id) && 'border-primary-3000'
-            )}
+            ref={ref}
+            className={clsx('Comment border rounded-lg bg-bg-light', isHighlighted && 'border-primary-3000')}
             data-comment-id={comment.id}
         >
             <div className="flex-1 flex justify-start p-2 gap-2">
