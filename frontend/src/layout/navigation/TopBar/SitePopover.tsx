@@ -1,5 +1,5 @@
-import { IconChevronDown, IconDay, IconFeatures, IconLaptop, IconLive, IconNight } from '@posthog/icons'
-import { LemonButtonPropsBase, LemonSelect } from '@posthog/lemon-ui'
+import { IconChevronDown, IconFeatures, IconLive } from '@posthog/icons'
+import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
