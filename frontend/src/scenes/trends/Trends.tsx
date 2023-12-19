@@ -99,7 +99,7 @@ export function TrendInsight({ view, context }: Props): JSX.Element {
                                                 !breakdown.breakdown_hide_other_aggregation,
                                         })
                                     }
-                                    label='Group renaming values under "Other"'
+                                    label='Group remaining values under "Other"'
                                 />
                             ) : null}
                         </div>
