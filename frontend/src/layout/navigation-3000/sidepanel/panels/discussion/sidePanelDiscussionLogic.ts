@@ -6,12 +6,15 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CommentsLogicProps } from 'scenes/comments/commentsLogic'
+import { routes, routesAsRegexes } from 'scenes/scenes'
 
 import { ActivityScope } from '~/types'
 
 import type { sidePanelDiscussionLogicType } from './sidePanelDiscussionLogicType'
 
-export const urlToCommentsLogicProps = (path: string): CommentsLogicProps => {
+const urlToCommentsLogicProps = (path: string, searchParams: Record<string, any>): CommentsLogicProps => {
+    console.log(routesAsRegexes, path, searchParams)
+
     return {
         scope: ActivityScope.MISC,
         item_id: path,
@@ -50,9 +53,9 @@ export const sidePanelDiscussionLogic = kea<sidePanelDiscussionLogicType>([
 
     selectors({
         commentsLogicProps: [
-            () => [router.selectors.location],
+            () => [router.selectors.currentLocation],
             (location): CommentsLogicProps => {
-                return urlToCommentsLogicProps(location.pathname)
+                return urlToCommentsLogicProps(location.pathname, location.searchParams)
             },
         ],
     }),
