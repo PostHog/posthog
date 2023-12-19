@@ -12,10 +12,16 @@ import {
     NotebookNodeReplayTimestampAttrs,
 } from 'scenes/notebooks/Nodes/NotebookNodeReplayTimestamp'
 
-import { urlToCommentsLogicProps } from '~/layout/navigation-3000/sidepanel/panels/discussion/sidePanelDiscussionLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { notebooksModel, openNotebook, SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
-import { NotebookNodeType, NotebookSyncStatus, NotebookTarget, NotebookType, SidePanelTab } from '~/types'
+import {
+    ActivityScope,
+    NotebookNodeType,
+    NotebookSyncStatus,
+    NotebookTarget,
+    NotebookType,
+    SidePanelTab,
+} from '~/types'
 
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { migrate, NOTEBOOKS_VERSION } from './migrations/migrate'
@@ -59,14 +65,17 @@ export const notebookLogic = kea<notebookLogicType>([
     props({} as NotebookLogicProps),
     path((key) => ['scenes', 'notebooks', 'Notebook', 'notebookLogic', key]),
     key(({ shortId, mode }) => `${shortId}-${mode}`),
-    connect(() => ({
+    connect((props: NotebookLogicProps) => ({
         values: [notebooksModel, ['scratchpadNotebook', 'notebookTemplates']],
         actions: [
             notebooksModel,
             ['receiveNotebookUpdate'],
             sidePanelStateLogic,
             ['openSidePanel'],
-            commentsLogic(urlToCommentsLogicProps(window.location.pathname)),
+            commentsLogic({
+                scope: ActivityScope.NOTEBOOK,
+                item_id: props.shortId,
+            }),
             [
                 'setItemContext',
                 'sendComposedContentSuccess',

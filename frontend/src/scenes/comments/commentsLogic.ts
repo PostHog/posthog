@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
@@ -187,8 +187,4 @@ export const commentsLogic = kea<commentsLogicType>([
             }
         },
     })),
-
-    afterMount(({ actions }) => {
-        actions.loadComments()
-    }),
 ])
