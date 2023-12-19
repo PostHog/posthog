@@ -184,7 +184,7 @@ export const WebStatsTrendTile = ({
     query: InsightVizNode
     showIntervalTile?: boolean
 }): JSX.Element => {
-    const { togglePropertyFilter, setGeographyTab, setDeviceTab, setInterval } = useActions(webAnalyticsLogic)
+    const { togglePropertyFilter, setInterval } = useActions(webAnalyticsLogic)
     const {
         hasCountryFilter,
         deviceTab,
@@ -201,11 +201,9 @@ export const WebStatsTrendTile = ({
             if (!worldMapPropertyName) {
                 return
             }
-            togglePropertyFilter(PropertyFilterType.Event, worldMapPropertyName, breakdownValue)
-            if (!hasCountryFilter) {
-                // if we just added a country filter, switch to the region tab, as the world map will not be useful
-                setGeographyTab(GeographyTab.REGIONS)
-            }
+            togglePropertyFilter(PropertyFilterType.Event, worldMapPropertyName, breakdownValue, {
+                geographyTab: hasCountryFilter ? undefined : GeographyTab.REGIONS,
+            })
         },
         [togglePropertyFilter, worldMapPropertyName]
     )
@@ -226,16 +224,20 @@ export const WebStatsTrendTile = ({
             if (!deviceTypePropertyName) {
                 return
             }
-            togglePropertyFilter(PropertyFilterType.Event, deviceTypePropertyName, breakdownValue)
 
             // switch to a different tab if we can, try them in this order: DeviceType Browser OS
+            let newTab: DeviceTab | undefined = undefined
             if (deviceTab !== DeviceTab.DEVICE_TYPE && !hasDeviceTypeFilter) {
-                setDeviceTab(DeviceTab.DEVICE_TYPE)
+                newTab = DeviceTab.DEVICE_TYPE
             } else if (deviceTab !== DeviceTab.BROWSER && !hasBrowserFilter) {
-                setDeviceTab(DeviceTab.BROWSER)
+                newTab = DeviceTab.BROWSER
             } else if (deviceTab !== DeviceTab.OS && !hasOSFilter) {
-                setDeviceTab(DeviceTab.OS)
+                newTab = DeviceTab.OS
             }
+
+            togglePropertyFilter(PropertyFilterType.Event, deviceTypePropertyName, breakdownValue, {
+                deviceTab: newTab,
+            })
         },
         [togglePropertyFilter, deviceTypePropertyName, deviceTab, hasDeviceTypeFilter, hasBrowserFilter, hasOSFilter]
     )
