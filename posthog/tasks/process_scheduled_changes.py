@@ -14,7 +14,7 @@ def process_scheduled_changes() -> None:
                 scheduled_at__lt=timezone.now(),
             )
 
-            for scheduled_change in scheduled_changes:
+            for scheduled_change in scheduled_changes.iterator(chunk_size=10000):
                 try:
                     # Execute the change on the model instance
                     model = models[scheduled_change.model_name]
