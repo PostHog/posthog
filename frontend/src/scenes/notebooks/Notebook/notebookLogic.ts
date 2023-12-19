@@ -67,7 +67,13 @@ export const notebookLogic = kea<notebookLogicType>([
             sidePanelStateLogic,
             ['openSidePanel'],
             commentsLogic(urlToCommentsLogicProps(window.location.pathname)),
-            ['setReferenceValue', 'sendComposedContentSuccess', 'setCommentComposerBlurred', 'focusComposer'],
+            [
+                'setItemContext',
+                'sendComposedContentSuccess',
+                'setCommentComposerBlurred',
+                'focusComposer',
+                'deleteCommentSuccess',
+            ],
         ],
     })),
     actions({
@@ -112,8 +118,8 @@ export const notebookLogic = kea<notebookLogicType>([
         setShowHistory: (showHistory: boolean) => ({ showHistory }),
         setTextSelection: (selection: number | EditorRange) => ({ selection }),
         setContainerSize: (containerSize: 'small' | 'medium') => ({ containerSize }),
-        insertComment: (reference: string) => ({ reference }),
-        setCurrentlyCommentingReferenceId: (reference: string | null) => ({ reference }),
+        insertComment: (context: Record<string, any>) => ({ context }),
+        clearCurrentCommentItemContext: true,
     }),
     reducers(({ props }) => ({
         localContent: [
@@ -196,11 +202,11 @@ export const notebookLogic = kea<notebookLogicType>([
                 setContainerSize: (_, { containerSize }) => containerSize,
             },
         ],
-        currentlyCommentingReferenceId: [
-            null as string | null,
+        currentCommentItemContext: [
+            null as Record<string, any> | null,
             {
-                setCurrentlyCommentingReferenceId: (_, { reference }) => reference,
-                setReferenceValue: (_, { reference }) => reference,
+                setItemContext: (_, { context }) => context,
+                clearCurrentCommentItemContext: () => null,
                 sendComposedContentSuccess: () => null,
             },
         ],
@@ -611,16 +617,27 @@ export const notebookLogic = kea<notebookLogicType>([
             }, NOTEBOOK_REFRESH_MS)
         },
 
-        insertComment: ({ reference }) => {
+        // Comments
+        insertComment: ({ context }) => {
             actions.openSidePanel(SidePanelTab.Discussion)
-            actions.setReferenceValue(reference)
+            actions.setItemContext({ context })
             actions.focusComposer()
         },
         setCommentComposerBlurred: () => {
-            if (values.currentlyCommentingReferenceId) {
+            if (values.currentCommentItemContext) {
                 values.editor?.removeMark('comment')
-                actions.setCurrentlyCommentingReferenceId(null)
+                actions.clearCurrentCommentItemContext()
             }
+        },
+        deleteCommentSuccess({ payload }) {
+            if (payload?.comment) {
+                values.editor?.removeComment(payload.comment.id)
+            }
+        },
+        sendComposedContentSuccess({ comments }) {
+            const comment = comments[comments.length - 1]
+            values.editor?.updateMark('comment', { commentId: comment.id })
+            actions.clearCurrentCommentItemContext()
         },
     })),
 

@@ -32,7 +32,7 @@ export const commentsLogic = kea<commentsLogicType>([
         deleteComment: (comment: CommentType) => ({ comment }),
         setEditingComment: (comment: CommentType | null) => ({ comment }),
         setReplyingComment: (commentId: string | null) => ({ commentId }),
-        setReferenceValue: (reference: string | null) => ({ reference }),
+        setItemContext: (context: Record<string, any> | null) => ({ context }),
         setCommentComposerBlurred: true,
         persistEditedComment: true,
         setComposerRef: (ref: HTMLTextAreaElement | null) => ({ ref }),
@@ -47,10 +47,10 @@ export const commentsLogic = kea<commentsLogicType>([
                 setCommentComposerBlurred: () => null,
             },
         ],
-        referenceValue: [
-            null as string | null,
+        itemContext: [
+            null as Record<string, any> | null,
             {
-                setReferenceValue: (_, { reference }) => reference,
+                setItemContext: (_, { context }) => context,
                 sendComposedContentSuccess: () => null,
             },
         ],
@@ -95,7 +95,7 @@ export const commentsLogic = kea<commentsLogicType>([
                         content: values.composedComment,
                         scope: props.scope,
                         item_id: props.item_id,
-                        reference: values.referenceValue,
+                        item_context: values.itemContext,
                         source_comment_id: values.replyingCommentId ?? undefined,
                     })
                     return [...existingComments, newComment]

@@ -237,8 +237,6 @@ export function Editor(): JSX.Element {
                 getEndPosition: () => editor.state.doc.content.size,
                 getSelectedNode: () => editor.state.doc.nodeAt(editor.state.selection.$anchor.pos),
                 getCurrentPosition: () => editor.state.selection.$anchor.pos,
-                getSelectedCommentId: () => editor.getAttributes('comment').id,
-                updateCommentAttributes: (attributes) => editor.commands.updateAttributes('comment', attributes),
                 getAdjacentNodes: (pos: number) => getAdjacentNodes(editor, pos),
                 setEditable: (editable: boolean) => queueMicrotask(() => editor.setEditable(editable, false)),
                 setContent: (content: JSONContent) => queueMicrotask(() => editor.commands.setContent(content, false)),
@@ -247,7 +245,9 @@ export function Editor(): JSX.Element {
                 focus: (position?: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
                 chain: () => editor.chain().focus(),
                 destroy: () => editor.destroy(),
+                updateMark: (type, attrs) => editor.commands.updateAttributes(type, attrs),
                 removeMark: (type) => editor.commands.unsetMark(type),
+                removeComment: (commentId: string) => removeCommentMark(editor, commentId),
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
                 insertContent: (content: JSONContent) => editor.chain().insertContent(content).focus().run(),
                 insertContentAfterNode: (position: number, content: JSONContent) => {
@@ -385,4 +385,19 @@ export function hasMatchingNode(
                 attrEntries.every(([attr, value]: [string, any]) => node.attrs && node.attrs[attr] === value)
             )
     )
+}
+
+export function removeCommentMark(editor: TTEditor, commentId: string): void {
+    const doc = editor.state.doc
+
+    doc.descendants((node, pos) => {
+        const commentMark = node.marks.find((mark) => mark.type.name === 'comment' && mark.attrs.id === commentId)
+
+        if (!commentMark) {
+            return
+        }
+
+        editor.commands.setNodeSelection(pos)
+        editor.commands.unsetMark('comment', { extendEmptyMarkRange: true })
+    })
 }

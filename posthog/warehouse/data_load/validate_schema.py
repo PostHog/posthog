@@ -109,6 +109,7 @@ def validate_schema_and_update_table(run_id: str, team_id: int, schemas: list[st
 
         if schema_model:
             schema_model.table = table_created
+            schema_model.last_synced_at = job.created_at
             schema_model.save()
 
     if last_successful_job:

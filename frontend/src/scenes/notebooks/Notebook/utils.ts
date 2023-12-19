@@ -98,8 +98,6 @@ export interface NotebookEditor {
     getEndPosition: () => number
     getSelectedNode: () => Node | null
     getCurrentPosition: () => number
-    getSelectedCommentId: () => string
-    updateCommentAttributes: ({ id }: { id: string | null }) => void
     getAdjacentNodes: (pos: number) => { previous: Node | null; next: Node | null }
     setEditable: (editable: boolean) => void
     setContent: (content: JSONContent) => void
@@ -108,7 +106,9 @@ export interface NotebookEditor {
     focus: (position?: EditorFocusPosition) => void
     chain: () => EditorCommands
     destroy: () => void
+    updateMark: (type: string, attrs: Record<string, any>) => void
     removeMark: (type: string) => void
+    removeComment: (commentId: string) => void
     deleteRange: (range: EditorRange) => EditorCommands
     insertContent: (content: JSONContent) => void
     insertContentAfterNode: (position: number, content: JSONContent) => void

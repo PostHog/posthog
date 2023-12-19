@@ -16,8 +16,9 @@ class Comment(UUIDModel):
     deleted: models.BooleanField = models.BooleanField(null=True, blank=True, default=False)
 
     # Loose relationship modelling to other PostHog resources
-    item_id = models.fields.CharField(max_length=72, null=True)
-    scope = models.fields.CharField(max_length=79, null=False)
+    item_id = models.CharField(max_length=72, null=True)
+    item_context = models.JSONField(null=True)
+    scope = models.CharField(max_length=79, null=False)
 
     # TODO: How do we allow comments to exist on individual elements such as a line in a Notebook?
     # Maybe the right way is to create a Mark in a notebook and then have that store the CommentID, keeping the comments clean
