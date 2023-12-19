@@ -152,25 +152,18 @@ pub struct WebhookJobError {
 /// Some precision may be lost as our app_metrics::ErrorType does not support the same number of variants.
 impl From<&reqwest::Error> for WebhookJobError {
     fn from(error: &reqwest::Error) -> Self {
-        if error.is_body() || error.is_decode() {
-            WebhookJobError::new_parse(&error.to_string())
-        } else if error.is_timeout() {
+        if error.is_timeout() {
             WebhookJobError::new_timeout(&error.to_string())
         } else if error.is_status() {
             WebhookJobError::new_http_status(
                 error.status().expect("status code is defined").into(),
                 &error.to_string(),
             )
-        } else if error.is_connect()
-            || error.is_builder()
-            || error.is_request()
-            || error.is_redirect()
-        {
-            // Builder errors seem to be related to unable to setup TLS, so I'm bundling them in connection.
-            WebhookJobError::new_connection(&error.to_string())
         } else {
-            // We can't match on Kind as some types do not have an associated variant in Kind (e.g. Timeout).
-            unreachable!("We have covered all reqwest::Error types.")
+            // Catch all other errors as `app_metrics::ErrorType::Connection` errors.
+            // Not all of `reqwest::Error` may strictly be connection errors, so our supported error types may need an extension
+            // depending on how strict error reporting has to be.
+            WebhookJobError::new_connection(&error.to_string())
         }
     }
 }
