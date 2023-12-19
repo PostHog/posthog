@@ -5,7 +5,7 @@ use std::str::FromStr;
 
 use serde::{de::Visitor, Deserialize, Serialize};
 
-use crate::kafka_messages::{app_metrics, serialize_uuid};
+use crate::kafka_messages::app_metrics;
 use crate::pgqueue::PgQueueError;
 
 /// Supported HTTP methods for webhooks.
@@ -139,12 +139,10 @@ pub struct WebhookJobMetadata {
 
 /// An error originating during a Webhook Job invocation.
 /// This is to be serialized to be stored as an error whenever retrying or failing a webhook job.
-#[derive(Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct WebhookJobError {
     pub r#type: app_metrics::ErrorType,
     pub details: app_metrics::ErrorDetails,
-    #[serde(serialize_with = "serialize_uuid")]
-    pub uuid: uuid::Uuid,
 }
 
 /// Webhook jobs boil down to an HTTP request, so it's useful to have a way to convert from &reqwest::Error.
@@ -180,7 +178,6 @@ impl WebhookJobError {
             details: app_metrics::ErrorDetails {
                 error: error_details,
             },
-            uuid: uuid::Uuid::now_v7(),
         }
     }
 
@@ -195,7 +192,6 @@ impl WebhookJobError {
             details: app_metrics::ErrorDetails {
                 error: error_details,
             },
-            uuid: uuid::Uuid::now_v7(),
         }
     }
 
@@ -210,7 +206,6 @@ impl WebhookJobError {
             details: app_metrics::ErrorDetails {
                 error: error_details,
             },
-            uuid: uuid::Uuid::now_v7(),
         }
     }
 
@@ -225,7 +220,6 @@ impl WebhookJobError {
             details: app_metrics::ErrorDetails {
                 error: error_details,
             },
-            uuid: uuid::Uuid::now_v7(),
         }
     }
 }
