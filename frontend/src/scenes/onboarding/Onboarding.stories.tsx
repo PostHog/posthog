@@ -15,7 +15,6 @@ import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
 
 const meta: Meta = {
     title: 'Scenes-Other/Onboarding',
-    tags: ['test-skip'],
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
@@ -65,7 +64,7 @@ export const _OnboardingBilling = (): JSX.Element => {
     const { setProduct } = useActions(onboardingLogic)
 
     useEffect(() => {
-        setProduct(billingJson.products[1] as BillingProductV2Type)
+        setProduct(billingUnsubscribedJson.products[1] as BillingProductV2Type)
         router.actions.push(urls.onboarding(ProductKey.SESSION_REPLAY, OnboardingStepKey.BILLING))
     }, [])
     return <App />
