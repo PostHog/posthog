@@ -98,8 +98,8 @@ impl<'p> WebhookConsumer<'p> {
 ///
 /// # Arguments
 ///
+/// * `client`: An HTTP client to execute the webhook job request.
 /// * `webhook_job`: The webhook job to process as dequeued from `hook_common::pgqueue::PgQueue`.
-/// * `request_timeout`: A timeout for the HTTP request.
 async fn process_webhook_job(
     client: reqwest::Client,
     webhook_job: PgTransactionJob<'_, WebhookJobParameters, WebhookJobMetadata>,
@@ -173,11 +173,11 @@ async fn process_webhook_job(
 ///
 /// # Arguments
 ///
+/// * `client`: An HTTP client to execute the HTTP request.
 /// * `method`: The HTTP method to use in the HTTP request.
 /// * `url`: The URL we are targetting with our request. Parsing this URL fail.
 /// * `headers`: Key, value pairs of HTTP headers in a `std::collections::HashMap`. Can fail if headers are not valid.
 /// * `body`: The body of the request. Ownership is required.
-/// * `timeout`: A timeout for the HTTP request.
 async fn send_webhook(
     client: reqwest::Client,
     method: &HttpMethod,

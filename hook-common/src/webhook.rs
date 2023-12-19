@@ -138,6 +138,7 @@ pub struct WebhookJobMetadata {
 }
 
 /// An error originating during a Webhook Job invocation.
+/// This is to be serialized to be stored as an error whenever retrying or failing a webhook job.
 #[derive(Serialize, Debug)]
 pub struct WebhookJobError {
     pub r#type: app_metrics::ErrorType,
@@ -146,6 +147,9 @@ pub struct WebhookJobError {
     pub uuid: uuid::Uuid,
 }
 
+/// Webhook jobs boil down to an HTTP request, so it's useful to have a way to convert from &reqwest::Error.
+/// For the convertion we check all possible error types with the associated is_* methods provided by reqwest.
+/// Some precision may be lost as our app_metrics::ErrorType does not support the same number of variants.
 impl From<&reqwest::Error> for WebhookJobError {
     fn from(error: &reqwest::Error) -> Self {
         if error.is_body() || error.is_decode() {
