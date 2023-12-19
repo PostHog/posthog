@@ -72,7 +72,7 @@ export const ToastTypes: Story = {
                     closeButton={<ToastCloseButton />}
                     theme={isDarkModeOn ? 'dark' : 'light'}
                 />
-                <div className={isReady ? 'storybook-ready' : ''} />
+                <div className={isReady ? 'storybook-ready h-1 w-1 bg-primary-highlight absolute right-0' : ''} />
             </>
         )
     },
