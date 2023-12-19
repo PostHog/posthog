@@ -6,11 +6,15 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CommentsLogicProps } from 'scenes/comments/commentsLogic'
-import { routes, routesAsRegexes } from 'scenes/scenes'
+import { routesAsRegexes } from 'scenes/scenes'
 
 import { ActivityScope } from '~/types'
 
 import type { sidePanelDiscussionLogicType } from './sidePanelDiscussionLogicType'
+
+// PROBLEM: We want to have a tidy way of getting from a URL to the relevant activity scope and item_id
+// If there is no item_id, we should (maybe) base it on the URL instead, with the downside of that being that URLs can change...
+// Alternatively we can only allow discussion on items that have an item_id, but that's not great either...
 
 const urlToCommentsLogicProps = (path: string, searchParams: Record<string, any>): CommentsLogicProps => {
     console.log(routesAsRegexes, path, searchParams)
