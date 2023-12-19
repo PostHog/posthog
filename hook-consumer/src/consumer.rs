@@ -143,16 +143,15 @@ async fn process_webhook_job(
         }
         Err(WebhookError::RetryableRequestError { error, retry_after }) => {
             match webhook_job
-                .retry(WebhookJobError::from(error), retry_after)
+                .retry(WebhookJobError::from(&error), retry_after)
                 .await
             {
                 Ok(_) => Ok(()),
                 Err(PgJobError::RetryInvalidError {
                     job: webhook_job, ..
                 }) => {
-                    let max_attempts = webhook_job.job.max_attempts;
                     webhook_job
-                        .fail(WebhookJobError::new_max_attempts(max_attempts))
+                        .fail(WebhookJobError::from(&error))
                         .await
                         .map_err(|job_error| ConsumerError::PgJobError(job_error.to_string()))?;
                     Ok(())
@@ -162,7 +161,7 @@ async fn process_webhook_job(
         }
         Err(WebhookError::NonRetryableRetryableRequestError(error)) => {
             webhook_job
-                .fail(WebhookJobError::from(error))
+                .fail(WebhookJobError::from(&error))
                 .await
                 .map_err(|job_error| ConsumerError::PgJobError(job_error.to_string()))?;
             Ok(())

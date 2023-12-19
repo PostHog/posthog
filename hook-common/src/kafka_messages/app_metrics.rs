@@ -19,7 +19,6 @@ pub enum ErrorType {
     Connection,
     HttpStatus(u16),
     Parse,
-    MaxAttempts,
 }
 
 #[derive(Serialize, Debug)]
@@ -87,7 +86,6 @@ where
         ErrorType::Timeout => "Timeout".to_owned(),
         ErrorType::HttpStatus(s) => format!("HTTP Status: {}", s),
         ErrorType::Parse => "Parse Error".to_owned(),
-        ErrorType::MaxAttempts => "Maximum attempts exceeded".to_owned(),
     };
     serializer.serialize_str(&error_type)
 }

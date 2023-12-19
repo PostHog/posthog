@@ -146,8 +146,8 @@ pub struct WebhookJobError {
     pub uuid: uuid::Uuid,
 }
 
-impl From<reqwest::Error> for WebhookJobError {
-    fn from(error: reqwest::Error) -> Self {
+impl From<&reqwest::Error> for WebhookJobError {
+    fn from(error: &reqwest::Error) -> Self {
         if error.is_body() || error.is_decode() {
             WebhookJobError::new_parse(&error.to_string())
         } else if error.is_timeout() {
@@ -225,24 +225,6 @@ impl WebhookJobError {
         };
         Self {
             r#type: app_metrics::ErrorType::Parse,
-            details: app_metrics::ErrorDetails {
-                error: error_details,
-            },
-            uuid: uuid::Uuid::now_v7(),
-        }
-    }
-
-    pub fn new_max_attempts(max_attempts: i32) -> Self {
-        let error_details = app_metrics::Error {
-            name: "maximum attempts exceeded".to_owned(),
-            message: Some(format!(
-                "Exceeded maximum number of attempts ({}) for webhook",
-                max_attempts
-            )),
-            stack: None,
-        };
-        Self {
-            r#type: app_metrics::ErrorType::MaxAttempts,
             details: app_metrics::ErrorDetails {
                 error: error_details,
             },
