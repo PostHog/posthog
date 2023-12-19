@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 ) ENGINE = {engine}
 """
 
+# if updating these column definitions
+# you'll need to update the explicit column definitions in the materialized view creation statement below
 SESSION_REPLAY_EVENTS_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
@@ -107,11 +109,10 @@ KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: KAFKA_SESSION_REPLAY_EVENTS_TABL
     engine=kafka_engine(topic=KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS),
 )
 
-
 SESSION_REPLAY_EVENTS_TABLE_MV_SQL = (
     lambda: """
 CREATE MATERIALIZED VIEW IF NOT EXISTS session_replay_events_mv ON CLUSTER '{cluster}'
-TO {database}.{target_table}
+TO {database}.{target_table} {explictly_specify_columns}
 AS SELECT
 session_id,
 team_id,
@@ -147,9 +148,24 @@ group by session_id, team_id
         target_table="writable_session_replay_events",
         cluster=settings.CLICKHOUSE_CLUSTER,
         database=settings.CLICKHOUSE_DATABASE,
+        # ClickHouse is incorrectly expanding the type of the snapshot source column
+        # Despite it being a LowCardinality(Nullable(String)) in writable_session_replay_events
+        # The column expansion picks only Nullable(String) and so we can't select it
+        explictly_specify_columns="""(
+`session_id` String, `team_id` Int64, `distinct_id` String,
+`min_first_timestamp` DateTime64(6, 'UTC'),
+`max_last_timestamp` DateTime64(6, 'UTC'),
+`first_url` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+`click_count` Int64, `keypress_count` Int64,
+`mouse_activity_count` Int64, `active_milliseconds` Int64,
+`console_log_count` Int64, `console_warn_count` Int64,
+`console_error_count` Int64, `size` Int64, `message_count` Int64,
+`event_count` Int64,
+`snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+`_timestamp` Nullable(DateTime)
+)""",
     )
 )
-
 
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
 
@@ -163,7 +179,6 @@ WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: SESSION_REPLAY_EVENTS_TABLE_B
     ),
 )
 
-
 # This table is responsible for reading from session_replay_events on a cluster setting
 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: SESSION_REPLAY_EVENTS_TABLE_BASE_SQL.format(
     table_name="session_replay_events",
@@ -173,7 +188,6 @@ DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: SESSION_REPLAY_EVENTS_TABL
         sharding_key="sipHash64(distinct_id)",
     ),
 )
-
 
 DROP_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: (
     f"DROP TABLE IF EXISTS {SESSION_REPLAY_EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"

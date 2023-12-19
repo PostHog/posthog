@@ -1,19 +1,17 @@
 # name: TestFunnelStrictStepsBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen
   '
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')) AS value,
-            count(*) as count
-     FROM events e
-     WHERE team_id = 2
-       AND event IN ['buy', 'sign up']
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
+  SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')) AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event IN ['buy', 'sign up']
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 25
+  OFFSET 0
   '
 ---
 # name: TestFunnelStrictStepsBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen.1
@@ -89,20 +87,18 @@
 # name: TestFunnelStrictStepsBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step
   '
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')) AS value,
-            count(*) as count
-     FROM events e
-     WHERE team_id = 2
-       AND event = 'buy'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-       AND (has(['xyz'], replaceRegexpAll(JSONExtractRaw(e.properties, '$version'), '^"|"$', '')))
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
+  SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')) AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event = 'buy'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
+    AND (has(['xyz'], replaceRegexpAll(JSONExtractRaw(e.properties, '$version'), '^"|"$', '')))
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 25
+  OFFSET 0
   '
 ---
 # name: TestFunnelStrictStepsBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step.1
@@ -182,19 +178,17 @@
 # name: TestFunnelStrictStepsBreakdown.test_funnel_step_multiple_breakdown_snapshot
   '
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$version'), '^"|"$', '')) AS value,
-            count(*) as count
-     FROM events e
-     WHERE team_id = 2
-       AND event IN ['buy', 'sign up']
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
+  SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$version'), '^"|"$', '')) AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event IN ['buy', 'sign up']
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 25
+  OFFSET 0
   '
 ---
 # name: TestFunnelStrictStepsBreakdown.test_funnel_step_multiple_breakdown_snapshot.1

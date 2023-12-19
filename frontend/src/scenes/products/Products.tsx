@@ -5,6 +5,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { getProductUri } from 'scenes/onboarding/onboardingLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -93,6 +94,7 @@ export function ProductCard({
     className?: string
 }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const onboardingCompleted = currentTeam?.has_completed_onboarding_for?.[product.type]
     const vertical = orientation === 'vertical'
 
@@ -113,7 +115,7 @@ export function ProductCard({
             <div className={`flex gap-x-2 flex-0 items-center ${!vertical && 'justify-end'}`}>
                 {onboardingCompleted ? (
                     <OnboardingCompletedButton
-                        productUrl={getProductUri(product.type as ProductKey)}
+                        productUrl={getProductUri(product.type as ProductKey, featureFlags)}
                         onboardingUrl={urls.onboarding(product.type)}
                         productKey={product.type as ProductKey}
                     />
