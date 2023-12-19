@@ -1,9 +1,11 @@
 use std::collections;
+use std::convert::From;
 use std::fmt;
 use std::str::FromStr;
 
 use serde::{de::Visitor, Deserialize, Serialize};
 
+use crate::kafka_messages::{app_metrics, serialize_uuid};
 use crate::pgqueue::PgQueueError;
 
 /// Supported HTTP methods for webhooks.
@@ -133,4 +135,97 @@ pub struct WebhookJobMetadata {
     pub team_id: Option<i32>,
     pub plugin_id: Option<i32>,
     pub plugin_config_id: Option<i32>,
+}
+
+/// An error originating during a Webhook Job invocation.
+/// This is to be serialized to be stored as an error whenever retrying or failing a webhook job.
+#[derive(Serialize, Debug)]
+pub struct WebhookJobError {
+    pub r#type: app_metrics::ErrorType,
+    pub details: app_metrics::ErrorDetails,
+    #[serde(serialize_with = "serialize_uuid")]
+    pub uuid: uuid::Uuid,
+}
+
+/// Webhook jobs boil down to an HTTP request, so it's useful to have a way to convert from &reqwest::Error.
+/// For the convertion we check all possible error types with the associated is_* methods provided by reqwest.
+/// Some precision may be lost as our app_metrics::ErrorType does not support the same number of variants.
+impl From<&reqwest::Error> for WebhookJobError {
+    fn from(error: &reqwest::Error) -> Self {
+        if error.is_timeout() {
+            WebhookJobError::new_timeout(&error.to_string())
+        } else if error.is_status() {
+            WebhookJobError::new_http_status(
+                error.status().expect("status code is defined").into(),
+                &error.to_string(),
+            )
+        } else {
+            // Catch all other errors as `app_metrics::ErrorType::Connection` errors.
+            // Not all of `reqwest::Error` may strictly be connection errors, so our supported error types may need an extension
+            // depending on how strict error reporting has to be.
+            WebhookJobError::new_connection(&error.to_string())
+        }
+    }
+}
+
+impl WebhookJobError {
+    pub fn new_timeout(message: &str) -> Self {
+        let error_details = app_metrics::Error {
+            name: "timeout".to_owned(),
+            message: Some(message.to_owned()),
+            stack: None,
+        };
+        Self {
+            r#type: app_metrics::ErrorType::Timeout,
+            details: app_metrics::ErrorDetails {
+                error: error_details,
+            },
+            uuid: uuid::Uuid::now_v7(),
+        }
+    }
+
+    pub fn new_connection(message: &str) -> Self {
+        let error_details = app_metrics::Error {
+            name: "connection error".to_owned(),
+            message: Some(message.to_owned()),
+            stack: None,
+        };
+        Self {
+            r#type: app_metrics::ErrorType::Connection,
+            details: app_metrics::ErrorDetails {
+                error: error_details,
+            },
+            uuid: uuid::Uuid::now_v7(),
+        }
+    }
+
+    pub fn new_http_status(status_code: u16, message: &str) -> Self {
+        let error_details = app_metrics::Error {
+            name: "http status".to_owned(),
+            message: Some(message.to_owned()),
+            stack: None,
+        };
+        Self {
+            r#type: app_metrics::ErrorType::HttpStatus(status_code),
+            details: app_metrics::ErrorDetails {
+                error: error_details,
+            },
+            uuid: uuid::Uuid::now_v7(),
+        }
+    }
+
+    pub fn new_parse(message: &str) -> Self {
+        let error_details = app_metrics::Error {
+            name: "parse error".to_owned(),
+            message: Some(message.to_owned()),
+            stack: None,
+        };
+        Self {
+            r#type: app_metrics::ErrorType::Parse,
+            details: app_metrics::ErrorDetails {
+                error: error_details,
+            },
+            uuid: uuid::Uuid::now_v7(),
+        }
+    }
 }
