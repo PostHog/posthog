@@ -114,6 +114,7 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
                 <LemonDivider vertical />
                 <LemonButton
                     onClick={() => {
+                        // TODO: Should we only allow this if the comment mark is already active?
                         const markId = uuid()
                         editor.chain().setMark('comment', { id: markId }).run()
                         insertComment({ type: 'mark', id: markId })

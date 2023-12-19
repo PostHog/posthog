@@ -11,6 +11,7 @@ import {
     buildTimestampCommentContent,
     NotebookNodeReplayTimestampAttrs,
 } from 'scenes/notebooks/Nodes/NotebookNodeReplayTimestamp'
+import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { notebooksModel, openNotebook, SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
@@ -128,7 +129,7 @@ export const notebookLogic = kea<notebookLogicType>([
         setTextSelection: (selection: number | EditorRange) => ({ selection }),
         setContainerSize: (containerSize: 'small' | 'medium') => ({ containerSize }),
         insertComment: (context: Record<string, any>) => ({ context }),
-        clearCurrentCommentItemContext: true,
+        selectComment: (commentId: string) => ({ commentId }),
     }),
     reducers(({ props }) => ({
         localContent: [
@@ -209,14 +210,6 @@ export const notebookLogic = kea<notebookLogicType>([
             'small' as 'small' | 'medium',
             {
                 setContainerSize: (_, { containerSize }) => containerSize,
-            },
-        ],
-        currentCommentItemContext: [
-            null as Record<string, any> | null,
-            {
-                setItemContext: (_, { context }) => context,
-                clearCurrentCommentItemContext: () => null,
-                sendComposedContentSuccess: () => null,
             },
         ],
     })),
@@ -629,24 +622,22 @@ export const notebookLogic = kea<notebookLogicType>([
         // Comments
         insertComment: ({ context }) => {
             actions.openSidePanel(SidePanelTab.Discussion)
-            actions.setItemContext({ context })
-            actions.focusComposer()
-        },
-        setCommentComposerBlurred: () => {
-            if (values.currentCommentItemContext) {
-                values.editor?.removeMark('comment')
-                actions.clearCurrentCommentItemContext()
-            }
+            actions.setItemContext({ context, callback: () => {
+                console.log("comment callback!")
+            } })
+            // add callback for successful send
         },
         deleteCommentSuccess({ payload }) {
             if (payload?.comment) {
                 values.editor?.removeComment(payload.comment.id)
             }
         },
-        sendComposedContentSuccess({ comments }) {
-            const comment = comments[comments.length - 1]
-            values.editor?.updateMark('comment', { commentId: comment.id })
-            actions.clearCurrentCommentItemContext()
+        selectComment: ({ commentId }) => {
+            actions.openSidePanel(SidePanelTab.Discussion, commentId)
+
+            if (router.values.currentLocation.pathname !== urls.notebook(values.shortId)) {
+                router.actions.push(urls.notebook(values.shortId))
+            }
         },
     })),
 

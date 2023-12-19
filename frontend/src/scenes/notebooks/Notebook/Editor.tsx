@@ -7,7 +7,7 @@ import TaskItem from '@tiptap/extension-task-item'
 import TaskList from '@tiptap/extension-task-list'
 import { EditorContent, useEditor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { sampleOne } from 'lib/utils'
 import posthog from 'posthog-js'
 import { useCallback, useMemo, useRef } from 'react'
@@ -51,6 +51,8 @@ const PLACEHOLDER_TITLES = ['Release notes', 'Product roadmap', 'Meeting notes',
 
 export function Editor(): JSX.Element {
     const editorRef = useRef<TTEditor>()
+
+    const mountedNotebookLogic = useMountedLogic(notebookLogic)
 
     const { shortId, mode } = useValues(notebookLogic)
     const { setEditor, onEditorUpdate, onEditorSelectionUpdate } = useActions(notebookLogic)
@@ -230,6 +232,9 @@ export function Editor(): JSX.Element {
         },
         onCreate: ({ editor }) => {
             editorRef.current = editor
+
+            // NOTE: This could be the wrong way of passing state to extensions but this is what we are using for now!
+            editor.extensionStorage._notebookLogic = mountedNotebookLogic
 
             setEditor({
                 getJSON: () => editor.getJSON(),

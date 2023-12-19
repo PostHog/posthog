@@ -1,8 +1,8 @@
 import { Mark, mergeAttributes } from '@tiptap/core'
 import clsx from 'clsx'
+import { BuiltLogic } from 'kea'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { SidePanelTab } from '~/types'
+import type { notebookLogicType } from '../Notebook/notebookLogicType'
 
 export const NotebookMarkComment = Mark.create({
     name: 'comment',
@@ -40,11 +40,8 @@ export const NotebookMarkComment = Mark.create({
 
     onSelectionUpdate() {
         if (this.editor.isActive('comment')) {
-            const logic = sidePanelStateLogic.findMounted()
-            logic?.actions.openSidePanel(SidePanelTab.Discussion)
-            const attrs = this.editor.getAttributes('comment')
-            const el = document.querySelector(`.Comment[data-comment-id='${attrs.commentId}']`)
-            el?.scrollIntoView()
+            const notebookLogic = this.editor.extensionStorage._notebookLogic as BuiltLogic<notebookLogicType>
+            notebookLogic.actions.selectComment(this.editor.getAttributes('comment').id)
         }
     },
 
