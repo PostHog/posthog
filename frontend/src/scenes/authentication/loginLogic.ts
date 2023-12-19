@@ -38,8 +38,15 @@ export function handleLoginRedirect(): void {
     } catch (e) {
         // do nothing
     }
-    // A safe way to redirect to a user input URL. Calls history.replaceState() ensuring the URLs origin does not change
-    router.actions.replace(nextURL)
+
+    // need to use a dummy domain here
+    const { pathname: nextPathname } = new URL('https://posthog.com' + nextURL)
+    if (nextPathname.endsWith('/')) {
+        window.location.href = nextURL
+    } else {
+        // A safe way to redirect to a user input URL. Calls history.replaceState() ensuring the URLs origin does not change
+        router.actions.replace(nextURL)
+    }
 }
 
 export interface LoginForm {
