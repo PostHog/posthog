@@ -23,6 +23,7 @@ import {
     check,
     dissatisfiedEmoji,
     getTextColor,
+    getTextColorComponents,
     neutralEmoji,
     posthogLogoSVG,
     satisfiedEmoji,
@@ -285,7 +286,7 @@ export function BaseAppearance({
     preview?: boolean
     isWidgetSurvey?: boolean
 }): JSX.Element {
-    const [textColor, setTextColor] = useState('black')
+    const [textColor, setTextColor] = useState<'white' | 'black'>('black')
     const ref = useRef(null)
 
     useEffect(() => {
@@ -300,11 +301,14 @@ export function BaseAppearance({
             ref={ref}
             className={`survey-form ${isWidgetSurvey ? 'widget-survey' : ''}`}
             // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                backgroundColor: appearance.backgroundColor,
-                border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
-                color: textColor,
-            }}
+            style={
+                {
+                    backgroundColor: appearance.backgroundColor,
+                    border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
+                    color: textColor,
+                    '--textColor': getTextColorComponents(textColor),
+                } as React.CSSProperties
+            }
         >
             <div className="survey-box">
                 {!preview && (

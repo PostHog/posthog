@@ -121,7 +121,15 @@
 .description {
     margin-top: 5px;
     font-size: 13px;
-    opacity: 0.6;
+    color: rgba(var(--textColor), 0.6);
+
+    a {
+        color: rgb(var(--textColor));
+
+        &:hover {
+            color: rgba(var(--textColor), 0.6);
+        }
+    }
 }
 
 .ratings-number {

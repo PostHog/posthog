@@ -101,7 +101,7 @@ export const posthogLogoSVG = (
         </defs>
     </svg>
 )
-export function getTextColor(el: never): string {
+export function getTextColor(el: Element): 'white' | 'black' {
     const backgroundColor = window.getComputedStyle(el).backgroundColor
     if (backgroundColor === 'rgba(0, 0, 0, 0)') {
         return 'black'
@@ -115,6 +115,10 @@ export function getTextColor(el: never): string {
         b = parseInt(colorMatch[3]),
         hsp = Math.sqrt(0.299 * (r * r) + 0.587 * (g * g) + 0.114 * (b * b))
     return hsp > 127.5 ? 'black' : 'white'
+}
+/** Return the rgb-components for usage within css rgb(). */
+export function getTextColorComponents(color: 'white' | 'black'): string {
+    return color === 'white' ? '255, 255, 255' : '0, 0, 0'
 }
 
 export function PresentationTypeCard({
