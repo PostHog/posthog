@@ -21,7 +21,7 @@ import { NavbarButton } from './NavbarButton'
 
 export function Navbar(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { isSitePopoverOpen, systemStatus } = useValues(navigationLogic)
+    const { isSitePopoverOpen, systemStatusHealthy } = useValues(navigationLogic)
     const { closeSitePopover, toggleSitePopover } = useActions(navigationLogic)
     const { isNavShown, isSidebarShown, activeNavbarItemId, navbarItems, mobileLayout } = useValues(navigation3000Logic)
     const { showSidebar, hideSidebar, toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
@@ -90,7 +90,7 @@ export function Navbar(): JSX.Element {
                                 to={urls.settings('project')}
                             />
 
-                            {systemStatus ? (
+                            {!systemStatusHealthy ? (
                                 <NavbarButton
                                     icon={<IconWarning />}
                                     identifier={Scene.Settings}

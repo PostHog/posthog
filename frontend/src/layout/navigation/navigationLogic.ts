@@ -137,7 +137,7 @@ export const navigationLogic = kea<navigationLogicType>([
                 !noSidebar &&
                 (mobileLayout ? isActivationSideBarShownBase && !isSideBarShownMobile : isActivationSideBarShownBase),
         ],
-        systemStatus: [
+        systemStatusHealthy: [
             (s) => [s.navigationStatus, preflightLogic.selectors.siteUrlMisconfigured],
             (status, siteUrlMisconfigured) => {
                 // On cloud non staff users don't have status metrics to review
