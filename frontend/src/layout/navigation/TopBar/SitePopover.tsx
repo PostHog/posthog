@@ -137,17 +137,17 @@ export function InviteMembersButton({
 
 function SystemStatus(): JSX.Element {
     const { closeSitePopover } = useActions(navigationLogic)
-    const { systemStatus } = useValues(navigationLogic)
+    const { systemStatusHealthy } = useValues(navigationLogic)
 
     return (
         <LemonRow
-            status={systemStatus ? 'success' : 'danger'}
-            icon={systemStatus ? <IconCheckmark /> : <IconOffline />}
+            status={systemStatusHealthy ? 'success' : 'danger'}
+            icon={systemStatusHealthy ? <IconCheckmark /> : <IconOffline />}
             fullWidth
         >
             <>
                 <div className="SitePopover__main-info">
-                    {systemStatus ? 'All systems operational' : 'Potential system issue'}
+                    {systemStatusHealthy ? 'All systems operational' : 'Potential system issue'}
                 </div>
                 <Link
                     to={urls.instanceStatus()}
@@ -335,7 +335,7 @@ export function SitePopoverOverlay(): JSX.Element {
 
 export function SitePopover(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { isSitePopoverOpen, systemStatus } = useValues(navigationLogic)
+    const { isSitePopoverOpen, systemStatusHealthy } = useValues(navigationLogic)
     const { toggleSitePopover, closeSitePopover } = useActions(navigationLogic)
 
     return (
@@ -348,7 +348,7 @@ export function SitePopover(): JSX.Element {
             <div className="SitePopover__crumb" onClick={toggleSitePopover} data-attr="top-menu-toggle">
                 <div className="SitePopover__profile-picture" title="Potential system issue">
                     <ProfilePicture name={user?.first_name} email={user?.email} size="md" />
-                    {!systemStatus && <IconExclamation className="SitePopover__danger" />}
+                    {!systemStatusHealthy && <IconExclamation className="SitePopover__danger" />}
                 </div>
                 <IconChevronDown />
             </div>
