@@ -266,8 +266,8 @@ function makeImageElement(wireframe: wireframeImage, children: serializedNodeWit
         tagName: 'img',
         attributes: {
             src: src,
-            width: wireframe.width || '100vw',
-            height: wireframe.height || '100vh',
+            width: wireframe.width,
+            height: wireframe.height,
             style: makeStylesString(wireframe),
         },
         id: wireframe.id,
