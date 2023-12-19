@@ -225,8 +225,8 @@ export const LineGraph = (): JSX.Element => {
                                 ? chartClientLeft + tooltip.caretX - tooltipEl.clientWidth - 8 // If tooltip is too large (or close to the edge), show it to the left of the data point instead
                                 : defaultOffsetLeft
 
-                        tooltipEl.style.top = Math.min(tooltipClientTop, window.innerHeight) + 'px'
-                        tooltipEl.style.left = Math.min(tooltipClientLeft, window.innerWidth) + 'px'
+                        tooltipEl.style.top = tooltipClientTop + 'px'
+                        tooltipEl.style.left = tooltipClientLeft + 'px'
                     },
                 },
             },

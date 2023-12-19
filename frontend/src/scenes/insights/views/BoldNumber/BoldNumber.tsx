@@ -75,8 +75,8 @@ function useBoldNumberTooltip({
         if (divRect) {
             const desiredTop = window.scrollY + divRect.top - tooltipRect.height - BOLD_NUMBER_TOOLTIP_OFFSET_PX
             const desiredLeft = divRect.left + divRect.width / 2 - tooltipRect.width / 2
-            tooltipEl.style.top = `${Math.min(desiredTop, window.innerHeight)}px`
-            tooltipEl.style.left = `${Math.min(desiredLeft, window.innerWidth)}px`
+            tooltipEl.style.top = `${desiredTop}px`
+            tooltipEl.style.left = `${desiredLeft}px`
         }
     })
 
