@@ -10,7 +10,6 @@ const meta: Meta<typeof ToastContent> = {
     parameters: {
         testOptions: {
             include3000: true,
-            waitForSelector: '.storybook-ready',
             waitForLoadersToDisappear: false,
             snapshotTargetSelector: '.Toastify__toast-container',
         },
