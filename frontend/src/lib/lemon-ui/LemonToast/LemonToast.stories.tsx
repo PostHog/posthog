@@ -1,5 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Slide, ToastContainer } from 'react-toastify'
 
 import { lemonToast, ToastCloseButton, ToastContent, ToastContentProps } from './LemonToast'
@@ -10,8 +10,9 @@ const meta: Meta<typeof ToastContent> = {
     parameters: {
         testOptions: {
             include3000: true,
+            waitForSelector: '.storybook-ready',
             waitForLoadersToDisappear: false,
-            snapshotTargetSelector: '.Toastify__toast-container:last-child',
+            snapshotTargetSelector: '.Toastify__toast-container',
         },
     },
 }
@@ -46,9 +47,11 @@ export const ToastTypes: Story = {
     },
     render: (args, { globals }) => {
         const isDarkModeOn = globals.theme === 'dark'
+        const [isReady, setIsReady] = useState(true)
 
         useEffect(() => {
             lemonToast.dismiss()
+            setIsReady(false)
             args.toasts.forEach((toast) => {
                 const { type, message, ...rest } = toast
                 lemonToast[type](message, rest)
@@ -56,15 +59,21 @@ export const ToastTypes: Story = {
         }, [isDarkModeOn])
 
         return (
-            <ToastContainer
-                position="top-left" // different from app
-                autoClose={false} // different from app
-                transition={Slide}
-                closeOnClick={false}
-                draggable={false}
-                closeButton={<ToastCloseButton />}
-                theme={isDarkModeOn ? 'dark' : 'light'}
-            />
+            <>
+                <ToastContainer
+                    position="top-left" // different from app
+                    autoClose={false} // different from app
+                    transition={({ nodeRef, ...rest }) => {
+                        setIsReady(nodeRef.current !== null && !nodeRef.current.classList.contains('Toastify--animate'))
+                        return Slide({ nodeRef, ...rest })
+                    }}
+                    closeOnClick={false}
+                    draggable={false}
+                    closeButton={<ToastCloseButton />}
+                    theme={isDarkModeOn ? 'dark' : 'light'}
+                />
+                <div className={isReady ? 'storybook-ready' : ''} />
+            </>
         )
     },
 }
