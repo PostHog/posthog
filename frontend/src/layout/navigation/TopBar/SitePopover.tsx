@@ -283,7 +283,7 @@ export function SitePopoverOverlay(): JSX.Element {
             )}
             <SitePopoverSection>
                 <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000} match="test">
-                    <ThemeSwitcher />
+                    <ThemeSwitcher fullWidth type="tertiary" />
                 </FlaggedFeature>
                 <LemonButton
                     onClick={closeSitePopover}

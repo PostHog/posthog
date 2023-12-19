@@ -344,7 +344,7 @@ export const SettingsMap: SettingSection[] = [
             {
                 id: 'theme',
                 title: 'Theme',
-                component: <ThemeSwitcher type="secondary" fullWidth={false} onlyLabel />,
+                component: <ThemeSwitcher onlyLabel />,
             },
             {
                 id: 'notifications',
