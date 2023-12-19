@@ -44,7 +44,7 @@ export interface ToastContentProps {
 export function ToastContent({ type, message, button, id }: ToastContentProps): JSX.Element {
     return (
         <div className="flex items-center" data-attr={`${type}-toast`}>
-            <span className="grow">{message}</span>
+            <span className="grow overflow-hidden text-ellipsis">{message}</span>
             {button && (
                 <LemonButton
                     onClick={() => {
