@@ -119,7 +119,7 @@ def send_email_verification(user_id: int, token: str) -> None:
         },
     )
     message.add_recipient(user.pending_email if user.pending_email is not None else user.email)
-    message.send()
+    message.send(send_async=False)
     posthoganalytics.capture(
         user.distinct_id,
         "verification email sent",
