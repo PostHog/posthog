@@ -90,7 +90,7 @@ export function Navbar(): JSX.Element {
                                 to={urls.settings('project')}
                             />
 
-                            {systemStatus || true ? (
+                            {systemStatus ? (
                                 <NavbarButton
                                     icon={<IconWarning />}
                                     identifier={Scene.Settings}
