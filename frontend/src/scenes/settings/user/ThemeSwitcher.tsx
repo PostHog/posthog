@@ -32,8 +32,6 @@ export function ThemeSwitcher({
                 )
             }}
             onChange={(value) => updateUser({ theme_mode: value })}
-            type="tertiary"
-            fullWidth
             dropdownPlacement="right-start"
             dropdownMatchSelectWidth={false}
             {...props}
