@@ -55,6 +55,7 @@ from .views import (
     stats,
 )
 from .year_in_posthog import year_in_posthog
+from posthog.constants import PERMITTED_FORUM_DOMAINS
 
 import structlog
 
@@ -150,7 +151,7 @@ def link_and_redirect(request: HttpRequest) -> HttpResponse:
     referer_url = urlparse(request.META["HTTP_REFERER"])
     redirect_url = urlparse(request.GET["redirect"])
 
-    if not current_team or not redirect_url.hostname in ['localhost', 'posthog.com']:
+    if not current_team or redirect_url.hostname not in PERMITTED_FORUM_DOMAINS:
         return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
 
     if referer_url.hostname != redirect_url.hostname:
@@ -180,7 +181,6 @@ def link_and_redirect(request: HttpRequest) -> HttpResponse:
             "redirect_url": request.GET["redirect"],
         },
     )
-
 
 
 def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> URLPattern:

@@ -49,6 +49,7 @@ from posthog.tasks import user_identify
 from posthog.tasks.email import send_email_change_emails
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_js_url
+from posthog.constants import PERMITTED_FORUM_DOMAINS
 
 
 class UserAuthenticationThrottle(UserRateThrottle):
@@ -467,20 +468,24 @@ def redirect_to_website(request):
     if not app_url:
         return HttpResponse(status=404)
 
-    if not team or not urllib.parse.urlparse(app_url).hostname in ['localhost', 'posthog.com']:
+    if not team or urllib.parse.urlparse(app_url).hostname not in PERMITTED_FORUM_DOMAINS:
         return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
 
-    token = jwt.encode({
-        "id": request.user.strapi_id,
-        "iat": int(time.time()),
-        "exp": int((datetime.now() + timedelta(days=30)).timestamp())
-    }, os.environ.get("JWT_SECRET_STRAPI"), algorithm='HS256')
+    token = jwt.encode(
+        {
+            "id": request.user.strapi_id,
+            "iat": int(time.time()),
+            "exp": int((datetime.now() + timedelta(days=30)).timestamp()),
+        },
+        os.environ.get("JWT_SECRET_STRAPI"),
+        algorithm="HS256",
+    )
 
     # pass the empty string as the safe param so that `//` is encoded correctly.
     # see https://github.com/PostHog/posthog/issues/9671
-    userData = urllib.parse.quote(json.dumps({ "jwt": token }), safe="")
+    userData = urllib.parse.quote(json.dumps({"jwt": token}), safe="")
 
-    return redirect("{}?userData={}&redirect={}".format('http://localhost:8001/auth', userData, app_url))
+    return redirect("{}?userData={}&redirect={}".format("https://posthog.com/auth", userData, app_url))
 
 
 @require_http_methods(["POST"])
