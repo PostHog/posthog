@@ -1,5 +1,10 @@
 import { MobileStyles, wireframe, wireframeProgress } from './mobile.types'
 
+// StyleOverride is defined here and not in the schema
+// because these are overrides that the transformer is allowed to make
+// not that clients are allowed to request
+export type StyleOverride = MobileStyles & { bottom?: true }
+
 function isNumber(candidate: unknown): candidate is number {
     return typeof candidate === 'number'
 }
@@ -16,7 +21,7 @@ function ensureUnit(value: string | number): string {
     return isNumber(value) ? `${value}px` : value.replace(/px$/g, '') + 'px'
 }
 
-function makeBorderStyles(wireframe: wireframe, styleOverride?: MobileStyles): string {
+function makeBorderStyles(wireframe: wireframe, styleOverride?: StyleOverride): string {
     let styles = ''
 
     const combinedStyles = {
@@ -47,30 +52,48 @@ function makeBorderStyles(wireframe: wireframe, styleOverride?: MobileStyles): s
     return styles
 }
 
-export function makePositionStyles(wireframe: wireframe): string {
+export function makeDimensionStyles(wireframe: wireframe): string {
     let styles = ''
-    if (isNumber(wireframe.width)) {
+
+    if (wireframe.width === '100vw') {
+        styles += `width: 100vw;`
+    } else if (isNumber(wireframe.width)) {
         styles += `width: ${ensureUnit(wireframe.width)};`
     }
+
     if (isNumber(wireframe.height)) {
         styles += `height: ${ensureUnit(wireframe.height)};`
     }
 
-    const posX = wireframe.x || 0
-    const posY = wireframe.y || 0
-    if (isNumber(posX) || isNumber(posY)) {
-        styles += `position: fixed;`
-        if (isNumber(posX)) {
-            styles += `left: ${ensureUnit(posX)};`
-        }
-        if (isNumber(posY)) {
-            styles += `top: ${ensureUnit(posY)};`
-        }
-    }
     return styles
 }
 
-function makeLayoutStyles(wireframe: wireframe, styleOverride?: MobileStyles): string {
+export function makePositionStyles(wireframe: wireframe, styleOverride?: StyleOverride): string {
+    let styles = ''
+
+    styles += makeDimensionStyles(wireframe)
+
+    if (styleOverride?.bottom) {
+        styles += `bottom: 0;`
+        styles += `position: fixed;`
+    } else {
+        const posX = wireframe.x || 0
+        const posY = wireframe.y || 0
+        if (isNumber(posX) || isNumber(posY)) {
+            styles += `position: fixed;`
+            if (isNumber(posX)) {
+                styles += `left: ${ensureUnit(posX)};`
+            }
+            if (isNumber(posY)) {
+                styles += `top: ${ensureUnit(posY)};`
+            }
+        }
+    }
+
+    return styles
+}
+
+function makeLayoutStyles(wireframe: wireframe, styleOverride?: StyleOverride): string {
     let styles = ''
 
     const combinedStyles = {
@@ -94,7 +117,7 @@ function makeLayoutStyles(wireframe: wireframe, styleOverride?: MobileStyles): s
     return styles
 }
 
-function makeFontStyles(wireframe: wireframe, styleOverride?: MobileStyles): string {
+function makeFontStyles(wireframe: wireframe, styleOverride?: StyleOverride): string {
     let styles = ''
 
     const combinedStyles = {
@@ -115,7 +138,7 @@ function makeFontStyles(wireframe: wireframe, styleOverride?: MobileStyles): str
     return styles
 }
 
-export function makeIndeterminateProgressStyles(wireframe: wireframeProgress, styleOverride?: MobileStyles): string {
+export function makeIndeterminateProgressStyles(wireframe: wireframeProgress, styleOverride?: StyleOverride): string {
     let styles = ''
     const combinedStyles = {
         ...wireframe.style,
@@ -132,7 +155,7 @@ export function makeIndeterminateProgressStyles(wireframe: wireframeProgress, st
     return styles
 }
 
-export function makeDeterminateProgressStyles(wireframe: wireframeProgress, styleOverride?: MobileStyles): string {
+export function makeDeterminateProgressStyles(wireframe: wireframeProgress, styleOverride?: StyleOverride): string {
     let styles = ''
     const combinedStyles = {
         ...wireframe.style,
@@ -156,17 +179,17 @@ export function makeDeterminateProgressStyles(wireframe: wireframeProgress, styl
 /**
  * normally use makeStylesString instead, but sometimes you need styles without any colors applied
  * */
-export function makeMinimalStyles(wireframe: wireframe, styleOverride?: MobileStyles): string {
+export function makeMinimalStyles(wireframe: wireframe, styleOverride?: StyleOverride): string {
     let styles = ''
 
-    styles += makePositionStyles(wireframe)
+    styles += makePositionStyles(wireframe, styleOverride)
     styles += makeLayoutStyles(wireframe, styleOverride)
     styles += makeFontStyles(wireframe, styleOverride)
 
     return styles
 }
 
-export function makeColorStyles(wireframe: wireframe, styleOverride?: MobileStyles): string {
+export function makeColorStyles(wireframe: wireframe, styleOverride?: StyleOverride): string {
     let styles = ''
 
     const combinedStyles = {
@@ -186,7 +209,7 @@ export function makeColorStyles(wireframe: wireframe, styleOverride?: MobileStyl
     return styles
 }
 
-export function makeStylesString(wireframe: wireframe, styleOverride?: MobileStyles): string {
+export function makeStylesString(wireframe: wireframe, styleOverride?: StyleOverride): string {
     let styles = ''
 
     styles += makeColorStyles(wireframe, styleOverride)
