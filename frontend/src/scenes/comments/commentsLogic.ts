@@ -141,6 +141,7 @@ export const commentsLogic = kea<commentsLogicType>([
     })),
 
     selectors({
+        key: [() => [(_, props) => props], (props): string => `${props.scope}-${props.item_id || ''}`],
         sortedComments: [
             (s) => [s.comments],
             (comments) => {

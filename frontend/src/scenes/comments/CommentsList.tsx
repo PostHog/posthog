@@ -1,12 +1,19 @@
 import { LemonSkeleton } from '@posthog/lemon-ui'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { PhonePairHogs } from 'lib/components/hedgehogs'
+import { useEffect } from 'react'
 
 import { CommentWithReplies } from './Comment'
 import { commentsLogic, CommentsLogicProps } from './commentsLogic'
 
 export const CommentsList = (props: CommentsLogicProps): JSX.Element => {
-    const { commentsWithReplies, commentsLoading } = useValues(commentsLogic(props))
+    const { key, commentsWithReplies, commentsLoading } = useValues(commentsLogic(props))
+    const { loadComments } = useActions(commentsLogic(props))
+
+    useEffect(() => {
+        // If the comment list focus changes we should load the comments
+        loadComments()
+    }, [key])
 
     return (
         <BindLogic logic={commentsLogic} props={props}>
