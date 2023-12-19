@@ -1,5 +1,5 @@
-import { IconChevronDown, IconDay, IconFeatures, IconLaptop, IconLive, IconNight } from '@posthog/icons'
-import { LemonButtonPropsBase, LemonSelect } from '@posthog/lemon-ui'
+import { IconChevronDown, IconFeatures, IconLive } from '@posthog/icons'
+import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -25,6 +25,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
+import { ThemeSwitcher } from 'scenes/settings/user/ThemeSwitcher'
 
 import { featurePreviewsLogic } from '~/layout/FeaturePreviews/featurePreviewsLogic'
 import {
@@ -224,36 +225,6 @@ function FeaturePreviewsButton(): JSX.Element {
     )
 }
 
-function ThemeSwitcher(): JSX.Element {
-    const { user } = useValues(userLogic)
-    const { updateUser } = useActions(userLogic)
-
-    return (
-        <LemonSelect
-            options={[
-                { icon: <IconLaptop />, value: null, label: `Sync with system` },
-                { icon: <IconDay />, value: 'light', label: 'Light mode' },
-                { icon: <IconNight />, value: 'dark', label: 'Dark mode' },
-            ]}
-            value={user?.theme_mode}
-            renderButtonContent={(leaf) => {
-                return (
-                    <>
-                        <span className="flex-1 flex justify-between items-baseline">
-                            <span>Color theme</span>
-                            <span className="font-normal text-xs">{leaf ? leaf.label : 'Sync with system'}</span>
-                        </span>
-                    </>
-                )
-            }}
-            onChange={(value) => updateUser({ theme_mode: value })}
-            type="tertiary"
-            fullWidth
-            dropdownPlacement="right-start"
-        />
-    )
-}
-
 function SignOutButton(): JSX.Element {
     const { logout } = useActions(userLogic)
 
@@ -312,7 +283,7 @@ export function SitePopoverOverlay(): JSX.Element {
             )}
             <SitePopoverSection>
                 <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000} match="test">
-                    <ThemeSwitcher />
+                    <ThemeSwitcher fullWidth type="tertiary" />
                 </FlaggedFeature>
                 <LemonButton
                     onClick={closeSitePopover}
