@@ -54,7 +54,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -72,17 +72,17 @@
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
         INNER JOIN
-          (SELECT person.id,
+          (SELECT person.id AS id,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$bool_prop'), ''), 'null'), '^"|"$', '') AS `properties___$bool_prop`
            FROM person
            WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                            (SELECT person.id, max(person.version) AS version
+                                                            (SELECT person.id AS id, max(person.version) AS version
                                                              FROM person
                                                              WHERE equals(person.team_id, 2)
                                                              GROUP BY person.id
                                                              HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))), ifNull(equals(e__pdi__person.`properties___$bool_prop`, 'x'), 0), and(equals(e.event, 'sign up'), ifNull(in(e__pdi.person_id,
-                                                                                                                                                                                                                                                                                                                                                                                                                                     (SELECT cohortpeople.person_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                     (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                                                                                       FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                                                                                                                       WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 4))
                                                                                                                                                                                                                                                                                                                                                                                                                                       GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
@@ -152,7 +152,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -169,7 +169,7 @@
            WHERE equals(person_overrides.team_id, 2)
            GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$bool_prop'), ''), 'null'), '^"|"$', ''), 'x'), 0), and(equals(e.event, 'sign up'), ifNull(in(ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id),
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT cohortpeople.person_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 5))
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
@@ -214,12 +214,12 @@
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
-            day_start,
-            breakdown_value
+            day_start AS day_start,
+            breakdown_value AS breakdown_value
      FROM
        (SELECT 0 AS total,
                ticks.day_start AS day_start,
-               sec.breakdown_value
+               sec.breakdown_value AS breakdown_value
         FROM
           (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
            FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), 0)) AS numbers
@@ -317,12 +317,12 @@
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
-            day_start,
-            breakdown_value
+            day_start AS day_start,
+            breakdown_value AS breakdown_value
      FROM
        (SELECT 0 AS total,
                ticks.day_start AS day_start,
-               sec.breakdown_value
+               sec.breakdown_value AS breakdown_value
         FROM
           (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
            FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), 0)) AS numbers
@@ -381,12 +381,12 @@
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
-            day_start,
-            breakdown_value
+            day_start AS day_start,
+            breakdown_value AS breakdown_value
      FROM
        (SELECT 0 AS total,
                ticks.day_start AS day_start,
-               sec.breakdown_value
+               sec.breakdown_value AS breakdown_value
         FROM
           (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
            FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 13:01:01', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), 0)) AS numbers
@@ -437,12 +437,12 @@
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
-            day_start,
-            breakdown_value
+            day_start AS day_start,
+            breakdown_value AS breakdown_value
      FROM
        (SELECT 0 AS total,
                ticks.day_start AS day_start,
-               sec.breakdown_value
+               sec.breakdown_value AS breakdown_value
         FROM
           (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
            FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-22 13:01:01', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), 0)) AS numbers
@@ -490,12 +490,12 @@
   '
   SELECT sum(count) AS total,
   
-    (SELECT day_start
+    (SELECT day_start AS day_start
      FROM
        (SELECT 1 AS group_key,
                groupArray(day_start) AS day_start
         FROM
-          (SELECT day_start
+          (SELECT day_start AS day_start
            FROM
              (SELECT 0 AS total,
                      minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -507,14 +507,14 @@
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
-            breakdown_value
+            breakdown_value AS breakdown_value
      FROM
        (SELECT count(DISTINCT actor_id) AS total,
-               breakdown_value
+               breakdown_value AS breakdown_value
         FROM
-          (SELECT d.timestamp,
-                  e.actor_id,
-                  e.breakdown_value
+          (SELECT d.timestamp AS timestamp,
+                  e.actor_id AS actor_id,
+                  e.breakdown_value AS breakdown_value
            FROM
              (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC')))) AS numbers) AS d
@@ -575,12 +575,12 @@
   '
   SELECT sum(count) AS total,
   
-    (SELECT day_start
+    (SELECT day_start AS day_start
      FROM
        (SELECT 1 AS group_key,
                groupArray(day_start) AS day_start
         FROM
-          (SELECT day_start
+          (SELECT day_start AS day_start
            FROM
              (SELECT 0 AS total,
                      minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -592,14 +592,14 @@
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
-            breakdown_value
+            breakdown_value AS breakdown_value
      FROM
        (SELECT count(DISTINCT actor_id) AS total,
-               breakdown_value
+               breakdown_value AS breakdown_value
         FROM
-          (SELECT d.timestamp,
-                  e.actor_id,
-                  e.breakdown_value
+          (SELECT d.timestamp AS timestamp,
+                  e.actor_id AS actor_id,
+                  e.breakdown_value AS breakdown_value
            FROM
              (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 23:59:59', 6, 'UTC')))) AS numbers) AS d
@@ -675,17 +675,17 @@
         GROUP BY person_distinct_id2.distinct_id
         HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
      INNER JOIN
-       (SELECT person.id,
+       (SELECT person.id AS id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
         FROM person
         WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                         (SELECT person.id, max(person.version) AS version
+                                                         (SELECT person.id AS id, max(person.version) AS version
                                                           FROM person
                                                           WHERE equals(person.team_id, 2)
                                                           GROUP BY person.id
                                                           HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
      WHERE and(equals(e.team_id, 2), equals(e.event, '$pageview'), and(or(ifNull(equals(e__pdi__person.properties___name, 'p1'), 0), ifNull(equals(e__pdi__person.properties___name, 'p2'), 0), ifNull(equals(e__pdi__person.properties___name, 'p3'), 0)), ifNull(in(e__pdi.person_id,
-                                                                                                                                                                                                                                                                        (SELECT cohortpeople.person_id
+                                                                                                                                                                                                                                                                        (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                          FROM cohortpeople
                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 24))
                                                                                                                                                                                                                                                                          GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
@@ -705,12 +705,12 @@
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
-            day_start,
-            breakdown_value
+            day_start AS day_start,
+            breakdown_value AS breakdown_value
      FROM
        (SELECT 0 AS total,
                ticks.day_start AS day_start,
-               sec.breakdown_value
+               sec.breakdown_value AS breakdown_value
         FROM
           (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
            FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), 0)) AS numbers
@@ -723,11 +723,11 @@
         ORDER BY sec.breakdown_value ASC, day_start ASC
         UNION ALL SELECT counts AS total,
                          toStartOfDay(timestamp) AS day_start,
-                         breakdown_value
+                         breakdown_value AS breakdown_value
         FROM
-          (SELECT d.timestamp,
+          (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts,
-                  e.breakdown_value
+                  e.breakdown_value AS breakdown_value
            FROM
              (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC')))) AS numbers) AS d
@@ -744,17 +744,17 @@
                  GROUP BY person_distinct_id2.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
               INNER JOIN
-                (SELECT person.id,
+                (SELECT person.id AS id,
                         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
                  FROM person
                  WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                                  (SELECT person.id, max(person.version) AS version
+                                                                  (SELECT person.id AS id, max(person.version) AS version
                                                                    FROM person
                                                                    WHERE equals(person.team_id, 2)
                                                                    GROUP BY person.id
                                                                    HAVING ifNull(equals(argMax(person.is_deleted, person.version), 0), 0))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.person_id, e__pdi__person.id)
               WHERE and(equals(e.team_id, 2), and(and(equals(e.event, '$pageview'), and(or(ifNull(equals(e__pdi__person.properties___name, 'p1'), 0), ifNull(equals(e__pdi__person.properties___name, 'p2'), 0), ifNull(equals(e__pdi__person.properties___name, 'p3'), 0)), ifNull(in(e__pdi.person_id,
-                                                                                                                                                                                                                                                                                         (SELECT cohortpeople.person_id
+                                                                                                                                                                                                                                                                                         (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                           FROM cohortpeople
                                                                                                                                                                                                                                                                                           WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 24))
                                                                                                                                                                                                                                                                                           GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
@@ -807,12 +807,12 @@
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
-            day_start,
-            breakdown_value
+            day_start AS day_start,
+            breakdown_value AS breakdown_value
      FROM
        (SELECT 0 AS total,
                ticks.day_start AS day_start,
-               sec.breakdown_value
+               sec.breakdown_value AS breakdown_value
         FROM
           (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
            FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), 0)) AS numbers
@@ -893,12 +893,12 @@
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
-            day_start,
-            breakdown_value
+            day_start AS day_start,
+            breakdown_value AS breakdown_value
      FROM
        (SELECT 0 AS total,
                ticks.day_start AS day_start,
-               sec.breakdown_value
+               sec.breakdown_value AS breakdown_value
         FROM
           (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
            FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), 0)) AS numbers
@@ -963,12 +963,12 @@
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
-            day_start,
-            breakdown_value
+            day_start AS day_start,
+            breakdown_value AS breakdown_value
      FROM
        (SELECT 0 AS total,
                ticks.day_start AS day_start,
-               sec.breakdown_value
+               sec.breakdown_value AS breakdown_value
         FROM
           (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
            FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0)) AS numbers
@@ -1032,12 +1032,12 @@
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
-            day_start,
-            breakdown_value
+            day_start AS day_start,
+            breakdown_value AS breakdown_value
      FROM
        (SELECT 0 AS total,
                ticks.day_start AS day_start,
-               sec.breakdown_value
+               sec.breakdown_value AS breakdown_value
         FROM
           (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
            FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0)) AS numbers
@@ -1124,7 +1124,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-02 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -1142,11 +1142,11 @@
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
         INNER JOIN
-          (SELECT person.id,
+          (SELECT person.id AS id,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
            FROM person
            WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                            (SELECT person.id, max(person.version) AS version
+                                                            (SELECT person.id AS id, max(person.version) AS version
                                                              FROM person
                                                              WHERE equals(person.team_id, 2)
                                                              GROUP BY person.id
@@ -1207,7 +1207,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-02 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -1233,7 +1233,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -1314,7 +1314,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -1357,12 +1357,12 @@
         GROUP BY person_distinct_id2.distinct_id
         HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
      INNER JOIN
-       (SELECT person.id,
+       (SELECT person.id AS id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'filter_prop'), ''), 'null'), '^"|"$', '') AS properties___filter_prop
         FROM person
         WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                         (SELECT person.id, max(person.version) AS version
+                                                         (SELECT person.id AS id, max(person.version) AS version
                                                           FROM person
                                                           WHERE equals(person.team_id, 2)
                                                           GROUP BY person.id
@@ -1383,12 +1383,12 @@
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
-            day_start,
-            breakdown_value
+            day_start AS day_start,
+            breakdown_value AS breakdown_value
      FROM
        (SELECT 0 AS total,
                ticks.day_start AS day_start,
-               sec.breakdown_value
+               sec.breakdown_value AS breakdown_value
         FROM
           (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
            FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0)) AS numbers
@@ -1401,11 +1401,11 @@
         ORDER BY sec.breakdown_value ASC, day_start ASC
         UNION ALL SELECT counts AS total,
                          toStartOfDay(timestamp) AS day_start,
-                         breakdown_value
+                         breakdown_value AS breakdown_value
         FROM
-          (SELECT d.timestamp,
+          (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts,
-                  e.breakdown_value
+                  e.breakdown_value AS breakdown_value
            FROM
              (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC'))), toIntervalDay(30)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')))) AS numbers) AS d
@@ -1422,12 +1422,12 @@
                  GROUP BY person_distinct_id2.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
               INNER JOIN
-                (SELECT person.id,
+                (SELECT person.id AS id,
                         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`,
                         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'filter_prop'), ''), 'null'), '^"|"$', '') AS properties___filter_prop
                  FROM person
                  WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                                  (SELECT person.id, max(person.version) AS version
+                                                                  (SELECT person.id AS id, max(person.version) AS version
                                                                    FROM person
                                                                    WHERE equals(person.team_id, 2)
                                                                    GROUP BY person.id
@@ -1473,12 +1473,12 @@
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
-            day_start,
-            breakdown_value
+            day_start AS day_start,
+            breakdown_value AS breakdown_value
      FROM
        (SELECT 0 AS total,
                ticks.day_start AS day_start,
-               sec.breakdown_value
+               sec.breakdown_value AS breakdown_value
         FROM
           (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
            FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0)) AS numbers
@@ -1491,11 +1491,11 @@
         ORDER BY sec.breakdown_value ASC, day_start ASC
         UNION ALL SELECT counts AS total,
                          toStartOfDay(timestamp) AS day_start,
-                         breakdown_value
+                         breakdown_value AS breakdown_value
         FROM
-          (SELECT d.timestamp,
+          (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts,
-                  e.breakdown_value
+                  e.breakdown_value AS breakdown_value
            FROM
              (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC'))), toIntervalDay(30)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')))) AS numbers) AS d
@@ -1534,7 +1534,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2022-11-30 23:59:59', 6, 'US/Pacific')), 0), toIntervalWeek(numbers.number)) AS day_start
@@ -1589,7 +1589,7 @@
         GROUP BY person_distinct_id2.distinct_id
         HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), ifNull(in(e__pdi.person_id,
-                                                                                                                                                                                                                                                                                                                                                                (SELECT cohortpeople.person_id
+                                                                                                                                                                                                                                                                                                                                                                (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                  FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                                                  WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 37))
                                                                                                                                                                                                                                                                                                                                                                  GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
@@ -1609,12 +1609,12 @@
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
-            day_start,
-            breakdown_value
+            day_start AS day_start,
+            breakdown_value AS breakdown_value
      FROM
        (SELECT 0 AS total,
                ticks.day_start AS day_start,
-               sec.breakdown_value
+               sec.breakdown_value AS breakdown_value
         FROM
           (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
            FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0)) AS numbers
@@ -1637,7 +1637,7 @@
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), ifNull(in(e__pdi.person_id,
-                                                                                                                                                                                                                                                                                                                                                                   (SELECT cohortpeople.person_id
+                                                                                                                                                                                                                                                                                                                                                                   (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                     FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                                                     WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 37))
                                                                                                                                                                                                                                                                                                                                                                     GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
@@ -1688,7 +1688,7 @@
         WHERE equals(person_overrides.team_id, 2)
         GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
      WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), ifNull(in(ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id),
-                                                                                                                                                                                                                                                                                                                                                                (SELECT cohortpeople.person_id
+                                                                                                                                                                                                                                                                                                                                                                (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                  FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                                                  WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 38))
                                                                                                                                                                                                                                                                                                                                                                  GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
@@ -1708,12 +1708,12 @@
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
-            day_start,
-            breakdown_value
+            day_start AS day_start,
+            breakdown_value AS breakdown_value
      FROM
        (SELECT 0 AS total,
                ticks.day_start AS day_start,
-               sec.breakdown_value
+               sec.breakdown_value AS breakdown_value
         FROM
           (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
            FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0)) AS numbers
@@ -1735,7 +1735,7 @@
            WHERE equals(person_overrides.team_id, 2)
            GROUP BY person_overrides.old_person_id) AS e__override ON equals(e.person_id, e__override.old_person_id)
         WHERE and(equals(e.team_id, 2), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:01:01', 6, 'UTC')))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), and(equals(e.event, 'sign up'), ifNull(in(ifNull(nullIf(e__override.override_person_id, '00000000-0000-0000-0000-000000000000'), e.person_id),
-                                                                                                                                                                                                                                                                                                                                                                   (SELECT cohortpeople.person_id
+                                                                                                                                                                                                                                                                                                                                                                   (SELECT cohortpeople.person_id AS person_id
                                                                                                                                                                                                                                                                                                                                                                     FROM cohortpeople
                                                                                                                                                                                                                                                                                                                                                                     WHERE and(equals(cohortpeople.team_id, 2), equals(cohortpeople.cohort_id, 38))
                                                                                                                                                                                                                                                                                                                                                                     GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version
@@ -1758,7 +1758,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -1776,11 +1776,11 @@
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
         INNER JOIN
-          (SELECT person.id,
+          (SELECT person.id AS id,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
            FROM person
            WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                            (SELECT person.id, max(person.version) AS version
+                                                            (SELECT person.id AS id, max(person.version) AS version
                                                              FROM person
                                                              WHERE equals(person.team_id, 2)
                                                              GROUP BY person.id
@@ -1801,7 +1801,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -1819,11 +1819,11 @@
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
         INNER JOIN
-          (SELECT person.id,
+          (SELECT person.id AS id,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
            FROM person
            WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                            (SELECT person.id, max(person.version) AS version
+                                                            (SELECT person.id AS id, max(person.version) AS version
                                                              FROM person
                                                              WHERE equals(person.team_id, 2)
                                                              GROUP BY person.id
@@ -1844,7 +1844,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -1870,7 +1870,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -1888,11 +1888,11 @@
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
         INNER JOIN
-          (SELECT person.id,
+          (SELECT person.id AS id,
                   nullIf(nullIf(person.pmat_name, ''), 'null') AS properties___name
            FROM person
            WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                            (SELECT person.id, max(person.version) AS version
+                                                            (SELECT person.id AS id, max(person.version) AS version
                                                              FROM person
                                                              WHERE equals(person.team_id, 2)
                                                              GROUP BY person.id
@@ -1913,7 +1913,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -1939,7 +1939,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -1957,11 +1957,11 @@
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
         INNER JOIN
-          (SELECT person.id,
+          (SELECT person.id AS id,
                   nullIf(nullIf(person.pmat_name, ''), 'null') AS properties___name
            FROM person
            WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                            (SELECT person.id, max(person.version) AS version
+                                                            (SELECT person.id AS id, max(person.version) AS version
                                                              FROM person
                                                              WHERE equals(person.team_id, 2)
                                                              GROUP BY person.id
@@ -1996,7 +1996,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -2022,7 +2022,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-03 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -2054,7 +2054,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -2080,7 +2080,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -2119,7 +2119,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -2129,7 +2129,7 @@
         UNION ALL SELECT counts AS total,
                          toStartOfDay(timestamp) AS day_start
         FROM
-          (SELECT d.timestamp,
+          (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts
            FROM
              (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
@@ -2171,7 +2171,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -2214,12 +2214,12 @@
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
-            day_start,
-            breakdown_value
+            day_start AS day_start,
+            breakdown_value AS breakdown_value
      FROM
        (SELECT 0 AS total,
                ticks.day_start AS day_start,
-               sec.breakdown_value
+               sec.breakdown_value AS breakdown_value
         FROM
           (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
            FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 13:01:01', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'UTC'))), 0)) AS numbers
@@ -2266,7 +2266,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix'))), toIntervalDay(numbers.number)) AS day_start
@@ -2292,7 +2292,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix'))), toIntervalDay(numbers.number)) AS day_start
@@ -2331,7 +2331,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix'))), toIntervalDay(numbers.number)) AS day_start
@@ -2341,7 +2341,7 @@
         UNION ALL SELECT counts AS total,
                          toStartOfDay(timestamp) AS day_start
         FROM
-          (SELECT d.timestamp,
+          (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts
            FROM
              (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix'))), toIntervalDay(numbers.number)) AS timestamp
@@ -2383,7 +2383,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix'))), toIntervalDay(numbers.number)) AS day_start
@@ -2426,12 +2426,12 @@
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
-            day_start,
-            breakdown_value
+            day_start AS day_start,
+            breakdown_value AS breakdown_value
      FROM
        (SELECT 0 AS total,
                ticks.day_start AS day_start,
-               sec.breakdown_value
+               sec.breakdown_value AS breakdown_value
         FROM
           (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix'))), toIntervalDay(numbers.number)) AS day_start
            FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 06:01:01', 6, 'America/Phoenix')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'America/Phoenix'))), 0)) AS numbers
@@ -2478,7 +2478,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo'))), toIntervalDay(numbers.number)) AS day_start
@@ -2504,7 +2504,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo'))), toIntervalDay(numbers.number)) AS day_start
@@ -2543,7 +2543,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo'))), toIntervalDay(numbers.number)) AS day_start
@@ -2553,7 +2553,7 @@
         UNION ALL SELECT counts AS total,
                          toStartOfDay(timestamp) AS day_start
         FROM
-          (SELECT d.timestamp,
+          (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts
            FROM
              (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo'))), toIntervalDay(numbers.number)) AS timestamp
@@ -2595,7 +2595,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo'))), toIntervalDay(numbers.number)) AS day_start
@@ -2638,12 +2638,12 @@
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
-            day_start,
-            breakdown_value
+            day_start AS day_start,
+            breakdown_value AS breakdown_value
      FROM
        (SELECT 0 AS total,
                ticks.day_start AS day_start,
-               sec.breakdown_value
+               sec.breakdown_value AS breakdown_value
         FROM
           (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo'))), toIntervalDay(numbers.number)) AS day_start
            FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-29 22:01:01', 6, 'Asia/Tokyo')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 23:59:59', 6, 'Asia/Tokyo'))), 0)) AS numbers
@@ -2690,7 +2690,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'UTC'))), toIntervalHour(numbers.number)) AS day_start
@@ -2729,7 +2729,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'UTC'))), toIntervalHour(numbers.number)) AS day_start
@@ -2755,7 +2755,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'America/Phoenix'))), toIntervalHour(numbers.number)) AS day_start
@@ -2794,7 +2794,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'America/Phoenix'))), toIntervalHour(numbers.number)) AS day_start
@@ -2820,7 +2820,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'Asia/Tokyo'))), toIntervalHour(numbers.number)) AS day_start
@@ -2859,7 +2859,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-05 10:59:59', 6, 'Asia/Tokyo'))), toIntervalHour(numbers.number)) AS day_start
@@ -2885,7 +2885,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'UTC')), 0), toIntervalWeek(numbers.number)) AS day_start
@@ -2911,7 +2911,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'UTC')), 3), toIntervalWeek(numbers.number)) AS day_start
@@ -2937,7 +2937,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'America/Phoenix')), 0), toIntervalWeek(numbers.number)) AS day_start
@@ -2963,7 +2963,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'America/Phoenix')), 3), toIntervalWeek(numbers.number)) AS day_start
@@ -2989,7 +2989,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'Asia/Tokyo')), 0), toIntervalWeek(numbers.number)) AS day_start
@@ -3015,7 +3015,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-26 23:59:59', 6, 'Asia/Tokyo')), 3), toIntervalWeek(numbers.number)) AS day_start
@@ -3050,13 +3050,13 @@
         GROUP BY person_distinct_id2.distinct_id
         HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
      INNER JOIN
-       (SELECT person.id,
+       (SELECT person.id AS id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$os'), ''), 'null'), '^"|"$', '') AS `properties___$os`,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
         FROM person
         WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                         (SELECT person.id, max(person.version) AS version
+                                                         (SELECT person.id AS id, max(person.version) AS version
                                                           FROM person
                                                           WHERE equals(person.team_id, 2)
                                                           GROUP BY person.id
@@ -3077,12 +3077,12 @@
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
-            day_start,
-            breakdown_value
+            day_start AS day_start,
+            breakdown_value AS breakdown_value
      FROM
        (SELECT 0 AS total,
                ticks.day_start AS day_start,
-               sec.breakdown_value
+               sec.breakdown_value AS breakdown_value
         FROM
           (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-07-01 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
            FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-07-01 23:59:59', 6, 'UTC'))), 0)) AS numbers
@@ -3105,13 +3105,13 @@
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
         INNER JOIN
-          (SELECT person.id,
+          (SELECT person.id AS id,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$os'), ''), 'null'), '^"|"$', '') AS `properties___$os`,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
            FROM person
            WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                            (SELECT person.id, max(person.version) AS version
+                                                            (SELECT person.id AS id, max(person.version) AS version
                                                              FROM person
                                                              WHERE equals(person.team_id, 2)
                                                              GROUP BY person.id
@@ -3144,13 +3144,13 @@
         GROUP BY person_distinct_id2.distinct_id
         HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
      INNER JOIN
-       (SELECT person.id,
+       (SELECT person.id AS id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$os'), ''), 'null'), '^"|"$', '') AS `properties___$os`,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
         FROM person
         WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                         (SELECT person.id, max(person.version) AS version
+                                                         (SELECT person.id AS id, max(person.version) AS version
                                                           FROM person
                                                           WHERE equals(person.team_id, 2)
                                                           GROUP BY person.id
@@ -3171,12 +3171,12 @@
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
-            day_start,
-            breakdown_value
+            day_start AS day_start,
+            breakdown_value AS breakdown_value
      FROM
        (SELECT 0 AS total,
                ticks.day_start AS day_start,
-               sec.breakdown_value
+               sec.breakdown_value AS breakdown_value
         FROM
           (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-07-01 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
            FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-07-01 23:59:59', 6, 'UTC'))), 0)) AS numbers
@@ -3199,13 +3199,13 @@
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
         INNER JOIN
-          (SELECT person.id,
+          (SELECT person.id AS id,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$os'), ''), 'null'), '^"|"$', '') AS `properties___$os`,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$browser'), ''), 'null'), '^"|"$', '') AS `properties___$browser`
            FROM person
            WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                            (SELECT person.id, max(person.version) AS version
+                                                            (SELECT person.id AS id, max(person.version) AS version
                                                              FROM person
                                                              WHERE equals(person.team_id, 2)
                                                              GROUP BY person.id
@@ -3229,7 +3229,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -3255,7 +3255,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -3273,11 +3273,11 @@
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
         INNER JOIN
-          (SELECT person.id,
+          (SELECT person.id AS id,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`
            FROM person
            WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                            (SELECT person.id, max(person.version) AS version
+                                                            (SELECT person.id AS id, max(person.version) AS version
                                                              FROM person
                                                              WHERE equals(person.team_id, 2)
                                                              GROUP BY person.id
@@ -3307,11 +3307,11 @@
         GROUP BY person_distinct_id2.distinct_id
         HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
      INNER JOIN
-       (SELECT person.id,
+       (SELECT person.id AS id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`
         FROM person
         WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                         (SELECT person.id, max(person.version) AS version
+                                                         (SELECT person.id AS id, max(person.version) AS version
                                                           FROM person
                                                           WHERE equals(person.team_id, 2)
                                                           GROUP BY person.id
@@ -3332,12 +3332,12 @@
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
-            day_start,
-            breakdown_value
+            day_start AS day_start,
+            breakdown_value AS breakdown_value
      FROM
        (SELECT 0 AS total,
                ticks.day_start AS day_start,
-               sec.breakdown_value
+               sec.breakdown_value AS breakdown_value
         FROM
           (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
            FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 13:00:01', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), 0)) AS numbers
@@ -3360,11 +3360,11 @@
            GROUP BY person_distinct_id2.distinct_id
            HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
         INNER JOIN
-          (SELECT person.id,
+          (SELECT person.id AS id,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`
            FROM person
            WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                            (SELECT person.id, max(person.version) AS version
+                                                            (SELECT person.id AS id, max(person.version) AS version
                                                              FROM person
                                                              WHERE equals(person.team_id, 2)
                                                              GROUP BY person.id
@@ -3388,7 +3388,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -3398,7 +3398,7 @@
         UNION ALL SELECT counts AS total,
                          toStartOfDay(timestamp) AS day_start
         FROM
-          (SELECT d.timestamp,
+          (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts
            FROM
              (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
@@ -3427,7 +3427,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -3437,7 +3437,7 @@
         UNION ALL SELECT counts AS total,
                          toStartOfDay(timestamp) AS day_start
         FROM
-          (SELECT d.timestamp,
+          (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts
            FROM
              (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
@@ -3483,12 +3483,12 @@
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
-            day_start,
-            breakdown_value
+            day_start AS day_start,
+            breakdown_value AS breakdown_value
      FROM
        (SELECT 0 AS total,
                ticks.day_start AS day_start,
-               sec.breakdown_value
+               sec.breakdown_value AS breakdown_value
         FROM
           (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
            FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-24 13:00:01', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-31 23:59:59', 6, 'UTC'))), 0)) AS numbers
@@ -3522,7 +3522,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -3548,7 +3548,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -3590,18 +3590,18 @@
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
-    (SELECT day_start,
+    (SELECT day_start AS day_start,
             sum(count) OVER (PARTITION BY breakdown_value
                              ORDER BY day_start ASC) AS count,
-                            breakdown_value
+                            breakdown_value AS breakdown_value
      FROM
        (SELECT sum(total) AS count,
-               day_start,
-               breakdown_value
+               day_start AS day_start,
+               breakdown_value AS breakdown_value
         FROM
           (SELECT 0 AS total,
                   ticks.day_start AS day_start,
-                  sec.breakdown_value
+                  sec.breakdown_value AS breakdown_value
            FROM
              (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
               FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:00:01', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0)) AS numbers
@@ -3664,18 +3664,18 @@
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
-    (SELECT day_start,
+    (SELECT day_start AS day_start,
             sum(count) OVER (PARTITION BY breakdown_value
                              ORDER BY day_start ASC) AS count,
-                            breakdown_value
+                            breakdown_value AS breakdown_value
      FROM
        (SELECT sum(total) AS count,
-               day_start,
-               breakdown_value
+               day_start AS day_start,
+               breakdown_value AS breakdown_value
         FROM
           (SELECT 0 AS total,
                   ticks.day_start AS day_start,
-                  sec.breakdown_value
+                  sec.breakdown_value AS breakdown_value
            FROM
              (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
               FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:00:01', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0)) AS numbers
@@ -3729,12 +3729,12 @@
   '
   SELECT sum(count) AS total,
   
-    (SELECT day_start
+    (SELECT day_start AS day_start
      FROM
        (SELECT 1 AS group_key,
                groupArray(day_start) AS day_start
         FROM
-          (SELECT day_start
+          (SELECT day_start AS day_start
            FROM
              (SELECT 0 AS total,
                      minus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')), 0), toIntervalWeek(numbers.number)) AS day_start
@@ -3746,10 +3746,10 @@
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
-            breakdown_value
+            breakdown_value AS breakdown_value
      FROM
        (SELECT quantile(0.5)(session_duration) AS total,
-               breakdown_value
+               breakdown_value AS breakdown_value
         FROM
           (SELECT any(e__session.duration) AS session_duration,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS breakdown_value
@@ -3793,12 +3793,12 @@
   '
   SELECT sum(count) AS total,
   
-    (SELECT day_start
+    (SELECT day_start AS day_start
      FROM
        (SELECT 1 AS group_key,
                groupArray(day_start) AS day_start
         FROM
-          (SELECT day_start
+          (SELECT day_start AS day_start
            FROM
              (SELECT 0 AS total,
                      minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -3810,10 +3810,10 @@
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
-            breakdown_value
+            breakdown_value AS breakdown_value
      FROM
        (SELECT quantile(0.5)(session_duration) AS total,
-               breakdown_value
+               breakdown_value AS breakdown_value
         FROM
           (SELECT any(e__session.duration) AS session_duration,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS breakdown_value
@@ -3843,7 +3843,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -3869,7 +3869,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -3895,7 +3895,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -3919,12 +3919,12 @@
   '
   SELECT sum(count) AS total,
   
-    (SELECT day_start
+    (SELECT day_start AS day_start
      FROM
        (SELECT 1 AS group_key,
                groupArray(day_start) AS day_start
         FROM
-          (SELECT day_start
+          (SELECT day_start AS day_start
            FROM
              (SELECT 0 AS total,
                      minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -3936,7 +3936,7 @@
   FROM
     (SELECT sum(total) AS count
      FROM
-       (SELECT total
+       (SELECT total AS total
         FROM
           (SELECT avg(total) AS total
            FROM
@@ -3967,12 +3967,12 @@
   '
   SELECT sum(count) AS total,
   
-    (SELECT day_start
+    (SELECT day_start AS day_start
      FROM
        (SELECT 1 AS group_key,
                groupArray(day_start) AS day_start
         FROM
-          (SELECT day_start
+          (SELECT day_start AS day_start
            FROM
              (SELECT 0 AS total,
                      minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -3984,7 +3984,7 @@
   FROM
     (SELECT sum(total) AS count
      FROM
-       (SELECT total
+       (SELECT total AS total
         FROM
           (SELECT avg(total) AS total
            FROM
@@ -4024,12 +4024,12 @@
   '
   SELECT sum(count) AS total,
   
-    (SELECT day_start
+    (SELECT day_start AS day_start
      FROM
        (SELECT 1 AS group_key,
                groupArray(day_start) AS day_start
         FROM
-          (SELECT day_start
+          (SELECT day_start AS day_start
            FROM
              (SELECT 0 AS total,
                      minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -4041,13 +4041,13 @@
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
-            breakdown_value
+            breakdown_value AS breakdown_value
      FROM
-       (SELECT total,
-               breakdown_value
+       (SELECT total AS total,
+               breakdown_value AS breakdown_value
         FROM
           (SELECT avg(total) AS total,
-                  breakdown_value
+                  breakdown_value AS breakdown_value
            FROM
              (SELECT count(e.uuid) AS total,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'color'), ''), 'null'), '^"|"$', '') AS breakdown_value
@@ -4084,18 +4084,18 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
         FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))), 0)) AS numbers
         UNION ALL SELECT 0 AS total,
                          toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))) AS day_start
-        UNION ALL SELECT total,
-                         day_start
+        UNION ALL SELECT total AS total,
+                         day_start AS day_start
         FROM
           (SELECT avg(total) AS total,
-                  day_start
+                  day_start AS day_start
            FROM
              (SELECT count(e.uuid) AS total,
                      toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
@@ -4131,18 +4131,18 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
         FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-07 23:59:59', 6, 'UTC'))), 0)) AS numbers
         UNION ALL SELECT 0 AS total,
                          toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))) AS day_start
-        UNION ALL SELECT total,
-                         day_start
+        UNION ALL SELECT total AS total,
+                         day_start AS day_start
         FROM
           (SELECT avg(total) AS total,
-                  day_start
+                  day_start AS day_start
            FROM
              (SELECT count(e.uuid) AS total,
                      toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
@@ -4170,12 +4170,12 @@
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
-    (SELECT day_start,
+    (SELECT day_start AS day_start,
             sum(count) OVER (
                              ORDER BY day_start ASC) AS count
      FROM
        (SELECT sum(total) AS count,
-               day_start
+               day_start AS day_start
         FROM
           (SELECT 0 AS total,
                   minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -4210,11 +4210,11 @@
         GROUP BY person_distinct_id2.distinct_id
         HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
      INNER JOIN
-       (SELECT person.id,
+       (SELECT person.id AS id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`
         FROM person
         WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                         (SELECT person.id, max(person.version) AS version
+                                                         (SELECT person.id AS id, max(person.version) AS version
                                                           FROM person
                                                           WHERE equals(person.team_id, 2)
                                                           GROUP BY person.id
@@ -4232,12 +4232,12 @@
   '
   SELECT sum(count) AS total,
   
-    (SELECT day_start
+    (SELECT day_start AS day_start
      FROM
        (SELECT 1 AS group_key,
                groupArray(day_start) AS day_start
         FROM
-          (SELECT day_start
+          (SELECT day_start AS day_start
            FROM
              (SELECT 0 AS total,
                      minus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')), 0), toIntervalWeek(numbers.number)) AS day_start
@@ -4249,10 +4249,10 @@
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
-            breakdown_value
+            breakdown_value AS breakdown_value
      FROM
        (SELECT quantile(0.5)(session_duration) AS total,
-               breakdown_value
+               breakdown_value AS breakdown_value
         FROM
           (SELECT any(e__session.duration) AS session_duration,
                   e__pdi__person.`properties___$some_prop` AS breakdown_value
@@ -4271,11 +4271,11 @@
               GROUP BY person_distinct_id2.distinct_id
               HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
            INNER JOIN
-             (SELECT person.id,
+             (SELECT person.id AS id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS `properties___$some_prop`
               FROM person
               WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                               (SELECT person.id, max(person.version) AS version
+                                                               (SELECT person.id AS id, max(person.version) AS version
                                                                 FROM person
                                                                 WHERE equals(person.team_id, 2)
                                                                 GROUP BY person.id
@@ -4299,7 +4299,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')), 0), toIntervalWeek(numbers.number)) AS day_start
@@ -4323,12 +4323,12 @@
   '
   SELECT sum(count) AS total,
   
-    (SELECT day_start
+    (SELECT day_start AS day_start
      FROM
        (SELECT 1 AS group_key,
                groupArray(day_start) AS day_start
         FROM
-          (SELECT day_start
+          (SELECT day_start AS day_start
            FROM
              (SELECT 0 AS total,
                      minus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')), 0), toIntervalWeek(numbers.number)) AS day_start
@@ -4362,12 +4362,12 @@
   '
   SELECT sum(count) AS total,
   
-    (SELECT day_start
+    (SELECT day_start AS day_start
      FROM
        (SELECT 1 AS group_key,
                groupArray(day_start) AS day_start
         FROM
-          (SELECT day_start
+          (SELECT day_start AS day_start
            FROM
              (SELECT 0 AS total,
                      minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -4403,7 +4403,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')), 0), toIntervalWeek(numbers.number)) AS day_start
@@ -4411,7 +4411,7 @@
         UNION ALL SELECT 0 AS total,
                          toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:00:01', 6, 'UTC')), 0) AS day_start
         UNION ALL SELECT quantile(0.5)(session_duration) AS total,
-                         day_start
+                         day_start AS day_start
         FROM
           (SELECT any(e__session.duration) AS session_duration,
                   toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start
@@ -4441,7 +4441,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -4449,7 +4449,7 @@
         UNION ALL SELECT 0 AS total,
                          toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:00:01', 6, 'UTC'))) AS day_start
         UNION ALL SELECT quantile(0.5)(session_duration) AS total,
-                         day_start
+                         day_start AS day_start
         FROM
           (SELECT any(e__session.duration) AS session_duration,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
@@ -4496,12 +4496,12 @@
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
-            day_start,
-            breakdown_value
+            day_start AS day_start,
+            breakdown_value AS breakdown_value
      FROM
        (SELECT 0 AS total,
                ticks.day_start AS day_start,
-               sec.breakdown_value
+               sec.breakdown_value AS breakdown_value
         FROM
           (SELECT minus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC')), 0), toIntervalWeek(numbers.number)) AS day_start
            FROM numbers(coalesce(dateDiff('week', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:00:01', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0)) AS numbers
@@ -4513,8 +4513,8 @@
            JOIN breakdown_value AS breakdown_value) AS sec
         ORDER BY sec.breakdown_value ASC, day_start ASC
         UNION ALL SELECT quantile(0.5)(session_duration) AS total,
-                         day_start,
-                         breakdown_value
+                         day_start AS day_start,
+                         breakdown_value AS breakdown_value
         FROM
           (SELECT any(e__session.duration) AS session_duration,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS breakdown_value,
@@ -4566,12 +4566,12 @@
          ifNull(toString(breakdown_value), '') AS breakdown_value
   FROM
     (SELECT sum(total) AS count,
-            day_start,
-            breakdown_value
+            day_start AS day_start,
+            breakdown_value AS breakdown_value
      FROM
        (SELECT 0 AS total,
                ticks.day_start AS day_start,
-               sec.breakdown_value
+               sec.breakdown_value AS breakdown_value
         FROM
           (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
            FROM numbers(coalesce(dateDiff('day', assumeNotNull(parseDateTime64BestEffortOrNull('2019-12-28 13:00:05', 6, 'UTC')), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-04 23:59:59', 6, 'UTC'))), 0)) AS numbers
@@ -4583,8 +4583,8 @@
            JOIN breakdown_value AS breakdown_value) AS sec
         ORDER BY sec.breakdown_value ASC, day_start ASC
         UNION ALL SELECT quantile(0.5)(session_duration) AS total,
-                         day_start,
-                         breakdown_value
+                         day_start AS day_start,
+                         breakdown_value AS breakdown_value
         FROM
           (SELECT any(e__session.duration) AS session_duration,
                   replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS breakdown_value,
@@ -4617,12 +4617,12 @@
   '
   SELECT sum(count) AS total,
   
-    (SELECT day_start
+    (SELECT day_start AS day_start
      FROM
        (SELECT 1 AS group_key,
                groupArray(day_start) AS day_start
         FROM
-          (SELECT day_start
+          (SELECT day_start AS day_start
            FROM
              (SELECT 0 AS total,
                      minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -4636,8 +4636,8 @@
      FROM
        (SELECT count(DISTINCT actor_id) AS total
         FROM
-          (SELECT d.timestamp,
-                  e.actor_id
+          (SELECT d.timestamp AS timestamp,
+                  e.actor_id AS actor_id
            FROM
              (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-11 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC')))) AS numbers) AS d
@@ -4675,12 +4675,12 @@
   '
   SELECT sum(count) AS total,
   
-    (SELECT day_start
+    (SELECT day_start AS day_start
      FROM
        (SELECT 1 AS group_key,
                groupArray(day_start) AS day_start
         FROM
-          (SELECT day_start
+          (SELECT day_start AS day_start
            FROM
              (SELECT 0 AS total,
                      minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -4694,8 +4694,8 @@
      FROM
        (SELECT count(DISTINCT actor_id) AS total
         FROM
-          (SELECT d.timestamp,
-                  e.actor_id
+          (SELECT d.timestamp AS timestamp,
+                  e.actor_id AS actor_id
            FROM
              (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC')))) AS numbers) AS d
@@ -4733,12 +4733,12 @@
   '
   SELECT sum(count) AS total,
   
-    (SELECT day_start
+    (SELECT day_start AS day_start
      FROM
        (SELECT 1 AS group_key,
                groupArray(day_start) AS day_start
         FROM
-          (SELECT day_start
+          (SELECT day_start AS day_start
            FROM
              (SELECT 0 AS total,
                      minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -4752,8 +4752,8 @@
      FROM
        (SELECT count(DISTINCT actor_id) AS total
         FROM
-          (SELECT d.timestamp,
-                  e.actor_id
+          (SELECT d.timestamp AS timestamp,
+                  e.actor_id AS actor_id
            FROM
              (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
               FROM numbers(dateDiff('day', minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-01 00:00:00', 6, 'UTC'))), toIntervalDay(7)), assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-08 23:59:59', 6, 'UTC')))) AS numbers) AS d
@@ -4793,7 +4793,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -4803,7 +4803,7 @@
         UNION ALL SELECT counts AS total,
                          toStartOfDay(timestamp) AS day_start
         FROM
-          (SELECT d.timestamp,
+          (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts
            FROM
              (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
@@ -4845,7 +4845,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'America/Phoenix'))), toIntervalDay(numbers.number)) AS day_start
@@ -4855,7 +4855,7 @@
         UNION ALL SELECT counts AS total,
                          toStartOfDay(timestamp) AS day_start
         FROM
-          (SELECT d.timestamp,
+          (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts
            FROM
              (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'America/Phoenix'))), toIntervalDay(numbers.number)) AS timestamp
@@ -4897,7 +4897,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'Asia/Tokyo'))), toIntervalDay(numbers.number)) AS day_start
@@ -4907,7 +4907,7 @@
         UNION ALL SELECT counts AS total,
                          toStartOfDay(timestamp) AS day_start
         FROM
-          (SELECT d.timestamp,
+          (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts
            FROM
              (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'Asia/Tokyo'))), toIntervalDay(numbers.number)) AS timestamp
@@ -4949,7 +4949,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -4959,7 +4959,7 @@
         UNION ALL SELECT counts AS total,
                          toStartOfDay(timestamp) AS day_start
         FROM
-          (SELECT d.timestamp,
+          (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts
            FROM
              (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
@@ -4976,11 +4976,11 @@
                  GROUP BY person_distinct_id2.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
               INNER JOIN
-                (SELECT person.id,
+                (SELECT person.id AS id,
                         replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
                  FROM person
                  WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                                  (SELECT person.id, max(person.version) AS version
+                                                                  (SELECT person.id AS id, max(person.version) AS version
                                                                    FROM person
                                                                    WHERE equals(person.team_id, 2)
                                                                    GROUP BY person.id
@@ -5005,7 +5005,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS day_start
@@ -5015,7 +5015,7 @@
         UNION ALL SELECT counts AS total,
                          toStartOfDay(timestamp) AS day_start
         FROM
-          (SELECT d.timestamp,
+          (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts
            FROM
              (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS timestamp
@@ -5032,11 +5032,11 @@
                  GROUP BY person_distinct_id2.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
               INNER JOIN
-                (SELECT person.id,
+                (SELECT person.id AS id,
                         nullIf(nullIf(person.pmat_name, ''), 'null') AS properties___name
                  FROM person
                  WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                                  (SELECT person.id, max(person.version) AS version
+                                                                  (SELECT person.id AS id, max(person.version) AS version
                                                                    FROM person
                                                                    WHERE equals(person.team_id, 2)
                                                                    GROUP BY person.id
@@ -5061,7 +5061,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-09 17:00:00', 6, 'UTC'))), toIntervalHour(numbers.number)) AS day_start
@@ -5071,7 +5071,7 @@
         UNION ALL SELECT counts AS total,
                          toStartOfHour(timestamp) AS day_start
         FROM
-          (SELECT d.timestamp,
+          (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts
            FROM
              (SELECT minus(toStartOfHour(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-09 17:00:00', 6, 'UTC'))), toIntervalHour(numbers.number)) AS timestamp
@@ -5113,7 +5113,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC')), 0), toIntervalWeek(numbers.number)) AS day_start
@@ -5123,7 +5123,7 @@
         UNION ALL SELECT counts AS total,
                          toStartOfWeek(timestamp, 0) AS day_start
         FROM
-          (SELECT d.timestamp,
+          (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts
            FROM
              (SELECT minus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'UTC')), 0), toIntervalWeek(numbers.number)) AS timestamp
@@ -5165,7 +5165,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'America/Phoenix')), 0), toIntervalWeek(numbers.number)) AS day_start
@@ -5175,7 +5175,7 @@
         UNION ALL SELECT counts AS total,
                          toStartOfWeek(timestamp, 0) AS day_start
         FROM
-          (SELECT d.timestamp,
+          (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts
            FROM
              (SELECT minus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'America/Phoenix')), 0), toIntervalWeek(numbers.number)) AS timestamp
@@ -5217,7 +5217,7 @@
          groupArray(count) AS total
   FROM
     (SELECT sum(total) AS count,
-            day_start
+            day_start AS day_start
      FROM
        (SELECT 0 AS total,
                minus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'Asia/Tokyo')), 0), toIntervalWeek(numbers.number)) AS day_start
@@ -5227,7 +5227,7 @@
         UNION ALL SELECT counts AS total,
                          toStartOfWeek(timestamp, 0) AS day_start
         FROM
-          (SELECT d.timestamp,
+          (SELECT d.timestamp AS timestamp,
                   count(DISTINCT e.actor_id) AS counts
            FROM
              (SELECT minus(toStartOfWeek(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-18 23:59:59', 6, 'Asia/Tokyo')), 0), toIntervalWeek(numbers.number)) AS timestamp

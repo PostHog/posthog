@@ -204,6 +204,22 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
             ),
         )
 
+    def test_no_info_is_other(self):
+        self.assertEqual(
+            "Other",
+            self._get_initial_channel_type({}),
+        )
+
+    def test_unknown_domain_is_other(self):
+        self.assertEqual(
+            "Other",
+            self._get_initial_channel_type(
+                {
+                    "$initial_referring_domain": "some-unknown-domain.example.com",
+                }
+            ),
+        )
+
     def _get_initial_channel_type_from_wild_clicks(self, url: str, referrer: str):
         parsed_url = urlparse(url)
         query = parse_qs(parsed_url.query)
