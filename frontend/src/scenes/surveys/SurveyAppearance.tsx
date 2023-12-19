@@ -306,7 +306,7 @@ export function BaseAppearance({
                     backgroundColor: appearance.backgroundColor,
                     border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
                     color: textColor,
-                    '--textColor': getTextColorComponents(textColor),
+                    '--survey-text-color': getTextColorComponents(textColor),
                 } as React.CSSProperties
             }
         >
