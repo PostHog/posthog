@@ -637,11 +637,10 @@ export const notebookLogic = kea<notebookLogicType>([
                     })
                 }
             })
-            // add callback for successful send
         },
         deleteCommentSuccess({ payload }) {
-            if (payload?.comment) {
-                values.editor?.removeComment(payload.comment.id)
+            if (payload?.comment?.item_context?.id) {
+                values.editor?.removeComment(payload.comment.item_context.id)
             }
         },
         selectComment: ({ markId }) => {
