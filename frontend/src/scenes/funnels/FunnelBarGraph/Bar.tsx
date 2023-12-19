@@ -94,37 +94,42 @@ export function Bar({
                 </LEGACY_InsightTooltip>
             }
         >
-            <div
-                ref={barRef}
-                className={`funnel-bar ${getSeriesPositionName(breakdownIndex, breakdownMaxIndex)}`}
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    flex: `${conversionPercentage} 1 0`,
-                    cursor: cursorType,
-                    backgroundColor: getSeriesColor(breakdownIndex ?? 0),
-                }}
-                onClick={() => {
-                    if (!disabled && onBarClick) {
-                        onBarClick()
-                    }
-                }}
-            >
-                {shouldShowLabel && (
-                    <div
-                        ref={labelRef}
-                        className={`funnel-bar-percentage ${labelPosition}`}
-                        title={
-                            name ? `${capitalizeFirstLetter(aggregationTargetLabel.plural)} who did ${name}` : undefined
+            <>
+                {/** :HACKY: This fragment is necessary for the ref to work within LemonDropdown. */}
+                <div
+                    ref={barRef}
+                    className={`funnel-bar ${getSeriesPositionName(breakdownIndex, breakdownMaxIndex)}`}
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{
+                        flex: `${conversionPercentage} 1 0`,
+                        cursor: cursorType,
+                        backgroundColor: getSeriesColor(breakdownIndex ?? 0),
+                    }}
+                    onClick={() => {
+                        if (!disabled && onBarClick) {
+                            onBarClick()
                         }
-                        role="progressbar"
-                        aria-valuemin={0}
-                        aria-valuemax={100}
-                        aria-valuenow={(breakdownSumPercentage ?? conversionPercentage) * 100}
-                    >
-                        {percentage(breakdownSumPercentage ?? conversionPercentage, 1, true)}
-                    </div>
-                )}
-            </div>
+                    }}
+                >
+                    {shouldShowLabel && (
+                        <div
+                            ref={labelRef}
+                            className={`funnel-bar-percentage ${labelPosition}`}
+                            title={
+                                name
+                                    ? `${capitalizeFirstLetter(aggregationTargetLabel.plural)} who did ${name}`
+                                    : undefined
+                            }
+                            role="progressbar"
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={(breakdownSumPercentage ?? conversionPercentage) * 100}
+                        >
+                            {percentage(breakdownSumPercentage ?? conversionPercentage, 1, true)}
+                        </div>
+                    )}
+                </div>
+            </>
         </LemonDropdown>
     )
 }
