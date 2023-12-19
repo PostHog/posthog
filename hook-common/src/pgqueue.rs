@@ -590,6 +590,23 @@ impl PgQueue {
         })
     }
 
+    pub async fn new_from_pool(
+        queue_name: &str,
+        table_name: &str,
+        pool: PgPool,
+        retry_policy: RetryPolicy,
+    ) -> PgQueueResult<Self> {
+        let name = queue_name.to_owned();
+        let table = table_name.to_owned();
+
+        Ok(Self {
+            name,
+            pool,
+            retry_policy,
+            table,
+        })
+    }
+
     /// Dequeue a Job from this PgQueue to work on it.
     pub async fn dequeue<
         J: for<'d> serde::Deserialize<'d> + std::marker::Send + std::marker::Unpin + 'static,
@@ -827,18 +844,18 @@ mod tests {
         "https://myhost/endpoint".to_owned()
     }
 
-    #[tokio::test]
-    async fn test_can_dequeue_job() {
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_can_dequeue_job(db: PgPool) {
         let job_target = job_target();
         let job_parameters = JobParameters::default();
         let job_metadata = JobMetadata::default();
         let worker_id = worker_id();
         let new_job = NewJob::new(1, job_metadata, job_parameters, &job_target);
 
-        let queue = PgQueue::new(
+        let queue = PgQueue::new_from_pool(
             "test_can_dequeue_job",
             "job_queue",
-            "postgres://posthog:posthog@localhost:15432/test_database",
+            db,
             RetryPolicy::default(),
         )
         .await
@@ -861,13 +878,13 @@ mod tests {
         assert_eq!(pg_job.job.target, job_target);
     }
 
-    #[tokio::test]
-    async fn test_dequeue_returns_none_on_no_jobs() {
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_dequeue_returns_none_on_no_jobs(db: PgPool) {
         let worker_id = worker_id();
-        let queue = PgQueue::new(
+        let queue = PgQueue::new_from_pool(
             "test_dequeue_returns_none_on_no_jobs",
             "job_queue",
-            "postgres://posthog:posthog@localhost:15432/test_database",
+            db,
             RetryPolicy::default(),
         )
         .await
@@ -881,18 +898,18 @@ mod tests {
         assert!(pg_job.is_none());
     }
 
-    #[tokio::test]
-    async fn test_can_dequeue_tx_job() {
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_can_dequeue_tx_job(db: PgPool) {
         let job_target = job_target();
         let job_metadata = JobMetadata::default();
         let job_parameters = JobParameters::default();
         let worker_id = worker_id();
         let new_job = NewJob::new(1, job_metadata, job_parameters, &job_target);
 
-        let queue = PgQueue::new(
+        let queue = PgQueue::new_from_pool(
             "test_can_dequeue_tx_job",
             "job_queue",
-            "postgres://posthog:posthog@localhost:15432/test_database",
+            db,
             RetryPolicy::default(),
         )
         .await
@@ -916,13 +933,13 @@ mod tests {
         assert_eq!(tx_job.job.target, job_target);
     }
 
-    #[tokio::test]
-    async fn test_dequeue_tx_returns_none_on_no_jobs() {
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_dequeue_tx_returns_none_on_no_jobs(db: PgPool) {
         let worker_id = worker_id();
-        let queue = PgQueue::new(
+        let queue = PgQueue::new_from_pool(
             "test_dequeue_tx_returns_none_on_no_jobs",
             "job_queue",
-            "postgres://posthog:posthog@localhost:15432/test_database",
+            db,
             RetryPolicy::default(),
         )
         .await
@@ -936,8 +953,8 @@ mod tests {
         assert!(tx_job.is_none());
     }
 
-    #[tokio::test]
-    async fn test_can_retry_job_with_remaining_attempts() {
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_can_retry_job_with_remaining_attempts(db: PgPool) {
         let job_target = job_target();
         let job_parameters = JobParameters::default();
         let job_metadata = JobMetadata::default();
@@ -949,10 +966,10 @@ mod tests {
             maximum_interval: None,
         };
 
-        let queue = PgQueue::new(
+        let queue = PgQueue::new_from_pool(
             "test_can_retry_job_with_remaining_attempts",
             "job_queue",
-            "postgres://posthog:posthog@localhost:15432/test_database",
+            db,
             retry_policy,
         )
         .await
@@ -986,9 +1003,9 @@ mod tests {
         assert_eq!(retried_job.job.target, job_target);
     }
 
-    #[tokio::test]
+    #[sqlx::test(migrations = "../migrations")]
     #[should_panic(expected = "failed to retry job")]
-    async fn test_cannot_retry_job_without_remaining_attempts() {
+    async fn test_cannot_retry_job_without_remaining_attempts(db: PgPool) {
         let job_target = job_target();
         let job_parameters = JobParameters::default();
         let job_metadata = JobMetadata::default();
@@ -1000,10 +1017,10 @@ mod tests {
             maximum_interval: None,
         };
 
-        let queue = PgQueue::new(
+        let queue = PgQueue::new_from_pool(
             "test_cannot_retry_job_without_remaining_attempts",
             "job_queue",
-            "postgres://posthog:posthog@localhost:15432/test_database",
+            db,
             retry_policy,
         )
         .await

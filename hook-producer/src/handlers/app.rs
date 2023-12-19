@@ -33,18 +33,15 @@ mod tests {
     };
     use hook_common::pgqueue::{PgQueue, RetryPolicy};
     use http_body_util::BodyExt; // for `collect`
+    use sqlx::PgPool;
     use tower::ServiceExt; // for `call`, `oneshot`, and `ready`
 
-    #[tokio::test]
-    async fn index() {
-        let pg_queue = PgQueue::new(
-            "test_index",
-            "job_queue",
-            "postgres://posthog:posthog@localhost:15432/test_database",
-            RetryPolicy::default(),
-        )
-        .await
-        .expect("failed to construct pg_queue");
+    #[sqlx::test(migrations = "../migrations")]
+    async fn index(db: PgPool) {
+        let pg_queue =
+            PgQueue::new_from_pool("test_index", "job_queue", db, RetryPolicy::default())
+                .await
+                .expect("failed to construct pg_queue");
 
         let app = app(pg_queue, None);
 

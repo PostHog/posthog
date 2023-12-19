@@ -272,6 +272,8 @@ mod tests {
     // See: https://github.com/rust-lang/rust/issues/46379.
     #[allow(unused_imports)]
     use hook_common::pgqueue::{JobStatus, NewJob, RetryPolicy};
+    #[allow(unused_imports)]
+    use sqlx::PgPool;
 
     /// Use process id as a worker id for tests.
     #[allow(dead_code)]
@@ -322,13 +324,12 @@ mod tests {
         assert_eq!(duration, None);
     }
 
-    #[tokio::test]
-    async fn test_wait_for_job() {
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_wait_for_job(db: PgPool) {
         let worker_id = worker_id();
         let queue_name = "test_wait_for_job".to_string();
         let table_name = "job_queue".to_string();
-        let db_url = "postgres://posthog:posthog@localhost:15432/test_database".to_string();
-        let queue = PgQueue::new(&queue_name, &table_name, &db_url, RetryPolicy::default())
+        let queue = PgQueue::new_from_pool(&queue_name, &table_name, db, RetryPolicy::default())
             .await
             .expect("failed to connect to PG");
 
@@ -385,8 +386,8 @@ mod tests {
             .expect("job not successfully completed");
     }
 
-    #[tokio::test]
-    async fn test_send_webhook() {
+    #[sqlx::test(migrations = "../migrations")]
+    async fn test_send_webhook(_: PgPool) {
         let method = HttpMethod::POST;
         let url = "http://localhost:18081/echo";
         let headers = collections::HashMap::new();
