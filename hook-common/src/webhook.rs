@@ -132,9 +132,9 @@ pub struct WebhookJobParameters {
 /// These should be set if the Webhook is associated with a plugin `composeWebhook` invocation.
 #[derive(Deserialize, Serialize, Debug, PartialEq, Clone)]
 pub struct WebhookJobMetadata {
-    pub team_id: Option<i32>,
-    pub plugin_id: Option<i32>,
-    pub plugin_config_id: Option<i32>,
+    pub team_id: u32,
+    pub plugin_id: u32,
+    pub plugin_config_id: u32,
 }
 
 /// An error originating during a Webhook Job invocation.

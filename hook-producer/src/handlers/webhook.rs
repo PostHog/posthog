@@ -146,9 +146,9 @@ mod tests {
                                 body: r#"{"a": "b"}"#.to_owned(),
                             },
                             metadata: WebhookJobMetadata {
-                                team_id: Some(1),
-                                plugin_id: Some(2),
-                                plugin_config_id: Some(3),
+                                team_id: 1,
+                                plugin_id: 2,
+                                plugin_config_id: 3,
                             },
                             max_attempts: 1,
                         })
@@ -193,9 +193,9 @@ mod tests {
                                 body: r#"{"a": "b"}"#.to_owned(),
                             },
                             metadata: WebhookJobMetadata {
-                                team_id: Some(1),
-                                plugin_id: Some(2),
-                                plugin_config_id: Some(3),
+                                team_id: 1,
+                                plugin_id: 2,
+                                plugin_config_id: 3,
                             },
                             max_attempts: 1,
                         })
@@ -296,9 +296,9 @@ mod tests {
                                 body: long_string.to_string(),
                             },
                             metadata: WebhookJobMetadata {
-                                team_id: Some(1),
-                                plugin_id: Some(2),
-                                plugin_config_id: Some(3),
+                                team_id: 1,
+                                plugin_id: 2,
+                                plugin_config_id: 3,
                             },
                             max_attempts: 1,
                         })

@@ -339,9 +339,9 @@ mod tests {
             url: "localhost".to_owned(),
         };
         let webhook_job_metadata = WebhookJobMetadata {
-            team_id: None,
-            plugin_id: None,
-            plugin_config_id: None,
+            team_id: 1,
+            plugin_id: 2,
+            plugin_config_id: 3,
         };
         // enqueue takes ownership of the job enqueued to avoid bugs that can cause duplicate jobs.
         // Normally, a separate application would be enqueueing jobs for us to consume, so no ownership
