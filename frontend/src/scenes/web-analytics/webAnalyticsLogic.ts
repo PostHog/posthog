@@ -887,17 +887,57 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         isGreaterThanMd: (window: Window) => window.innerWidth > 768,
     }),
 
-    actionToUrl(({ values }) => ({
-        setWebAnalyticsFilters: () => stateToUrl(values),
-        togglePropertyFilter: () => stateToUrl(values),
-        setDates: () => stateToUrl(values),
-        setInterval: () => stateToUrl(values),
-        setDeviceTab: () => stateToUrl(values),
-        setSourceTab: () => stateToUrl(values),
-        setGraphsTab: () => stateToUrl(values),
-        setPathTab: () => stateToUrl(values),
-        setGeographyTab: () => stateToUrl(values),
-    })),
+    actionToUrl(({ values }) => {
+        const stateToUrl = (): string => {
+            const {
+                webAnalyticsFilters,
+                dateFilter: { dateTo, dateFrom, interval },
+                sourceTab,
+                deviceTab,
+                pathTab,
+                geographyTab,
+                graphsTab,
+            } = values
+
+            const urlParams = new URLSearchParams()
+            if (webAnalyticsFilters.length > 0) {
+                urlParams.set('filters', JSON.stringify(webAnalyticsFilters))
+            }
+            if (dateFrom !== initialDateFrom || dateTo !== initialDateTo || interval !== initialInterval) {
+                urlParams.set('date_from', dateFrom ?? '')
+                urlParams.set('date_to', dateTo ?? '')
+                urlParams.set('interval', interval ?? '')
+            }
+            if (deviceTab) {
+                urlParams.set('device_tab', deviceTab)
+            }
+            if (sourceTab) {
+                urlParams.set('source_tab', sourceTab)
+            }
+            if (graphsTab) {
+                urlParams.set('graphs_tab', graphsTab)
+            }
+            if (pathTab) {
+                urlParams.set('path_tab', pathTab)
+            }
+            if (geographyTab) {
+                urlParams.set('geography_tab', geographyTab)
+            }
+            return `/web?${urlParams.toString()}`
+        }
+
+        return {
+            setWebAnalyticsFilters: stateToUrl,
+            togglePropertyFilter: stateToUrl,
+            setDates: stateToUrl,
+            setInterval: stateToUrl,
+            setDeviceTab: stateToUrl,
+            setSourceTab: stateToUrl,
+            setGraphsTab: stateToUrl,
+            setPathTab: stateToUrl,
+            setGeographyTab: stateToUrl,
+        }
+    }),
 
     urlToAction(({ actions }) => ({
         '/web': (
@@ -922,52 +962,4 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 const isDefinitionStale = (definition: EventDefinition | PropertyDefinition): boolean => {
     const parsedLastSeen = definition.last_seen_at ? dayjs(definition.last_seen_at) : null
     return !!parsedLastSeen && dayjs().diff(parsedLastSeen, 'seconds') > STALE_EVENT_SECONDS
-}
-
-const stateToUrl = ({
-    webAnalyticsFilters,
-    dateFilter: { dateFrom, dateTo, interval },
-    deviceTab,
-    sourceTab,
-    graphsTab,
-    pathTab,
-    geographyTab,
-}: {
-    webAnalyticsFilters: WebAnalyticsPropertyFilters
-    dateFilter: {
-        dateFrom: string | null
-        dateTo: string | null
-        interval: string | null
-    }
-    deviceTab: string | null
-    sourceTab: string | null
-    graphsTab: string | null
-    pathTab: string | null
-    geographyTab: string | null
-}): string => {
-    const urlParams = new URLSearchParams()
-    if (webAnalyticsFilters.length > 0) {
-        urlParams.set('filters', JSON.stringify(webAnalyticsFilters))
-    }
-    if (dateFrom !== initialDateFrom || dateTo !== initialDateTo || interval !== initialInterval) {
-        urlParams.set('date_from', dateFrom ?? '')
-        urlParams.set('date_to', dateTo ?? '')
-        urlParams.set('interval', interval ?? '')
-    }
-    if (deviceTab) {
-        urlParams.set('device_tab', deviceTab)
-    }
-    if (sourceTab) {
-        urlParams.set('source_tab', sourceTab)
-    }
-    if (graphsTab) {
-        urlParams.set('graphs_tab', graphsTab)
-    }
-    if (pathTab) {
-        urlParams.set('path_tab', pathTab)
-    }
-    if (geographyTab) {
-        urlParams.set('geography_tab', geographyTab)
-    }
-    return `/web?${urlParams.toString()}`
 }
