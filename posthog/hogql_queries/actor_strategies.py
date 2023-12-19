@@ -93,7 +93,7 @@ class PersonStrategy(ActorStrategy):
 
     def order_by(self) -> Optional[List[ast.OrderExpr]]:
         if self.query.orderBy not in [["person"], ["person DESC"], ["person ASC"]]:
-            return
+            return None
 
         order_property = (
             "email" if self.team.person_display_name_properties is None else self.team.person_display_name_properties[0]
@@ -161,7 +161,7 @@ class GroupStrategy(ActorStrategy):
 
     def order_by(self) -> Optional[List[ast.OrderExpr]]:
         if self.query.orderBy not in [["group"], ["group DESC"], ["group ASC"]]:
-            return
+            return None
 
         order_property = "name"
         return [
