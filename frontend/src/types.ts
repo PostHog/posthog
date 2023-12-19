@@ -1759,6 +1759,7 @@ export interface FilterType {
     breakdown_normalize_url?: boolean
     breakdowns?: Breakdown[]
     breakdown_group_type_index?: number | null
+    breakdown_hide_other_aggregation?: boolean | null
     aggregation_group_type_index?: number // Groups aggregation
 }
 
