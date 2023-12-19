@@ -118,13 +118,16 @@ type wireframeBase = {
     /**
      * @description x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0
      */
-    x: number
-    y: number
+    x?: number
+    y?: number
     /*
-     * @description width and height are the dimensions of the element, the only accepted units is pixels. You can omit the unit.
+     * @description the width dimension of the element, the only accepted units is pixels. You can omit the unit. If not received it is not set
      */
-    width: number
-    height: number
+    width?: number
+    /*
+     * @description the height dimension of the element, the only accepted units is pixels. You can omit the unit. If not received it is not set
+     */
+    height?: number
     childWireframes?: wireframe[]
     type: MobileNodeType
     style?: MobileStyles
@@ -289,7 +292,31 @@ export type metaEvent = {
     }
 }
 
-export type mobileEvent = fullSnapshotEvent | metaEvent | customEvent | incrementalSnapshotEvent
+// this is a custom event _but_ rrweb only types tag as string, and we want to be more specific
+export type keyboardEvent = {
+    type: EventType.Custom
+    data: {
+        tag: 'keyboard'
+        payload:
+            | {
+                  open: true
+                  styles?: MobileStyles
+                  /**
+                   * @description x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting `bottom: 0`
+                   */
+                  x?: number
+                  y?: number
+                  /*
+                   * @description width and height are the dimensions of the element, the only accepted units is pixels. You can omit the unit. A keyboard always has height, and defaults to width of the viewport
+                   */
+                  height: number
+                  width?: number
+              }
+            | { open: false }
+    }
+}
+
+export type mobileEvent = fullSnapshotEvent | metaEvent | customEvent | incrementalSnapshotEvent | keyboardEvent
 
 export type mobileEventWithTime = mobileEvent & {
     timestamp: number

@@ -1,5 +1,7 @@
 import { MobileStyles, wireframe, wireframeProgress } from './mobile.types'
 
+export type StyleOverride = MobileStyles & { width?: '100vw' }
+
 function isNumber(candidate: unknown): candidate is number {
     return typeof candidate === 'number'
 }
@@ -16,7 +18,7 @@ function ensureUnit(value: string | number): string {
     return isNumber(value) ? `${value}px` : value.replace(/px$/g, '') + 'px'
 }
 
-function makeBorderStyles(wireframe: wireframe, styleOverride?: MobileStyles): string {
+function makeBorderStyles(wireframe: wireframe, styleOverride?: StyleOverride): string {
     let styles = ''
 
     const combinedStyles = {
@@ -47,11 +49,15 @@ function makeBorderStyles(wireframe: wireframe, styleOverride?: MobileStyles): s
     return styles
 }
 
-export function makePositionStyles(wireframe: wireframe): string {
+export function makePositionStyles(wireframe: wireframe, styleOverride?: StyleOverride): string {
     let styles = ''
-    if (isNumber(wireframe.width)) {
+
+    if (styleOverride?.width === '100vw') {
+        styles += `width: 100vw;`
+    } else if (isNumber(wireframe.width)) {
         styles += `width: ${ensureUnit(wireframe.width)};`
     }
+
     if (isNumber(wireframe.height)) {
         styles += `height: ${ensureUnit(wireframe.height)};`
     }
@@ -70,7 +76,7 @@ export function makePositionStyles(wireframe: wireframe): string {
     return styles
 }
 
-function makeLayoutStyles(wireframe: wireframe, styleOverride?: MobileStyles): string {
+function makeLayoutStyles(wireframe: wireframe, styleOverride?: StyleOverride): string {
     let styles = ''
 
     const combinedStyles = {
@@ -94,7 +100,7 @@ function makeLayoutStyles(wireframe: wireframe, styleOverride?: MobileStyles): s
     return styles
 }
 
-function makeFontStyles(wireframe: wireframe, styleOverride?: MobileStyles): string {
+function makeFontStyles(wireframe: wireframe, styleOverride?: StyleOverride): string {
     let styles = ''
 
     const combinedStyles = {
@@ -115,7 +121,7 @@ function makeFontStyles(wireframe: wireframe, styleOverride?: MobileStyles): str
     return styles
 }
 
-export function makeIndeterminateProgressStyles(wireframe: wireframeProgress, styleOverride?: MobileStyles): string {
+export function makeIndeterminateProgressStyles(wireframe: wireframeProgress, styleOverride?: StyleOverride): string {
     let styles = ''
     const combinedStyles = {
         ...wireframe.style,
@@ -132,7 +138,7 @@ export function makeIndeterminateProgressStyles(wireframe: wireframeProgress, st
     return styles
 }
 
-export function makeDeterminateProgressStyles(wireframe: wireframeProgress, styleOverride?: MobileStyles): string {
+export function makeDeterminateProgressStyles(wireframe: wireframeProgress, styleOverride?: StyleOverride): string {
     let styles = ''
     const combinedStyles = {
         ...wireframe.style,
@@ -156,17 +162,17 @@ export function makeDeterminateProgressStyles(wireframe: wireframeProgress, styl
 /**
  * normally use makeStylesString instead, but sometimes you need styles without any colors applied
  * */
-export function makeMinimalStyles(wireframe: wireframe, styleOverride?: MobileStyles): string {
+export function makeMinimalStyles(wireframe: wireframe, styleOverride?: StyleOverride): string {
     let styles = ''
 
-    styles += makePositionStyles(wireframe)
+    styles += makePositionStyles(wireframe, styleOverride)
     styles += makeLayoutStyles(wireframe, styleOverride)
     styles += makeFontStyles(wireframe, styleOverride)
 
     return styles
 }
 
-export function makeColorStyles(wireframe: wireframe, styleOverride?: MobileStyles): string {
+export function makeColorStyles(wireframe: wireframe, styleOverride?: StyleOverride): string {
     let styles = ''
 
     const combinedStyles = {
@@ -186,7 +192,7 @@ export function makeColorStyles(wireframe: wireframe, styleOverride?: MobileStyl
     return styles
 }
 
-export function makeStylesString(wireframe: wireframe, styleOverride?: MobileStyles): string {
+export function makeStylesString(wireframe: wireframe, styleOverride?: StyleOverride): string {
     let styles = ''
 
     styles += makeColorStyles(wireframe, styleOverride)

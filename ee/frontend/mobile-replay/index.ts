@@ -5,7 +5,7 @@ import Ajv, { ErrorObject } from 'ajv'
 import { mobileEventWithTime } from './mobile.types'
 import mobileSchema from './schema/mobile/rr-mobile-schema.json'
 import webSchema from './schema/web/rr-web-schema.json'
-import { makeFullEvent, makeIncrementalEvent, makeMetaEvent } from './transformers'
+import { makeCustomEvent, makeFullEvent, makeIncrementalEvent, makeMetaEvent } from './transformers'
 
 const ajv = new Ajv({
     allowUnionTypes: true,
@@ -15,6 +15,7 @@ const transformers: Record<number, (x: any) => eventWithTime> = {
     2: makeFullEvent,
     3: makeIncrementalEvent,
     4: makeMetaEvent,
+    5: makeCustomEvent,
 }
 
 const mobileSchemaValidator = ajv.compile(mobileSchema)

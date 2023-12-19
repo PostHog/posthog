@@ -119,6 +119,75 @@
             },
             "required": ["data", "timestamp", "type"],
             "type": "object"
+        },
+        {
+            "additionalProperties": false,
+            "properties": {
+                "data": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "payload": {
+                            "anyOf": [
+                                {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "height": {
+                                            "type": "number"
+                                        },
+                                        "open": {
+                                            "const": true,
+                                            "type": "boolean"
+                                        },
+                                        "styles": {
+                                            "$ref": "#/definitions/MobileStyles"
+                                        },
+                                        "width": {
+                                            "type": "number"
+                                        },
+                                        "x": {
+                                            "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting `bottom: 0`",
+                                            "type": "number"
+                                        },
+                                        "y": {
+                                            "type": "number"
+                                        }
+                                    },
+                                    "required": ["open", "height"],
+                                    "type": "object"
+                                },
+                                {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "open": {
+                                            "const": false,
+                                            "type": "boolean"
+                                        }
+                                    },
+                                    "required": ["open"],
+                                    "type": "object"
+                                }
+                            ]
+                        },
+                        "tag": {
+                            "const": "keyboard",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["tag", "payload"],
+                    "type": "object"
+                },
+                "delay": {
+                    "type": "number"
+                },
+                "timestamp": {
+                    "type": "number"
+                },
+                "type": {
+                    "$ref": "#/definitions/EventType.Custom"
+                }
+            },
+            "required": ["data", "timestamp", "type"],
+            "type": "object"
         }
     ],
     "definitions": {
@@ -258,7 +327,7 @@
                     "type": "number"
                 }
             },
-            "required": ["disabled", "height", "id", "inputType", "type", "width", "x", "y"],
+            "required": ["disabled", "id", "inputType", "type"],
             "type": "object"
         },
         "wireframeCheckBox": {
@@ -308,7 +377,7 @@
                     "type": "number"
                 }
             },
-            "required": ["checked", "disabled", "height", "id", "inputType", "type", "width", "x", "y"],
+            "required": ["checked", "disabled", "id", "inputType", "type"],
             "type": "object"
         },
         "wireframeDiv": {
@@ -343,7 +412,7 @@
                     "type": "number"
                 }
             },
-            "required": ["height", "id", "type", "width", "x", "y"],
+            "required": ["id", "type"],
             "type": "object"
         },
         "wireframeImage": {
@@ -382,7 +451,7 @@
                     "type": "number"
                 }
             },
-            "required": ["height", "id", "type", "width", "x", "y"],
+            "required": ["id", "type"],
             "type": "object"
         },
         "wireframeInput": {
@@ -428,7 +497,7 @@
                     "type": "number"
                 }
             },
-            "required": ["disabled", "height", "id", "inputType", "type", "width", "x", "y"],
+            "required": ["disabled", "id", "inputType", "type"],
             "type": "object"
         },
         "wireframeInputComponent": {
@@ -494,7 +563,7 @@
                     "type": "number"
                 }
             },
-            "required": ["height", "id", "type", "width", "x", "y"],
+            "required": ["id", "type"],
             "type": "object"
         },
         "wireframeProgress": {
@@ -545,7 +614,7 @@
                     "type": "number"
                 }
             },
-            "required": ["disabled", "height", "id", "inputType", "type", "width", "x", "y"],
+            "required": ["disabled", "id", "inputType", "type"],
             "type": "object"
         },
         "wireframeRadio": {
@@ -595,7 +664,7 @@
                     "type": "number"
                 }
             },
-            "required": ["checked", "disabled", "height", "id", "inputType", "type", "width", "x", "y"],
+            "required": ["checked", "disabled", "id", "inputType", "type"],
             "type": "object"
         },
         "wireframeRadioGroup": {
@@ -630,7 +699,7 @@
                     "type": "number"
                 }
             },
-            "required": ["height", "id", "type", "width", "x", "y"],
+            "required": ["id", "type"],
             "type": "object"
         },
         "wireframeRectangle": {
@@ -665,7 +734,7 @@
                     "type": "number"
                 }
             },
-            "required": ["height", "id", "type", "width", "x", "y"],
+            "required": ["id", "type"],
             "type": "object"
         },
         "wireframeSelect": {
@@ -717,7 +786,7 @@
                     "type": "number"
                 }
             },
-            "required": ["disabled", "height", "id", "inputType", "type", "width", "x", "y"],
+            "required": ["disabled", "id", "inputType", "type"],
             "type": "object"
         },
         "wireframeText": {
@@ -755,7 +824,7 @@
                     "type": "number"
                 }
             },
-            "required": ["height", "id", "text", "type", "width", "x", "y"],
+            "required": ["id", "text", "type"],
             "type": "object"
         },
         "wireframeTextArea": {
@@ -801,7 +870,7 @@
                     "type": "number"
                 }
             },
-            "required": ["disabled", "height", "id", "inputType", "type", "width", "x", "y"],
+            "required": ["disabled", "id", "inputType", "type"],
             "type": "object"
         },
         "wireframeToggle": {
@@ -850,7 +919,7 @@
                     "type": "number"
                 }
             },
-            "required": ["checked", "disabled", "height", "id", "inputType", "type", "width", "x", "y"],
+            "required": ["checked", "disabled", "id", "inputType", "type"],
             "type": "object"
         },
         "wireframeWebView": {
@@ -888,7 +957,7 @@
                     "type": "number"
                 }
             },
-            "required": ["height", "id", "type", "width", "x", "y"],
+            "required": ["id", "type"],
             "type": "object"
         }
     }
