@@ -74,9 +74,12 @@ impl FromStr for JobStatus {
 /// JobParameters are stored and read to and from a JSONB field, so we accept anything that fits `sqlx::types::Json`.
 pub type JobParameters<J> = sqlx::types::Json<J>;
 
+/// JobMetadata are stored and read to and from a JSONB field, so we accept anything that fits `sqlx::types::Json`.
+pub type JobMetadata<M> = sqlx::types::Json<M>;
+
 /// A Job to be executed by a worker dequeueing a PgQueue.
 #[derive(sqlx::FromRow, Debug)]
-pub struct Job<J> {
+pub struct Job<J, M> {
     /// A unique id identifying a job.
     pub id: i64,
     /// A number corresponding to the current job attempt.
@@ -89,6 +92,8 @@ pub struct Job<J> {
     pub created_at: chrono::DateTime<chrono::offset::Utc>,
     /// The current job's number of max attempts.
     pub max_attempts: i32,
+    /// Arbitrary job metadata stored as JSON.
+    pub metadata: JobMetadata<M>,
     /// Arbitrary job parameters stored as JSON.
     pub parameters: JobParameters<J>,
     /// The queue this job belongs to.
@@ -99,7 +104,7 @@ pub struct Job<J> {
     pub target: String,
 }
 
-impl<J> Job<J> {
+impl<J, M> Job<J, M> {
     /// Return true if this job attempt is greater or equal to the maximum number of possible attempts.
     pub fn is_gte_max_attempts(&self) -> bool {
         self.attempt >= self.max_attempts
@@ -146,19 +151,19 @@ impl<J> Job<J> {
 
 /// A Job that can be updated in PostgreSQL.
 #[derive(Debug)]
-pub struct PgJob<J> {
-    pub job: Job<J>,
+pub struct PgJob<J, M> {
+    pub job: Job<J, M>,
     pub table: String,
     pub connection: sqlx::pool::PoolConnection<sqlx::postgres::Postgres>,
     pub retry_policy: RetryPolicy,
 }
 
-impl<J> PgJob<J> {
+impl<J, M> PgJob<J, M> {
     pub async fn retry<E: serde::Serialize + std::marker::Sync>(
         mut self,
         error: E,
         preferred_retry_interval: Option<time::Duration>,
-    ) -> Result<RetryableJob<E>, PgJobError<PgJob<J>>> {
+    ) -> Result<RetryableJob<E>, PgJobError<PgJob<J, M>>> {
         if self.job.is_gte_max_attempts() {
             return Err(PgJobError::RetryInvalidError {
                 job: self,
@@ -203,7 +208,7 @@ RETURNING
         Ok(retryable_job)
     }
 
-    pub async fn complete(mut self) -> Result<CompletedJob, PgJobError<PgJob<J>>> {
+    pub async fn complete(mut self) -> Result<CompletedJob, PgJobError<PgJob<J, M>>> {
         let completed_job = self.job.complete();
 
         let base_query = format!(
@@ -238,7 +243,7 @@ RETURNING
     pub async fn fail<E: serde::Serialize + std::marker::Sync>(
         mut self,
         error: E,
-    ) -> Result<FailedJob<E>, PgJobError<PgJob<J>>> {
+    ) -> Result<FailedJob<E>, PgJobError<PgJob<J, M>>> {
         let failed_job = self.job.fail(error);
 
         let base_query = format!(
@@ -277,19 +282,19 @@ RETURNING
 /// A Job within an open PostgreSQL transaction.
 /// This implementation allows 'hiding' the job from any other workers running SKIP LOCKED queries.
 #[derive(Debug)]
-pub struct PgTransactionJob<'c, J> {
-    pub job: Job<J>,
+pub struct PgTransactionJob<'c, J, M> {
+    pub job: Job<J, M>,
     pub table: String,
     pub transaction: sqlx::Transaction<'c, sqlx::postgres::Postgres>,
     pub retry_policy: RetryPolicy,
 }
 
-impl<'c, J> PgTransactionJob<'c, J> {
+impl<'c, J, M> PgTransactionJob<'c, J, M> {
     pub async fn retry<E: serde::Serialize + std::marker::Sync>(
         mut self,
         error: E,
         preferred_retry_interval: Option<time::Duration>,
-    ) -> Result<RetryableJob<E>, PgJobError<PgTransactionJob<'c, J>>> {
+    ) -> Result<RetryableJob<E>, PgJobError<PgTransactionJob<'c, J, M>>> {
         if self.job.is_gte_max_attempts() {
             return Err(PgJobError::RetryInvalidError {
                 job: self,
@@ -343,7 +348,9 @@ RETURNING
         Ok(retryable_job)
     }
 
-    pub async fn complete(mut self) -> Result<CompletedJob, PgJobError<PgTransactionJob<'c, J>>> {
+    pub async fn complete(
+        mut self,
+    ) -> Result<CompletedJob, PgJobError<PgTransactionJob<'c, J, M>>> {
         let completed_job = self.job.complete();
 
         let base_query = format!(
@@ -386,7 +393,7 @@ RETURNING
     pub async fn fail<E: serde::Serialize + std::marker::Sync>(
         mut self,
         error: E,
-    ) -> Result<FailedJob<E>, PgJobError<PgTransactionJob<'c, J>>> {
+    ) -> Result<FailedJob<E>, PgJobError<PgTransactionJob<'c, J, M>>> {
         let failed_job = self.job.fail(error);
 
         let base_query = format!(
@@ -461,19 +468,22 @@ pub struct FailedJob<J> {
 }
 
 /// A NewJob to be enqueued into a PgQueue.
-pub struct NewJob<J> {
+pub struct NewJob<J, M> {
     /// The maximum amount of attempts this NewJob has to complete.
     pub max_attempts: i32,
+    /// The JSON-deserializable parameters for this NewJob.
+    pub metadata: JobMetadata<M>,
     /// The JSON-deserializable parameters for this NewJob.
     pub parameters: JobParameters<J>,
     /// The target of the NewJob. E.g. an endpoint or service we are trying to reach.
     pub target: String,
 }
 
-impl<J> NewJob<J> {
-    pub fn new(max_attempts: i32, parameters: J, target: &str) -> Self {
+impl<J, M> NewJob<J, M> {
+    pub fn new(max_attempts: i32, metadata: M, parameters: J, target: &str) -> Self {
         Self {
             max_attempts,
+            metadata: sqlx::types::Json(metadata),
             parameters: sqlx::types::Json(parameters),
             target: target.to_owned(),
         }
@@ -583,10 +593,11 @@ impl PgQueue {
     /// Dequeue a Job from this PgQueue to work on it.
     pub async fn dequeue<
         J: for<'d> serde::Deserialize<'d> + std::marker::Send + std::marker::Unpin + 'static,
+        M: for<'d> serde::Deserialize<'d> + std::marker::Send + std::marker::Unpin + 'static,
     >(
         &self,
         attempted_by: &str,
-    ) -> PgQueueResult<Option<PgJob<J>>> {
+    ) -> PgQueueResult<Option<PgJob<J, M>>> {
         let mut connection = self
             .pool
             .acquire()
@@ -628,7 +639,7 @@ RETURNING
             &self.table
         );
 
-        let query_result: Result<Job<J>, sqlx::Error> = sqlx::query_as(&base_query)
+        let query_result: Result<Job<J, M>, sqlx::Error> = sqlx::query_as(&base_query)
             .bind(&self.name)
             .bind(attempted_by)
             .fetch_one(&mut *connection)
@@ -662,10 +673,11 @@ RETURNING
     pub async fn dequeue_tx<
         'a,
         J: for<'d> serde::Deserialize<'d> + std::marker::Send + std::marker::Unpin + 'static,
+        M: for<'d> serde::Deserialize<'d> + std::marker::Send + std::marker::Unpin + 'static,
     >(
         &self,
         attempted_by: &str,
-    ) -> PgQueueResult<Option<PgTransactionJob<'a, J>>> {
+    ) -> PgQueueResult<Option<PgTransactionJob<'a, J, M>>> {
         let mut tx = self
             .pool
             .begin()
@@ -707,7 +719,7 @@ RETURNING
             &self.table
         );
 
-        let query_result: Result<Job<J>, sqlx::Error> = sqlx::query_as(&base_query)
+        let query_result: Result<Job<J, M>, sqlx::Error> = sqlx::query_as(&base_query)
             .bind(&self.name)
             .bind(attempted_by)
             .fetch_one(&mut *tx)
@@ -732,23 +744,27 @@ RETURNING
 
     /// Enqueue a Job into this PgQueue.
     /// We take ownership of NewJob to enforce a specific NewJob is only enqueued once.
-    pub async fn enqueue<J: serde::Serialize + std::marker::Sync>(
+    pub async fn enqueue<
+        J: serde::Serialize + std::marker::Sync,
+        M: serde::Serialize + std::marker::Sync,
+    >(
         &self,
-        job: NewJob<J>,
+        job: NewJob<J, M>,
     ) -> PgQueueResult<()> {
         // TODO: Escaping. I think sqlx doesn't support identifiers.
         let base_query = format!(
             r#"
 INSERT INTO {}
-    (attempt, created_at, scheduled_at, max_attempts, parameters, queue, status, target)
+    (attempt, created_at, scheduled_at, max_attempts, metadata, parameters, queue, status, target)
 VALUES
-    (0, NOW(), NOW(), $1, $2, $3, 'available'::job_status, $4)
+    (0, NOW(), NOW(), $1, $2, $3, $4, 'available'::job_status, $5)
             "#,
             &self.table
         );
 
         sqlx::query(&base_query)
             .bind(job.max_attempts)
+            .bind(&job.metadata)
             .bind(&job.parameters)
             .bind(&self.name)
             .bind(&job.target)
@@ -766,6 +782,23 @@ VALUES
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug)]
+    struct JobMetadata {
+        team_id: u32,
+        plugin_config_id: u32,
+        plugin_id: u32,
+    }
+
+    impl Default for JobMetadata {
+        fn default() -> Self {
+            Self {
+                team_id: 0,
+                plugin_config_id: 1,
+                plugin_id: 2,
+            }
+        }
+    }
 
     #[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug)]
     struct JobParameters {
@@ -798,8 +831,9 @@ mod tests {
     async fn test_can_dequeue_job() {
         let job_target = job_target();
         let job_parameters = JobParameters::default();
+        let job_metadata = JobMetadata::default();
         let worker_id = worker_id();
-        let new_job = NewJob::new(1, job_parameters, &job_target);
+        let new_job = NewJob::new(1, job_metadata, job_parameters, &job_target);
 
         let queue = PgQueue::new(
             "test_can_dequeue_job",
@@ -812,7 +846,7 @@ mod tests {
 
         queue.enqueue(new_job).await.expect("failed to enqueue job");
 
-        let pg_job: PgJob<JobParameters> = queue
+        let pg_job: PgJob<JobParameters, JobMetadata> = queue
             .dequeue(&worker_id)
             .await
             .expect("failed to dequeue job")
@@ -839,7 +873,7 @@ mod tests {
         .await
         .expect("failed to connect to local test postgresql database");
 
-        let pg_job: Option<PgJob<JobParameters>> = queue
+        let pg_job: Option<PgJob<JobParameters, JobMetadata>> = queue
             .dequeue(&worker_id)
             .await
             .expect("failed to dequeue job");
@@ -850,9 +884,10 @@ mod tests {
     #[tokio::test]
     async fn test_can_dequeue_tx_job() {
         let job_target = job_target();
+        let job_metadata = JobMetadata::default();
         let job_parameters = JobParameters::default();
         let worker_id = worker_id();
-        let new_job = NewJob::new(1, job_parameters, &job_target);
+        let new_job = NewJob::new(1, job_metadata, job_parameters, &job_target);
 
         let queue = PgQueue::new(
             "test_can_dequeue_tx_job",
@@ -865,7 +900,7 @@ mod tests {
 
         queue.enqueue(new_job).await.expect("failed to enqueue job");
 
-        let tx_job: PgTransactionJob<'_, JobParameters> = queue
+        let tx_job: PgTransactionJob<'_, JobParameters, JobMetadata> = queue
             .dequeue_tx(&worker_id)
             .await
             .expect("failed to dequeue job")
@@ -875,6 +910,7 @@ mod tests {
         assert!(tx_job.job.attempted_by.contains(&worker_id));
         assert_eq!(tx_job.job.attempted_by.len(), 1);
         assert_eq!(tx_job.job.max_attempts, 1);
+        assert_eq!(*tx_job.job.metadata.as_ref(), JobMetadata::default());
         assert_eq!(*tx_job.job.parameters.as_ref(), JobParameters::default());
         assert_eq!(tx_job.job.status, JobStatus::Running);
         assert_eq!(tx_job.job.target, job_target);
@@ -892,7 +928,7 @@ mod tests {
         .await
         .expect("failed to connect to local test postgresql database");
 
-        let tx_job: Option<PgTransactionJob<'_, JobParameters>> = queue
+        let tx_job: Option<PgTransactionJob<'_, JobParameters, JobMetadata>> = queue
             .dequeue_tx(&worker_id)
             .await
             .expect("failed to dequeue job");
@@ -904,8 +940,9 @@ mod tests {
     async fn test_can_retry_job_with_remaining_attempts() {
         let job_target = job_target();
         let job_parameters = JobParameters::default();
+        let job_metadata = JobMetadata::default();
         let worker_id = worker_id();
-        let new_job = NewJob::new(2, job_parameters, &job_target);
+        let new_job = NewJob::new(2, job_metadata, job_parameters, &job_target);
         let retry_policy = RetryPolicy {
             backoff_coefficient: 0,
             initial_interval: time::Duration::from_secs(0),
@@ -922,7 +959,7 @@ mod tests {
         .expect("failed to connect to local test postgresql database");
 
         queue.enqueue(new_job).await.expect("failed to enqueue job");
-        let job: PgJob<JobParameters> = queue
+        let job: PgJob<JobParameters, JobMetadata> = queue
             .dequeue(&worker_id)
             .await
             .expect("failed to dequeue job")
@@ -931,7 +968,7 @@ mod tests {
             .retry("a very reasonable failure reason", None)
             .await
             .expect("failed to retry job");
-        let retried_job: PgJob<JobParameters> = queue
+        let retried_job: PgJob<JobParameters, JobMetadata> = queue
             .dequeue(&worker_id)
             .await
             .expect("failed to dequeue job")
@@ -954,8 +991,9 @@ mod tests {
     async fn test_cannot_retry_job_without_remaining_attempts() {
         let job_target = job_target();
         let job_parameters = JobParameters::default();
+        let job_metadata = JobMetadata::default();
         let worker_id = worker_id();
-        let new_job = NewJob::new(1, job_parameters, &job_target);
+        let new_job = NewJob::new(1, job_metadata, job_parameters, &job_target);
         let retry_policy = RetryPolicy {
             backoff_coefficient: 0,
             initial_interval: time::Duration::from_secs(0),
@@ -973,7 +1011,7 @@ mod tests {
 
         queue.enqueue(new_job).await.expect("failed to enqueue job");
 
-        let job: PgJob<JobParameters> = queue
+        let job: PgJob<JobParameters, JobMetadata> = queue
             .dequeue(&worker_id)
             .await
             .expect("failed to dequeue job")

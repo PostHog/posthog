@@ -124,16 +124,13 @@ pub struct WebhookJobParameters {
     pub headers: collections::HashMap<String, String>,
     pub method: HttpMethod,
     pub url: String,
+}
 
-    // These should be set if the Webhook is associated with a plugin `composeWebhook` invocation.
+/// `JobMetadata` required for the `WebhookConsumer` to execute a webhook.
+/// These should be set if the Webhook is associated with a plugin `composeWebhook` invocation.
+#[derive(Deserialize, Serialize, Debug, PartialEq, Clone)]
+pub struct WebhookJobMetadata {
     pub team_id: Option<i32>,
     pub plugin_id: Option<i32>,
     pub plugin_config_id: Option<i32>,
-
-    #[serde(default = "default_max_attempts")]
-    pub max_attempts: i32,
-}
-
-fn default_max_attempts() -> i32 {
-    3
 }

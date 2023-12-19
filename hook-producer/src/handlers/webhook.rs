@@ -1,5 +1,5 @@
 use axum::{extract::State, http::StatusCode, Json};
-use hook_common::webhook::WebhookJobParameters;
+use hook_common::webhook::{WebhookJobMetadata, WebhookJobParameters};
 use serde_derive::Deserialize;
 use url::Url;
 
@@ -15,13 +15,27 @@ pub struct WebhookPostResponse {
     error: Option<String>,
 }
 
+/// The body of a request made to create a webhook Job.
+#[derive(Deserialize, Serialize, Debug, PartialEq, Clone)]
+pub struct WebhookPostRequestBody {
+    parameters: WebhookJobParameters,
+    metadata: WebhookJobMetadata,
+
+    #[serde(default = "default_max_attempts")]
+    max_attempts: u32,
+}
+
+fn default_max_attempts() -> u32 {
+    3
+}
+
 pub async fn post(
     State(pg_queue): State<PgQueue>,
-    Json(payload): Json<WebhookJobParameters>,
+    Json(payload): Json<WebhookPostRequestBody>,
 ) -> Result<Json<WebhookPostResponse>, (StatusCode, Json<WebhookPostResponse>)> {
     debug!("received payload: {:?}", payload);
 
-    if payload.body.len() > MAX_BODY_SIZE {
+    if payload.parameters.body.len() > MAX_BODY_SIZE {
         return Err((
             StatusCode::BAD_REQUEST,
             Json(WebhookPostResponse {
@@ -30,8 +44,22 @@ pub async fn post(
         ));
     }
 
-    let url_hostname = get_hostname(&payload.url)?;
-    let job = NewJob::new(payload.max_attempts, payload, url_hostname.as_str());
+    let url_hostname = get_hostname(&payload.parameters.url)?;
+    // We could cast to i32, but this ensures we are not wrapping.
+    let max_attempts = i32::try_from(payload.max_attempts).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(WebhookPostResponse {
+                error: Some("invalid number of max attempts".to_owned()),
+            }),
+        )
+    })?;
+    let job = NewJob::new(
+        max_attempts,
+        payload.metadata,
+        payload.parameters,
+        url_hostname.as_str(),
+    );
 
     pg_queue.enqueue(job).await.map_err(internal_error)?;
 
@@ -74,6 +102,8 @@ fn get_hostname(url_str: &str) -> Result<String, (StatusCode, Json<WebhookPostRe
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     use axum::{
         body::Body,
         http::{self, Request, StatusCode},
@@ -108,16 +138,18 @@ mod tests {
                     .uri("/webhook")
                     .header(http::header::CONTENT_TYPE, "application/json")
                     .body(Body::from(
-                        serde_json::to_string(&WebhookJobParameters {
-                            headers,
-                            method: HttpMethod::POST,
-                            url: "http://example.com/".to_owned(),
-                            body: r#"{"a": "b"}"#.to_owned(),
-
-                            team_id: Some(1),
-                            plugin_id: Some(2),
-                            plugin_config_id: Some(3),
-
+                        serde_json::to_string(&WebhookPostRequestBody {
+                            parameters: WebhookJobParameters {
+                                headers,
+                                method: HttpMethod::POST,
+                                url: "http://example.com/".to_owned(),
+                                body: r#"{"a": "b"}"#.to_owned(),
+                            },
+                            metadata: WebhookJobMetadata {
+                                team_id: Some(1),
+                                plugin_id: Some(2),
+                                plugin_config_id: Some(3),
+                            },
                             max_attempts: 1,
                         })
                         .unwrap(),
@@ -153,16 +185,18 @@ mod tests {
                     .uri("/webhook")
                     .header(http::header::CONTENT_TYPE, "application/json")
                     .body(Body::from(
-                        serde_json::to_string(&WebhookJobParameters {
-                            headers: collections::HashMap::new(),
-                            method: HttpMethod::POST,
-                            url: "invalid".to_owned(),
-                            body: r#"{"a": "b"}"#.to_owned(),
-
-                            team_id: Some(1),
-                            plugin_id: Some(2),
-                            plugin_config_id: Some(3),
-
+                        serde_json::to_string(&WebhookPostRequestBody {
+                            parameters: WebhookJobParameters {
+                                headers: collections::HashMap::new(),
+                                method: HttpMethod::POST,
+                                url: "invalid".to_owned(),
+                                body: r#"{"a": "b"}"#.to_owned(),
+                            },
+                            metadata: WebhookJobMetadata {
+                                team_id: Some(1),
+                                plugin_id: Some(2),
+                                plugin_config_id: Some(3),
+                            },
                             max_attempts: 1,
                         })
                         .unwrap(),
@@ -254,16 +288,18 @@ mod tests {
                     .uri("/webhook")
                     .header(http::header::CONTENT_TYPE, "application/json")
                     .body(Body::from(
-                        serde_json::to_string(&WebhookJobParameters {
-                            headers: collections::HashMap::new(),
-                            method: HttpMethod::POST,
-                            url: "http://example.com".to_owned(),
-                            body: long_string.to_string(),
-
-                            team_id: Some(1),
-                            plugin_id: Some(2),
-                            plugin_config_id: Some(3),
-
+                        serde_json::to_string(&WebhookPostRequestBody {
+                            parameters: WebhookJobParameters {
+                                headers: collections::HashMap::new(),
+                                method: HttpMethod::POST,
+                                url: "http://example.com".to_owned(),
+                                body: long_string.to_string(),
+                            },
+                            metadata: WebhookJobMetadata {
+                                team_id: Some(1),
+                                plugin_id: Some(2),
+                                plugin_config_id: Some(3),
+                            },
                             max_attempts: 1,
                         })
                         .unwrap(),
