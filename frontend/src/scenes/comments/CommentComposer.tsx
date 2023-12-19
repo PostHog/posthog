@@ -1,13 +1,14 @@
 import { LemonButton, LemonTextAreaMarkdown } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
 import { commentsLogic, CommentsLogicProps } from './commentsLogic'
 
 export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
-    const { composedComment, commentsLoading, replyingCommentId } = useValues(commentsLogic(props))
-    const { setComposedComment, sendComposedContent, setReplyingComment, setCommentComposerBlurred, setComposerRef } =
+    const { key, composedComment, commentsLoading, replyingCommentId, itemContext } = useValues(commentsLogic(props))
+    const { setComposedComment, sendComposedContent, setReplyingComment, setComposerRef, clearItemContext } =
         useActions(commentsLogic(props))
 
     const placeholder = replyingCommentId
@@ -18,6 +19,11 @@ export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
         ? `Comment on ${props.item_id}`
         : `Comment`
 
+    useEffect(() => {
+        // Whenever the discussion context changes or we fully unmount we clear the item context
+        return () => clearItemContext()
+    }, [key])
+
     return (
         <div className="space-y-2">
             <LemonTextAreaMarkdown
@@ -25,7 +31,6 @@ export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
                 placeholder={placeholder}
                 value={composedComment}
                 onChange={setComposedComment}
-                onBlur={setCommentComposerBlurred}
                 disabled={commentsLoading}
                 onPressCmdEnter={sendComposedContent}
                 ref={setComposerRef}
@@ -35,6 +40,11 @@ export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
                 {replyingCommentId ? (
                     <LemonButton type="secondary" onClick={() => setReplyingComment(null)}>
                         Cancel reply
+                    </LemonButton>
+                ) : null}
+                {itemContext ? (
+                    <LemonButton type="secondary" onClick={() => clearItemContext()}>
+                        Cancel
                     </LemonButton>
                 ) : null}
                 <LemonButton

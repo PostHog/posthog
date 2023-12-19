@@ -19,6 +19,11 @@ export type CommentWithRepliesType = {
     replies: CommentType[]
 }
 
+export type CommentContext = {
+    context: Record<string, any> | null
+    callback?: (event: { sent: boolean }) => void
+}
+
 export const commentsLogic = kea<commentsLogicType>([
     path(() => ['scenes', 'notebooks', 'Notebook', 'commentsLogic']),
     props({} as CommentsLogicProps),
@@ -32,8 +37,11 @@ export const commentsLogic = kea<commentsLogicType>([
         deleteComment: (comment: CommentType) => ({ comment }),
         setEditingComment: (comment: CommentType | null) => ({ comment }),
         setReplyingComment: (commentId: string | null) => ({ commentId }),
-        setItemContext: (context: Record<string, any> | null) => ({ context }),
-        setCommentComposerBlurred: true,
+        setItemContext: (context: Record<string, any> | null, callback?: (event: { sent: boolean }) => void) => ({
+            context,
+            callback,
+        }),
+        clearItemContext: true,
         persistEditedComment: true,
         setComposerRef: (ref: HTMLTextAreaElement | null) => ({ ref }),
         focusComposer: true,
@@ -44,13 +52,12 @@ export const commentsLogic = kea<commentsLogicType>([
             {
                 setReplyingComment: (_, { commentId }) => commentId,
                 sendComposedContentSuccess: () => null,
-                setCommentComposerBlurred: () => null,
             },
         ],
         itemContext: [
-            null as Record<string, any> | null,
+            null as CommentContext | null,
             {
-                setItemContext: (_, { context }) => context,
+                setItemContext: (_, itemContext) => (itemContext.context ? itemContext : null),
                 sendComposedContentSuccess: () => null,
             },
         ],
@@ -88,16 +95,18 @@ export const commentsLogic = kea<commentsLogicType>([
 
                     return response.results
                 },
-                // TODO: This probably wants to be its own loader
                 sendComposedContent: async () => {
                     const existingComments = values.comments ?? []
+
                     const newComment = await api.comments.create({
                         content: values.composedComment,
                         scope: props.scope,
                         item_id: props.item_id,
-                        item_context: values.itemContext,
+                        item_context: values.itemContext?.context,
                         source_comment_id: values.replyingCommentId ?? undefined,
                     })
+
+                    values.itemContext?.callback?.({ sent: true })
                     return [...existingComments, newComment]
                 },
 
@@ -134,7 +143,16 @@ export const commentsLogic = kea<commentsLogicType>([
         ],
     })),
 
-    listeners(({ values }) => ({
+    listeners(({ values, actions }) => ({
+        clearItemContext: () => {
+            values.itemContext?.callback?.({ sent: false })
+            actions.setItemContext(null)
+        },
+        setItemContext: ({ context }) => {
+            if (context) {
+                values.composerRef?.focus()
+            }
+        },
         focusComposer: () => {
             values.composerRef?.focus()
         },

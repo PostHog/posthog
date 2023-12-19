@@ -74,16 +74,13 @@ export const notebookLogic = kea<notebookLogicType>([
             sidePanelStateLogic,
             ['openSidePanel'],
             commentsLogic({
-                scope: ActivityScope.NOTEBOOK,
-                item_id: props.shortId,
+                scope: ActivityScope.MISC,
+                item_id: urls.notebook(props.shortId),
+                // TODO: Change to below once the side panel is correct
+                // scope: ActivityScope.NOTEBOOK,
+                // item_id: props.shortId,
             }),
-            [
-                'setItemContext',
-                'sendComposedContentSuccess',
-                'setCommentComposerBlurred',
-                'focusComposer',
-                'deleteCommentSuccess',
-            ],
+            ['setItemContext', 'sendComposedContentSuccess', 'deleteCommentSuccess'],
         ],
     })),
     actions({
@@ -622,9 +619,11 @@ export const notebookLogic = kea<notebookLogicType>([
         // Comments
         insertComment: ({ context }) => {
             actions.openSidePanel(SidePanelTab.Discussion)
-            actions.setItemContext({ context, callback: () => {
-                console.log("comment callback!")
-            } })
+            actions.setItemContext(context, () => {
+                if (!context.success) {
+                    values.editor?.removeComment(context.id)
+                }
+            })
             // add callback for successful send
         },
         deleteCommentSuccess({ payload }) {
