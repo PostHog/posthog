@@ -1,10 +1,15 @@
 import dataclasses
 import json
+import re
+from typing import Any
+
 from pydantic import BaseModel
 
 
 def pretty_print_in_tests(query: str, team_id: int) -> str:
-    return (
+    return re.sub(
+        r"RANDOM_TEST_ID::[a-f0-9\-]+",
+        "RANDOM_TEST_ID::UUID",
         query.replace("SELECT", "\nSELECT")
         .replace("FROM", "\nFROM")
         .replace("WHERE", "\nWHERE")
@@ -12,8 +17,15 @@ def pretty_print_in_tests(query: str, team_id: int) -> str:
         .replace("HAVING", "\nHAVING")
         .replace("LIMIT", "\nLIMIT")
         .replace("SETTINGS", "\nSETTINGS")
-        .replace(f"team_id, {team_id})", "team_id, 420)")
+        .replace(f"team_id, {team_id})", "team_id, 420)"),
     )
+
+
+def pretty_print_response_in_tests(response: Any, team_id: int) -> str:
+    clickhouse = response.clickhouse
+    hogql = response.hogql
+    query = "-- ClickHouse\n" + clickhouse + "\n\n-- HogQL\n" + hogql
+    return pretty_print_in_tests(query, team_id)
 
 
 def pretty_dataclasses(obj, seen=None, indent=0):

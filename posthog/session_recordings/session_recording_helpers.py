@@ -6,8 +6,10 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Generator, List, Tuple
 
 from dateutil.parser import parse
+from prometheus_client import Counter
 from sentry_sdk.api import capture_exception
 
+from posthog.metrics import LABEL_RESOURCE_TYPE
 from posthog.session_recordings.models.metadata import (
     SessionRecordingEventSummary,
 )
@@ -20,6 +22,12 @@ FULL_SNAPSHOT = 2
 # https://github.com/rrweb-io/rrweb/blob/master/packages/rrweb/src/types.ts
 
 # event.type
+
+EVENTS_RECEIVED_WITHOUT_BYTES_COUNTER = Counter(
+    "recording_events_received_without_bytes",
+    "We want all recording events to be received with snapshot bytes so we can simplify processing, tagged by resource type.",
+    labelnames=[LABEL_RESOURCE_TYPE],
+)
 
 
 class RRWEB_MAP_EVENT_TYPE:
@@ -107,7 +115,8 @@ def preprocess_replay_events(
        These are easy to group as we can simply make sure the total size is not higher than our max message size in Kafka.
        If one message has this property, they all do (thanks to batching).
     2. If this property isn't set, we estimate the size (json.dumps) and if it is small enough - merge it all together in one event
-    3. If not, we split out the "full snapshots" from the rest (they are typically bigger) and send them individually, trying one more time to group the rest, otherwise sending them individually
+    3. If not, we split out the "full snapshots" from the rest (they are typically bigger) and send them individually,
+            trying one more time to group the rest, otherwise sending them individually
     """
 
     if isinstance(_events, Generator):
@@ -124,6 +133,7 @@ def preprocess_replay_events(
     distinct_id = events[0]["properties"]["distinct_id"]
     session_id = events[0]["properties"]["$session_id"]
     window_id = events[0]["properties"].get("$window_id")
+    snapshot_source = events[0]["properties"].get("$snapshot_source", "web")
 
     def new_event(items: List[dict] | None = None) -> Event:
         return {
@@ -132,9 +142,10 @@ def preprocess_replay_events(
             "properties": {
                 "distinct_id": distinct_id,
                 "$session_id": session_id,
-                "$window_id": window_id,
+                "$window_id": window_id or session_id,
                 # We instantiate here instead of in the arg to avoid mutable default args
                 "$snapshot_items": items or [],
+                "$snapshot_source": snapshot_source,
             },
         }
 
@@ -161,6 +172,8 @@ def preprocess_replay_events(
         if current_event:
             yield current_event
     else:
+        EVENTS_RECEIVED_WITHOUT_BYTES_COUNTER.labels(resource_type="recordings").inc()
+
         snapshot_data_list = list(flatten([event["properties"]["$snapshot_data"] for event in events], max_depth=1))
 
         # 2. Otherwise, try and group all the events if they are small enough
@@ -198,7 +211,8 @@ def _process_windowed_events(
     events: List[Event], fn: Callable[[List[Any]], Generator[Event, None, None]]
 ) -> List[Event]:
     """
-    Helper method to simplify grouping events by window_id and session_id, processing them with the given function, and then returning the flattened list
+    Helper method to simplify grouping events by window_id and session_id, processing them with the given function,
+    and then returning the flattened list
     """
     result: List[Event] = []
     snapshots_by_session_and_window_id = defaultdict(list)

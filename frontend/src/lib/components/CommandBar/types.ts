@@ -7,7 +7,7 @@ export enum BarStatus {
     SHOW_SHORTCUTS = 'show_shortcuts',
 }
 
-export type ResultType = SearchableEntity | 'person'
+export type ResultType = SearchableEntity | 'person' | 'group'
 
 export type PersonResult = {
     type: 'person'

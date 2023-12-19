@@ -109,6 +109,7 @@ export enum ProductKey {
     EARLY_ACCESS_FEATURES = 'early_access_features',
     PRODUCT_ANALYTICS = 'product_analytics',
     PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
+    PIPELINE_DESTINATIONS = 'pipeline_destinations',
 }
 
 export enum LicensePlan {
@@ -1577,10 +1578,10 @@ export interface PluginConfigTypeNew {
     team_id: number
     enabled: boolean
     order: number
-    error?: PluginErrorType
     name: string
     description?: string
     updated_at: string
+    delivery_rate_24h?: number | null
 }
 
 export interface PluginConfigWithPluginInfo extends PluginConfigType {
@@ -1759,6 +1760,7 @@ export interface FilterType {
     breakdown_normalize_url?: boolean
     breakdowns?: Breakdown[]
     breakdown_group_type_index?: number | null
+    breakdown_hide_other_aggregation?: boolean | null
     aggregation_group_type_index?: number // Groups aggregation
 }
 
@@ -1793,6 +1795,7 @@ export interface TrendsFilterType extends FilterType {
     aggregation_axis_format?: AggregationAxisFormat // a fixed format like duration that needs calculation
     aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
+    decimal_places?: number
     show_values_on_series?: boolean
     show_labels_on_series?: boolean
     show_percent_stack_view?: boolean
@@ -2434,6 +2437,23 @@ export interface NewEarlyAccessFeatureType extends Omit<EarlyAccessFeatureType, 
 export interface UserBlastRadiusType {
     users_affected: number
     total_users: number
+}
+
+export enum ScheduledChangeModels {
+    FeatureFlag = 'FeatureFlag',
+}
+
+export interface ScheduledChangeType {
+    id: number
+    team_id: number
+    record_id: number | string
+    model_name: ScheduledChangeModels
+    payload: Record<string, any>
+    scheduled_at: string
+    executed_at: string | null
+    failure_reason: string | null
+    created_at: string | null
+    created_by: UserBasicType
 }
 
 export interface PrevalidatedInvite {
@@ -3283,6 +3303,7 @@ export interface DataWarehouseTable {
     credential: DataWarehouseCredential
     columns: DatabaseSchemaQueryResponseField[]
     external_data_source?: ExternalDataStripeSource
+    external_schema?: SimpleExternalDataSourceSchema
 }
 
 export type DataWarehouseTableTypes = 'CSV' | 'Parquet'
@@ -3321,11 +3342,14 @@ export interface ExternalDataStripeSource {
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]
 }
-
-export interface ExternalDataSourceSchema {
+export interface SimpleExternalDataSourceSchema {
     id: string
     name: string
     should_sync: boolean
+    last_synced_at?: Dayjs
+}
+
+export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
 }
 

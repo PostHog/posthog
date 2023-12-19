@@ -82,6 +82,12 @@ pipeline_transformations_configs_router = projects_router.register(
     "pipeline_transformations_configs",
     ["team_id"],
 )
+pipeline_destinations_configs_router = projects_router.register(
+    r"pipeline_destinations_configs",
+    plugin.PipelineDestinationsConfigsViewSet,
+    "pipeline_destinations_configs",
+    ["team_id"],
+)
 
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["team_id"])
 projects_router.register(
@@ -190,6 +196,12 @@ organization_pipeline_transformations_router = organizations_router.register(
     r"pipeline_transformations",
     plugin.PipelineTransformationsViewSet,
     "organization_pipeline_transformations",
+    ["organization_id"],
+)
+organization_pipeline_destinations_router = organizations_router.register(
+    r"pipeline_destinations",
+    plugin.PipelineDestinationsViewSet,
+    "organization_pipeline_destinations",
     ["organization_id"],
 )
 organizations_router.register(

@@ -214,6 +214,20 @@ export function formatAggregationValue(
     return Array.isArray(formattedValue) ? formattedValue[0] : formattedValue
 }
 
+// NB! Sync this with breakdown.py
+export const BREAKDOWN_OTHER_STRING_LABEL = '$$_posthog_breakdown_other_$$'
+export const BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991 // pow(2, 53) - 1
+export const BREAKDOWN_NULL_STRING_LABEL = '$$_posthog_breakdown_null_$$'
+export const BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990 // pow(2, 53) - 2
+
+export function isOtherBreakdown(breakdown_value: string | number | null | undefined): boolean {
+    return breakdown_value === BREAKDOWN_OTHER_STRING_LABEL || breakdown_value === BREAKDOWN_OTHER_NUMERIC_LABEL
+}
+
+export function isNullBreakdown(breakdown_value: string | number | null | undefined): boolean {
+    return breakdown_value === BREAKDOWN_NULL_STRING_LABEL || breakdown_value === BREAKDOWN_NULL_NUMERIC_LABEL
+}
+
 export function formatBreakdownLabel(
     cohorts: CohortType[] | undefined,
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined,
@@ -249,13 +263,17 @@ export function formatBreakdownLabel(
         }
         return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name ?? (breakdown_value || '').toString()
     } else if (typeof breakdown_value == 'number') {
-        return formatPropertyValueForDisplay
-            ? formatPropertyValueForDisplay(breakdown, breakdown_value)?.toString() ?? 'None'
-            : breakdown_value.toString()
-    } else if (typeof breakdown_value == 'string') {
-        return breakdown_value === 'nan' || breakdown_value === '$$_posthog_breakdown_other_$$'
+        return isOtherBreakdown(breakdown_value)
             ? 'Other'
-            : breakdown_value === ''
+            : isNullBreakdown(breakdown_value)
+            ? 'None'
+            : formatPropertyValueForDisplay
+            ? formatPropertyValueForDisplay(breakdown, breakdown_value)?.toString() ?? 'None'
+            : String(breakdown_value)
+    } else if (typeof breakdown_value == 'string') {
+        return isOtherBreakdown(breakdown_value) || breakdown_value === 'nan'
+            ? 'Other'
+            : isNullBreakdown(breakdown_value) || breakdown_value === ''
             ? 'None'
             : breakdown_value
     } else if (Array.isArray(breakdown_value)) {

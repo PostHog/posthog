@@ -722,6 +722,7 @@ export enum WebStatsBreakdown {
     Page = 'Page',
     InitialPage = 'InitialPage',
     // ExitPage = 'ExitPage'
+    InitialChannelType = 'InitialChannelType',
     InitialReferringDomain = 'InitialReferringDomain',
     InitialUTMSource = 'InitialUTMSource',
     InitialUTMCampaign = 'InitialUTMCampaign',
@@ -866,6 +867,7 @@ export interface BreakdownFilter {
     breakdowns?: Breakdown[]
     breakdown_group_type_index?: number | null
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
+    breakdown_hide_other_aggregation?: boolean | null // hides the "other" field for trends
 }
 
 export interface DashboardFilter {

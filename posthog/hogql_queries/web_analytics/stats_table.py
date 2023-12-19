@@ -20,6 +20,10 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
     query_type = WebStatsTableQuery
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+        # special case for channel, as some hogql features to use the general code are still being worked on
+        if self.query.breakdownBy == WebStatsBreakdown.InitialChannelType:
+            return self.to_channel_query()
+
         with self.timings.measure("bounce_rate_query"):
             bounce_rate_query = parse_select(
                 BOUNCE_RATE_CTE,
@@ -58,7 +62,8 @@ ON
 WHERE
     {where_breakdown}
 ORDER BY
-    "context.columns.views" DESC
+    "context.columns.views" DESC,
+    "context.columns.breakdown_value" DESC
 LIMIT 10
                 """,
                 timings=self.timings,
@@ -92,6 +97,8 @@ LIMIT 10
         match self.query.breakdownBy:
             case WebStatsBreakdown.Page:
                 return ast.Field(chain=["properties", "$pathname"])
+            case WebStatsBreakdown.InitialChannelType:
+                raise NotImplementedError("Breakdown InitialChannelType not implemented")
             case WebStatsBreakdown.InitialPage:
                 return ast.Field(chain=["person", "properties", "$initial_pathname"])
             case WebStatsBreakdown.InitialReferringDomain:
@@ -128,6 +135,8 @@ LIMIT 10
             case WebStatsBreakdown.Page:
                 # use initial pathname for bounce rate
                 return ast.Call(name="any", args=[ast.Field(chain=["person", "properties", "$initial_pathname"])])
+            case WebStatsBreakdown.InitialChannelType:
+                raise NotImplementedError("Breakdown InitialChannelType not implemented")
             case _:
                 return ast.Call(name="any", args=[self.counts_breakdown()])
 
@@ -137,6 +146,8 @@ LIMIT 10
                 return parse_expr('tupleElement("context.columns.breakdown_value", 2) IS NOT NULL')
             case WebStatsBreakdown.City:
                 return parse_expr('tupleElement("context.columns.breakdown_value", 2) IS NOT NULL')
+            case WebStatsBreakdown.InitialChannelType:
+                return parse_expr("TRUE")  # actually show null values
             case WebStatsBreakdown.InitialUTMSource:
                 return parse_expr("TRUE")  # actually show null values
             case WebStatsBreakdown.InitialUTMCampaign:
@@ -149,3 +160,107 @@ LIMIT 10
                 return parse_expr("TRUE")  # actually show null values
             case _:
                 return parse_expr('"context.columns.breakdown_value" IS NOT NULL')
+
+    def to_channel_query(self):
+        with self.timings.measure("channel_query"):
+            top_sources_query = parse_select(
+                """
+SELECT
+    counts.breakdown_value as "context.columns.breakdown_value",
+    counts.total_pageviews as "context.columns.views",
+    counts.unique_visitors as "context.columns.visitors"
+FROM
+    (SELECT
+
+
+        multiIf(
+            match(initial_utm_campaign, 'cross-network'),
+            'Cross Network',
+
+            (
+                match(initial_utm_medium, '^(.*cp.*|ppc|retargeting|paid.*)$') OR
+                initial_gclid IS NOT NULL OR
+                initial_gad_source IS NOT NULL
+            ),
+            coalesce(
+                hogql_lookupPaidSourceType(initial_utm_source),
+                hogql_lookupPaidDomainType(initial_referring_domain),
+                if(
+                    match(initial_utm_campaign, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
+                    'Paid Shopping',
+                    NULL
+                ),
+                hogql_lookupPaidMediumType(initial_utm_medium),
+                multiIf (
+                    initial_gad_source = '1',
+                    'Paid Search',
+
+                    match(initial_utm_campaign, '^(.*video.*)$'),
+                    'Paid Video',
+
+                    'Paid Other'
+                )
+            ),
+
+            (
+                initial_referring_domain = '$direct'
+                AND (initial_utm_medium IS NULL OR initial_utm_medium = '')
+                AND (initial_utm_source IS NULL OR initial_utm_source IN ('', '(direct)', 'direct'))
+            ),
+            'Direct',
+
+            coalesce(
+                hogql_lookupOrganicSourceType(initial_utm_source),
+                hogql_lookupOrganicDomainType(initial_referring_domain),
+                if(
+                    match(initial_utm_campaign, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
+                    'Organic Shopping',
+                    NULL
+                ),
+                hogql_lookupOrganicMediumType(initial_utm_medium),
+                multiIf(
+                    match(initial_utm_campaign, '^(.*video.*)$'),
+                    'Organic Video',
+
+                    match(initial_utm_medium, 'push$'),
+                    'Push',
+
+                    'Other'
+                )
+            )
+        ) AS breakdown_value,
+        count() as total_pageviews,
+        uniq(pid) as unique_visitors
+    FROM
+        (SELECT
+            person.properties.$initial_utm_campaign AS initial_utm_campaign,
+            person.properties.$initial_utm_medium AS initial_utm_medium,
+            person.properties.$initial_utm_source AS initial_utm_source,
+            person.properties.$initial_referring_domain AS initial_referring_domain,
+            person.properties.$initial_gclid AS initial_gclid,
+            person.properties.$initial_gad_source AS initial_gad_source,
+            person_id AS pid
+        FROM events
+        WHERE
+            (event = '$pageview')
+            AND ({counts_where})
+        )
+
+        GROUP BY breakdown_value
+    ) AS counts
+WHERE
+    {where_breakdown}
+ORDER BY
+    "context.columns.views" DESC,
+    "context.columns.breakdown_value" DESC
+LIMIT 10
+                """,
+                timings=self.timings,
+                backend="cpp",
+                placeholders={
+                    "counts_where": self.events_where(),
+                    "where_breakdown": self.where_breakdown(),
+                },
+            )
+
+        return top_sources_query

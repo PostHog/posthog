@@ -25,7 +25,6 @@ from .mixins.funnel import (
 from .mixins.groups import GroupsAggregationMixin
 from .mixins.interval import IntervalMixin
 from .mixins.paths import (
-    ComparatorDerivedMixin,
     EndPointMixin,
     FunnelPathsMixin,
     LocalPathCleaningFiltersMixin,
@@ -34,9 +33,7 @@ from .mixins.paths import (
     PathPersonsMixin,
     PathReplacementMixin,
     PathStepLimitMixin,
-    PropTypeDerivedMixin,
     StartPointMixin,
-    TargetEventDerivedMixin,
     TargetEventsMixin,
     PathsHogQLExpressionMixin,
 )
@@ -47,9 +44,6 @@ from .mixins.simplify import SimplifyFilterMixin
 class PathFilter(
     StartPointMixin,
     EndPointMixin,
-    TargetEventDerivedMixin,
-    ComparatorDerivedMixin,
-    PropTypeDerivedMixin,
     PropertyMixin,
     IntervalMixin,
     InsightMixin,

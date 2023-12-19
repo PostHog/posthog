@@ -203,17 +203,23 @@ export function NotebookSelectPopover({
     const { showPopover } = useValues(logic)
     const { setShowPopover } = useActions(logic)
 
+    const onNotebookOpened: NotebookSelectProps['onNotebookOpened'] = (...args) => {
+        setShowPopover(false)
+        props.onNotebookOpened?.(...args)
+    }
+
     return (
         <LemonDropdown
             overlay={
                 <div className="max-w-160">
-                    <NotebookSelectList {...props} />
+                    <NotebookSelectList {...props} onNotebookOpened={onNotebookOpened} />
                 </div>
             }
             sameWidth={false}
             actionable
             visible={!!showPopover}
             onVisibilityChange={(visible) => setShowPopover(visible)}
+            closeOnClickInside={false}
         >
             {children}
         </LemonDropdown>

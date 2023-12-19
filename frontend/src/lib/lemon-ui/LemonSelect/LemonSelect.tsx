@@ -84,6 +84,7 @@ export interface LemonSelectPropsClearable<T> extends LemonSelectPropsBase<T> {
     value?: T | null
     /** Callback fired when a value different from the one currently set is selected. */
     onChange?: (newValue: T | null) => void
+    renderButtonContent?: (leaf: LemonSelectOptionLeaf<T | null> | undefined) => string | JSX.Element
 }
 
 export interface LemonSelectPropsNonClearable<T> extends LemonSelectPropsBase<T> {
@@ -92,6 +93,7 @@ export interface LemonSelectPropsNonClearable<T> extends LemonSelectPropsBase<T>
     value?: T
     /** Callback fired when a value different from the one currently set is selected. */
     onChange?: (newValue: T) => void
+    renderButtonContent?: (leaf: LemonSelectOptionLeaf<T | null> | undefined) => string | JSX.Element
 }
 
 export type LemonSelectProps<T> = LemonSelectPropsClearable<T> | LemonSelectPropsNonClearable<T>
@@ -109,6 +111,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
     allowClear = false,
     className,
     menu,
+    renderButtonContent,
     ...buttonProps
 }: LemonSelectProps<T>): JSX.Element {
     const [items, allLeafOptions] = useMemo(
@@ -148,8 +151,12 @@ export function LemonSelect<T extends string | number | boolean | null>({
                 status="stealth"
                 {...buttonProps}
             >
-                <span>
-                    {activeLeaf ? activeLeaf.label : value ?? <span className="text-muted">{placeholder}</span>}
+                <span className="flex flex-1">
+                    {renderButtonContent
+                        ? renderButtonContent(activeLeaf)
+                        : activeLeaf
+                        ? activeLeaf.label
+                        : value ?? <span className="text-muted">{placeholder}</span>}
                 </span>
                 {isClearButtonShown && (
                     <LemonButton
