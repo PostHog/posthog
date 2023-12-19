@@ -54,24 +54,48 @@ export const ToastTypes: Story = {
             setIsReady(false)
             args.toasts.forEach((toast) => {
                 const { type, message, ...rest } = toast
-                lemonToast[type](message, rest)
+                lemonToast[type](message, { ...rest, containerId: isDarkModeOn ? 'dark' : 'light' })
             })
         }, [isDarkModeOn])
 
         return (
             <>
-                <ToastContainer
-                    position="top-left" // different from app
-                    autoClose={false} // different from app
-                    transition={({ nodeRef, ...rest }) => {
-                        setIsReady(nodeRef.current !== null && !nodeRef.current.classList.contains('Toastify--animate'))
-                        return Slide({ nodeRef, ...rest })
-                    }}
-                    closeOnClick={false}
-                    draggable={false}
-                    closeButton={<ToastCloseButton />}
-                    theme={isDarkModeOn ? 'dark' : 'light'}
-                />
+                {isDarkModeOn ? (
+                    <ToastContainer
+                        containerId="dark"
+                        theme="dark"
+                        enableMultiContainer
+                        position="top-left" // different from app
+                        autoClose={false} // different from app
+                        transition={({ nodeRef, ...rest }) => {
+                            setIsReady(
+                                nodeRef.current !== null && !nodeRef.current.classList.contains('Toastify--animate')
+                            )
+                            return Slide({ nodeRef, ...rest })
+                        }}
+                        closeOnClick={false}
+                        draggable={false}
+                        closeButton={<ToastCloseButton />}
+                    />
+                ) : (
+                    <ToastContainer
+                        containerId="light"
+                        theme="light"
+                        enableMultiContainer
+                        position="top-left" // different from app
+                        autoClose={false} // different from app
+                        transition={({ nodeRef, ...rest }) => {
+                            setIsReady(
+                                nodeRef.current !== null && !nodeRef.current.classList.contains('Toastify--animate')
+                            )
+                            return Slide({ nodeRef, ...rest })
+                        }}
+                        closeOnClick={false}
+                        draggable={false}
+                        closeButton={<ToastCloseButton />}
+                    />
+                )}
+
                 <div className={isReady ? 'storybook-ready h-1 w-1 bg-primary-highlight absolute right-0' : ''} />
             </>
         )
