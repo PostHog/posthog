@@ -21,6 +21,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { BreakdownOther } from '~/queries/nodes/InsightViz/BreakdownOther'
 import { InsightQueryNode } from '~/queries/schema'
 import {
     AvailableFeature,
@@ -73,6 +74,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     const hasBreakdown =
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)) ||
         isStepsFunnel
+    const hasBreakdownOther = isTrends && hasBreakdown && !!breakdown?.breakdown
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
     const hasAttribution = isStepsFunnel
     const hasPathsHogQL = isPaths && pathsFilter?.include_event_types?.includes(PathType.HogQL)
@@ -187,6 +189,13 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                               </>
                           ),
                           component: Breakdown,
+                      }
+                    : null,
+                hasBreakdownOther
+                    ? {
+                          key: 'breakdown',
+                          position: 'right',
+                          component: BreakdownOther,
                       }
                     : null,
                 hasAttribution

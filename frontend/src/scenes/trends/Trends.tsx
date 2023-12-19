@@ -1,4 +1,4 @@
-import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -66,7 +66,7 @@ export function TrendInsight({ view, context }: Props): JSX.Element {
             {series && <div className={`TrendsInsight TrendsInsight--${display}`}>{renderViz()}</div>}
             {display !== ChartDisplayType.WorldMap && // the world map doesn't need this cta
                 breakdown &&
-                (hasBreakdownOther || loadMoreBreakdownUrl || breakdown.breakdown_hide_other_aggregation) && (
+                (hasBreakdownOther || loadMoreBreakdownUrl) && (
                     <div className="my-4 flex flex-col items-center">
                         <div className="text-muted mb-2">
                             For readability, <b>not all breakdown values are displayed</b>. Click below to load more.
@@ -88,20 +88,6 @@ export function TrendInsight({ view, context }: Props): JSX.Element {
                             >
                                 Load more breakdown values
                             </LemonButton>
-                            {hasBreakdownOther || breakdown.breakdown_hide_other_aggregation ? (
-                                <LemonSwitch
-                                    bordered
-                                    checked={!breakdown.breakdown_hide_other_aggregation}
-                                    onChange={() =>
-                                        updateBreakdown({
-                                            ...breakdown,
-                                            breakdown_hide_other_aggregation:
-                                                !breakdown.breakdown_hide_other_aggregation,
-                                        })
-                                    }
-                                    label='Group remaining values under "Other"'
-                                />
-                            ) : null}
                         </div>
                     </div>
                 )}
