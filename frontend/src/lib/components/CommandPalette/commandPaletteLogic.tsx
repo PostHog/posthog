@@ -61,6 +61,7 @@ import { userLogic } from 'scenes/userLogic'
 import { SIDE_PANEL_TABS } from '~/layout/navigation-3000/sidepanel/SidePanel'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { InsightType } from '~/types'
 
 import { personalAPIKeysLogic } from '../../../scenes/settings/user/personalAPIKeysLogic'
 import { commandBarLogic } from '../CommandBar/commandBarLogic'
