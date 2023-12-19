@@ -45,6 +45,7 @@ import {
     makeMinimalStyles,
     makePositionStyles,
     makeStylesString,
+    StyleOverride,
 } from './wireframeStyle'
 
 const BACKGROUND = '#f3f4ef'
@@ -109,15 +110,22 @@ export const makeCustomEvent = (
         const adds: addedNodeMutation[] = []
         const removes = []
         if (mobileCustomEvent.data.payload.open) {
+            const shouldAbsolutelyPosition =
+                _isPositiveInteger(mobileCustomEvent.data.payload.x) ||
+                _isPositiveInteger(mobileCustomEvent.data.payload.y)
+            const styleOverride: StyleOverride | undefined = shouldAbsolutelyPosition ? undefined : { bottom: true }
             const keyboardPlaceHolder = makePlaceholderElement(
                 {
                     id: KEYBOARD_ID,
                     type: 'placeholder',
                     label: 'keyboard',
                     height: mobileCustomEvent.data.payload.height,
+                    width: _isPositiveInteger(mobileCustomEvent.data.payload.width)
+                        ? mobileCustomEvent.data.payload.width
+                        : '100vw',
                 },
                 [],
-                true
+                styleOverride
             )
             if (keyboardPlaceHolder) {
                 adds.push({
@@ -218,7 +226,7 @@ function makeWebViewElement(wireframe: wireframe, children: serializedNodeWithId
 function makePlaceholderElement(
     wireframe: wireframe,
     children: serializedNodeWithId[],
-    fullWidth?: boolean
+    styleOverride?: StyleOverride
 ): serializedNodeWithId | null {
     const txt = 'label' in wireframe && wireframe.label ? wireframe.label : wireframe.type || 'PLACEHOLDER'
     return {
@@ -230,7 +238,7 @@ function makePlaceholderElement(
                 horizontalAlign: 'center',
                 backgroundColor: wireframe.style?.backgroundColor || BACKGROUND,
                 color: wireframe.style?.color || FOREGROUND,
-                ...(fullWidth ? { width: '100vw' } : {}),
+                ...styleOverride,
             }),
         },
         id: wireframe.id,

@@ -121,13 +121,13 @@ type wireframeBase = {
     x?: number
     y?: number
     /*
-     * @description the width dimension of the element, the only accepted units is pixels. You can omit the unit. If not received it is not set
+     * @description the width dimension of the element, either '100vw' i.e. viewport width. Or a value in pixels. You can omit the unit when specifying pixels.
      */
-    width?: number
+    width: number | '100vw'
     /*
-     * @description the height dimension of the element, the only accepted units is pixels. You can omit the unit. If not received it is not set
+     * @description the height dimension of the element, the only accepted units is pixels. You can omit the unit.
      */
-    height?: number
+    height: number
     childWireframes?: wireframe[]
     type: MobileNodeType
     style?: MobileStyles
@@ -302,14 +302,17 @@ export type keyboardEvent = {
                   open: true
                   styles?: MobileStyles
                   /**
-                   * @description x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting `bottom: 0`
+                   * @description x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present then the keyboard is at the bottom of the screen
                    */
                   x?: number
                   y?: number
                   /*
-                   * @description width and height are the dimensions of the element, the only accepted units is pixels. You can omit the unit. A keyboard always has height, and defaults to width of the viewport
+                   * @description the height dimension of the keyboard, the only accepted units is pixels. You can omit the unit.
                    */
                   height: number
+                  /*
+                   * @description the width dimension of the keyboard, the only accepted units is pixels. You can omit the unit. If not present defaults to width of the viewport
+                   */
                   width?: number
               }
             | { open: false }

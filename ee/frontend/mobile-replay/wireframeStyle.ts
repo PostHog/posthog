@@ -1,6 +1,9 @@
 import { MobileStyles, wireframe, wireframeProgress } from './mobile.types'
 
-export type StyleOverride = MobileStyles & { width?: '100vw' }
+// StyleOverride is defined here and not in the schema
+// because these are overrides that the transformer is allowed to make
+// not that clients are allowed to request
+export type StyleOverride = MobileStyles & { bottom?: true }
 
 function isNumber(candidate: unknown): candidate is number {
     return typeof candidate === 'number'
@@ -49,10 +52,10 @@ function makeBorderStyles(wireframe: wireframe, styleOverride?: StyleOverride): 
     return styles
 }
 
-export function makePositionStyles(wireframe: wireframe, styleOverride?: StyleOverride): string {
+export function makeDimensionStyles(wireframe: wireframe): string {
     let styles = ''
 
-    if (styleOverride?.width === '100vw') {
+    if (wireframe.width === '100vw') {
         styles += `width: 100vw;`
     } else if (isNumber(wireframe.width)) {
         styles += `width: ${ensureUnit(wireframe.width)};`
@@ -62,17 +65,31 @@ export function makePositionStyles(wireframe: wireframe, styleOverride?: StyleOv
         styles += `height: ${ensureUnit(wireframe.height)};`
     }
 
-    const posX = wireframe.x || 0
-    const posY = wireframe.y || 0
-    if (isNumber(posX) || isNumber(posY)) {
+    return styles
+}
+
+export function makePositionStyles(wireframe: wireframe, styleOverride?: StyleOverride): string {
+    let styles = ''
+
+    styles += makeDimensionStyles(wireframe)
+
+    if (styleOverride?.bottom) {
+        styles += `bottom: 0;`
         styles += `position: fixed;`
-        if (isNumber(posX)) {
-            styles += `left: ${ensureUnit(posX)};`
-        }
-        if (isNumber(posY)) {
-            styles += `top: ${ensureUnit(posY)};`
+    } else {
+        const posX = wireframe.x || 0
+        const posY = wireframe.y || 0
+        if (isNumber(posX) || isNumber(posY)) {
+            styles += `position: fixed;`
+            if (isNumber(posX)) {
+                styles += `left: ${ensureUnit(posX)};`
+            }
+            if (isNumber(posY)) {
+                styles += `top: ${ensureUnit(posY)};`
+            }
         }
     }
+
     return styles
 }
 

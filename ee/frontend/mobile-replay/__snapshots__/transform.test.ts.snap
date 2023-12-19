@@ -2695,7 +2695,7 @@ exports[`replay/transform transform inputs open keyboard custom event 1`] = `
         "nextId": null,
         "node": {
           "attributes": {
-            "style": "color: #35373e;background-color: #f3f4ef;width: 100vw;height: 150px;position: fixed;left: 0px;top: 0px;align-items: center;justify-content: center;display: flex;",
+            "style": "color: #35373e;background-color: #f3f4ef;width: 100vw;height: 150px;bottom: 0;position: fixed;align-items: center;justify-content: center;display: flex;",
           },
           "childNodes": [
             {
