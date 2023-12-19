@@ -154,10 +154,7 @@ impl WebhookCleaner {
         Ok(rows)
     }
 
-    async fn serialize_completed_rows(
-        &self,
-        completed_rows: Vec<CompletedRow>,
-    ) -> Result<Vec<String>> {
+    fn serialize_completed_rows(&self, completed_rows: Vec<CompletedRow>) -> Result<Vec<String>> {
         let mut payloads = Vec::new();
 
         for row in completed_rows {
@@ -210,7 +207,7 @@ impl WebhookCleaner {
         Ok(rows)
     }
 
-    async fn serialize_failed_rows(&self, failed_rows: Vec<FailedRow>) -> Result<Vec<String>> {
+    fn serialize_failed_rows(&self, failed_rows: Vec<FailedRow>) -> Result<Vec<String>> {
         let mut payloads = Vec::new();
 
         for row in failed_rows {
@@ -312,9 +309,9 @@ impl WebhookCleaner {
 
         let mut tx = self.start_serializable_txn().await?;
         let completed_rows = self.get_completed_rows(&mut tx).await?;
-        let mut payloads = self.serialize_completed_rows(completed_rows).await?;
+        let mut payloads = self.serialize_completed_rows(completed_rows)?;
         let failed_rows = self.get_failed_rows(&mut tx).await?;
-        let mut failed_payloads = self.serialize_failed_rows(failed_rows).await?;
+        let mut failed_payloads = self.serialize_failed_rows(failed_rows)?;
         payloads.append(&mut failed_payloads);
         let mut rows_deleted: u64 = 0;
         if !payloads.is_empty() {
