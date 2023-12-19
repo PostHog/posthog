@@ -3,6 +3,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { Resizer } from 'lib/components/Resizer/Resizer'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -32,7 +33,7 @@ export function Navbar(): JSX.Element {
         <>
             <nav className={clsx('Navbar3000', !isNavShown && 'Navbar3000--hidden')} ref={containerRef}>
                 <div className="Navbar3000__content">
-                    <div className="Navbar3000__top">
+                    <ScrollableShadows innerClassName="Navbar3000__top" direction="vertical">
                         {navbarItems.map((section, index) => (
                             <ul key={index}>
                                 {section.map((item) =>
@@ -65,7 +66,7 @@ export function Navbar(): JSX.Element {
                                 )}
                             </ul>
                         ))}
-                    </div>
+                    </ScrollableShadows>
                     <div className="Navbar3000__bottom">
                         <ul>
                             <NavbarButton

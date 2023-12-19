@@ -84,7 +84,7 @@ def stripe_pagination(
             break
 
 
-@dlt.source
+@dlt.source(max_table_nesting=0)
 def stripe_source(
     api_key: str,
     endpoints: Tuple[str, ...],
@@ -97,12 +97,6 @@ def stripe_source(
             stripe_pagination,
             name=endpoint,
             write_disposition="append",
-            columns={
-                "metadata": {
-                    "data_type": "complex",
-                    "nullable": True,
-                }
-            },
         )(
             api_key=api_key,
             endpoint=endpoint,

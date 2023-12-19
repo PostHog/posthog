@@ -4,9 +4,9 @@
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
-    (SELECT DISTINCT breakdown_values,
-                     intervals_from_base,
-                     actor_id
+    (SELECT DISTINCT breakdown_values AS breakdown_values,
+                     intervals_from_base AS intervals_from_base,
+                     actor_id AS actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                dateDiff('day', target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -85,9 +85,9 @@
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
-    (SELECT DISTINCT breakdown_values,
-                     intervals_from_base,
-                     actor_id
+    (SELECT DISTINCT breakdown_values AS breakdown_values,
+                     intervals_from_base AS intervals_from_base,
+                     actor_id AS actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                dateDiff('month', target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -149,9 +149,9 @@
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
-    (SELECT DISTINCT breakdown_values,
-                     intervals_from_base,
-                     actor_id
+    (SELECT DISTINCT breakdown_values AS breakdown_values,
+                     intervals_from_base AS intervals_from_base,
+                     actor_id AS actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                dateDiff('day', target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -216,9 +216,9 @@
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
-    (SELECT DISTINCT breakdown_values,
-                     intervals_from_base,
-                     actor_id
+    (SELECT DISTINCT breakdown_values AS breakdown_values,
+                     intervals_from_base AS intervals_from_base,
+                     actor_id AS actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                dateDiff('day', target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -236,11 +236,11 @@
               GROUP BY person_distinct_id2.distinct_id
               HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
            INNER JOIN
-             (SELECT person.id,
+             (SELECT person.id AS id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
               FROM person
               WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                               (SELECT person.id, max(person.version) AS version
+                                                               (SELECT person.id AS id, max(person.version) AS version
                                                                 FROM person
                                                                 WHERE equals(person.team_id, 2)
                                                                 GROUP BY person.id
@@ -277,11 +277,11 @@
               GROUP BY person_distinct_id2.distinct_id
               HAVING ifNull(equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
            INNER JOIN
-             (SELECT person.id,
+             (SELECT person.id AS id,
                      replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '') AS properties___email
               FROM person
               WHERE and(equals(person.team_id, 2), ifNull(in(tuple(person.id, person.version),
-                                                               (SELECT person.id, max(person.version) AS version
+                                                               (SELECT person.id AS id, max(person.version) AS version
                                                                 FROM person
                                                                 WHERE equals(person.team_id, 2)
                                                                 GROUP BY person.id
@@ -303,9 +303,9 @@
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
-    (SELECT DISTINCT breakdown_values,
-                     intervals_from_base,
-                     actor_id
+    (SELECT DISTINCT breakdown_values AS breakdown_values,
+                     intervals_from_base AS intervals_from_base,
+                     actor_id AS actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                dateDiff('day', target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -370,9 +370,9 @@
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
-    (SELECT DISTINCT breakdown_values,
-                     intervals_from_base,
-                     actor_id
+    (SELECT DISTINCT breakdown_values AS breakdown_values,
+                     intervals_from_base AS intervals_from_base,
+                     actor_id AS actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                dateDiff('day', target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -437,9 +437,9 @@
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
-    (SELECT DISTINCT breakdown_values,
-                     intervals_from_base,
-                     actor_id
+    (SELECT DISTINCT breakdown_values AS breakdown_values,
+                     intervals_from_base AS intervals_from_base,
+                     actor_id AS actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                dateDiff('week', target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -504,9 +504,9 @@
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
   FROM
-    (SELECT DISTINCT breakdown_values,
-                     intervals_from_base,
-                     actor_id
+    (SELECT DISTINCT breakdown_values AS breakdown_values,
+                     intervals_from_base AS intervals_from_base,
+                     actor_id AS actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                dateDiff('week', target_event.event_date, returning_event.event_date) AS intervals_from_base,

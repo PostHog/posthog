@@ -64,6 +64,19 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         return ExternalDataSchemaSerializer(schemas, many=True, read_only=True).data
 
 
+class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
+    class Meta:
+        model = ExternalDataSource
+        fields = [
+            "id",
+            "created_at",
+            "created_by",
+            "status",
+            "source_type",
+        ]
+        read_only_fields = ["id", "created_by", "created_at", "status", "source_type"]
+
+
 class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete External data Sources.
