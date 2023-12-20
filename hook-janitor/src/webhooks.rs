@@ -66,6 +66,24 @@ struct CompletedRow {
     successes: u32,
 }
 
+impl From<CompletedRow> for AppMetric {
+    fn from(row: CompletedRow) -> Self {
+        AppMetric {
+            timestamp: row.hour,
+            team_id: row.team_id,
+            plugin_config_id: row.plugin_config_id,
+            job_id: None,
+            category: AppMetricCategory::Webhook,
+            successes: row.successes,
+            successes_on_retry: 0,
+            failures: 0,
+            error_uuid: None,
+            error_type: None,
+            error_details: None,
+        }
+    }
+}
+
 #[derive(sqlx::FromRow, Debug)]
 struct FailedRow {
     // App Metrics truncates/aggregates rows on the hour, so we take advantage of that to GROUP BY
@@ -82,6 +100,24 @@ struct FailedRow {
     last_error: WebhookJobError,
     #[sqlx(try_from = "i64")]
     failures: u32,
+}
+
+impl From<FailedRow> for AppMetric {
+    fn from(row: FailedRow) -> Self {
+        AppMetric {
+            timestamp: row.hour,
+            team_id: row.team_id,
+            plugin_config_id: row.plugin_config_id,
+            job_id: None,
+            category: AppMetricCategory::Webhook,
+            successes: 0,
+            successes_on_retry: 0,
+            failures: row.failures,
+            error_uuid: Some(Uuid::now_v7()),
+            error_type: Some(row.last_error.r#type),
+            error_details: Some(row.last_error.details),
+        }
+    }
 }
 
 // A simple wrapper type that ensures we don't use any old Transaction object when we need one
@@ -178,33 +214,6 @@ impl WebhookCleaner {
         Ok(rows)
     }
 
-    fn serialize_completed_rows(&self, completed_rows: Vec<CompletedRow>) -> Result<Vec<String>> {
-        let mut payloads = Vec::new();
-
-        for row in completed_rows {
-            let app_metric = AppMetric {
-                timestamp: row.hour,
-                team_id: row.team_id,
-                plugin_config_id: row.plugin_config_id,
-                job_id: None,
-                category: AppMetricCategory::Webhook,
-                successes: row.successes,
-                successes_on_retry: 0,
-                failures: 0,
-                error_uuid: None,
-                error_type: None,
-                error_details: None,
-            };
-
-            let payload = serde_json::to_string(&app_metric)
-                .map_err(|e| WebhookCleanerError::SerializeRowsError { error: e })?;
-
-            payloads.push(payload)
-        }
-
-        Ok(payloads)
-    }
-
     async fn get_failed_rows(&self, tx: &mut SerializableTxn<'_>) -> Result<Vec<FailedRow>> {
         let base_query = format!(
             r#"
@@ -231,34 +240,13 @@ impl WebhookCleaner {
         Ok(rows)
     }
 
-    fn serialize_failed_rows(&self, failed_rows: Vec<FailedRow>) -> Result<Vec<String>> {
-        let mut payloads = Vec::new();
+    async fn send_metrics_to_kafka(&self, metrics: Vec<AppMetric>) -> Result<()> {
+        let payloads: Vec<String> = metrics
+            .into_iter()
+            .map(|metric| serde_json::to_string(&metric))
+            .collect::<Result<Vec<String>, SerdeError>>()
+            .map_err(|e| WebhookCleanerError::SerializeRowsError { error: e })?;
 
-        for row in failed_rows {
-            let app_metric = AppMetric {
-                timestamp: row.hour,
-                team_id: row.team_id,
-                plugin_config_id: row.plugin_config_id,
-                job_id: None,
-                category: AppMetricCategory::Webhook,
-                successes: 0,
-                successes_on_retry: 0,
-                failures: row.failures,
-                error_uuid: Some(Uuid::now_v7()),
-                error_type: Some(row.last_error.r#type),
-                error_details: Some(row.last_error.details),
-            };
-
-            let payload = serde_json::to_string(&app_metric)
-                .map_err(|e| WebhookCleanerError::SerializeRowsError { error: e })?;
-
-            payloads.push(payload)
-        }
-
-        Ok(payloads)
-    }
-
-    async fn send_messages_to_kafka(&self, payloads: Vec<String>) -> Result<()> {
         let mut delivery_futures = Vec::new();
 
         for payload in payloads {
@@ -332,29 +320,34 @@ impl WebhookCleaner {
         // future if necessary.
 
         let mut tx = self.start_serializable_txn().await?;
+        let mut rows_processed = 0;
 
-        let completed_rows = self.get_completed_rows(&mut tx).await?;
-        let completed_agg_row_count = completed_rows.len();
-        let completed_kafka_payloads = self.serialize_completed_rows(completed_rows)?;
-
-        let failed_rows = self.get_failed_rows(&mut tx).await?;
-        let failed_agg_row_count = failed_rows.len();
-        let failed_kafka_payloads = self.serialize_failed_rows(failed_rows)?;
-
-        let mut all_kafka_payloads = completed_kafka_payloads;
-        all_kafka_payloads.extend(failed_kafka_payloads.into_iter());
-
-        let mut rows_deleted: u64 = 0;
-        if !all_kafka_payloads.is_empty() {
-            self.send_messages_to_kafka(all_kafka_payloads).await?;
-            rows_deleted = self.delete_observed_rows(&mut tx).await?;
-            self.commit_txn(tx).await?;
+        {
+            let completed_rows = self.get_completed_rows(&mut tx).await?;
+            rows_processed += completed_rows.len();
+            let completed_app_metrics: Vec<AppMetric> =
+                completed_rows.into_iter().map(Into::into).collect();
+            self.send_metrics_to_kafka(completed_app_metrics).await?;
         }
 
-        debug!(
-            "WebhookCleaner finished cleanup, deleted {} rows ({} completed+aggregated, {} failed+aggregated)",
-            rows_deleted, completed_agg_row_count, failed_agg_row_count
-        );
+        {
+            let failed_rows = self.get_failed_rows(&mut tx).await?;
+            rows_processed += failed_rows.len();
+            let failed_app_metrics: Vec<AppMetric> =
+                failed_rows.into_iter().map(Into::into).collect();
+            self.send_metrics_to_kafka(failed_app_metrics).await?;
+        }
+
+        if rows_processed != 0 {
+            let rows_deleted = self.delete_observed_rows(&mut tx).await?;
+            self.commit_txn(tx).await?;
+            debug!(
+                "WebhookCleaner finished cleanup, processed and deleted {} rows",
+                rows_deleted
+            );
+        } else {
+            debug!("WebhookCleaner finished cleanup, no-op");
+        }
 
         Ok(())
     }
