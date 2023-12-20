@@ -5,7 +5,7 @@ from posthog.tasks.process_scheduled_changes import process_scheduled_changes
 
 
 class TestProcessScheduledChanges(APIBaseTest):
-    def test_schedule_feature_flag_set_active(self):
+    def test_schedule_feature_flag_set_active(self) -> None:
         feature_flag = FeatureFlag.objects.create(
             name="Flag 1",
             key="flag-1",
@@ -28,7 +28,7 @@ class TestProcessScheduledChanges(APIBaseTest):
         updated_flag = FeatureFlag.objects.get(key="flag-1")
         self.assertEqual(updated_flag.active, True)
 
-    def test_schedule_feature_flag_add_release_condition(self):
+    def test_schedule_feature_flag_add_release_condition(self) -> None:
         feature_flag = FeatureFlag.objects.create(
             name="Flag 1",
             key="flag-1",
@@ -62,7 +62,7 @@ class TestProcessScheduledChanges(APIBaseTest):
         updated_flag = FeatureFlag.objects.get(key="flag-1")
         self.assertEqual(updated_flag.filters["groups"][0], new_release_condition)
 
-    def test_schedule_feature_flag_invalid_payload(self):
+    def test_schedule_feature_flag_invalid_payload(self) -> None:
         feature_flag = FeatureFlag.objects.create(
             name="Flag 1",
             key="flag-1",
