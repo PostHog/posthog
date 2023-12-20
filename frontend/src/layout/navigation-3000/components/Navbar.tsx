@@ -104,6 +104,7 @@ export function Navbar(): JSX.Element {
                                 visible={isSitePopoverOpen}
                                 onClickOutside={closeSitePopover}
                                 placement="right-end"
+                                className="min-w-70"
                             >
                                 <NavbarButton
                                     icon={<ProfilePicture name={user?.first_name} email={user?.email} size="md" />}
