@@ -30,9 +30,12 @@ services:
         depends_on:
             - kafka
             - clickhouse-keeper
+
     clickhouse-keeper:
         image: clickhouse/clickhouse-keeper:23.11.2.11-alpine
         restart: on-failure
+        volumes:
+            - ./docker/clickhouse-keeper/keeper_config.xml:/etc/clickhouse-keeper/keeper_config.xml
 
     kafka:
         image: ghcr.io/posthog/kafka-container:v2.8.2
