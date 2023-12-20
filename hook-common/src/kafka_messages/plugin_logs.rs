@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Serialize, Serializer};
 use uuid::Uuid;
 
-use super::{serialize_datetime, serialize_uuid};
+use super::serialize_datetime;
 
 #[allow(dead_code)]
 #[derive(Serialize)]
@@ -28,7 +28,6 @@ pub struct PluginLogEntry {
     pub source: PluginLogEntrySource,
     #[serde(rename = "type", serialize_with = "serialize_type")]
     pub type_: PluginLogEntryType,
-    #[serde(serialize_with = "serialize_uuid")]
     pub id: Uuid,
     pub team_id: u32,
     pub plugin_id: u32,
@@ -37,7 +36,6 @@ pub struct PluginLogEntry {
     pub timestamp: DateTime<Utc>,
     #[serde(serialize_with = "serialize_message")]
     pub message: String,
-    #[serde(serialize_with = "serialize_uuid")]
     pub instance_id: Uuid,
 }
 

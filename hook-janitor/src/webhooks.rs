@@ -124,6 +124,12 @@ impl From<FailedRow> for AppMetric {
 // that has set the isolation level to serializable.
 struct SerializableTxn<'a>(Transaction<'a, Postgres>);
 
+struct CleanupStats {
+    rows_processed: u64,
+    completed_agg_row_count: usize,
+    failed_agg_row_count: usize,
+}
+
 impl WebhookCleaner {
     pub fn new(
         queue_name: &str,
@@ -312,7 +318,7 @@ impl WebhookCleaner {
         Ok(())
     }
 
-    async fn cleanup_impl(&self) -> Result<()> {
+    async fn cleanup_impl(&self) -> Result<CleanupStats> {
         debug!("WebhookCleaner starting cleanup");
 
         // Note that we select all completed and failed rows without any pagination at the moment.
@@ -343,18 +349,17 @@ impl WebhookCleaner {
             row_count
         };
 
+        let mut rows_processed = 0;
         if completed_agg_row_count + failed_agg_row_count != 0 {
-            let rows_deleted = self.delete_observed_rows(&mut tx).await?;
+            rows_processed = self.delete_observed_rows(&mut tx).await?;
             self.commit_txn(tx).await?;
-            debug!(
-                "WebhookCleaner finished cleanup, processed and deleted {} rows ({}/{} aggregated completed/failed rows)",
-                rows_deleted, completed_agg_row_count, failed_agg_row_count
-            );
-        } else {
-            debug!("WebhookCleaner finished cleanup, there were no rows to process");
         }
 
-        Ok(())
+        Ok(CleanupStats {
+            rows_processed,
+            completed_agg_row_count,
+            failed_agg_row_count,
+        })
     }
 }
 
@@ -362,7 +367,18 @@ impl WebhookCleaner {
 impl Cleaner for WebhookCleaner {
     async fn cleanup(&self) {
         match self.cleanup_impl().await {
-            Ok(_) => {}
+            Ok(stats) => {
+                if stats.rows_processed > 0 {
+                    debug!(
+                        rows_processed = stats.rows_processed,
+                        completed_agg_row_count = stats.completed_agg_row_count,
+                        failed_agg_row_count = stats.failed_agg_row_count,
+                        "WebhookCleaner::cleanup finished"
+                    );
+                } else {
+                    debug!("WebhookCleaner finished cleanup, there were no rows to process");
+                }
+            }
             Err(error) => {
                 error!(error = ?error, "WebhookCleaner::cleanup failed");
             }
@@ -375,9 +391,18 @@ mod tests {
     use super::*;
     use crate::config;
     use crate::kafka_producer::{create_kafka_producer, KafkaContext};
+    use hook_common::kafka_messages::app_metrics::{
+        Error as WebhookError, ErrorDetails, ErrorType,
+    };
+    use hook_common::pgqueue::{NewJob, PgJob, PgQueue, RetryPolicy};
+    use hook_common::webhook::{HttpMethod, WebhookJobMetadata, WebhookJobParameters};
+    use rdkafka::consumer::{Consumer, StreamConsumer};
     use rdkafka::mocking::MockCluster;
     use rdkafka::producer::{DefaultProducerContext, FutureProducer};
-    use sqlx::PgPool;
+    use rdkafka::{ClientConfig, Message};
+    use sqlx::{PgPool, Row};
+    use std::collections::HashMap;
+    use std::str::FromStr;
 
     const APP_METRICS_TOPIC: &str = "app_metrics";
 
@@ -406,6 +431,18 @@ mod tests {
         )
     }
 
+    fn check_app_metric_vector_equality(v1: &[AppMetric], v2: &[AppMetric]) {
+        // Ignores `error_uuid`s.
+        assert_eq!(v1.len(), v2.len());
+        for (item1, item2) in v1.iter().zip(v2) {
+            let mut item1 = item1.clone();
+            item1.error_uuid = None;
+            let mut item2 = item2.clone();
+            item2.error_uuid = None;
+            assert_eq!(item1, item2);
+        }
+    }
+
     #[sqlx::test(migrations = "../migrations", fixtures("webhook_cleanup"))]
     async fn test_cleanup_impl(db: PgPool) {
         let (mock_cluster, mock_producer) = create_mock_kafka().await;
@@ -413,37 +450,312 @@ mod tests {
             .create_topic(APP_METRICS_TOPIC, 1, 1)
             .expect("failed to create mock app_metrics topic");
 
-        let table_name = "job_queue";
-        let queue_name = "webhooks";
+        let consumer: StreamConsumer = ClientConfig::new()
+            .set("bootstrap.servers", mock_cluster.bootstrap_servers())
+            .set("group.id", "mock")
+            .set("auto.offset.reset", "earliest")
+            .create()
+            .expect("failed to create mock consumer");
+        consumer.subscribe(&[APP_METRICS_TOPIC]).unwrap();
 
         let webhook_cleaner = WebhookCleaner::new_from_pool(
-            &queue_name,
-            &table_name,
+            &"webhooks",
+            &"job_queue",
             db,
             mock_producer,
             APP_METRICS_TOPIC.to_owned(),
         )
         .expect("unable to create webhook cleaner");
 
-        let _ = webhook_cleaner
+        let cleanup_stats = webhook_cleaner
             .cleanup_impl()
             .await
             .expect("webbook cleanup_impl failed");
 
-        // TODO: I spent a lot of time trying to get the mock Kafka consumer to work, but I think
-        // I've identified an issue with the rust-rdkafka library:
-        //   https://github.com/fede1024/rust-rdkafka/issues/629#issuecomment-1863555417
-        //
-        // I wanted to test the messages put on the AppMetrics topic, but I think we need to figure
-        // out that issue about in order to do so. (Capture uses the MockProducer but not a
-        // Consumer, fwiw.)
-        //
-        // For now, I'll probably have to make `cleanup_impl` return the row information so at
-        // least we can inspect that for correctness.
+        // Rows from other queues and rows that are not 'completed' or 'failed' should not be
+        // processed.
+        assert_eq!(cleanup_stats.rows_processed, 11);
+
+        let mut received_app_metrics = Vec::new();
+        for _ in 0..(cleanup_stats.completed_agg_row_count + cleanup_stats.failed_agg_row_count) {
+            let kafka_msg = consumer.recv().await.unwrap();
+            let payload_str = String::from_utf8(kafka_msg.payload().unwrap().to_vec()).unwrap();
+            let app_metric: AppMetric = serde_json::from_str(&payload_str).unwrap();
+            received_app_metrics.push(app_metric);
+        }
+
+        let expected_app_metrics = vec![
+            AppMetric {
+                timestamp: DateTime::<Utc>::from_str("2023-12-19T20:00:00Z").unwrap(),
+                team_id: 1,
+                plugin_config_id: 2,
+                job_id: None,
+                category: AppMetricCategory::Webhook,
+                successes: 2,
+                successes_on_retry: 0,
+                failures: 0,
+                error_uuid: None,
+                error_type: None,
+                error_details: None,
+            },
+            AppMetric {
+                timestamp: DateTime::<Utc>::from_str("2023-12-19T20:00:00Z").unwrap(),
+                team_id: 1,
+                plugin_config_id: 3,
+                job_id: None,
+                category: AppMetricCategory::Webhook,
+                successes: 1,
+                successes_on_retry: 0,
+                failures: 0,
+                error_uuid: None,
+                error_type: None,
+                error_details: None,
+            },
+            AppMetric {
+                timestamp: DateTime::<Utc>::from_str("2023-12-19T20:00:00Z").unwrap(),
+                team_id: 2,
+                plugin_config_id: 4,
+                job_id: None,
+                category: AppMetricCategory::Webhook,
+                successes: 1,
+                successes_on_retry: 0,
+                failures: 0,
+                error_uuid: None,
+                error_type: None,
+                error_details: None,
+            },
+            AppMetric {
+                timestamp: DateTime::<Utc>::from_str("2023-12-19T21:00:00Z").unwrap(),
+                team_id: 1,
+                plugin_config_id: 2,
+                job_id: None,
+                category: AppMetricCategory::Webhook,
+                successes: 1,
+                successes_on_retry: 0,
+                failures: 0,
+                error_uuid: None,
+                error_type: None,
+                error_details: None,
+            },
+            AppMetric {
+                timestamp: DateTime::<Utc>::from_str("2023-12-19T20:00:00Z").unwrap(),
+                team_id: 1,
+                plugin_config_id: 2,
+                job_id: None,
+                category: AppMetricCategory::Webhook,
+                successes: 0,
+                successes_on_retry: 0,
+                failures: 1,
+                error_uuid: Some(Uuid::parse_str("018c8935-d038-714a-957c-0df43d42e377").unwrap()),
+                error_type: Some(ErrorType::ConnectionError),
+                error_details: Some(ErrorDetails {
+                    error: WebhookError {
+                        name: "Connection Error".to_owned(),
+                        message: None,
+                        stack: None,
+                    },
+                }),
+            },
+            AppMetric {
+                timestamp: DateTime::<Utc>::from_str("2023-12-19T20:00:00Z").unwrap(),
+                team_id: 1,
+                plugin_config_id: 2,
+                job_id: None,
+                category: AppMetricCategory::Webhook,
+                successes: 0,
+                successes_on_retry: 0,
+                failures: 2,
+                error_uuid: Some(Uuid::parse_str("018c8935-d038-714a-957c-0df43d42e377").unwrap()),
+                error_type: Some(ErrorType::TimeoutError),
+                error_details: Some(ErrorDetails {
+                    error: WebhookError {
+                        name: "Timeout".to_owned(),
+                        message: None,
+                        stack: None,
+                    },
+                }),
+            },
+            AppMetric {
+                timestamp: DateTime::<Utc>::from_str("2023-12-19T20:00:00Z").unwrap(),
+                team_id: 1,
+                plugin_config_id: 3,
+                job_id: None,
+                category: AppMetricCategory::Webhook,
+                successes: 0,
+                successes_on_retry: 0,
+                failures: 1,
+                error_uuid: Some(Uuid::parse_str("018c8935-d038-714a-957c-0df43d42e377").unwrap()),
+                error_type: Some(ErrorType::TimeoutError),
+                error_details: Some(ErrorDetails {
+                    error: WebhookError {
+                        name: "Timeout".to_owned(),
+                        message: None,
+                        stack: None,
+                    },
+                }),
+            },
+            AppMetric {
+                timestamp: DateTime::<Utc>::from_str("2023-12-19T20:00:00Z").unwrap(),
+                team_id: 2,
+                plugin_config_id: 4,
+                job_id: None,
+                category: AppMetricCategory::Webhook,
+                successes: 0,
+                successes_on_retry: 0,
+                failures: 1,
+                error_uuid: Some(Uuid::parse_str("018c8935-d038-714a-957c-0df43d42e377").unwrap()),
+                error_type: Some(ErrorType::TimeoutError),
+                error_details: Some(ErrorDetails {
+                    error: WebhookError {
+                        name: "Timeout".to_owned(),
+                        message: None,
+                        stack: None,
+                    },
+                }),
+            },
+            AppMetric {
+                timestamp: DateTime::<Utc>::from_str("2023-12-19T21:00:00Z").unwrap(),
+                team_id: 1,
+                plugin_config_id: 2,
+                job_id: None,
+                category: AppMetricCategory::Webhook,
+                successes: 0,
+                successes_on_retry: 0,
+                failures: 1,
+                error_uuid: Some(Uuid::parse_str("018c8935-d038-714a-957c-0df43d42e377").unwrap()),
+                error_type: Some(ErrorType::TimeoutError),
+                error_details: Some(ErrorDetails {
+                    error: WebhookError {
+                        name: "Timeout".to_owned(),
+                        message: None,
+                        stack: None,
+                    },
+                }),
+            },
+        ];
+
+        check_app_metric_vector_equality(&expected_app_metrics, &received_app_metrics);
     }
 
-    // #[sqlx::test]
-    // async fn test_serializable_isolation() {
-    //   TODO: I'm going to add a test that verifies new rows aren't visible during the txn.
-    // }
+    #[sqlx::test(migrations = "../migrations", fixtures("webhook_cleanup"))]
+    async fn test_serializable_isolation(db: PgPool) {
+        let (_, mock_producer) = create_mock_kafka().await;
+        let webhook_cleaner = WebhookCleaner::new_from_pool(
+            &"webhooks",
+            &"job_queue",
+            db.clone(),
+            mock_producer,
+            APP_METRICS_TOPIC.to_owned(),
+        )
+        .expect("unable to create webhook cleaner");
+
+        let queue =
+            PgQueue::new_from_pool("webhooks", "job_queue", db.clone(), RetryPolicy::default())
+                .await
+                .expect("failed to connect to local test postgresql database");
+
+        async fn get_count_from_new_conn(db: &PgPool, status: &str) -> i64 {
+            let mut conn = db.acquire().await.unwrap();
+            let count: i64 = sqlx::query(
+                "SELECT count(*) FROM job_queue WHERE queue = 'webhooks' AND status = $1::job_status",
+            )
+            .bind(&status)
+            .fetch_one(&mut *conn)
+            .await
+            .unwrap()
+            .get(0);
+            count
+        }
+
+        // Important! Serializable txn is started here.
+        let mut tx = webhook_cleaner.start_serializable_txn().await.unwrap();
+        webhook_cleaner.get_completed_rows(&mut tx).await.unwrap();
+        webhook_cleaner.get_failed_rows(&mut tx).await.unwrap();
+
+        // All 13 rows in the queue are visible from outside the txn.
+        // The 11 the cleaner will process, plus 1 available and 1 running.
+        assert_eq!(get_count_from_new_conn(&db, "completed").await, 5);
+        assert_eq!(get_count_from_new_conn(&db, "failed").await, 6);
+        assert_eq!(get_count_from_new_conn(&db, "available").await, 1);
+        assert_eq!(get_count_from_new_conn(&db, "running").await, 1);
+
+        {
+            // The fixtures include an available job, so let's complete it while the txn is open.
+            let webhook_job: PgJob<WebhookJobParameters, WebhookJobMetadata> = queue
+                .dequeue(&"worker_id")
+                .await
+                .expect("failed to dequeue job")
+                .expect("didn't find a job to dequeue");
+            webhook_job
+                .complete()
+                .await
+                .expect("failed to complete job");
+        }
+
+        {
+            // Enqueue and complete another job while the txn is open.
+            let job_parameters = WebhookJobParameters {
+                body: "foo".to_owned(),
+                headers: HashMap::new(),
+                method: HttpMethod::POST,
+                url: "http://example.com".to_owned(),
+            };
+            let job_metadata = WebhookJobMetadata {
+                team_id: 1,
+                plugin_id: 2,
+                plugin_config_id: 3,
+            };
+            let new_job = NewJob::new(1, job_metadata, job_parameters, &"target");
+            queue.enqueue(new_job).await.expect("failed to enqueue job");
+            let webhook_job: PgJob<WebhookJobParameters, WebhookJobMetadata> = queue
+                .dequeue(&"worker_id")
+                .await
+                .expect("failed to dequeue job")
+                .expect("didn't find a job to dequeue");
+            webhook_job
+                .complete()
+                .await
+                .expect("failed to complete job");
+        }
+
+        {
+            // Enqueue another available job while the txn is open.
+            let job_parameters = WebhookJobParameters {
+                body: "foo".to_owned(),
+                headers: HashMap::new(),
+                method: HttpMethod::POST,
+                url: "http://example.com".to_owned(),
+            };
+            let job_metadata = WebhookJobMetadata {
+                team_id: 1,
+                plugin_id: 2,
+                plugin_config_id: 3,
+            };
+            let new_job = NewJob::new(1, job_metadata, job_parameters, &"target");
+            queue.enqueue(new_job).await.expect("failed to enqueue job");
+        }
+
+        // There are now 2 more completed rows (jobs added above) than before, visible from outside the txn.
+        assert_eq!(get_count_from_new_conn(&db, "completed").await, 7);
+        assert_eq!(get_count_from_new_conn(&db, "available").await, 1);
+
+        let rows_processed = webhook_cleaner.delete_observed_rows(&mut tx).await.unwrap();
+        // The 11 rows that were in the queue when the txn started should be deleted.
+        assert_eq!(rows_processed, 11);
+
+        // We haven't committed, so the rows are still visible from outside the txn.
+        assert_eq!(get_count_from_new_conn(&db, "completed").await, 7);
+        assert_eq!(get_count_from_new_conn(&db, "available").await, 1);
+
+        webhook_cleaner.commit_txn(tx).await.unwrap();
+
+        // We have committed, what remains are:
+        // * The 1 available job we completed while the txn was open.
+        // * The 2 brand new jobs we added while the txn was open.
+        // * The 1 running job that didn't change.
+        assert_eq!(get_count_from_new_conn(&db, "completed").await, 2);
+        assert_eq!(get_count_from_new_conn(&db, "failed").await, 0);
+        assert_eq!(get_count_from_new_conn(&db, "available").await, 1);
+        assert_eq!(get_count_from_new_conn(&db, "running").await, 1);
+    }
 }

@@ -35,4 +35,4 @@ tower = "0.4.13"
 tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
 url = { version = "2.5.0 " }
-uuid = { version = "1.6.1", features = ["v7"] }
+uuid = { version = "1.6.1", features = ["v7", "serde"] }

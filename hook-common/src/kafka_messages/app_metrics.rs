@@ -1,10 +1,10 @@
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use uuid::Uuid;
 
-use super::{serialize_datetime, serialize_optional_uuid};
+use super::{deserialize_datetime, serialize_datetime};
 
-#[derive(Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, PartialEq, Clone)]
 pub enum AppMetricCategory {
     ProcessEvent,
     OnEvent,
@@ -16,7 +16,7 @@ pub enum AppMetricCategory {
 // NOTE: These are stored in Postgres and deserialized by the cleanup/janitor process, so these
 // names need to remain stable, or new variants need to be deployed to the cleanup/janitor
 // process before they are used.
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, PartialEq, Clone)]
 pub enum ErrorType {
     TimeoutError,
     ConnectionError,
@@ -27,12 +27,12 @@ pub enum ErrorType {
 // NOTE: This is stored in Postgres and deserialized by the cleanup/janitor process, so this
 // shouldn't change. It is intended to replicate the shape of `error_details` used in the
 // plugin-server and by the frontend.
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, PartialEq, Clone)]
 pub struct ErrorDetails {
     pub error: Error,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, PartialEq, Clone)]
 pub struct Error {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -43,26 +43,30 @@ pub struct Error {
     pub stack: Option<String>,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, PartialEq, Clone)]
 pub struct AppMetric {
-    #[serde(serialize_with = "serialize_datetime")]
+    #[serde(
+        serialize_with = "serialize_datetime",
+        deserialize_with = "deserialize_datetime"
+    )]
     pub timestamp: DateTime<Utc>,
     pub team_id: u32,
     pub plugin_config_id: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub job_id: Option<String>,
-    #[serde(serialize_with = "serialize_category")]
+    #[serde(
+        serialize_with = "serialize_category",
+        deserialize_with = "deserialize_category"
+    )]
     pub category: AppMetricCategory,
     pub successes: u32,
     pub successes_on_retry: u32,
     pub failures: u32,
-    #[serde(
-        serialize_with = "serialize_optional_uuid",
-        skip_serializing_if = "Option::is_none"
-    )]
     pub error_uuid: Option<Uuid>,
     #[serde(
         serialize_with = "serialize_error_type",
+        deserialize_with = "deserialize_error_type",
+        default,
         skip_serializing_if = "Option::is_none"
     )]
     pub error_type: Option<ErrorType>,
@@ -84,6 +88,35 @@ where
     serializer.serialize_str(category_str)
 }
 
+fn deserialize_category<'de, D>(deserializer: D) -> Result<AppMetricCategory, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let s: String = Deserialize::deserialize(deserializer)?;
+
+    let category = match &s[..] {
+        "processEvent" => AppMetricCategory::ProcessEvent,
+        "onEvent" => AppMetricCategory::OnEvent,
+        "scheduledTask" => AppMetricCategory::ScheduledTask,
+        "webhook" => AppMetricCategory::Webhook,
+        "composeWebhook" => AppMetricCategory::ComposeWebhook,
+        _ => {
+            return Err(serde::de::Error::unknown_variant(
+                &s,
+                &[
+                    "processEvent",
+                    "onEvent",
+                    "scheduledTask",
+                    "webhook",
+                    "composeWebhook",
+                ],
+            ))
+        }
+    };
+
+    Ok(category)
+}
+
 fn serialize_error_type<S>(error_type: &Option<ErrorType>, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
@@ -100,6 +133,41 @@ where
         ErrorType::ParseError => "Parse Error".to_owned(),
     };
     serializer.serialize_str(&error_type)
+}
+
+fn deserialize_error_type<'de, D>(deserializer: D) -> Result<Option<ErrorType>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let opt = Option::<String>::deserialize(deserializer)?;
+    let error_type = match opt {
+        Some(s) => {
+            let error_type = match &s[..] {
+                "Connection Error" => ErrorType::ConnectionError,
+                "Timeout" => ErrorType::TimeoutError,
+                _ if s.starts_with("HTTP Status:") => {
+                    let status = &s["HTTP Status:".len()..];
+                    ErrorType::BadHttpStatus(status.parse().map_err(serde::de::Error::custom)?)
+                }
+                "Parse Error" => ErrorType::ParseError,
+                _ => {
+                    return Err(serde::de::Error::unknown_variant(
+                        &s,
+                        &[
+                            "Connection Error",
+                            "Timeout",
+                            "HTTP Status: <status>",
+                            "Parse Error",
+                        ],
+                    ))
+                }
+            };
+            Some(error_type)
+        }
+        None => None,
+    };
+
+    Ok(error_type)
 }
 
 #[cfg(test)]
