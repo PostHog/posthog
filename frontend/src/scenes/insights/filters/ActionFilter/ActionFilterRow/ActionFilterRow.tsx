@@ -347,7 +347,7 @@ export function ActionFilterRow({
                         ) : null}
                         {/* central section flexible */}
                         <div className="ActionFilterRow__center">
-                            <div className="flex-auto overflow-hidden">{filterElement}</div>
+                            <div className="flex-auto">{filterElement}</div>
                             {customRowSuffix !== undefined && <>{suffix}</>}
                             {mathAvailability !== MathAvailability.None && (
                                 <>
@@ -362,7 +362,7 @@ export function ActionFilterRow({
                                     />
                                     {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
                                         MathCategory.PropertyValue && (
-                                        <div className="flex-auto overflow-hidden">
+                                        <div className="flex-auto">
                                             <TaxonomicStringPopover
                                                 groupType={TaxonomicFilterGroupType.NumericalEventProperties}
                                                 groupTypes={[
@@ -412,7 +412,7 @@ export function ActionFilterRow({
                                     )}
                                     {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
                                         MathCategory.HogQLExpression && (
-                                        <div className="flex-auto overflow-hidden">
+                                        <div className="flex-auto">
                                             <LemonDropdown
                                                 visible={isHogQLDropdownVisible}
                                                 closeOnClickInside={false}
