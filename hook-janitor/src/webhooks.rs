@@ -210,11 +210,7 @@ impl WebhookCleaner {
             SELECT DATE_TRUNC('hour', finished_at) AS hour,
                    (metadata->>'team_id')::bigint AS team_id,
                    (metadata->>'plugin_config_id')::bigint AS plugin_config_id,
-                   CASE
-                       WHEN array_length(errors, 1) > 1
-                       THEN errors[array_length(errors, 1)]
-                       ELSE errors[1]
-                   END AS last_error,
+                   errors[array_upper(errors, 1)] AS last_error,
                    count(*) as failures
             FROM {0}
             WHERE status = 'failed'
@@ -342,10 +338,10 @@ impl WebhookCleaner {
 
         let failed_rows = self.get_failed_rows(&mut tx).await?;
         let failed_agg_row_count = failed_rows.len();
-        let mut failed_kafka_payloads = self.serialize_failed_rows(failed_rows)?;
+        let failed_kafka_payloads = self.serialize_failed_rows(failed_rows)?;
 
         let mut all_kafka_payloads = completed_kafka_payloads;
-        all_kafka_payloads.append(&mut failed_kafka_payloads);
+        all_kafka_payloads.extend(failed_kafka_payloads.into_iter());
 
         let mut rows_deleted: u64 = 0;
         if !all_kafka_payloads.is_empty() {
