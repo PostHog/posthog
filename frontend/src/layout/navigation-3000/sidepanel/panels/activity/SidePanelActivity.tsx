@@ -101,11 +101,7 @@ export const SidePanelActivity = (): JSX.Element => {
 
                             {hasUnread ? (
                                 <div className="flex justify-end mb-2">
-                                    <LemonButton
-                                        type="secondary"
-                                        onClick={() => markAllAsRead()}
-                                        loading={importantChangesLoading}
-                                    >
+                                    <LemonButton type="secondary" onClick={() => markAllAsRead()}>
                                         Mark all as read
                                     </LemonButton>
                                 </div>
