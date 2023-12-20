@@ -7,7 +7,7 @@ import { UserBasicType } from '~/types'
 
 export type MemberSelectProps = Pick<LemonButtonProps, 'size' | 'type'> & {
     defaultLabel?: string
-    // NOTE: Trying to cover a lot of legacy cases - if string we assume uuid, if number we assume id
+    // NOTE: Trying to cover a lot of different cases - if string we assume uuid, if number we assume id
     value: UserBasicType | string | number | null
     onChange: (value: UserBasicType | null) => void
 }
@@ -119,22 +119,5 @@ export function MemberSelect({
                 )}
             </LemonButton>
         </LemonDropdown>
-
-        // <LemonSelect
-        //     options={[
-        //         { value: DEFAULT_FILTERS.createdBy, label: DEFAULT_FILTERS.createdBy },
-        //         ...meFirstMembers.map((x) => ({
-        //             value: x.user.uuid,
-        //             label: x.user.first_name,
-        //         })),
-        //     ]}
-        //     size="small"
-        //     value={filters.createdBy}
-        //     onChange={(v): void => {
-        //         setFilters({ createdBy: v || DEFAULT_FILTERS.createdBy })
-        //     }}
-        //     dropdownMatchSelectWidth={false}
-        //     {...selectProps}
-        // />
     )
 }
