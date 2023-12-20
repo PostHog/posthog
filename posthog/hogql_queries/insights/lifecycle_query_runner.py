@@ -115,7 +115,7 @@ class LifecycleQueryRunner(QueryRunner):
                 )
 
             return parse_select(
-                "SELECT person_id FROM {events_query} WHERE {where}",
+                "SELECT DISTINCT person_id FROM {events_query} WHERE {where}",
                 placeholders={
                     "events_query": self.events_query,
                     "where": ast.And(exprs=exprs) if len(exprs) > 0 else ast.Constant(value=1),
