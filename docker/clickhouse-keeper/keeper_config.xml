@@ -30,9 +30,9 @@
 
     <max_connections>4096</max_connections>
 
+    <listen_host>0.0.0.0</listen_host>
     <keeper_server>
         <tcp_port>2181</tcp_port>
-        <listen_host>0.0.0.0</listen_host>
 
         <!-- Must be unique among all keeper serves -->
         <server_id>1</server_id>
@@ -66,27 +66,4 @@
 
         </raft_configuration>
     </keeper_server>
-
-
-    <openSSL>
-        <server>
-            <!-- Used for secure tcp port -->
-            <!-- openssl req -subj "/CN=localhost" -new -newkey rsa:2048 -days 365 -nodes -x509
-            -keyout /etc/clickhouse-server/server.key -out /etc/clickhouse-server/server.crt -->
-            <certificateFile>/etc/clickhouse-keeper/server.crt</certificateFile>
-            <privateKeyFile>/etc/clickhouse-keeper/server.key</privateKeyFile>
-            <!-- dhparams are optional. You can delete the <dhParamsFile> element.
-                 To generate dhparams, use the following command:
-                  openssl dhparam -out /etc/clickhouse-keeper/dhparam.pem 4096
-                 Only file format with BEGIN DH PARAMETERS is supported.
-              -->
-            <dhParamsFile>/etc/clickhouse-keeper/dhparam.pem</dhParamsFile>
-            <verificationMode>none</verificationMode>
-            <loadDefaultCAFile>true</loadDefaultCAFile>
-            <cacheSessions>true</cacheSessions>
-            <disableProtocols>sslv2,sslv3</disableProtocols>
-            <preferServerCiphers>true</preferServerCiphers>
-        </server>
-    </openSSL>
-
 </clickhouse>
