@@ -93,7 +93,7 @@ class PersonsQueryRunner(QueryRunner):
         raise ValueError("Source query must have an id column")
 
     def source_table_join(self) -> ast.JoinExpr:
-        assert self.query.source is not None  # For type checking
+        assert self.source_query_runner is not None  # For type checking
         source_query = self.source_query_runner.to_persons_query()
         source_id_chain = self.source_id_column(source_query)
         source_alias = "source"

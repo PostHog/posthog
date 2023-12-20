@@ -70,7 +70,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         runner = RetentionQueryRunner(team=self.team, query=query)
         return runner.calculate().model_dump()["results"]
 
-    def run_actors_query(self, selected_interval, query):
+    def run_actors_query(self, interval, query):
         query["kind"] = "RetentionQuery"
         if not query.get("retentionFilter"):
             query["retentionFilter"] = {}
@@ -81,7 +81,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
                 "orderBy": ["length(appearances) DESC", "actor_id"],
                 "source": {
                     "kind": "InsightPersonsQuery",
-                    "selected_interval": selected_interval,
+                    "interval": interval,
                     "source": query,
                 },
             },
@@ -744,7 +744,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         # even if set to hour 6 it should default to beginning of day and include all pageviews above
         result = self.run_actors_query(
-            selected_interval=0,
+            interval=0,
             query={
                 "dateRange": {"date_to": _date(10, hour=6)},
             },
@@ -757,7 +757,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         # even if set to hour 6 it should default to beginning of day and include all pageviews above
 
         result = self.run_actors_query(
-            selected_interval=0,
+            interval=0,
             query={
                 "dateRange": {"date_to": _date(10, hour=6)},
                 "retentionFilter": {
@@ -772,7 +772,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[0][0]["id"], p3.uuid)
 
         result = self.run_actors_query(
-            selected_interval=0,
+            interval=0,
             query={
                 "dateRange": {"date_to": _date(14, hour=6)},
                 "retentionFilter": {
@@ -842,7 +842,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         # even if set to hour 6 it should default to beginning of day and include all pageviews above
         result = self.run_actors_query(
-            selected_interval=2,
+            interval=2,
             query={
                 "dateRange": {"date_to": _date(10, hour=6)},
             },
@@ -859,7 +859,7 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         p1, p2, p3, p4 = self._create_first_time_retention_events()
         # even if set to hour 6 it should default to beginning of day and include all pageviews above
         result = self.run_actors_query(
-            selected_interval=0,
+            interval=0,
             query={
                 "dateRange": {"date_to": _date(10, hour=6)},
                 "retentionFilter": {

@@ -4,16 +4,20 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { useDebouncedQuery } from '~/queries/hooks/useDebouncedQuery'
 import { PersonsNode, PersonsQuery } from '~/queries/schema'
-import { isInsightPersonsQuery, isPersonsQuery, isRetentionQuery } from '~/queries/utils'
+import { isQueryForGroup } from '~/queries/utils'
 
+type ActorType = 'person' | 'group'
 interface PersonSearchProps {
     query: PersonsNode | PersonsQuery
     setQuery?: (query: PersonsNode | PersonsQuery) => void
 }
 
-type actorType = 'person' | 'group'
+interface LabelType {
+    label: string
+    description: string
+}
 
-const labels: Record<actorType, any> = {
+const labels: Record<ActorType, LabelType> = {
     person: {
         label: 'persons',
         description:
@@ -26,15 +30,6 @@ const labels: Record<actorType, any> = {
     },
 }
 
-function queryForGroup(query: PersonsNode | PersonsQuery): boolean {
-    return (
-        isPersonsQuery(query) &&
-        isInsightPersonsQuery(query.source) &&
-        isRetentionQuery(query.source.source) &&
-        query.source.source.aggregation_group_type_index !== undefined
-    )
-}
-
 export function PersonsSearch({ query, setQuery }: PersonSearchProps): JSX.Element {
     const { value, onChange } = useDebouncedQuery<PersonsNode | PersonsQuery, string>(
         query,
@@ -42,7 +37,7 @@ export function PersonsSearch({ query, setQuery }: PersonSearchProps): JSX.Eleme
         (query) => query.search || '',
         (query, value) => ({ ...query, search: value })
     )
-    const target: actorType = queryForGroup(query) ? 'group' : 'person'
+    const target: ActorType = isQueryForGroup(query) ? 'group' : 'person'
 
     return (
         <div className="flex items-center gap-2">
