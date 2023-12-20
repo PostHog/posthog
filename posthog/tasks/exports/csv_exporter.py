@@ -120,11 +120,12 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
             return csv_rows
         elif first_result.get("appearances") and first_result.get("person"):
             # RETENTION PERSONS LIKE
+            period = data["filters"]["period"] or "Day"
             csv_rows = []
             for item in items:
                 line = {"person": item["person"]["name"]}
                 for index, data in enumerate(item["appearances"]):
-                    line[f"Day {index}"] = data
+                    line[f"{period} {index}"] = data
 
                 csv_rows.append(line)
             return csv_rows
