@@ -1,5 +1,5 @@
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import json
 from typing import Any, List, Type, cast, Dict, Tuple
@@ -369,7 +369,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
 
                 if might_have_realtime:
-                    might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.utcnow()
+                    might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(timezone.utc)
 
             if might_have_realtime:
                 sources.append(

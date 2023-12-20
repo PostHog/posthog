@@ -38,7 +38,7 @@ def create_batch_export_log_entry(
             "log_source": "batch_exports",
             "log_source_id": batch_export_id,
             "instance_id": run_id,
-            "timestamp": dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S.%f"),
+            "timestamp": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f"),
             "level": level,
             "message": message,
         },
@@ -147,7 +147,7 @@ def test_log_level_filter(batch_export, team, level):
 
     results = []
     timeout = 10
-    start = dt.datetime.utcnow()
+    start = dt.datetime.now(dt.timezone.utc)
 
     while not results:
         results = fetch_batch_export_log_entries(
@@ -157,7 +157,7 @@ def test_log_level_filter(batch_export, team, level):
             after=dt.datetime(2023, 9, 22, 0, 59, 59),
             before=dt.datetime(2023, 9, 22, 1, 0, 1),
         )
-        if (dt.datetime.utcnow() - start) > dt.timedelta(seconds=timeout):
+        if (dt.datetime.now(dt.timezone.utc) - start) > dt.timedelta(seconds=timeout):
             break
 
     results.sort(key=lambda record: record.message)
@@ -195,7 +195,7 @@ def test_log_level_filter_with_lowercase(batch_export, team, level):
 
     results = []
     timeout = 10
-    start = dt.datetime.utcnow()
+    start = dt.datetime.now(dt.timezone.utc)
 
     while not results:
         results = fetch_batch_export_log_entries(
@@ -205,7 +205,7 @@ def test_log_level_filter_with_lowercase(batch_export, team, level):
             after=dt.datetime(2023, 9, 22, 0, 59, 59),
             before=dt.datetime(2023, 9, 22, 1, 0, 1),
         )
-        if (dt.datetime.utcnow() - start) > dt.timedelta(seconds=timeout):
+        if (dt.datetime.now(dt.timezone.utc) - start) > dt.timedelta(seconds=timeout):
             break
 
     results.sort(key=lambda record: record.message)
