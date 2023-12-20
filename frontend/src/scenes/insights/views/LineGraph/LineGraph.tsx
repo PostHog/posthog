@@ -460,8 +460,6 @@ export function LineGraph_({
                         // Reference: https://www.chartjs.org/docs/master/configuration/tooltip.html
                         tooltipEl.classList.remove('above', 'below', 'no-transform')
                         tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
-                        tooltipEl.style.opacity = '1'
-                        tooltipEl.style.display = 'initial'
 
                         if (tooltip.body) {
                             const referenceDataPoint = tooltip.dataPoints[0] // Use this point as reference to get the date
@@ -537,20 +535,50 @@ export function LineGraph_({
                             )
                         }
 
+                        // Update the Tooltip position and make it visible
+
+                        // Do the work in a function which is called both immediately and after a delay.
+                        // The first call is to prevent chartjs from scrolling the view to the tooltip before it is
+                        // positioned correctly.
+                        // The second is to ensure that the height of the tooltip contents is available for the
+                        // calculation.
+                        // Ideally this should be done inside a useEffect, but that would involve a bigger refactor,
+                        // and it seems like a rethink of the tooltip is on its way anyway.
+
+                        // get these values before the first call so that their values in the second call are unaffected
+                        // by layout changes caused by the first call
+                        const windowInnerHeight = window.innerHeight
+                        const windowPageXOffset = window.pageXOffset
+                        const windowPageYOffset = window.pageYOffset
                         const bounds = canvasRef.current.getBoundingClientRect()
-                        const horizontalBarTopOffset = isHorizontal ? tooltip.caretY - tooltipEl.clientHeight / 2 : 0
-                        const tooltipClientTop = bounds.top + window.pageYOffset + horizontalBarTopOffset
 
-                        const chartClientLeft = bounds.left + window.pageXOffset
-                        const defaultOffsetLeft = Math.max(chartClientLeft, chartClientLeft + tooltip.caretX + 8)
-                        const maxXPosition = bounds.right - tooltipEl.clientWidth
-                        const tooltipClientLeft =
-                            defaultOffsetLeft > maxXPosition
-                                ? chartClientLeft + tooltip.caretX - tooltipEl.clientWidth - 8 // If tooltip is too large (or close to the edge), show it to the left of the data point instead
-                                : defaultOffsetLeft
+                        const setPositionAndMakeVisible = (): void => {
+                            const tooltipHeight = tooltipEl.clientHeight // this may be stale, see comment below
 
-                        tooltipEl.style.top = Math.min(tooltipClientTop, window.innerHeight) + 'px'
-                        tooltipEl.style.left = Math.min(tooltipClientLeft, window.innerWidth) + 'px'
+                            const horizontalBarTopOffset = isHorizontal ? tooltip.caretY - tooltipHeight / 2 : 0
+                            let tooltipClientTop = bounds.top + windowPageYOffset + horizontalBarTopOffset
+
+                            const chartClientLeft = bounds.left + windowPageXOffset
+                            const defaultOffsetLeft = Math.max(chartClientLeft, chartClientLeft + tooltip.caretX + 8)
+                            const maxXPosition = bounds.right - tooltipEl.clientWidth
+                            const tooltipClientLeft =
+                                defaultOffsetLeft > maxXPosition
+                                    ? chartClientLeft + tooltip.caretX - tooltipEl.clientWidth - 8 // If tooltip is too large (or close to the edge), show it to the left of the data point instead
+                                    : defaultOffsetLeft
+
+                            // prevent the bottom of the tooltip from being below the bottom of the viewport
+                            const maxYPosition = windowPageYOffset + windowInnerHeight - tooltipHeight
+                            tooltipClientTop = Math.min(tooltipClientTop, maxYPosition)
+
+                            tooltipEl.style.top = tooltipClientTop + 'px'
+                            tooltipEl.style.left = tooltipClientLeft + 'px'
+
+                            tooltipEl.style.opacity = '1'
+                            tooltipEl.style.display = 'initial'
+                        }
+
+                        setPositionAndMakeVisible()
+                        setTimeout(setPositionAndMakeVisible, 0)
                     },
                 },
                 ...(!isBar
