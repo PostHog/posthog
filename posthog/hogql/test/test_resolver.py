@@ -350,9 +350,9 @@ class TestResolver(BaseTest):
         hogql = print_prepared_ast(node, HogQLContext(team_id=self.team.pk, enable_select_queries=True), "hogql")
         expected = (
             f"SELECT id, email FROM "
-            f"(SELECT id, properties.email AS email FROM persons WHERE in(id, "
-            f"(SELECT DISTINCT person_id FROM events)"
-            f") ORDER BY id ASC LIMIT 101 OFFSET 0) "
+            f"(SELECT id, properties.email AS email FROM persons INNER JOIN "
+            f"(SELECT DISTINCT person_id FROM events) "
+            f"AS source ON equals(persons.id, source.person_id) ORDER BY id ASC) "
             f"LIMIT 10000"
         )
         assert hogql == expected

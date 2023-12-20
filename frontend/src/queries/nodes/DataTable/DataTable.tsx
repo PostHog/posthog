@@ -474,26 +474,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                 ) /* Bust the LemonTable cache when columns change */
                             }
                             dataSource={dataTableRows ?? []}
-                            rowKey={({ result }: DataTableRow, rowIndex) => {
-                                if (result) {
-                                    if (
-                                        sourceFeatures.has(QueryFeature.resultIsArrayOfArrays) &&
-                                        sourceFeatures.has(QueryFeature.columnsInResponse)
-                                    ) {
-                                        if (columnsInResponse?.includes('*')) {
-                                            return result[columnsInResponse.indexOf('*')].uuid
-                                        } else if (columnsInResponse?.includes('uuid')) {
-                                            return result[columnsInResponse.indexOf('uuid')]
-                                        } else if (columnsInResponse?.includes('id')) {
-                                            return result[columnsInResponse.indexOf('id')]
-                                        }
-                                    }
-                                    return (
-                                        (result && 'uuid' in result ? (result as any).uuid : null) ??
-                                        (result && 'id' in result ? (result as any).id : null) ??
-                                        JSON.stringify(result ?? rowIndex)
-                                    )
-                                }
+                            rowKey={(_, rowIndex) => {
                                 return rowIndex
                             }}
                             sorting={null}

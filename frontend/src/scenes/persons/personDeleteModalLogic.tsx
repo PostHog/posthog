@@ -1,7 +1,7 @@
 import { actions, kea, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { toParams } from 'lib/utils'
 
 import { PersonType } from '~/types'

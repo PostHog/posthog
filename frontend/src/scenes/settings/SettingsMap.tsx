@@ -32,6 +32,7 @@ import { SettingSection } from './types'
 import { ChangePassword } from './user/ChangePassword'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
+import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorAuthentication } from './user/TwoFactorAuthentication'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
 import { UserDetails } from './user/UserDetails'
@@ -337,9 +338,14 @@ export const SettingsMap: SettingSection[] = [
     },
     {
         level: 'user',
-        id: 'user-notifications',
-        title: 'Notifications',
+        id: 'user-customization',
+        title: 'Customization',
         settings: [
+            {
+                id: 'theme',
+                title: 'Theme',
+                component: <ThemeSwitcher onlyLabel />,
+            },
             {
                 id: 'notifications',
                 title: 'Notifications',
