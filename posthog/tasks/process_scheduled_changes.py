@@ -9,9 +9,13 @@ models = {"FeatureFlag": FeatureFlag}
 def process_scheduled_changes() -> None:
     try:
         with transaction.atomic():
-            scheduled_changes = ScheduledChange.objects.select_for_update(nowait=True).filter(
-                executed_at__isnull=True,
-                scheduled_at__lt=timezone.now(),
+            scheduled_changes = (
+                ScheduledChange.objects.select_for_update(nowait=True)
+                .filter(
+                    executed_at__isnull=True,
+                    scheduled_at__lt=timezone.now(),
+                )
+                .order_by("scheduled_at")
             )
 
             for scheduled_change in scheduled_changes.iterator(chunk_size=10000):
