@@ -169,12 +169,12 @@ impl From<&reqwest::Error> for WebhookJobError {
 impl WebhookJobError {
     pub fn new_timeout(message: &str) -> Self {
         let error_details = app_metrics::Error {
-            name: "timeout".to_owned(),
+            name: "Timeout Error".to_owned(),
             message: Some(message.to_owned()),
             stack: None,
         };
         Self {
-            r#type: app_metrics::ErrorType::Timeout,
+            r#type: app_metrics::ErrorType::TimeoutError,
             details: app_metrics::ErrorDetails {
                 error: error_details,
             },
@@ -183,12 +183,12 @@ impl WebhookJobError {
 
     pub fn new_connection(message: &str) -> Self {
         let error_details = app_metrics::Error {
-            name: "connection error".to_owned(),
+            name: "Connection Error".to_owned(),
             message: Some(message.to_owned()),
             stack: None,
         };
         Self {
-            r#type: app_metrics::ErrorType::Connection,
+            r#type: app_metrics::ErrorType::ConnectionError,
             details: app_metrics::ErrorDetails {
                 error: error_details,
             },
@@ -197,12 +197,12 @@ impl WebhookJobError {
 
     pub fn new_http_status(status_code: u16, message: &str) -> Self {
         let error_details = app_metrics::Error {
-            name: "http status".to_owned(),
+            name: "Bad Http Status".to_owned(),
             message: Some(message.to_owned()),
             stack: None,
         };
         Self {
-            r#type: app_metrics::ErrorType::HttpStatus(status_code),
+            r#type: app_metrics::ErrorType::BadHttpStatus(status_code),
             details: app_metrics::ErrorDetails {
                 error: error_details,
             },
@@ -211,12 +211,12 @@ impl WebhookJobError {
 
     pub fn new_parse(message: &str) -> Self {
         let error_details = app_metrics::Error {
-            name: "parse error".to_owned(),
+            name: "Parse Error".to_owned(),
             message: Some(message.to_owned()),
             stack: None,
         };
         Self {
-            r#type: app_metrics::ErrorType::Parse,
+            r#type: app_metrics::ErrorType::ParseError,
             details: app_metrics::ErrorDetails {
                 error: error_details,
             },

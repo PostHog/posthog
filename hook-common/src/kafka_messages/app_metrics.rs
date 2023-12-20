@@ -13,14 +13,20 @@ pub enum AppMetricCategory {
     ComposeWebhook,
 }
 
+// NOTE: These are stored in Postgres and deserialized by the cleanup/janitor process, so these
+// names need to remain stable, or new variants need to be deployed to the cleanup/janitor
+// process before they are used.
 #[derive(Deserialize, Serialize, Debug)]
 pub enum ErrorType {
-    Timeout,
-    Connection,
-    HttpStatus(u16),
-    Parse,
+    TimeoutError,
+    ConnectionError,
+    BadHttpStatus(u16),
+    ParseError,
 }
 
+// NOTE: This is stored in Postgres and deserialized by the cleanup/janitor process, so this
+// shouldn't change. It is intended to replicate the shape of `error_details` used in the
+// plugin-server and by the frontend.
 #[derive(Deserialize, Serialize, Debug)]
 pub struct ErrorDetails {
     pub error: Error,
@@ -88,10 +94,10 @@ where
     };
 
     let error_type = match error_type {
-        ErrorType::Connection => "Connection Error".to_owned(),
-        ErrorType::Timeout => "Timeout".to_owned(),
-        ErrorType::HttpStatus(s) => format!("HTTP Status: {}", s),
-        ErrorType::Parse => "Parse Error".to_owned(),
+        ErrorType::ConnectionError => "Connection Error".to_owned(),
+        ErrorType::TimeoutError => "Timeout".to_owned(),
+        ErrorType::BadHttpStatus(s) => format!("HTTP Status: {}", s),
+        ErrorType::ParseError => "Parse Error".to_owned(),
     };
     serializer.serialize_str(&error_type)
 }
@@ -114,7 +120,7 @@ mod tests {
             successes_on_retry: 0,
             failures: 2,
             error_uuid: Some(Uuid::parse_str("550e8400-e29b-41d4-a716-446655447777").unwrap()),
-            error_type: Some(ErrorType::Connection),
+            error_type: Some(ErrorType::ConnectionError),
             error_details: Some(ErrorDetails {
                 error: Error {
                     name: "FooError".to_owned(),

@@ -19,7 +19,7 @@ VALUES
         'completed',
         'https://myhost/endpoint'
     ),
-    -- another team:1, plugin_config:2, completed in hour 20
+    -- team:1, plugin_config:2, completed in hour 20 (purposeful duplicate)
     (
         NULL,
         '{"team_id": 1, "plugin_id": 99, "plugin_config_id": 2}',
@@ -71,7 +71,17 @@ VALUES
     ),
     -- team:1, plugin_config:2, failed in hour 20
     (
-        ARRAY ['{"type":"Timeout","details":{"error":{"name":"timeout"}}}'::jsonb],
+        ARRAY ['{"type":"TimeoutError","details":{"error":{"name":"timeout"}}}'::jsonb],
+        '{"team_id": 1, "plugin_id": 99, "plugin_config_id": 2}',
+        '2023-12-19 20:01:18.799371+00',
+        '{}',
+        'webhooks',
+        'failed',
+        'https://myhost/endpoint'
+    ),
+    -- team:1, plugin_config:2, failed in hour 20 (purposeful duplicate)
+    (
+        ARRAY ['{"type":"TimeoutError","details":{"error":{"name":"timeout"}}}'::jsonb],
         '{"team_id": 1, "plugin_id": 99, "plugin_config_id": 2}',
         '2023-12-19 20:01:18.799371+00',
         '{}',
