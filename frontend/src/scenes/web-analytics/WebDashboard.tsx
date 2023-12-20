@@ -104,6 +104,7 @@ const Tiles = (): JSX.Element => {
                             className={clsx(
                                 'col-span-1 row-span-1 flex flex-col',
                                 `md:col-span-${layout.colSpan ?? 6} md:row-span-${layout.rowSpan ?? 1}`,
+                                `xxl:order-${layout.orderLarge ?? 12}`,
                                 layout.className
                             )}
                         >
@@ -129,6 +130,7 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
             className={clsx(
                 'col-span-1 row-span-1',
                 `md:col-span-${layout.colSpan ?? 1} md:row-span-${layout.rowSpan ?? 1}`,
+                `xxl:order-${layout.orderLarge ?? 12}`,
                 layout.className
             )}
             activeTabId={tile.activeTabId}

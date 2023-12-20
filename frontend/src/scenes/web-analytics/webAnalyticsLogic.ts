@@ -33,6 +33,7 @@ export interface WebTileLayout {
     colSpan?: number | 'full'
     rowSpan?: number
     className?: string
+    orderLarge?: number
 }
 
 interface BaseTile {
@@ -93,8 +94,8 @@ export enum GeographyTab {
 }
 
 export interface WebAnalyticsStatusCheck {
-    shouldWarnAboutNoPageviews: boolean
-    shouldWarnAboutNoPageleaves: boolean
+    isSendingPageViews: boolean
+    isSendingPageLeaves: boolean
 }
 
 export const GEOIP_PLUGIN_URLS = [
@@ -322,6 +323,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     {
                         layout: {
                             colSpan: 'full',
+                            orderLarge: 0,
                         },
                         query: {
                             kind: NodeKind.WebOverviewQuery,
@@ -331,7 +333,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                     {
                         layout: {
-                            colSpan: 1,
+                            colSpan: 2,
+                            orderLarge: 1,
                         },
                         activeTabId: graphsTab,
                         setTabId: actions.setGraphsTab,
@@ -431,7 +434,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                     {
                         layout: {
-                            colSpan: 1,
+                            colSpan: 2,
+                            orderLarge: 4,
                         },
                         activeTabId: pathTab,
                         setTabId: actions.setPathTab,
@@ -448,6 +452,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         properties: webAnalyticsFilters,
                                         breakdownBy: WebStatsBreakdown.Page,
                                         dateRange,
+                                        includeScrollDepth: true,
                                     },
                                     embedded: false,
                                 },
@@ -464,6 +469,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         properties: webAnalyticsFilters,
                                         breakdownBy: WebStatsBreakdown.InitialPage,
                                         dateRange,
+                                        includeScrollDepth: true,
                                     },
                                     embedded: false,
                                 },
@@ -473,6 +479,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     {
                         layout: {
                             colSpan: 1,
+                            orderLarge: 2,
                         },
                         activeTabId: sourceTab,
                         setTabId: actions.setSourceTab,
@@ -587,6 +594,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     {
                         layout: {
                             colSpan: 1,
+                            orderLarge: 3,
                         },
                         activeTabId: deviceTab,
                         setTabId: actions.setDeviceTab,
@@ -659,39 +667,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                         ],
                     },
-                    {
-                        title: 'Retention',
-                        layout: {
-                            colSpan: 2,
-                        },
-                        query: {
-                            kind: NodeKind.InsightVizNode,
-                            source: {
-                                kind: NodeKind.RetentionQuery,
-                                properties: webAnalyticsFilters,
-                                dateRange,
-                                filterTestAccounts: true,
-                                retentionFilter: {
-                                    retention_type: RETENTION_FIRST_TIME,
-                                    retention_reference: 'total',
-                                    total_intervals: isGreaterThanMd ? 8 : 5,
-                                    period: RetentionPeriod.Week,
-                                },
-                            },
-                            vizSpecificOptions: {
-                                [InsightType.RETENTION]: {
-                                    hideLineGraph: true,
-                                    hideSizeColumn: !isGreaterThanMd,
-                                    useSmallLayout: !isGreaterThanMd,
-                                },
-                            },
-                            embedded: true,
-                        },
-                    },
+
                     shouldShowGeographyTile
                         ? {
                               layout: {
-                                  colSpan: 2,
+                                  colSpan: 'full',
                               },
                               activeTabId: geographyTab || GeographyTab.MAP,
                               setTabId: actions.setGeographyTab,
@@ -774,6 +754,35 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               ],
                           }
                         : null,
+                    {
+                        title: 'Retention',
+                        layout: {
+                            colSpan: 2,
+                        },
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.RetentionQuery,
+                                properties: webAnalyticsFilters,
+                                dateRange,
+                                filterTestAccounts: true,
+                                retentionFilter: {
+                                    retention_type: RETENTION_FIRST_TIME,
+                                    retention_reference: 'total',
+                                    total_intervals: isGreaterThanMd ? 8 : 5,
+                                    period: RetentionPeriod.Week,
+                                },
+                            },
+                            vizSpecificOptions: {
+                                [InsightType.RETENTION]: {
+                                    hideLineGraph: true,
+                                    hideSizeColumn: !isGreaterThanMd,
+                                    useSmallLayout: !isGreaterThanMd,
+                                },
+                            },
+                            embedded: true,
+                        },
+                    },
                 ]
                 return tiles.filter(isNotNil)
             },
@@ -832,12 +841,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         ? pageleaveResult.value.results.find((r) => r.name === '$pageleave')
                         : undefined
 
-                const shouldWarnAboutNoPageviews = !pageviewEntry || isDefinitionStale(pageviewEntry)
-                const shouldWarnAboutNoPageleaves = !pageleaveEntry || isDefinitionStale(pageleaveEntry)
+                const isSendingPageViews = !!pageviewEntry && !isDefinitionStale(pageviewEntry)
+                const isSendingPageLeaves = !!pageleaveEntry && !isDefinitionStale(pageleaveEntry)
 
                 return {
-                    shouldWarnAboutNoPageviews,
-                    shouldWarnAboutNoPageleaves,
+                    isSendingPageViews,
+                    isSendingPageLeaves,
                 }
             },
         },

@@ -3490,6 +3490,9 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "includeScrollDepth": {
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "WebStatsTableQuery",
                     "type": "string"
