@@ -41,8 +41,7 @@ SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS = pytest.mark.skipif(
 
 pytestmark = [SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS, pytest.mark.asyncio, pytest.mark.django_db]
 
-
-TEST_TIME = dt.datetime.utcnow()
+TEST_TIME = dt.datetime.now(dt.timezone.utc)
 
 
 def assert_events_in_bigquery(

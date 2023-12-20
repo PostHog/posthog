@@ -223,7 +223,7 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
                         for field in table_schema
                         if field.name != "bq_ingested_timestamp"
                     }
-                    row["bq_ingested_timestamp"] = str(dt.datetime.utcnow())
+                    row["bq_ingested_timestamp"] = str(dt.datetime.now(dt.timezone.utc))
 
                     jsonl_file.write_records_to_jsonl([row])
 
