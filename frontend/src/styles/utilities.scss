@@ -854,6 +854,13 @@ $decorations: underline, overline, line-through, no-underline;
                 row-gap: #{$space * 0.25}rem;
             }
         }
+
+        // Order
+        @for $i from 1 through 12 {
+            .#{$prefix}order-#{$i} {
+                order: #{$i};
+            }
+        }
     }
 }
 
