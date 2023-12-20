@@ -45,6 +45,8 @@ async def create_external_data_job_model(inputs: CreateExternalDataJobInputs) ->
     source = await sync_to_async(ExternalDataSource.objects.get)(  # type: ignore
         team_id=inputs.team_id, id=inputs.external_data_source_id
     )
+    source.status = "Running"
+    await sync_to_async(source.save)()  # type: ignore
 
     # Sync schemas if they have changed
     await sync_to_async(sync_old_schemas_with_new_schemas)(  # type: ignore
@@ -149,10 +151,9 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
         stripe_secret_key = model.pipeline.job_inputs.get("stripe_secret_key", None)
         if not stripe_secret_key:
             raise ValueError(f"Stripe secret key not found for job {model.id}")
-        source = stripe_source(api_key=stripe_secret_key, endpoints=inputs.schemas)
-
-    if not source:
-        raise ValueError(f"Source not found for job {model.id}")
+        source = stripe_source(api_key=stripe_secret_key, endpoints=tuple(inputs.schemas))
+    else:
+        raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 
     await DataImportPipeline(job_inputs, source, logger).run()
 
