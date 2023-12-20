@@ -38,10 +38,10 @@ services:
             - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
 
-    zookeeper:
+    clickhouse-keeper:
         extends:
             file: docker-compose.base.yml
-            service: zookeeper
+            service: clickhouse-keeper
 
     kafka:
         extends:

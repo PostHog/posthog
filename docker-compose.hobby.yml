@@ -33,21 +33,21 @@ services:
         restart: on-failure
         depends_on:
             - kafka
-            - zookeeper
+            - clickhouse-keeper
         volumes:
             - ./posthog/posthog/idl:/idl
             - ./posthog/docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
             - ./posthog/docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
             - ./posthog/docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
             - clickhouse-data:/var/lib/clickhouse
-    zookeeper:
+
+    clickhouse-keeper:
         extends:
             file: docker-compose.base.yml
-            service: zookeeper
+            service: clickhouse-keeper
         volumes:
-            - zookeeper-datalog:/datalog
-            - zookeeper-data:/data
-            - zookeeper-logs:/logs
+            - clickhouse-keeper:/var/lib/clickhouse
+
     kafka:
         extends:
             file: docker-compose.base.yml
@@ -147,9 +147,7 @@ services:
             SITE_URL: https://$DOMAIN
 
 volumes:
-    zookeeper-data:
-    zookeeper-datalog:
-    zookeeper-logs:
+    clickhouse-keeper:
     object_storage:
     postgres-data:
     clickhouse-data:

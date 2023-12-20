@@ -29,22 +29,22 @@ services:
         restart: on-failure
         depends_on:
             - kafka
-            - zookeeper
-    zookeeper:
-        image: zookeeper:3.7.0
+            - clickhouse-keeper
+    clickhouse-keeper:
+        image: clickhouse/clickhouse-keeper:23.11.2.11-alpine
         restart: on-failure
 
     kafka:
         image: ghcr.io/posthog/kafka-container:v2.8.2
         restart: on-failure
         depends_on:
-            - zookeeper
+            - clickhouse-keeper
         environment:
             KAFKA_BROKER_ID: 1001
             KAFKA_CFG_RESERVED_BROKER_MAX_ID: 1001
             KAFKA_CFG_LISTENERS: PLAINTEXT://:9092
             KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-            KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
+            KAFKA_CFG_ZOOKEEPER_CONNECT: clickhouse-keeper:2181
             ALLOW_PLAINTEXT_LISTENER: 'true'
 
     object_storage:
