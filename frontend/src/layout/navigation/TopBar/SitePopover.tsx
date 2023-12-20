@@ -76,7 +76,7 @@ function AccountInfo(): JSX.Element {
             >
                 <ProfilePicture name={user?.first_name} email={user?.email} size="xl" />
                 <div className="AccountInfo__identification SitePopover__main-info font-sans font-normal">
-                    <div className="font-medium mb-1">{user?.first_name}</div>
+                    <div className="font-semibold mb-1">{user?.first_name}</div>
                     <div className="supplement" title={user?.email}>
                         {user?.email}
                     </div>
