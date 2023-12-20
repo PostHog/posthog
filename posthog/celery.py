@@ -348,6 +348,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         name="calculate external data rows synced",
     )
 
+    sender.add_periodic_task(
+        crontab(minute="23", hour="*"),
+        calculate_external_data_rows_synced.s(),
+        name="check external data rows synced",
+    )
+
 
 # Set up clickhouse query instrumentation
 @task_prerun.connect
@@ -1104,3 +1110,13 @@ def sync_datawarehouse_sources():
         pass
     else:
         sync_resources()
+
+
+@app.task(ignore_result=True)
+def check_data_import_row_limits():
+    try:
+        from posthog.tasks.warehouse import check_synced_row_limits
+    except ImportError:
+        pass
+    else:
+        check_synced_row_limits()

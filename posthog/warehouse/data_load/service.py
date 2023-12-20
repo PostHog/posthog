@@ -73,7 +73,7 @@ def trigger_external_data_workflow(external_data_source: ExternalDataSource):
     trigger_schedule(temporal, schedule_id=str(external_data_source.id))
 
 
-def pause_external_data_workflow(external_data_source: ExternalDataSource):
+def pause_external_data_schedule(external_data_source: ExternalDataSource):
     temporal = sync_connect()
     pause_schedule(temporal, schedule_id=str(external_data_source.id))
 
