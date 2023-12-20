@@ -50,13 +50,14 @@ export function MemberSelect({
             actionable
             onVisibilityChange={(visible) => setShowPopover(visible)}
             overlay={
-                <div className="max-w-160 space-y-2">
+                <div className="max-w-100 space-y-2 overflow-hidden">
                     <LemonInput
                         type="search"
                         placeholder="Search"
                         autoFocus
                         value={searchTerm}
                         onChange={setSearchTerm}
+                        fullWidth
                     />
                     <ul className="space-y-px">
                         <li>
@@ -98,9 +99,9 @@ export function MemberSelect({
                         ))}
 
                         {filteredMembers.length === 0 ? (
-                            <span className="p-2 text-muted-alt italic">
-                                {searchTerm ? <span>No matches for "{searchTerm}"</span> : <span>No users</span>}
-                            </span>
+                            <div className="p-2 text-muted-alt italic truncate border-t">
+                                {searchTerm ? <span>No matches</span> : <span>No users</span>}
+                            </div>
                         ) : null}
                     </ul>
                 </div>
