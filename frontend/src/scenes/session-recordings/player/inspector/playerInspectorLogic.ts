@@ -3,7 +3,9 @@ import FuseClass from 'fuse.js'
 import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getKeyMapping } from 'lib/taxonomy'
 import { eventToDescription, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -117,6 +119,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ],
             sessionRecordingPlayerLogic(props),
             ['currentPlayerTime'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     })),
     actions(() => ({
@@ -153,7 +157,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
     })),
-    loaders(({ props }) => ({
+    loaders(({ props, values }) => ({
         matchingEventUUIDs: [
             [] as MatchedRecordingEvent[] | null,
             {
@@ -175,6 +179,13 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     if (!filters) {
                         throw new Error('Backend matching events type must include its filters')
                     }
+
+                    // TRICKY: some combination of parameters to this API call
+                    // were possibly causing ClickHouse issues during an incident
+                    if (values.featureFlags[FEATURE_FLAGS.DISABLE_MATCHING_EVENTS_API_CALL]) {
+                        return null
+                    }
+
                     const params = toParams({ ...filters, session_ids: [props.sessionRecordingId] })
                     const response = await api.recordings.getMatchingEvents(params)
                     return response.results.map((x) => ({ uuid: x } as MatchedRecordingEvent))
