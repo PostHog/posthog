@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     size Int64,
     event_count Int64,
     message_count Int64,
-    snapshot_source LowCardinality(Nullable(String))
+    snapshot_source Nullable(String)
 ) ENGINE = {engine}
 """
 
