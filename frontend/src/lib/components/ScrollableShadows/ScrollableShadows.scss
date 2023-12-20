@@ -2,6 +2,7 @@
     position: relative;
     display: flex;
     overflow: hidden;
+    height: 100%;
 
     &::before,
     &::after {
