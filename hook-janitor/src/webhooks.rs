@@ -84,6 +84,10 @@ struct FailedRow {
     failures: u32,
 }
 
+// A simple wrapper type that ensures we don't use any old Transaction object when we need one
+// that has set the isolation level to serializable.
+struct SerializableTxn<'a>(Transaction<'a, Postgres>);
+
 impl WebhookCleaner {
     pub fn new(
         queue_name: &str,
@@ -128,7 +132,7 @@ impl WebhookCleaner {
         })
     }
 
-    async fn start_serializable_txn(&self) -> Result<Transaction<'_, Postgres>> {
+    async fn start_serializable_txn(&self) -> Result<SerializableTxn> {
         let mut tx = self
             .pg_pool
             .begin()
@@ -146,13 +150,10 @@ impl WebhookCleaner {
             .await
             .map_err(|e| WebhookCleanerError::StartTxnError { error: e })?;
 
-        Ok(tx)
+        Ok(SerializableTxn(tx))
     }
 
-    async fn get_completed_rows(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-    ) -> Result<Vec<CompletedRow>> {
+    async fn get_completed_rows(&self, tx: &mut SerializableTxn<'_>) -> Result<Vec<CompletedRow>> {
         let base_query = format!(
             r#"
             SELECT DATE_TRUNC('hour', finished_at) AS hour,
@@ -170,7 +171,7 @@ impl WebhookCleaner {
 
         let rows = sqlx::query_as::<_, CompletedRow>(&base_query)
             .bind(&self.queue_name)
-            .fetch_all(&mut **tx)
+            .fetch_all(&mut *tx.0)
             .await
             .map_err(|e| WebhookCleanerError::GetCompletedRowsError { error: e })?;
 
@@ -204,7 +205,7 @@ impl WebhookCleaner {
         Ok(payloads)
     }
 
-    async fn get_failed_rows(&self, tx: &mut Transaction<'_, Postgres>) -> Result<Vec<FailedRow>> {
+    async fn get_failed_rows(&self, tx: &mut SerializableTxn<'_>) -> Result<Vec<FailedRow>> {
         let base_query = format!(
             r#"
             SELECT DATE_TRUNC('hour', finished_at) AS hour,
@@ -223,7 +224,7 @@ impl WebhookCleaner {
 
         let rows = sqlx::query_as::<_, FailedRow>(&base_query)
             .bind(&self.queue_name)
-            .fetch_all(&mut **tx)
+            .fetch_all(&mut *tx.0)
             .await
             .map_err(|e| WebhookCleanerError::GetFailedRowsError { error: e })?;
 
@@ -290,7 +291,7 @@ impl WebhookCleaner {
         Ok(())
     }
 
-    async fn delete_observed_rows(&self, tx: &mut Transaction<'_, Postgres>) -> Result<u64> {
+    async fn delete_observed_rows(&self, tx: &mut SerializableTxn<'_>) -> Result<u64> {
         // This DELETE is only safe because we are in serializable isolation mode, see the note
         // in `start_serializable_txn`.
         let base_query = format!(
@@ -304,15 +305,15 @@ impl WebhookCleaner {
 
         let result = sqlx::query(&base_query)
             .bind(&self.queue_name)
-            .execute(&mut **tx)
+            .execute(&mut *tx.0)
             .await
             .map_err(|e| WebhookCleanerError::DeleteRowsError { error: e })?;
 
         Ok(result.rows_affected())
     }
 
-    async fn commit_txn(&self, tx: Transaction<'_, Postgres>) -> Result<()> {
-        tx.commit()
+    async fn commit_txn(&self, tx: SerializableTxn<'_>) -> Result<()> {
+        tx.0.commit()
             .await
             .map_err(|e| WebhookCleanerError::CommitTxnError { error: e })?;
 
