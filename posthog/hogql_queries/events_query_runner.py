@@ -245,7 +245,7 @@ class EventsQueryRunner(QueryRunner):
         return EventsQueryResponse(
             results=self.paginator.results,
             columns=self.select_input_raw(),
-            types=[type for _, type in query_result.types],
+            types=[t for _, t in query_result.types] if query_result.types else None,
             timings=self.timings.to_list(),
             hogql=query_result.hogql,
             **self.paginator.response_params(),
