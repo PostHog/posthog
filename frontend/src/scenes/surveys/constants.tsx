@@ -54,7 +54,7 @@ export const defaultSurveyFieldValues = {
             },
         ],
         appearance: {
-            thankYouMessageHeader: 'Redirecting ...',
+            thankYouMessageHeader: 'Thank you for your feedback!',
         },
     },
     [SurveyQuestionType.Rating]: {
@@ -159,7 +159,19 @@ export enum SurveyTemplateType {
 
 export const defaultSurveyTemplates = [
     {
-        type: SurveyTemplateType.Interview,
+        type: SurveyType.Popover,
+        templateType: SurveyTemplateType.OpenFeedback,
+        questions: [
+            {
+                type: SurveyQuestionType.Open,
+                question: 'What can we do to improve our product?',
+            },
+        ],
+        description: "Let your users share what's on their mind.",
+    },
+    {
+        type: SurveyType.Popover,
+        templateType: SurveyTemplateType.Interview,
         questions: [
             {
                 type: SurveyQuestionType.Link,
@@ -172,7 +184,8 @@ export const defaultSurveyTemplates = [
         description: <>Send users straight to your calendar.</>,
     },
     {
-        type: SurveyTemplateType.NPS,
+        type: SurveyType.Popover,
+        templateType: SurveyTemplateType.NPS,
         questions: [
             {
                 type: SurveyQuestionType.Rating,
@@ -187,7 +200,8 @@ export const defaultSurveyTemplates = [
         description: 'Get an industry-recognized benchmark.',
     },
     {
-        type: SurveyTemplateType.PMF,
+        type: SurveyType.Popover,
+        templateType: SurveyTemplateType.PMF,
         questions: [
             {
                 type: SurveyQuestionType.SingleChoice,
@@ -198,7 +212,8 @@ export const defaultSurveyTemplates = [
         description: "40% 'very disappointed' signals product-market fit.",
     },
     {
-        type: SurveyTemplateType.CSAT,
+        type: SurveyType.Popover,
+        templateType: SurveyTemplateType.CSAT,
         questions: [
             {
                 type: SurveyQuestionType.Rating,
@@ -214,7 +229,8 @@ export const defaultSurveyTemplates = [
         appearance: { ratingButtonColor: '#939393' },
     },
     {
-        type: SurveyTemplateType.CES,
+        type: SurveyType.Popover,
+        templateType: SurveyTemplateType.CES,
         questions: [
             {
                 type: SurveyQuestionType.Rating,
@@ -230,7 +246,8 @@ export const defaultSurveyTemplates = [
         appearance: { ratingButtonColor: '#939393' },
     },
     {
-        type: SurveyTemplateType.CCR,
+        type: SurveyType.Popover,
+        templateType: SurveyTemplateType.CCR,
         questions: [
             {
                 type: SurveyQuestionType.MultipleChoice,
@@ -244,15 +261,5 @@ export const defaultSurveyTemplates = [
             },
         ],
         description: 'Find out if it was something you said.',
-    },
-    {
-        type: SurveyTemplateType.OpenFeedback,
-        questions: [
-            {
-                type: SurveyQuestionType.Open,
-                question: 'What can we do to improve our product?',
-            },
-        ],
-        description: "Let your users share what's on their mind.",
     },
 ]

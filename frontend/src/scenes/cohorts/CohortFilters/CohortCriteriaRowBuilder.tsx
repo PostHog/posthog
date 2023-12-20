@@ -1,16 +1,18 @@
 import './CohortCriteriaRowBuilder.scss'
-import { BehavioralFilterType, CohortFieldProps, Field, FilterType } from 'scenes/cohorts/CohortFilters/types'
-import { renderField, ROWS } from 'scenes/cohorts/CohortFilters/constants'
-import { Col, Divider } from 'antd'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconCopy, IconDelete } from 'lib/lemon-ui/icons'
-import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
+
+import { Divider } from 'antd'
 import clsx from 'clsx'
-import { Field as KeaField } from 'kea-forms'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { useActions } from 'kea'
+import { Field as KeaField } from 'kea-forms'
+import { IconCopy, IconDelete } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { cohortEditLogic, CohortLogicProps } from 'scenes/cohorts/cohortEditLogic'
+import { renderField, ROWS } from 'scenes/cohorts/CohortFilters/constants'
+import { BehavioralFilterType, CohortFieldProps, Field, FilterType } from 'scenes/cohorts/CohortFilters/types'
 import { cleanCriteria } from 'scenes/cohorts/cohortUtils'
-import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+
+import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
 
 export interface CohortCriteriaRowBuilderProps {
     id: CohortLogicProps['id']
@@ -38,7 +40,7 @@ export function CohortCriteriaRowBuilder({
 
     const renderFieldComponent = (_field: Field, i: number): JSX.Element => {
         return (
-            <Col key={_field.fieldKey ?? i}>
+            <div key={_field.fieldKey ?? i}>
                 {renderField[_field.type]({
                     fieldKey: _field.fieldKey,
                     criteria,
@@ -46,7 +48,7 @@ export function CohortCriteriaRowBuilder({
                     ...(_field.groupTypeFieldKey ? { groupTypeFieldKey: _field.groupTypeFieldKey } : {}),
                     onChange: (newCriteria) => setCriteria(newCriteria, groupIndex, index),
                 } as CohortFieldProps)}
-            </Col>
+            </div>
         )
     }
 
@@ -95,7 +97,7 @@ export function CohortCriteriaRowBuilder({
                             }}
                         >
                             <>
-                                <Col>
+                                <div>
                                     {renderField[FilterType.Behavioral]({
                                         fieldKey: 'value',
                                         criteria,
@@ -104,7 +106,7 @@ export function CohortCriteriaRowBuilder({
                                             onChangeType?.(newCriteria['value'] ?? BehavioralEventType.PerformEvent)
                                         },
                                     })}
-                                </Col>
+                                </div>
                             </>
                         </KeaField>
                         <div className="CohortCriteriaRow__inline-divider" />

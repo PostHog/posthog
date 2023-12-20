@@ -1,21 +1,14 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { PluginConfigTypeNew, PluginType, ProductKey } from '~/types'
-import posthog from 'posthog-js'
-
-import type { pipelineTransformationsLogicType } from './transformationsLogicType'
-import { teamLogic } from 'scenes/teamLogic'
 import { canConfigurePlugins } from 'scenes/plugins/access'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-function capturePluginEvent(event: string, plugin: PluginType, pluginConfig: PluginConfigTypeNew): void {
-    posthog.capture(event, {
-        plugin_id: plugin.id,
-        plugin_name: plugin.name,
-        plugin_config_id: pluginConfig.id,
-    })
-}
+import { PluginConfigTypeNew, PluginType, ProductKey } from '~/types'
+
+import type { pipelineTransformationsLogicType } from './transformationsLogicType'
+import { capturePluginEvent } from './utils'
 
 export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType>([
     path(['scenes', 'pipeline', 'transformationsLogic']),
@@ -36,7 +29,7 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
             {} as Record<number, PluginType>,
             {
                 loadPlugins: async () => {
-                    const results: PluginType[] = await loadPaginatedResults(
+                    const results: PluginType[] = await api.loadPaginatedResults(
                         `api/organizations/@current/pipeline_transformations`
                     )
                     const plugins: Record<number, PluginType> = {}
@@ -60,7 +53,7 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
             {
                 loadPluginConfigs: async () => {
                     const pluginConfigs: Record<number, PluginConfigTypeNew> = {}
-                    const results = await loadPaginatedResults(
+                    const results = await api.loadPaginatedResults(
                         `api/projects/${values.currentTeamId}/pipeline_transformations_configs`
                     )
 
@@ -185,21 +178,3 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
         actions.loadPluginConfigs()
     }),
 ])
-
-const PAGINATION_DEFAULT_MAX_PAGES = 10
-async function loadPaginatedResults(
-    url: string | null,
-    maxIterations: number = PAGINATION_DEFAULT_MAX_PAGES
-): Promise<any[]> {
-    let results: any[] = []
-    for (let i = 0; i <= maxIterations; ++i) {
-        if (!url) {
-            break
-        }
-
-        const { results: partialResults, next } = await api.get(url)
-        results = results.concat(partialResults)
-        url = next
-    }
-    return results
-}

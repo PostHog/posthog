@@ -1,21 +1,23 @@
-import { AnyCohortCriteriaType, CohortType, FilterLogicalOperator } from '~/types'
+import { useValues } from 'kea'
 import { DefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopover'
 import {
     genericOperatorToHumanName,
     operatorToHumanName,
     propertyValueToHumanName,
 } from 'lib/components/DefinitionPopover/utils'
+import { pluralize } from 'lib/utils'
+import { BEHAVIORAL_TYPE_TO_LABEL } from 'scenes/cohorts/CohortFilters/constants'
 import {
     COHORT_MATCHING_DAYS,
     criteriaToBehavioralFilterType,
     criteriaToHumanSentence,
     isCohortCriteriaGroup,
 } from 'scenes/cohorts/cohortUtils'
-import { pluralize } from 'lib/utils'
-import { BEHAVIORAL_TYPE_TO_LABEL } from 'scenes/cohorts/CohortFilters/constants'
-import { useValues } from 'kea'
-import { cohortsModel } from '~/models/cohortsModel'
+
 import { actionsModel } from '~/models/actionsModel'
+import { cohortsModel } from '~/models/cohortsModel'
+import { AnyCohortCriteriaType, CohortType, FilterLogicalOperator } from '~/types'
+
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
 
 const MAX_CRITERIA_GROUPS = 2

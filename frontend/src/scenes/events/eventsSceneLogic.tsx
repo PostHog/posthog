@@ -1,15 +1,16 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
-
-import type { eventsSceneLogicType } from './eventsSceneLogicType'
-import { actionToUrl, urlToAction } from 'kea-router'
 import equal from 'fast-deep-equal'
-import { Node } from '~/queries/schema'
-import { urls } from 'scenes/urls'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actionToUrl, urlToAction } from 'kea-router'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual } from 'lib/utils'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { getDefaultEventsSceneQuery } from 'scenes/events/defaults'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
 import { getDefaultEventsQueryForTeam } from '~/queries/nodes/DataTable/defaultEventsQuery'
+import { Node } from '~/queries/schema'
+
+import type { eventsSceneLogicType } from './eventsSceneLogicType'
 
 export const eventsSceneLogic = kea<eventsSceneLogicType>([
     path(['scenes', 'events', 'eventsSceneLogic']),

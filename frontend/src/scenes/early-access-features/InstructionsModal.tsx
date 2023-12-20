@@ -1,9 +1,10 @@
 import { LemonCollapse, LemonModal, Link } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { FeatureFlagType } from '~/types'
 import EarlyAccessFeatureImage from 'public/early-access-feature-demo.png'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { useValues } from 'kea'
+
+import { FeatureFlagType } from '~/types'
 
 interface InstructionsModalProps {
     featureFlag: FeatureFlagType
@@ -27,10 +28,7 @@ export function InstructionsModal({ onClose, visible, featureFlag }: Instruction
                             Give your users a{' '}
                             <Link to={'https://app.posthog.com/project/apps/574'}>prebuilt widget</Link> to opt-in to
                             features
-                            <img
-                                style={{ maxHeight: '100%', maxWidth: '100%', marginTop: 10 }}
-                                src={EarlyAccessFeatureImage}
-                            />
+                            <img className="max-h-full max-w-full mt-2.5" src={EarlyAccessFeatureImage} />
                         </div>
                     ),
                 },

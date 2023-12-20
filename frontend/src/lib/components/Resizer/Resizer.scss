@@ -4,12 +4,13 @@
     position: absolute;
     top: 0;
     bottom: 0;
-    width: var(--resizer-width);
-    cursor: col-resize;
-    user-select: none; // Fixes inadvertent selection of scene text when resizing
     z-index: var(
         --z-notifications-popover
     ); // A bit above navbar for a nicer slider experience when the sidebar is closed
+
+    width: var(--resizer-width);
+    cursor: col-resize;
+    user-select: none; // Fixes inadvertent selection of scene text when resizing
 
     .Resizer[aria-hidden='true'] & {
         cursor: e-resize;
@@ -17,30 +18,30 @@
 
     .Resizer__handle {
         position: absolute;
-        left: calc(var(--resizer-width) / 2);
         top: 0;
         bottom: 0;
+        left: calc(var(--resizer-width) / 2);
         width: 1px;
 
         &::before,
         &::after {
-            content: '';
             position: absolute;
             top: 0;
             bottom: 0;
-            width: 1px;
             box-sizing: content-box;
+            width: 1px;
+            content: '';
         }
 
         &::before {
-            transition: 100ms ease transform;
             background: var(--border);
+            transition: 100ms ease transform;
         }
 
         &::after {
-            transition: 100ms ease transform;
             background: var(--text-3000);
             opacity: 0;
+            transition: 100ms ease transform;
         }
     }
 

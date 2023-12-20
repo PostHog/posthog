@@ -1,9 +1,10 @@
-import { Placement } from '@floating-ui/react'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { IconClose, IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 import './LemonActionableTooltip.scss'
+
+import { Placement } from '@floating-ui/react'
+import { LemonButton } from '@posthog/lemon-ui'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { IconChevronLeft, IconChevronRight, IconClose } from 'lib/lemon-ui/icons'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 
 export type LemonActionableTooltipProps = {
     title?: string

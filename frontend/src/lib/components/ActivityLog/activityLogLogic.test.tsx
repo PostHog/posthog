@@ -1,12 +1,14 @@
-import { initKeaTests } from '~/test/init'
-import { expectLogic } from 'kea-test-utils'
-import { useMocks } from '~/mocks/jest'
-import { ActivityLogItem, ActivityScope, humanize } from 'lib/components/ActivityLog/humanizeActivity'
-import { activityLogLogic, describerFor } from 'lib/components/ActivityLog/activityLogLogic'
-import { featureFlagsActivityResponseJson } from 'lib/components/ActivityLog/__mocks__/activityLogMocks'
-import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 import '@testing-library/jest-dom'
+
+import { expectLogic } from 'kea-test-utils'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { featureFlagsActivityResponseJson } from 'lib/components/ActivityLog/__mocks__/activityLogMocks'
+import { activityLogLogic, describerFor } from 'lib/components/ActivityLog/activityLogLogic'
+import { ActivityLogItem, ActivityScope, humanize } from 'lib/components/ActivityLog/humanizeActivity'
+import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
 
 describe('the activity log logic', () => {
     let logic: ReturnType<typeof activityLogLogic.build>

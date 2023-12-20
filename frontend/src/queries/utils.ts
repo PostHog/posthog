@@ -1,7 +1,12 @@
+import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
+import { dayjs } from 'lib/dayjs'
+import { teamLogic } from 'scenes/teamLogic'
+
 import {
     ActionsNode,
     DatabaseSchemaQuery,
     DataTableNode,
+    DataVisualizationNode,
     DateRange,
     EventsNode,
     EventsQuery,
@@ -11,6 +16,7 @@ import {
     InsightFilter,
     InsightFilterProperty,
     InsightNodeKind,
+    InsightPersonsQuery,
     InsightQueryNode,
     InsightVizNode,
     LifecycleQuery,
@@ -32,9 +38,6 @@ import {
     WebStatsTableQuery,
     WebTopClicksQuery,
 } from '~/queries/schema'
-import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
-import { dayjs } from 'lib/dayjs'
-import { teamLogic } from 'scenes/teamLogic'
 
 export function isDataNode(node?: Node | null): node is EventsQuery | PersonsNode | TimeToSeeDataSessionsQuery {
     return (
@@ -66,6 +69,7 @@ export function isNodeWithSource(
 
     return (
         isDataTableNode(node) ||
+        isDataVisualizationNode(node) ||
         isInsightVizNode(node) ||
         isTimeToSeeDataWaterfallNode(node) ||
         isTimeToSeeDataJSONNode(node)
@@ -92,8 +96,16 @@ export function isPersonsQuery(node?: Node | null): node is PersonsQuery {
     return node?.kind === NodeKind.PersonsQuery
 }
 
+export function isInsightPersonsQuery(node?: Node | null): node is InsightPersonsQuery {
+    return node?.kind === NodeKind.InsightPersonsQuery
+}
+
 export function isDataTableNode(node?: Node | null): node is DataTableNode {
     return node?.kind === NodeKind.DataTableNode
+}
+
+export function isDataVisualizationNode(node?: Node | null): node is DataVisualizationNode {
+    return node?.kind === NodeKind.DataVisualizationNode
 }
 
 export function isSavedInsightNode(node?: Node | null): node is SavedInsightNode {
@@ -159,10 +171,6 @@ export function isLifecycleQuery(node?: Node | null): node is LifecycleQuery {
     return node?.kind === NodeKind.LifecycleQuery
 }
 
-export function isQueryWithHogQLSupport(node?: Node | null): node is LifecycleQuery {
-    return isLifecycleQuery(node) || isTrendsQuery(node)
-}
-
 export function isInsightQueryWithDisplay(node?: Node | null): node is TrendsQuery | StickinessQuery {
     return isTrendsQuery(node) || isStickinessQuery(node)
 }
@@ -173,6 +181,15 @@ export function isInsightQueryWithBreakdown(node?: Node | null): node is TrendsQ
 
 export function isDatabaseSchemaQuery(node?: Node): node is DatabaseSchemaQuery {
     return node?.kind === NodeKind.DatabaseSchemaQuery
+}
+
+export function isQueryForGroup(query: PersonsNode | PersonsQuery): boolean {
+    return (
+        isPersonsQuery(query) &&
+        isInsightPersonsQuery(query.source) &&
+        isRetentionQuery(query.source.source) &&
+        query.source.source.aggregation_group_type_index !== undefined
+    )
 }
 
 export function isInsightQueryWithSeries(

@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { IconChevronDown } from '@posthog/icons'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { IconCalendar } from 'lib/lemon-ui/icons'
+import { LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
+import { useState } from 'react'
 
 import { LemonInput } from './LemonInput'
-import { IconArrowDropDown, IconCalendar } from 'lib/lemon-ui/icons'
-import { LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 
 type Story = StoryObj<typeof LemonInput>
 const meta: Meta<typeof LemonInput> = {
@@ -34,7 +35,7 @@ WithPrefixAndSuffixAction.args = {
                 overlay: 'Surprise! 😱',
             }}
             type="tertiary"
-            icon={<IconArrowDropDown />}
+            icon={<IconChevronDown />}
         />
     ),
 }

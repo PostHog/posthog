@@ -1,22 +1,23 @@
-import { useMemo } from 'react'
-import { Radio, InputNumber } from 'antd'
+import { IconCheck } from '@posthog/icons'
+import { LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { ChildFunctionProps, Form } from 'kea-forms'
+import { CodeEditor } from 'lib/components/CodeEditors'
+import { DatePicker } from 'lib/components/DatePicker'
+import { dayjs } from 'lib/dayjs'
 import { Field } from 'lib/forms/Field'
-import { useValues, useActions } from 'kea'
-import { userLogic } from 'scenes/userLogic'
-import { JobPayloadFieldOptions } from '~/types'
-import { interfaceJobsLogic, InterfaceJobsProps } from './interfaceJobsLogic'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { IconClose, IconPlayCircle, IconSettings } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCalendarRangeInline } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRangeInline'
-import { dayjs } from 'lib/dayjs'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { formatDate, formatDateRange } from 'lib/utils'
-import { DatePicker } from 'lib/components/DatePicker'
-import { CodeEditor } from 'lib/components/CodeEditors'
-import { IconClose, IconPlayCircle, IconSettings } from 'lib/lemon-ui/icons'
-import { IconCheck } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { useMemo } from 'react'
+import { userLogic } from 'scenes/userLogic'
+
+import { JobPayloadFieldOptions } from '~/types'
+
+import { interfaceJobsLogic, InterfaceJobsProps } from './interfaceJobsLogic'
 
 // keep in sync with plugin-server's export-historical-events.ts
 export const HISTORICAL_EXPORT_JOB_NAME = 'Export historical events'
@@ -106,7 +107,7 @@ function FieldInput({
         case 'string':
             return <LemonInput value={value || ''} onChange={onChange} />
         case 'number':
-            return <InputNumber value={value} onChange={onChange} />
+            return <LemonInput type="number" value={value} onChange={onChange} />
         case 'json':
             return (
                 <CodeEditor
@@ -120,19 +121,22 @@ function FieldInput({
             )
         case 'boolean':
             return (
-                <Radio.Group
-                    id="propertyValue"
-                    buttonStyle="solid"
+                <LemonSegmentedButton
+                    onChange={onChange}
                     value={value}
-                    onChange={(e) => onChange(e.target.value)}
-                >
-                    <Radio.Button value={true} defaultChecked>
-                        <IconCheck /> True
-                    </Radio.Button>
-                    <Radio.Button value={false}>
-                        <IconClose /> False
-                    </Radio.Button>
-                </Radio.Group>
+                    options={[
+                        {
+                            value: true,
+                            label: 'True',
+                            icon: <IconCheck />,
+                        },
+                        {
+                            value: false,
+                            label: 'False',
+                            icon: <IconClose />,
+                        },
+                    ]}
+                />
             )
         case 'date':
             return (

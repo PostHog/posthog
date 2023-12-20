@@ -1,6 +1,8 @@
-import { ActionType } from '~/types'
 import { DefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopover'
 import { genericOperatorToHumanName, propertyValueToHumanName } from 'lib/components/DefinitionPopover/utils'
+
+import { ActionType } from '~/types'
+
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
 
 export function ActionPopoverInfo({ entity }: { entity: ActionType }): JSX.Element | null {

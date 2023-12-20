@@ -1,4 +1,5 @@
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+
 import { SDKInstallRubyInstructions } from '../sdk-install-instructions'
 
 function RubyCaptureSnippet(): JSX.Element {

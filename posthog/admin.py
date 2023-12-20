@@ -7,10 +7,15 @@ from django.contrib.auth.forms import UserChangeForm as DjangoUserChangeForm
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
+from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from posthog.models import (
     Action,
     AsyncDeletion,
+    Cohort,
+    Dashboard,
+    DashboardTile,
+    Experiment,
     FeatureFlag,
     GroupTypeMapping,
     Insight,
@@ -22,18 +27,12 @@ from posthog.models import (
     Plugin,
     PluginAttachment,
     PluginConfig,
-    Team,
-    Cohort,
-    Experiment,
     Survey,
-    Dashboard,
-    DashboardTile,
+    Team,
     Text,
     User,
 )
 from posthog.warehouse.models import DataWarehouseTable
-
-admin.site.register(DataWarehouseTable)
 
 
 class DashboardTileInline(admin.TabularInline):
@@ -41,6 +40,11 @@ class DashboardTileInline(admin.TabularInline):
     model = DashboardTile
     autocomplete_fields = ("insight", "text")
     readonly_fields = ("filters_hash",)
+
+
+class TOTPDeviceInline(admin.TabularInline):
+    model = TOTPDevice
+    extra = 0
 
 
 @admin.register(Dashboard)
@@ -65,6 +69,39 @@ class DashboardAdmin(admin.ModelAdmin):
     autocomplete_fields = ("team", "created_by")
     ordering = ("-created_at", "creation_mode")
     inlines = (DashboardTileInline,)
+
+    def team_link(self, dashboard: Dashboard):
+        return format_html(
+            '<a href="/admin/posthog/team/{}/change/">{}</a>',
+            dashboard.team.pk,
+            dashboard.team.name,
+        )
+
+    def organization_link(self, dashboard: Dashboard):
+        return format_html(
+            '<a href="/admin/posthog/organization/{}/change/">{}</a>',
+            dashboard.team.organization.pk,
+            dashboard.team.organization.name,
+        )
+
+
+@admin.register(DataWarehouseTable)
+class DataWarehouseTableAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "name",
+        "format",
+        "url_pattern",
+        "team_link",
+        "organization_link",
+        "created_at",
+        "created_by",
+    )
+    list_display_links = ("id", "name")
+    list_select_related = ("team", "team__organization")
+    search_fields = ("id", "name", "team__name", "team__organization__name")
+    autocomplete_fields = ("team", "created_by")
+    ordering = ("-created_at",)
 
     def team_link(self, dashboard: Dashboard):
         return format_html(
@@ -432,7 +469,7 @@ class UserAdmin(DjangoUserAdmin):
     change_password_form = None  # This view is not exposed in our subclass of UserChangeForm
     change_form_template = "loginas/change_form.html"
 
-    inlines = [OrganizationMemberInline]
+    inlines = [OrganizationMemberInline, TOTPDeviceInline]
     fieldsets = (
         (
             None,

@@ -1,18 +1,19 @@
-import { kea, props, path, key, actions, reducers, selectors, listeners, connect, afterMount } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
-    SessionRecordingPlayerLogicProps,
     sessionRecordingPlayerLogic,
+    SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-
-import type { playlistPopoverLogicType } from './playlistPopoverLogicType'
-import { SessionRecordingPlaylistType } from '~/types'
-import { forms } from 'kea-forms'
 import { addRecordingToPlaylist, removeRecordingFromPlaylist } from 'scenes/session-recordings/player/utils/playerUtils'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
+import { SessionRecordingPlaylistType } from '~/types'
+
+import type { playlistPopoverLogicType } from './playlistPopoverLogicType'
 
 export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playlist-popover', 'playlistPopoverLogic', key]),

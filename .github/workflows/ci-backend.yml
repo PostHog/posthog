@@ -60,7 +60,9 @@ jobs:
                         # NOTE: we are at risk of missing a dependency here. We could make
                         # the dependencies more clear if we separated the backend/frontend
                         # code completely
+                        # really we should ignore ee/frontend/** but dorny doesn't support that
                         - 'ee/**/*'
+                        - '!ee/frontend/**'
                         - 'posthog/**/*'
                         - 'bin/*.py'
                         - requirements.txt

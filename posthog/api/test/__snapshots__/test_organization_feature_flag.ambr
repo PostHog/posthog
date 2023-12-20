@@ -18,6 +18,7 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."email_opt_in",
+         "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
@@ -125,7 +126,8 @@
          "posthog_team"."event_properties",
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
@@ -221,7 +223,8 @@
          "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
@@ -313,7 +316,8 @@
          "posthog_team"."event_properties",
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
@@ -515,7 +519,8 @@
          "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
@@ -648,7 +653,8 @@
          "posthog_team"."event_properties",
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
@@ -787,7 +793,8 @@
          "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
@@ -879,7 +886,8 @@
          "posthog_team"."event_properties",
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
@@ -1085,7 +1093,8 @@
          "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
@@ -1211,7 +1220,8 @@
          "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
@@ -1268,7 +1278,8 @@
          "posthog_team"."event_properties",
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
@@ -1414,7 +1425,8 @@
          "posthog_team"."event_properties",
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='organization_feature_flags-copy-flags',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/copy_flags/%3F%24'*/
@@ -1429,8 +1441,8 @@
          "posthog_experiment"."filters",
          "posthog_experiment"."parameters",
          "posthog_experiment"."secondary_metrics",
-         "posthog_experiment"."feature_flag_id",
          "posthog_experiment"."created_by_id",
+         "posthog_experiment"."feature_flag_id",
          "posthog_experiment"."start_date",
          "posthog_experiment"."end_date",
          "posthog_experiment"."created_at",
@@ -1578,6 +1590,7 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."email_opt_in",
+         "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
@@ -1675,7 +1688,8 @@
          "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid /*controller='organization_feature_flags-detail',route='api/organizations/%28%3FP%3Cparent_lookup_organization_id%3E%5B%5E/.%5D%2B%29/feature_flags/%28%3FP%3Cfeature_flag_key%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
@@ -1728,6 +1742,7 @@
          "posthog_user"."requested_password_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."email_opt_in",
+         "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
@@ -1758,6 +1773,7 @@
          "posthog_user"."requested_password_reset_at",
          "posthog_user"."has_seen_product_intro_for",
          "posthog_user"."email_opt_in",
+         "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",

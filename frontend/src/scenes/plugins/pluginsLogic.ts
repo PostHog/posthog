@@ -1,26 +1,22 @@
+import type { FormInstance } from 'antd/lib/form/hooks/useForm.d'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import type { pluginsLogicType } from './pluginsLogicType'
 import api from 'lib/api'
-import { PersonalAPIKeyType, PluginConfigType, PluginType } from '~/types'
-import {
-    PluginInstallationType,
-    PluginRepositoryEntry,
-    PluginTab,
-    PluginTypeWithConfig,
-    PluginUpdateStatusType,
-} from './types'
-import { userLogic } from 'scenes/userLogic'
-import { getConfigSchemaArray, getConfigSchemaObject, getPluginConfigFormData } from 'scenes/plugins/utils'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import posthog from 'posthog-js'
-import type { FormInstance } from 'antd/lib/form/hooks/useForm.d'
-import { canGloballyManagePlugins, canInstallPlugins } from './access'
-import { teamLogic } from '../teamLogic'
-import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
+import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
+import { getConfigSchemaArray, getConfigSchemaObject, getPluginConfigFormData } from 'scenes/plugins/utils'
 import { urls } from 'scenes/urls'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { userLogic } from 'scenes/userLogic'
+
+import { PersonalAPIKeyType, PluginConfigType, PluginInstallationType, PluginType } from '~/types'
+
+import { teamLogic } from '../teamLogic'
+import { canGloballyManagePlugins, canInstallPlugins } from './access'
+import type { pluginsLogicType } from './pluginsLogicType'
+import { PluginRepositoryEntry, PluginTab, PluginTypeWithConfig, PluginUpdateStatusType } from './types'
 
 export type PluginForm = FormInstance
 
@@ -28,8 +24,6 @@ export interface PluginSelectionType {
     name: string
     url?: string
 }
-
-const PAGINATION_DEFAULT_MAX_PAGES = 10
 
 function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInstallationType): void {
     posthog.capture(event, {
@@ -40,26 +34,9 @@ function capturePluginEvent(event: string, plugin: PluginType, type?: PluginInst
     })
 }
 
-async function loadPaginatedResults(
-    url: string | null,
-    maxIterations: number = PAGINATION_DEFAULT_MAX_PAGES
-): Promise<any[]> {
-    let results: any[] = []
-    for (let i = 0; i <= maxIterations; ++i) {
-        if (!url) {
-            break
-        }
-
-        const { results: partialResults, next } = await api.get(url)
-        results = results.concat(partialResults)
-        url = next
-    }
-    return results
-}
-
 export const pluginsLogic = kea<pluginsLogicType>([
     path(['scenes', 'plugins', 'pluginsLogic']),
-    connect(frontendAppsLogic),
+    connect(() => frontendAppsLogic),
     actions({
         editPlugin: (id: number | null, pluginConfigChanges: Record<string, any> = {}) => ({ id, pluginConfigChanges }),
         savePluginConfig: (pluginConfigChanges: Record<string, any>) => ({ pluginConfigChanges }),
@@ -102,7 +79,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
             {} as Record<number, PluginType>,
             {
                 loadPlugins: async () => {
-                    const results: PluginType[] = await loadPaginatedResults('api/organizations/@current/plugins')
+                    const results: PluginType[] = await api.loadPaginatedResults('api/organizations/@current/plugins')
                     const plugins: Record<string, PluginType> = {}
                     for (const plugin of results) {
                         plugins[plugin.id] = plugin
@@ -160,7 +137,7 @@ export const pluginsLogic = kea<pluginsLogicType>([
             {
                 loadPluginConfigs: async () => {
                     const pluginConfigs: Record<string, PluginConfigType> = {}
-                    const results: PluginConfigType[] = await loadPaginatedResults('api/plugin_config')
+                    const results: PluginConfigType[] = await api.loadPaginatedResults('api/plugin_config')
 
                     for (const pluginConfig of results) {
                         pluginConfigs[pluginConfig.plugin] = { ...pluginConfig }
@@ -623,13 +600,13 @@ export const pluginsLogic = kea<pluginsLogicType>([
             (s) => [s.repository, s.plugins],
             (repository, plugins) => {
                 const allPossiblePlugins: PluginSelectionType[] = []
-                for (const plugin of Object.values(plugins) as PluginType[]) {
+                for (const plugin of Object.values(plugins)) {
                     allPossiblePlugins.push({ name: plugin.name, url: plugin.url })
                 }
 
                 const installedUrls = new Set(Object.values(plugins).map((plugin) => plugin.url))
 
-                for (const plugin of Object.values(repository) as PluginRepositoryEntry[]) {
+                for (const plugin of Object.values(repository)) {
                     if (!installedUrls.has(plugin.url)) {
                         allPossiblePlugins.push({ name: plugin.name, url: plugin.url })
                     }

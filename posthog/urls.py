@@ -1,8 +1,9 @@
 from typing import Any, Callable, List, Optional, cast
+from posthog.models.instance_setting import get_instance_setting
 from urllib.parse import urlparse
 
 from django.conf import settings
-from django.http import HttpRequest, HttpResponse, HttpResponseServerError
+from django.http import HttpRequest, HttpResponse, HttpResponseServerError, HttpResponseRedirect
 from django.template import loader
 from django.urls import URLPattern, include, path, re_path
 from django.views.decorators.csrf import (
@@ -17,6 +18,7 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 from revproxy.views import ProxyView
+from django.utils.http import url_has_allowed_host_and_scheme
 from sentry_sdk import last_event_id
 from two_factor.urls import urlpatterns as tf_urls
 
@@ -54,11 +56,17 @@ from .views import (
 )
 from .year_in_posthog import year_in_posthog
 
+import structlog
+
+logger = structlog.get_logger(__name__)
+
 ee_urlpatterns: List[Any] = []
 try:
     from ee.urls import extend_api_router
     from ee.urls import urlpatterns as ee_urlpatterns
 except ImportError:
+    if settings.DEBUG:
+        logger.warn(f"Could not import ee.urls", exc_info=True)
     pass
 else:
     extend_api_router(
@@ -84,6 +92,10 @@ def handler500(request):
 
 @ensure_csrf_cookie
 def home(request, *args, **kwargs):
+    if request.get_host().split(":")[0] == "app.posthog.com" and get_instance_setting("REDIRECT_APP_TO_US"):
+        url = "https://us.posthog.com{}".format(request.get_full_path())
+        if url_has_allowed_host_and_scheme(url, "us.posthog.com", True):
+            return HttpResponseRedirect(url)
     return render_template("index.html", request)
 
 
@@ -213,6 +225,8 @@ urlpatterns = [
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     path("year_in_posthog/2022/<str:user_uuid>", year_in_posthog.render_2022),
     path("year_in_posthog/2022/<str:user_uuid>/", year_in_posthog.render_2022),
+    path("year_in_posthog/2023/<str:user_uuid>", year_in_posthog.render_2023),
+    path("year_in_posthog/2023/<str:user_uuid>/", year_in_posthog.render_2023),
 ]
 
 if settings.DEBUG:

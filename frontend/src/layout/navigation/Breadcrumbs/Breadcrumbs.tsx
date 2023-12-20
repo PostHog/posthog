@@ -1,12 +1,16 @@
-import React, { useState } from 'react'
-import { useValues } from 'kea'
-import { IconArrowDropDown, IconChevronRight } from 'lib/lemon-ui/icons'
-import { Link } from 'lib/lemon-ui/Link'
 import './Breadcrumbs.scss'
-import { breadcrumbsLogic } from './breadcrumbsLogic'
-import { Breadcrumb as IBreadcrumb } from '~/types'
+
+import { IconChevronDown } from '@posthog/icons'
 import clsx from 'clsx'
+import { useValues } from 'kea'
+import { IconChevronRight } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import React, { useState } from 'react'
+
+import { Breadcrumb as IBreadcrumb } from '~/types'
+
+import { breadcrumbsLogic } from './breadcrumbsLogic'
 
 function Breadcrumb({ breadcrumb, index }: { breadcrumb: IBreadcrumb; index: number }): JSX.Element {
     const [popoverShown, setPopoverShown] = useState(false)
@@ -24,7 +28,7 @@ function Breadcrumb({ breadcrumb, index }: { breadcrumb: IBreadcrumb; index: num
         >
             {breadcrumb.symbol}
             <span>{breadcrumb.name}</span>
-            {breadcrumb.popover && <IconArrowDropDown className="text-muted-alt text-lg" />}
+            {breadcrumb.popover && <IconChevronDown className="text-muted-alt text-lg" />}
         </div>
     )
 

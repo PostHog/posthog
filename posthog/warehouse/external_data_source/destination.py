@@ -1,5 +1,6 @@
 from django.conf import settings
 from pydantic import BaseModel
+
 from posthog.warehouse.external_data_source.client import send_request
 
 AIRBYTE_DESTINATION_URL = "https://api.airbyte.com/v1/destinations"

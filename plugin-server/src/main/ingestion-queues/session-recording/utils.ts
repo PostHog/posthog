@@ -182,7 +182,7 @@ export const parseKafkaMessage = async (
         return dropMessage('invalid_json', { error })
     }
 
-    const { $snapshot_items, $session_id, $window_id } = event.properties || {}
+    const { $snapshot_items, $session_id, $window_id, $snapshot_source } = event.properties || {}
 
     // NOTE: This is simple validation - ideally we should do proper schema based validation
     if (event.event !== '$snapshot_items' || !$snapshot_items || !$session_id) {
@@ -259,5 +259,6 @@ export const parseKafkaMessage = async (
         session_id: $session_id,
         window_id: $window_id,
         events: events,
+        snapshot_source: $snapshot_source,
     }
 }

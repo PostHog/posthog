@@ -1,15 +1,13 @@
-import React from 'react'
+import './Link.scss'
+
+import clsx from 'clsx'
 import { router } from 'kea-router'
 import { isExternalLink } from 'lib/utils'
-import clsx from 'clsx'
-import './Link.scss'
+import React from 'react'
+import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+
 import { IconOpenInNew } from '../icons'
 import { Tooltip } from '../Tooltip'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { useActions } from 'kea'
-
-import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { sidePanelDocsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelDocsLogic'
 
 type RoutePart = string | Record<string, any>
 
@@ -34,6 +32,8 @@ export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'cla
      * This is true by default if `children` is a string.
      */
     targetBlankIcon?: boolean
+    /** If true, the default color will be as normal text with only a link color on hover */
+    subtle?: boolean
 }
 
 // Some URLs we want to enforce a full reload such as billing which is redirected by Django
@@ -50,9 +50,10 @@ const isPostHogDomain = (url: string): boolean => {
     return /^https:\/\/((www|app|eu)\.)?posthog\.com/.test(url)
 }
 
-const isPostHogComDomain = (url: string): boolean => {
-    return /^https:\/\/(www\.)?posthog\.com/.test(url)
-}
+// NOTE: Temporarily disabled - owner @corywatilo
+// const isPostHogComDocs = (url: string): boolean => {
+//     return /^https:\/\/(www\.)?posthog\.com\/docs/.test(url)
+// }
 
 /**
  * Link
@@ -66,6 +67,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         {
             to,
             target,
+            subtle,
             disableClientSideRouting,
             preventClick = false,
             onClick: onClickRaw,
@@ -82,8 +84,9 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             href: typeof to === 'string' ? to : undefined,
         })
 
-        const is3000 = useFeatureFlag('POSTHOG_3000')
-        const { openDocsPage } = useActions(sidePanelDocsLogic)
+        // NOTE: Temporarily disabled - owner @corywatilo
+        // const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
+        // const { openDocsPage } = useActions(sidePanelDocsLogic)
 
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
             if (event.metaKey || event.ctrlKey) {
@@ -98,11 +101,12 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 return
             }
 
-            if (typeof to === 'string' && is3000 && isPostHogComDomain(to)) {
-                event.preventDefault()
-                openDocsPage(to)
-                return
-            }
+            // NOTE: Temporarily disabled - owner @corywatilo
+            // if (typeof to === 'string' && is3000 && isPostHogComDocs(to)) {
+            //     event.preventDefault()
+            //     openDocsPage(to)
+            //     return
+            // }
 
             if (!target && to && !isExternalLink(to) && !disableClientSideRouting && !shouldForcePageLoad(to)) {
                 event.preventDefault()
@@ -122,7 +126,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             // eslint-disable-next-line react/forbid-elements
             <a
                 ref={ref as any}
-                className={clsx('Link', className)}
+                className={clsx('Link', subtle && 'Link--subtle', className)}
                 onClick={onClick}
                 href={typeof to === 'string' ? to : '#'}
                 target={target}
@@ -138,7 +142,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 <span>
                     <button
                         ref={ref as any}
-                        className={clsx('Link', className)}
+                        className={clsx('Link', subtle && 'Link--subtle', className)}
                         onClick={onClick}
                         type="button"
                         disabled={disabled || !!disabledReason}

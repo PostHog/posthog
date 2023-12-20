@@ -1,50 +1,57 @@
+import { IconChevronDown, IconFeatures, IconLive } from '@posthog/icons'
+import { LemonButtonPropsBase } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { userLogic } from '../../../scenes/userLogic'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
+import {
+    IconBill,
+    IconCheckmark,
+    IconCorporate,
+    IconExclamation,
+    IconLogout,
+    IconOffline,
+    IconPlus,
+    IconSettings,
+    IconUpdate,
+} from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
-import {
-    IconCheckmark,
-    IconOffline,
-    IconLogout,
-    IconUpdate,
-    IconExclamation,
-    IconBill,
-    IconArrowDropDown,
-    IconSettings,
-    IconCorporate,
-    IconPlus,
-    IconRedeem,
-    IconFlare,
-} from 'lib/lemon-ui/icons'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { Link } from 'lib/lemon-ui/Link'
-import { urls } from '../../../scenes/urls'
-import { navigationLogic } from '../navigationLogic'
-import { OrganizationBasicType } from '../../../types'
-import { organizationLogic } from '../../../scenes/organizationLogic'
-import { preflightLogic } from '../../../scenes/PreflightCheck/preflightLogic'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
+import { Link } from 'lib/lemon-ui/Link'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
+import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
+import { ThemeSwitcher } from 'scenes/settings/user/ThemeSwitcher'
+
+import { featurePreviewsLogic } from '~/layout/FeaturePreviews/featurePreviewsLogic'
 import {
     AccessLevelIndicator,
     NewOrganizationButton,
     OtherOrganizationButton,
 } from '~/layout/navigation/OrganizationSwitcher'
-import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { LemonButtonPropsBase } from '@posthog/lemon-ui'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { billingLogic } from 'scenes/billing/billingLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { featurePreviewsLogic } from '~/layout/FeaturePreviews/featurePreviewsLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { IconLive } from '@posthog/icons'
-import { hedgehogbuddyLogic } from 'lib/components/HedgehogBuddy/hedgehogbuddyLogic'
 
-function SitePopoverSection({ title, children }: { title?: string | JSX.Element; children: any }): JSX.Element {
+import { organizationLogic } from '../../../scenes/organizationLogic'
+import { preflightLogic } from '../../../scenes/PreflightCheck/preflightLogic'
+import { urls } from '../../../scenes/urls'
+import { userLogic } from '../../../scenes/userLogic'
+import { OrganizationBasicType } from '../../../types'
+import { navigationLogic } from '../navigationLogic'
+
+function SitePopoverSection({
+    title,
+    className,
+    children,
+}: {
+    title?: string | JSX.Element
+    className?: string
+    children: any
+}): JSX.Element {
     return (
-        <div className="SitePopover__section">
+        <div className={clsx('SitePopover__section', className)}>
             {title && <h5 className="flex items-center">{title}</h5>}
             {children}
         </div>
@@ -57,22 +64,24 @@ function AccountInfo(): JSX.Element {
 
     return (
         <div className="AccountInfo">
-            <ProfilePicture name={user?.first_name} email={user?.email} size="xl" />
-            <div className="AccountInfo__identification SitePopover__main-info">
-                <strong>{user?.first_name}</strong>
-                <div className="supplement" title={user?.email}>
-                    {user?.email}
+            <LemonButton
+                to={urls.settings('user')}
+                onClick={closeSitePopover}
+                data-attr="top-menu-item-me"
+                status="stealth"
+                fullWidth
+                tooltip="Account settings"
+                tooltipPlacement="left"
+                sideIcon={<IconSettings className="text-2xl" />}
+            >
+                <ProfilePicture name={user?.first_name} email={user?.email} size="xl" />
+                <div className="AccountInfo__identification SitePopover__main-info font-sans font-normal">
+                    <div className="font-semibold mb-1">{user?.first_name}</div>
+                    <div className="supplement" title={user?.email}>
+                        {user?.email}
+                    </div>
                 </div>
-            </div>
-            <Tooltip title="Account settings" placement="left">
-                <LemonButton
-                    to={urls.settings('user')}
-                    onClick={closeSitePopover}
-                    data-attr="top-menu-item-me"
-                    status="stealth"
-                    icon={<IconSettings className="text-2xl" />}
-                />
-            </Tooltip>
+            </LemonButton>
         </div>
     )
 }
@@ -92,7 +101,7 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
                 onClick={closeSitePopover}
             >
                 <div className="SitePopover__main-info SitePopover__organization">
-                    <strong>{organization.name}</strong>
+                    <span className="font-medium">{organization.name}</span>
                     <AccessLevelIndicator organization={organization} />
                 </div>
             </LemonButton>
@@ -131,17 +140,17 @@ export function InviteMembersButton({
 
 function SystemStatus(): JSX.Element {
     const { closeSitePopover } = useActions(navigationLogic)
-    const { systemStatus } = useValues(navigationLogic)
+    const { systemStatusHealthy } = useValues(navigationLogic)
 
     return (
         <LemonRow
-            status={systemStatus ? 'success' : 'danger'}
-            icon={systemStatus ? <IconCheckmark /> : <IconOffline />}
+            status={systemStatusHealthy ? 'success' : 'danger'}
+            icon={systemStatusHealthy ? <IconCheckmark /> : <IconOffline />}
             fullWidth
         >
             <>
                 <div className="SitePopover__main-info">
-                    {systemStatus ? 'All systems operational' : 'Potential system issue'}
+                    {systemStatusHealthy ? 'All systems operational' : 'Potential system issue'}
                 </div>
                 <Link
                     to={urls.instanceStatus()}
@@ -201,22 +210,16 @@ function InstanceSettings(): JSX.Element | null {
 }
 
 function FeaturePreviewsButton(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { closeSitePopover } = useActions(navigationLogic)
     const { showFeaturePreviewsModal } = useActions(featurePreviewsLogic)
-
-    const isUsingSiteApp = featureFlags[FEATURE_FLAGS.EARLY_ACCESS_FEATURE_SITE_BUTTON] === 'site-app'
 
     return (
         <LemonButton
             onClick={() => {
                 closeSitePopover()
-                if (!isUsingSiteApp) {
-                    showFeaturePreviewsModal()
-                }
+                showFeaturePreviewsModal()
             }}
-            data-attr={isUsingSiteApp ? 'early-access-feature-button' : undefined}
-            icon={<IconRedeem />}
+            icon={<IconFeatures />}
             fullWidth
         >
             Feature previews
@@ -240,8 +243,6 @@ export function SitePopoverOverlay(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { closeSitePopover } = useActions(navigationLogic)
     const { billing } = useValues(billingLogic)
-    const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
-    const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
 
     return (
         <>
@@ -276,13 +277,16 @@ export function SitePopoverOverlay(): JSX.Element {
                 </SitePopoverSection>
             )}
             {(!(preflight?.cloud || preflight?.demo) || user?.is_staff) && (
-                <SitePopoverSection title="PostHog instance">
+                <SitePopoverSection title="PostHog instance" className="font-title-3000">
                     <SystemStatus />
                     <AsyncMigrations />
                     <InstanceSettings />
                 </SitePopoverSection>
             )}
             <SitePopoverSection>
+                <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000} match="test">
+                    <ThemeSwitcher fullWidth type="tertiary" />
+                </FlaggedFeature>
                 <LemonButton
                     onClick={closeSitePopover}
                     to={'https://posthog.com/changelog'}
@@ -293,18 +297,7 @@ export function SitePopoverOverlay(): JSX.Element {
                 >
                     What's new?
                 </LemonButton>
-                <FlaggedFeature flag={FEATURE_FLAGS.EARLY_ACCESS_FEATURE_SITE_BUTTON}>
-                    <FeaturePreviewsButton />
-                </FlaggedFeature>
-
-                <LemonButton
-                    onClick={() => setHedgehogModeEnabled(!hedgehogModeEnabled)}
-                    icon={<IconFlare />}
-                    fullWidth
-                    data-attr="hedgehog-mode-button"
-                >
-                    {hedgehogModeEnabled ? 'Disable' : 'Enable'} hedgehog mode
-                </LemonButton>
+                <FeaturePreviewsButton />
             </SitePopoverSection>
             <SitePopoverSection>
                 <SignOutButton />
@@ -315,7 +308,7 @@ export function SitePopoverOverlay(): JSX.Element {
 
 export function SitePopover(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { isSitePopoverOpen, systemStatus } = useValues(navigationLogic)
+    const { isSitePopoverOpen, systemStatusHealthy } = useValues(navigationLogic)
     const { toggleSitePopover, closeSitePopover } = useActions(navigationLogic)
 
     return (
@@ -328,9 +321,9 @@ export function SitePopover(): JSX.Element {
             <div className="SitePopover__crumb" onClick={toggleSitePopover} data-attr="top-menu-toggle">
                 <div className="SitePopover__profile-picture" title="Potential system issue">
                     <ProfilePicture name={user?.first_name} email={user?.email} size="md" />
-                    {!systemStatus && <IconExclamation className="SitePopover__danger" />}
+                    {!systemStatusHealthy && <IconExclamation className="SitePopover__danger" />}
                 </div>
-                <IconArrowDropDown />
+                <IconChevronDown />
             </div>
         </Popover>
     )

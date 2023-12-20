@@ -1,15 +1,17 @@
-import { mswDecorator, setFeatureFlags } from '~/mocks/browser'
 import { Meta } from '@storybook/react'
-import { useAvailableFeatures } from '~/mocks/features'
-import { AvailableFeature } from '~/types'
-import { useEffect } from 'react'
 import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { App } from 'scenes/App'
-import { DatabaseSchemaQueryResponse } from '~/queries/schema'
-import { ingestionWarningsResponse } from './ingestion-warnings/__mocks__/ingestion-warnings-response'
-import { dayjs } from 'lib/dayjs'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { useEffect } from 'react'
+import { App } from 'scenes/App'
+import { urls } from 'scenes/urls'
+
+import { mswDecorator, setFeatureFlags } from '~/mocks/browser'
+import { useAvailableFeatures } from '~/mocks/features'
+import { DatabaseSchemaQueryResponse } from '~/queries/schema'
+import { AvailableFeature } from '~/types'
+
+import { ingestionWarningsResponse } from './ingestion-warnings/__mocks__/ingestion-warnings-response'
 
 const MOCK_DATABASE: DatabaseSchemaQueryResponse = {
     events: [

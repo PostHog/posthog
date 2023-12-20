@@ -1,11 +1,13 @@
+import './CardMeta.scss'
+
 import clsx from 'clsx'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { InsightColor } from '~/types'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import './CardMeta.scss'
 import { Transition } from 'react-transition-group'
+
+import { InsightColor } from '~/types'
 
 export interface Resizeable {
     showResizeHandles?: boolean

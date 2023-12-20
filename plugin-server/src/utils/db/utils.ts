@@ -6,10 +6,9 @@ import { Counter } from 'prom-client'
 
 import { defaultConfig } from '../../config/config'
 import { KAFKA_PERSON } from '../../config/kafka-topics'
-import { BasePerson, Person, RawPerson, TimestampFormat } from '../../types'
+import { BasePerson, Person, PluginLogEntryType, PluginLogLevel, RawPerson, TimestampFormat } from '../../types'
 import { status } from '../../utils/status'
 import { castTimestampOrNow } from '../../utils/utils'
-import { PluginLogEntrySource, PluginLogEntryType, PluginLogLevel } from './../../types'
 
 export function unparsePersonPartial(person: Partial<Person>): Partial<RawPerson> {
     return { ...(person as BasePerson), ...(person.created_at ? { created_at: person.created_at.toISO() } : {}) }
@@ -55,9 +54,10 @@ const eventToPersonProperties = new Set([
     '$current_url',
     '$pathname',
     '$os',
+    '$os_version',
     '$referring_domain',
     '$referrer',
-    // campaign params
+    // campaign params - automatically added by posthog-js here https://github.com/PostHog/posthog-js/blob/master/src/utils/event-utils.ts
     'utm_source',
     'utm_medium',
     'utm_campaign',
@@ -65,6 +65,9 @@ const eventToPersonProperties = new Set([
     'utm_name',
     'utm_term',
     'gclid',
+    'gad_source',
+    'gbraid',
+    'wbraid',
     'fbclid',
     'msclkid',
 ])
@@ -127,24 +130,19 @@ export function getFinalPostgresQuery(queryString: string, values: any[]): strin
     return queryString.replace(/\$([0-9]+)/g, (m, v) => JSON.stringify(values[parseInt(v) - 1]))
 }
 
-export function shouldStoreLog(
-    pluginLogLevel: PluginLogLevel,
-    source: PluginLogEntrySource,
-    type: PluginLogEntryType
-): boolean {
-    if (source === PluginLogEntrySource.System) {
-        return true
+export function shouldStoreLog(pluginLogLevel: PluginLogLevel, type: PluginLogEntryType): boolean {
+    switch (pluginLogLevel) {
+        case PluginLogLevel.Full:
+            return true
+        case PluginLogLevel.Log:
+            return type !== PluginLogEntryType.Debug
+        case PluginLogLevel.Info:
+            return type !== PluginLogEntryType.Log && type !== PluginLogEntryType.Debug
+        case PluginLogLevel.Warn:
+            return type === PluginLogEntryType.Warn || type === PluginLogEntryType.Error
+        case PluginLogLevel.Critical:
+            return type === PluginLogEntryType.Error
     }
-
-    if (pluginLogLevel === PluginLogLevel.Critical) {
-        return type === PluginLogEntryType.Error
-    } else if (pluginLogLevel === PluginLogLevel.Warn) {
-        return type !== PluginLogEntryType.Log && type !== PluginLogEntryType.Info
-    } else if (pluginLogLevel === PluginLogLevel.Debug) {
-        return type !== PluginLogEntryType.Log
-    }
-
-    return true
 }
 
 // keep in sync with posthog/posthog/api/utils.py::safe_clickhouse_string

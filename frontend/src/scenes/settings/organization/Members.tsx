@@ -1,27 +1,28 @@
-import { useValues, useActions } from 'kea'
-import { OrganizationMembershipLevel } from 'lib/constants'
-import { OrganizationMemberType } from '~/types'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { userLogic } from 'scenes/userLogic'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import {
-    getReasonForAccessLevelChangeProhibition,
-    organizationMembershipLevelIntegers,
-    membershipLevelToName,
-} from 'lib/utils/permissioning'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonInput, LemonModal, LemonSwitch } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonInput, LemonModal, LemonSwitch } from '@posthog/lemon-ui'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import {
+    getReasonForAccessLevelChangeProhibition,
+    membershipLevelToName,
+    organizationMembershipLevelIntegers,
+} from 'lib/utils/permissioning'
 import { useState } from 'react'
 import { Setup2FA } from 'scenes/authentication/Setup2FA'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { OrganizationMemberType } from '~/types'
 
 function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)

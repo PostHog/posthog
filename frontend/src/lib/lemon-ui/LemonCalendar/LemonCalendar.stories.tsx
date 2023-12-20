@@ -1,6 +1,7 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { LemonCalendar, LemonCalendarProps } from './LemonCalendar'
 import { dayjs } from 'lib/dayjs'
+
+import { LemonCalendar, LemonCalendarProps } from './LemonCalendar'
 
 type Story = StoryObj<typeof LemonCalendar>
 const meta: Meta<typeof LemonCalendar> = {
@@ -14,6 +15,9 @@ const meta: Meta<typeof LemonCalendar> = {
     },
     parameters: {
         mockDate: '2023-01-26',
+        testOptions: {
+            include3000: true,
+        },
     },
     tags: ['autodocs'],
 }

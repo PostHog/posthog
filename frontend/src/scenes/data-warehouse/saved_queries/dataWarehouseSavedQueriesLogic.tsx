@@ -1,14 +1,14 @@
 import { afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
-import { DataWarehouseSavedQuery, ProductKey } from '~/types'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { DataWarehouseSceneRow } from '../types'
+import { DataWarehouseSavedQuery, ProductKey } from '~/types'
 
+import { DataWarehouseSceneRow } from '../types'
 import type { dataWarehouseSavedQueriesLogicType } from './dataWarehouseSavedQueriesLogicType'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
 
 export const dataWarehouseSavedQueriesLogic = kea<dataWarehouseSavedQueriesLogicType>([
     path(['scenes', 'warehouse', 'dataWarehouseSavedQueriesLogic']),

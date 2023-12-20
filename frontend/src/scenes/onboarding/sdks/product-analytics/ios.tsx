@@ -1,4 +1,5 @@
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+
 import { SDKInstallIOSInstructions } from '../sdk-install-instructions'
 
 function IOS_OBJ_C_CaptureSnippet(): JSX.Element {

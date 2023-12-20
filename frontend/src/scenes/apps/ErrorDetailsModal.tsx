@@ -1,13 +1,14 @@
-import { useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { AppMetricErrorDetail, appMetricsSceneLogic } from './appMetricsSceneLogic'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { TZLabel } from 'lib/components/TZLabel'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconChevronLeft, IconChevronRight, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { TZLabel } from 'lib/components/TZLabel'
+import { IconChevronLeft, IconChevronRight, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { useState } from 'react'
+
+import { AppMetricErrorDetail, appMetricsSceneLogic } from './appMetricsSceneLogic'
 
 export function ErrorDetailsModal(): JSX.Element {
     const { errorDetails, errorDetailsModalError, errorDetailsLoading } = useValues(appMetricsSceneLogic)

@@ -9,7 +9,7 @@ import { useEffect, useMemo } from 'react'
 import clsx from 'clsx'
 import { NotFound } from 'lib/components/NotFound'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
-import { IconCohort, IconPerson, InsightsTrendsIcon } from 'lib/lemon-ui/icons'
+import { IconPeople, IconPerson, IconTrends } from '@posthog/icons'
 import { Query } from '~/queries/Query/Query'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { DataTableNode, NodeKind } from '~/queries/schema'
@@ -71,7 +71,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttribute
 
                       {
                           text: 'Cohort trends',
-                          icon: <InsightsTrendsIcon noBackground color="currentColor" />,
+                          icon: <IconTrends color="currentColor" />,
                           onClick: () => {
                               setExpanded(false)
                               insertAfter({
@@ -130,7 +130,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttribute
                     <LemonSkeleton className="h-6" />
                 ) : (
                     <div className="flex items-center gap-2">
-                        <IconCohort className="text-muted-alt text-lg" />
+                        <IconPeople className="text-muted-alt text-lg" />
                         <span className="flex-1 font-semibold truncate">{cohort.name}</span>
                         <span className="italic text-muted-alt">({cohort.count} persons)</span>
                         <LemonTag>{cohort.is_static ? 'Static' : 'Dynamic'}</LemonTag>

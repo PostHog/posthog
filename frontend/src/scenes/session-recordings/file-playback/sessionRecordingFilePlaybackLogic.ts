@@ -1,19 +1,25 @@
-import { BuiltLogic, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { Breadcrumb, PersonType, RecordingSnapshot, SessionRecordingType } from '~/types'
-import { urls } from 'scenes/urls'
-import { loaders } from 'kea-loaders'
-
-import { beforeUnload } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
-
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { uuid } from 'lib/utils'
-
-import type { sessionRecordingFilePlaybackLogicType } from './sessionRecordingFilePlaybackLogicType'
 import { eventWithTime } from '@rrweb/types'
-import type { sessionRecordingDataLogicType } from '../player/sessionRecordingDataLogicType'
-import { prepareRecordingSnapshots, sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
+import { BuiltLogic, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { beforeUnload } from 'kea-router'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { uuid } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { Breadcrumb, PersonType, RecordingSnapshot, ReplayTabs, SessionRecordingType } from '~/types'
+
+import {
+    parseEncodedSnapshots,
+    prepareRecordingSnapshots,
+    sessionRecordingDataLogic,
+} from '../player/sessionRecordingDataLogic'
+import type { sessionRecordingDataLogicType } from '../player/sessionRecordingDataLogicType'
+import type { sessionRecordingFilePlaybackLogicType } from './sessionRecordingFilePlaybackLogicType'
 
 export type ExportedSessionRecordingFileV1 = {
     version: '2022-12-02'
@@ -33,7 +39,9 @@ export type ExportedSessionRecordingFileV2 = {
 }
 
 export const createExportedSessionRecording = (
-    logic: BuiltLogic<sessionRecordingDataLogicType>
+    logic: BuiltLogic<sessionRecordingDataLogicType>,
+    // DEBUG signal only, to be removed before release
+    exportUntransformedMobileSnapshotData: boolean
 ): ExportedSessionRecordingFileV2 => {
     const { sessionPlayerMetaData, sessionPlayerSnapshotData } = logic.values
 
@@ -42,7 +50,9 @@ export const createExportedSessionRecording = (
         data: {
             id: sessionPlayerMetaData?.id ?? '',
             person: sessionPlayerMetaData?.person,
-            snapshots: sessionPlayerSnapshotData?.snapshots || [],
+            snapshots: exportUntransformedMobileSnapshotData
+                ? sessionPlayerSnapshotData?.untransformed_snapshots || []
+                : sessionPlayerSnapshotData?.snapshots || [],
         },
     }
 }
@@ -115,6 +125,7 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
     path(['scenes', 'session-recordings', 'detail', 'sessionRecordingDetailLogic']),
     connect({
         actions: [eventUsageLogic, ['reportRecordingLoadedFromFile']],
+        values: [featureFlagLogic, ['featureFlags']],
     }),
 
     loaders(({ actions }) => ({
@@ -166,7 +177,13 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
                 return
             }
 
-            const snapshots = prepareRecordingSnapshots(values.sessionRecording.snapshots)
+            const snapshots = prepareRecordingSnapshots(
+                await parseEncodedSnapshots(
+                    values.sessionRecording.snapshots,
+                    values.sessionRecording.id,
+                    !!values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_MOBILE]
+                )
+            )
 
             dataLogic.actions.loadRecordingSnapshotsSuccess({
                 snapshots,
@@ -196,10 +213,12 @@ export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybac
             () => [],
             (): Breadcrumb[] => [
                 {
-                    name: `Recordings`,
+                    key: Scene.Replay,
+                    name: `Session replay`,
                     path: urls.replay(),
                 },
                 {
+                    key: ReplayTabs.FilePlayback,
                     name: 'Import',
                 },
             ],

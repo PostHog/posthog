@@ -1,17 +1,19 @@
-import { useActions, useValues } from 'kea'
-import { ReplayTabs, SessionRecordingPlaylistType } from '~/types'
-import { PLAYLISTS_PER_PAGE, savedSessionRecordingPlaylistsLogic } from './savedSessionRecordingPlaylistsLogic'
-import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
-import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { urls } from 'scenes/urls'
-import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { TZLabel } from '@posthog/apps-common'
-import { SavedSessionRecordingPlaylistsEmptyState } from 'scenes/session-recordings/saved-playlists/SavedSessionRecordingPlaylistsEmptyState'
+import { LemonButton, LemonDivider, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { MemberSelect } from 'lib/components/MemberSelect'
+import { IconCalendar, IconPinFilled, IconPinOutline } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { IconPinOutline, IconPinFilled, IconCalendar } from 'lib/lemon-ui/icons'
+import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { SavedSessionRecordingPlaylistsEmptyState } from 'scenes/session-recordings/saved-playlists/SavedSessionRecordingPlaylistsEmptyState'
+import { urls } from 'scenes/urls'
+
+import { ReplayTabs, SessionRecordingPlaylistType } from '~/types'
+
+import { PLAYLISTS_PER_PAGE, savedSessionRecordingPlaylistsLogic } from './savedSessionRecordingPlaylistsLogic'
 
 export type SavedSessionRecordingPlaylistsProps = {
     tab: ReplayTabs.Playlists
@@ -25,7 +27,7 @@ function nameColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'name'> {
             return (
                 <>
                     <Link className={clsx('font-semibold', !name && 'italic')} to={urls.replayPlaylist(short_id)}>
-                        {name || derived_name || '(Untitled)'}
+                        {name || derived_name || 'Unnamed'}
                     </Link>
                     {description ? <div className="truncate">{description}</div> : null}
                 </>
@@ -38,7 +40,6 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
     const logic = savedSessionRecordingPlaylistsLogic({ tab })
     const { playlists, playlistsLoading, filters, sorting, pagination } = useValues(logic)
     const { setSavedPlaylistsFilters, updatePlaylist, duplicatePlaylist, deletePlaylist } = useActions(logic)
-    const { meFirstMembers } = useValues(membersLogic)
 
     const columns: LemonTableColumns<SessionRecordingPlaylistType> = [
         {
@@ -157,20 +158,11 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                     </div>
                     <div className="flex items-center gap-2">
                         <span>Created by:</span>
-                        <LemonSelect
+                        <MemberSelect
                             size="small"
-                            options={[
-                                { value: 'All users' as number | 'All users', label: 'All Users' },
-                                ...meFirstMembers.map((x) => ({
-                                    value: x.user.id,
-                                    label: x.user.first_name,
-                                })),
-                            ]}
-                            value={filters.createdBy}
-                            onChange={(v: any): void => {
-                                setSavedPlaylistsFilters({ createdBy: v })
-                            }}
-                            dropdownMatchSelectWidth={false}
+                            type="secondary"
+                            value={filters.createdBy === 'All users' ? null : filters.createdBy}
+                            onChange={(user) => setSavedPlaylistsFilters({ createdBy: user?.id || 'All users' })}
                         />
                     </div>
                 </div>

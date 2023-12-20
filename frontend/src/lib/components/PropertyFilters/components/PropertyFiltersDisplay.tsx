@@ -1,4 +1,5 @@
 import { AnyPropertyFilter } from '~/types'
+
 import { PropertyFilterButton } from './PropertyFilterButton'
 
 const PropertyFiltersDisplay = ({ filters }: { filters: AnyPropertyFilter[] }): JSX.Element => {

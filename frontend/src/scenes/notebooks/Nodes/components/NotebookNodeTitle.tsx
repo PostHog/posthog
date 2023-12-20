@@ -1,33 +1,38 @@
-import { KeyboardEvent } from 'react'
-import { useActions, useValues } from 'kea'
-import { notebookNodeLogic } from '../notebookNodeLogic'
-import { useEffect, useState } from 'react'
 import { LemonInput, Tooltip } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+import { KeyboardEvent } from 'react'
+import { useEffect, useState } from 'react'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
+
+import { notebookNodeLogic } from '../notebookNodeLogic'
 
 export function NotebookNodeTitle(): JSX.Element {
     const { isEditable } = useValues(notebookLogic)
-    const { nodeAttributes, title, titlePlaceholder } = useValues(notebookNodeLogic)
-    const { updateAttributes } = useActions(notebookNodeLogic)
-    const [editing, setEditing] = useState(false)
+    const { nodeAttributes, title, titlePlaceholder, isEditingTitle } = useValues(notebookNodeLogic)
+    const { updateAttributes, toggleEditingTitle } = useActions(notebookNodeLogic)
     const [newValue, setNewValue] = useState('')
 
     useEffect(() => {
         setNewValue(nodeAttributes.title ?? '')
-    }, [editing])
+    }, [isEditingTitle])
 
     const commitEdit = (): void => {
         updateAttributes({
             title: newValue ?? undefined,
         })
 
-        setEditing(false)
+        if (title != newValue) {
+            posthog.capture('notebook node title updated')
+        }
+
+        toggleEditingTitle(false)
     }
 
     const onKeyUp = (e: KeyboardEvent<HTMLInputElement>): void => {
         // Esc cancels, enter commits
         if (e.key === 'Escape') {
-            setEditing(false)
+            toggleEditingTitle(false)
         } else if (e.key === 'Enter') {
             commitEdit()
         }
@@ -37,12 +42,15 @@ export function NotebookNodeTitle(): JSX.Element {
         <span title={title} className="NotebookNodeTitle">
             {title}
         </span>
-    ) : !editing ? (
+    ) : !isEditingTitle ? (
         <Tooltip title={'Double click to edit title'}>
             <span
                 title={title}
                 className="NotebookNodeTitle NotebookNodeTitle--editable"
-                onDoubleClick={() => setEditing(true)}
+                onDoubleClick={() => {
+                    toggleEditingTitle(true)
+                    posthog.capture('notebook editing node title')
+                }}
             >
                 {title}
             </span>

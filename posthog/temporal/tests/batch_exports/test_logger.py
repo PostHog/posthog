@@ -23,7 +23,11 @@ from posthog.clickhouse.log_entries import (
     TRUNCATE_LOG_ENTRIES_TABLE_SQL,
 )
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
-from posthog.temporal.workflows.logger import BACKGROUND_LOGGER_TASKS, bind_batch_exports_logger, configure_logger
+from posthog.temporal.common.logger import (
+    BACKGROUND_LOGGER_TASKS,
+    bind_temporal_worker_logger,
+    configure_logger,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -151,7 +155,7 @@ async def configure(log_capture, queue, producer):
 
 async def test_batch_exports_logger_binds_context(log_capture):
     """Test whether we can bind context variables."""
-    logger = await bind_batch_exports_logger(team_id=1, destination="Somewhere")
+    logger = await bind_temporal_worker_logger(team_id=1, destination="Somewhere")
 
     logger.info("Hi! This is an info log")
     logger.error("Hi! This is an erro log")
@@ -169,7 +173,7 @@ async def test_batch_exports_logger_binds_context(log_capture):
 
 async def test_batch_exports_logger_formats_positional_args(log_capture):
     """Test whether positional arguments are formatted in the message."""
-    logger = await bind_batch_exports_logger(team_id=1, destination="Somewhere")
+    logger = await bind_temporal_worker_logger(team_id=1, destination="Somewhere")
 
     logger.info("Hi! This is an %s log", "info")
     logger.error("Hi! This is an %s log", "error")
@@ -207,13 +211,13 @@ BATCH_EXPORT_ID = str(uuid.uuid4())
     "activity_environment",
     [
         ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.utcnow()}",
+            workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.now(dt.timezone.utc)}",
             workflow_type="s3-export",
             workflow_run_id=str(uuid.uuid4()),
             attempt=random.randint(1, 10000),
         ),
         ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.utcnow()}",
+            workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.now(dt.timezone.utc)}",
             workflow_type="backfill-batch-export",
             workflow_run_id=str(uuid.uuid4()),
             attempt=random.randint(1, 10000),
@@ -230,7 +234,7 @@ async def test_batch_exports_logger_binds_activity_context(
     @temporalio.activity.defn
     async def log_activity():
         """A simple temporal activity that just logs."""
-        logger = await bind_batch_exports_logger(team_id=1, destination="Somewhere")
+        logger = await bind_temporal_worker_logger(team_id=1, destination="Somewhere")
 
         logger.info("Hi! This is an %s log from an activity", "info")
 
@@ -258,13 +262,13 @@ async def test_batch_exports_logger_binds_activity_context(
     "activity_environment",
     [
         ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.utcnow()}",
+            workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.now(dt.timezone.utc)}",
             workflow_type="s3-export",
             workflow_run_id=str(uuid.uuid4()),
             attempt=random.randint(1, 10000),
         ),
         ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.utcnow()}",
+            workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.now(dt.timezone.utc)}",
             workflow_type="backfill-batch-export",
             workflow_run_id=str(uuid.uuid4()),
             attempt=random.randint(1, 10000),
@@ -278,7 +282,7 @@ async def test_batch_exports_logger_puts_in_queue(activity_environment, queue):
     @temporalio.activity.defn
     async def log_activity():
         """A simple temporal activity that just logs."""
-        logger = await bind_batch_exports_logger(team_id=2, destination="Somewhere")
+        logger = await bind_temporal_worker_logger(team_id=2, destination="Somewhere")
 
         logger.info("Hi! This is an %s log from an activity", "info")
 
@@ -320,13 +324,13 @@ def log_entries_table():
     "activity_environment",
     [
         ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.utcnow()}",
+            workflow_id=f"{BATCH_EXPORT_ID}-{dt.datetime.now(dt.timezone.utc)}",
             workflow_type="s3-export",
             workflow_run_id=str(uuid.uuid4()),
             attempt=random.randint(1, 10000),
         ),
         ActivityInfo(
-            workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.utcnow()}",
+            workflow_id=f"{BATCH_EXPORT_ID}-Backfill-{dt.datetime.now(dt.timezone.utc)}",
             workflow_type="backfill-batch-export",
             workflow_run_id=str(uuid.uuid4()),
             attempt=random.randint(1, 10000),
@@ -343,7 +347,7 @@ async def test_batch_exports_logger_produces_to_kafka(activity_environment, prod
     @temporalio.activity.defn
     async def log_activity():
         """A simple temporal activity that just logs."""
-        logger = await bind_batch_exports_logger(team_id=3, destination="Somewhere")
+        logger = await bind_temporal_worker_logger(team_id=3, destination="Somewhere")
 
         logger.info("Hi! This is an %s log from an activity", "info")
 

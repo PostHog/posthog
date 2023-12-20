@@ -1,14 +1,15 @@
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
-import { PageHeader } from 'lib/components/PageHeader'
-import { SceneExport } from 'scenes/sceneTypes'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { DataWarehousePageTabs, DataWarehouseTab } from '../DataWarehousePageTabs'
-import { DatabaseTablesContainer } from 'scenes/data-management/database/DatabaseTables'
-import { ViewLinkModal } from '../ViewLinkModal'
 import { useActions, useValues } from 'kea'
-import { viewLinkLogic } from '../viewLinkLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { DatabaseTablesContainer } from 'scenes/data-management/database/DatabaseTables'
+import { SceneExport } from 'scenes/sceneTypes'
+
+import { DataWarehousePageTabs, DataWarehouseTab } from '../DataWarehousePageTabs'
+import { viewLinkLogic } from '../viewLinkLogic'
+import { ViewLinkModal } from '../ViewLinkModal'
 
 export const scene: SceneExport = {
     component: DataWarehousePosthogScene,

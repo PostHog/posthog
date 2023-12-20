@@ -84,7 +84,6 @@ class SessionRecording(UUIDModel):
             self._metadata = metadata
 
             # Some fields of the metadata are persisted fully in the model
-            # TODO there is more metadata we can add here
             self.distinct_id = metadata["distinct_id"]
             self.start_time = metadata["start_time"]
             self.end_time = metadata["end_time"]
@@ -92,6 +91,12 @@ class SessionRecording(UUIDModel):
             self.click_count = metadata["click_count"]
             self.keypress_count = metadata["keypress_count"]
             self.set_start_url_from_urls(first_url=metadata["first_url"])
+            self.mouse_activity_count = metadata["mouse_activity_count"]
+            self.active_seconds = metadata["active_seconds"]
+            self.inactive_seconds = metadata["duration"] - metadata["active_seconds"]
+            self.console_log_count = metadata["console_log_count"]
+            self.console_warn_count = metadata["console_warn_count"]
+            self.console_error_count = metadata["console_error_count"]
 
         return True
 

@@ -1,15 +1,17 @@
 import { LemonButton, LemonDivider, LemonTabs, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { dayjs, Dayjs } from 'lib/dayjs'
-import { humanizeBytes, humanFriendlyMilliseconds, isURL } from 'lib/utils'
-import { Body, PerformanceEvent } from '~/types'
-import { SimpleKeyValueList } from './SimpleKeyValueList'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { Fragment, useState } from 'react'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { Dayjs, dayjs } from 'lib/dayjs'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { humanFriendlyMilliseconds, humanizeBytes, isURL } from 'lib/utils'
+import { Fragment, useState } from 'react'
 import { NetworkRequestTiming } from 'scenes/session-recordings/player/inspector/components/Timing/NetworkRequestTiming'
+
+import { Body, PerformanceEvent } from '~/types'
+
+import { SimpleKeyValueList } from './SimpleKeyValueList'
 
 const friendlyHttpStatus = {
     '0': 'Request not sent',
@@ -134,15 +136,42 @@ function renderTimeBenchmark(milliseconds: number): JSX.Element {
     )
 }
 
+function itemSizeInfo(item: PerformanceEvent): {
+    bytes: string
+    compressionPercentage: number | null
+    decodedBodySize: string | null
+    encodedBodySize: string | null
+    formattedCompressionPercentage: string | null
+    isFromLocalCache: boolean
+} {
+    const bytes = humanizeBytes(item.encoded_body_size || item.decoded_body_size || item.transfer_size || 0)
+    const decodedBodySize = item.decoded_body_size ? humanizeBytes(item.decoded_body_size) : null
+    const encodedBodySize = item.encoded_body_size ? humanizeBytes(item.encoded_body_size) : null
+    const compressionPercentage =
+        item.decoded_body_size && item.encoded_body_size
+            ? ((item.decoded_body_size - item.encoded_body_size) / item.decoded_body_size) * 100
+            : null
+    const formattedCompressionPercentage = compressionPercentage ? `${compressionPercentage.toFixed(1)}%` : null
+    const isFromLocalCache = item.transfer_size === 0 && (item.decoded_body_size || 0) > 0
+    return {
+        bytes,
+        compressionPercentage,
+        decodedBodySize,
+        encodedBodySize,
+        formattedCompressionPercentage,
+        isFromLocalCache,
+    }
+}
+
 export function ItemPerformanceEvent({
     item,
     finalTimestamp,
     expanded,
     setExpanded,
 }: ItemPerformanceEvent): JSX.Element {
-    const [activeTab, setActiveTab] = useState<'timings' | 'headers' | 'payload' | 'response_body'>('timings')
+    const [activeTab, setActiveTab] = useState<'timings' | 'headers' | 'payload' | 'response_body' | 'raw'>('timings')
 
-    const bytes = humanizeBytes(item.encoded_body_size || item.decoded_body_size || 0)
+    const sizeInfo = itemSizeInfo(item)
     const startTime = item.start_time || item.fetch_start || 0
     const duration = item.duration || 0
 
@@ -176,7 +205,11 @@ export function ItemPerformanceEvent({
             return acc
         }
 
-        if (['response_headers', 'request_headers', 'request_body', 'response_body', 'response_status'].includes(key)) {
+        if (
+            ['response_headers', 'request_headers', 'request_body', 'response_body', 'response_status', 'raw'].includes(
+                key
+            )
+        ) {
             return acc
         }
 
@@ -189,11 +222,6 @@ export function ItemPerformanceEvent({
             [key]: typeof value === 'number' ? Math.round(value) : value,
         }
     }, {} as Record<string, any>)
-
-    const compressionPercentage =
-        item.decoded_body_size && item.encoded_body_size
-            ? ((item.decoded_body_size - item.encoded_body_size) / item.decoded_body_size) * 100
-            : undefined
 
     return (
         <div>
@@ -216,42 +244,7 @@ export function ItemPerformanceEvent({
                         }}
                     />
                     {item.entry_type === 'navigation' ? (
-                        <>
-                            <div className="flex gap-2 items-start p-2 text-xs">
-                                <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>
-                                    Navigated to {shortEventName}
-                                </span>
-                            </div>
-                            <LemonDivider className="my-0" />
-                            <div className="flex items-center p-2">
-                                {performanceSummaryCards.map(({ label, description, key, scoreBenchmarks }, index) => (
-                                    <Fragment key={key}>
-                                        {index !== 0 && <LemonDivider vertical dashed />}
-                                        <Tooltip title={description}>
-                                            <div className="flex-1 p-2 text-center">
-                                                <div className="text-sm">{label}</div>
-                                                <div className="text-lg font-semibold">
-                                                    {item?.[key] === undefined ? (
-                                                        '-'
-                                                    ) : (
-                                                        <span
-                                                            className={clsx({
-                                                                'text-danger-dark': item[key] >= scoreBenchmarks[1],
-                                                                'text-warning-dark':
-                                                                    item[key] >= scoreBenchmarks[0] &&
-                                                                    item[key] < scoreBenchmarks[1],
-                                                            })}
-                                                        >
-                                                            {humanFriendlyMilliseconds(item[key])}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </Tooltip>
-                                    </Fragment>
-                                ))}
-                            </div>
-                        </>
+                        <NavigationItem item={item} expanded={expanded} shortEventName={shortEventName} />
                     ) : (
                         <div className="flex gap-2 items-start p-2 text-xs cursor-pointer">
                             <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>
@@ -272,7 +265,7 @@ export function ItemPerformanceEvent({
                                 </span>
                             ) : null}
                             {renderTimeBenchmark(duration)}
-                            <span className={clsx('font-semibold')}>{bytes}</span>
+                            <span className={clsx('font-semibold')}>{sizeInfo.bytes}</span>
                         </div>
                     )}
                 </div>
@@ -323,16 +316,22 @@ export function ItemPerformanceEvent({
                                 Request started at{' '}
                                 <b>{humanFriendlyMilliseconds(item.start_time || item.fetch_start)}</b> and took{' '}
                                 <b>{humanFriendlyMilliseconds(item.duration)}</b>
-                                {item.decoded_body_size ? (
+                                {sizeInfo.decodedBodySize ? (
                                     <>
                                         {' '}
-                                        to load <b>{humanizeBytes(item.decoded_body_size)}</b> of data
+                                        to load <b>{sizeInfo.decodedBodySize}</b> of data
                                     </>
                                 ) : null}
-                                {compressionPercentage && item.encoded_body_size ? (
+                                {sizeInfo.isFromLocalCache ? (
                                     <>
-                                        , compressed to <b>{humanizeBytes(item.encoded_body_size)}</b> saving{' '}
-                                        <b>{compressionPercentage.toFixed(1)}%</b>
+                                        {' '}
+                                        <span className={'text-muted'}>(from local cache)</span>
+                                    </>
+                                ) : null}
+                                {sizeInfo.formattedCompressionPercentage && sizeInfo.encodedBodySize ? (
+                                    <>
+                                        , compressed to <b>{sizeInfo.encodedBodySize}</b> saving{' '}
+                                        <b>{sizeInfo.formattedCompressionPercentage}</b>
                                     </>
                                 ) : null}
                                 .
@@ -392,6 +391,17 @@ export function ItemPerformanceEvent({
                                                   ),
                                               }
                                             : false,
+                                        // raw is only available if the feature flag is enabled
+                                        // TODO before proper release we should put raw behind its own flag
+                                        {
+                                            key: 'raw',
+                                            label: 'Json',
+                                            content: (
+                                                <CodeSnippet language={Language.JSON} wrap thing="performance event">
+                                                    {JSON.stringify(item.raw, null, 2)}
+                                                </CodeSnippet>
+                                            ),
+                                        },
                                     ]}
                                 />
                             </FlaggedFeature>
@@ -470,6 +480,11 @@ function StatusRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
     let statusRow = null
     let methodRow = null
 
+    let fromDiskCache = false
+    if (item.transfer_size === 0 && item.response_body && item.response_status && item.response_status < 400) {
+        fromDiskCache = true
+    }
+
     if (item.response_status) {
         const statusDescription = `${item.response_status} ${friendlyHttpStatus[item.response_status] || ''}`
 
@@ -483,7 +498,10 @@ function StatusRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
         statusRow = (
             <div className="flex gap-4 items-center justify-between overflow-hidden">
                 <div className="font-semibold">Status code</div>
-                <LemonTag type={statusType}>{statusDescription}</LemonTag>
+                <div>
+                    <LemonTag type={statusType}>{statusDescription}</LemonTag>
+                    {fromDiskCache && <span className={'text-muted'}> (from cache)</span>}
+                </div>
             </div>
         )
     }
@@ -506,4 +524,52 @@ function StatusRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
             <LemonDivider dashed />
         </p>
     ) : null
+}
+
+function NavigationItem({
+    item,
+    expanded,
+    shortEventName,
+}: {
+    item: PerformanceEvent
+    expanded: boolean
+    shortEventName: string
+}): JSX.Element | null {
+    return (
+        <>
+            <div className="flex gap-2 items-start p-2 text-xs">
+                <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>
+                    Navigated to {shortEventName}
+                </span>
+            </div>
+            <LemonDivider className="my-0" />
+            <div className="flex items-center p-2">
+                {performanceSummaryCards.map(({ label, description, key, scoreBenchmarks }, index) => (
+                    <Fragment key={key}>
+                        {index !== 0 && <LemonDivider vertical dashed />}
+                        <Tooltip title={description}>
+                            <div className="flex-1 p-2 text-center">
+                                <div className="text-sm">{label}</div>
+                                <div className="text-lg font-semibold">
+                                    {item?.[key] === undefined ? (
+                                        '-'
+                                    ) : (
+                                        <span
+                                            className={clsx({
+                                                'text-danger-dark': item[key] >= scoreBenchmarks[1],
+                                                'text-warning-dark':
+                                                    item[key] >= scoreBenchmarks[0] && item[key] < scoreBenchmarks[1],
+                                            })}
+                                        >
+                                            {humanFriendlyMilliseconds(item[key])}
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        </Tooltip>
+                    </Fragment>
+                ))}
+            </div>
+        </>
+    )
 }

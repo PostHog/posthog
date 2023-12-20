@@ -1,8 +1,10 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
-import { sessionPlayerModalLogic } from './sessionPlayerModalLogic'
+
 import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+
+import { sessionPlayerModalLogic } from './sessionPlayerModalLogic'
 
 describe('sessionPlayerModalLogic', () => {
     let logic: ReturnType<typeof sessionPlayerModalLogic.build>
@@ -27,7 +29,7 @@ describe('sessionPlayerModalLogic', () => {
         it('starts as null', () => {
             expectLogic(logic).toMatchValues({ activeSessionRecording: null })
         })
-        it('is set by openSessionPlayer and cleared by closeSessionPlayer', async () => {
+        it('is set by openSessionPlayer and cleared by closeSessionPlayer', () => {
             expectLogic(logic, () => logic.actions.openSessionPlayer({ id: 'abc' }))
                 .toDispatchActions(['loadSessionRecordingsSuccess'])
                 .toMatchValues({

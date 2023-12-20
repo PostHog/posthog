@@ -12,7 +12,7 @@ def can_user_edit_feature_flag(request, feature_flag):
     else:
         if not request.user.organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
             return True
-        if feature_flag.created_by == request.user:
+        if hasattr(feature_flag, "created_by") and feature_flag.created_by and feature_flag.created_by == request.user:
             return True
         if (
             request.user.organization_memberships.get(organization=request.user.organization).level

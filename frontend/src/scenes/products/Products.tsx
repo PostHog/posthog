@@ -1,19 +1,20 @@
-import { LemonButton } from '@posthog/lemon-ui'
-import { SceneExport } from 'scenes/sceneTypes'
-import { BillingProductV2Type, ProductKey } from '~/types'
-import { useActions, useValues } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
-import { useEffect } from 'react'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { urls } from 'scenes/urls'
-import { billingLogic } from 'scenes/billing/billingLogic'
-import { Spinner } from 'lib/lemon-ui/Spinner'
-import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
-import { router } from 'kea-router'
-import { getProductUri } from 'scenes/onboarding/onboardingLogic'
-import { productsLogic } from './productsLogic'
 import * as Icons from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
+import { getProductUri } from 'scenes/onboarding/onboardingLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { BillingProductV2Type, ProductKey } from '~/types'
+
+import { productsLogic } from './productsLogic'
 
 export const scene: SceneExport = {
     component: Products,
@@ -30,6 +31,7 @@ function OnboardingCompletedButton({
     productKey: ProductKey
 }): JSX.Element {
     const { onSelectProduct } = useActions(productsLogic)
+
     return (
         <>
             <LemonButton type="secondary" status="muted" to={productUrl}>
@@ -92,12 +94,13 @@ export function ProductCard({
     className?: string
 }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const onboardingCompleted = currentTeam?.has_completed_onboarding_for?.[product.type]
     const vertical = orientation === 'vertical'
 
     return (
         <LemonCard
-            className={`flex gap-x-4 gap-y-4 ${vertical ? 'flex-col max-w-80' : 'items-center'} ${className}`}
+            className={clsx('flex gap-4', vertical ? 'flex-col max-w-80' : 'items-center', className)}
             key={product.type}
         >
             <div className="flex">
@@ -105,14 +108,14 @@ export function ProductCard({
                     <div className="bg-mid rounded p-2">{getProductIcon(product.icon_key, 'text-2xl')}</div>
                 </div>
             </div>
-            <div>
+            <div className="flex-1">
                 <h3 className={`bold ${vertical ? 'mb-2' : 'mb-0'}`}>{product.name}</h3>
                 <p className="grow m-0">{product.description}</p>
             </div>
-            <div className={`flex gap-x-2 grow shrink-0 ${!vertical && 'justify-end'}`}>
+            <div className={`flex gap-x-2 flex-0 items-center ${!vertical && 'justify-end'}`}>
                 {onboardingCompleted ? (
                     <OnboardingCompletedButton
-                        productUrl={getProductUri(product.type as ProductKey)}
+                        productUrl={getProductUri(product.type as ProductKey, featureFlags)}
                         onboardingUrl={urls.onboarding(product.type)}
                         productKey={product.type as ProductKey}
                     />
@@ -131,20 +134,13 @@ export function ProductCard({
 }
 
 export function Products(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { billing } = useValues(billingLogic)
     const { currentTeam } = useValues(teamLogic)
     const isFirstProduct = Object.keys(currentTeam?.has_completed_onboarding_for || {}).length === 0
     const products = billing?.products || []
 
-    useEffect(() => {
-        if (featureFlags[FEATURE_FLAGS.PRODUCT_SPECIFIC_ONBOARDING] !== 'test') {
-            location.href = urls.ingestion()
-        }
-    }, [])
-
     return (
-        <div className="flex flex-col w-full h-full p-6 items-center justify-center bg-mid">
+        <div className="flex flex-col flex-1 w-full h-full p-6 items-center justify-center bg-mid">
             <div className="mb-8">
                 <h1 className="text-center text-4xl">Pick your {isFirstProduct ? 'first' : 'next'} product.</h1>
                 <p className="text-center">

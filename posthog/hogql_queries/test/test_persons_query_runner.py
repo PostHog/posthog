@@ -22,6 +22,7 @@ from posthog.test.base import (
     _create_event,
 )
 from freezegun import freeze_time
+from django.test import override_settings
 
 
 class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -29,7 +30,7 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     random_uuid: str
 
     def _create_random_persons(self) -> str:
-        random_uuid = str(UUIDT())
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for index in range(10):
             _create_person(
                 properties={
@@ -65,27 +66,22 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = clear_locations(query)
         expected = ast.SelectQuery(
             select=[
-                ast.Tuple(
-                    exprs=[
-                        ast.Field(chain=["id"]),
-                        ast.Field(chain=["properties"]),
-                        ast.Field(chain=["created_at"]),
-                        ast.Field(chain=["is_identified"]),
-                    ]
-                ),
+                ast.Field(chain=["id"]),
                 ast.Field(chain=["id"]),
                 ast.Field(chain=["created_at"]),
                 ast.Constant(value=1),
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
             where=None,
-            limit=ast.Constant(value=101),
-            offset=ast.Constant(value=0),
             order_by=[ast.OrderExpr(expr=ast.Field(chain=["created_at"]), order="DESC")],
         )
-        self.assertEqual(clear_locations(query), expected)
+        assert clear_locations(query) == expected
         response = runner.calculate()
-        self.assertEqual(len(response.results), 10)
+        assert len(response.results) == 10
+
+        assert set(response.results[0][0].keys()) == {"id", "created_at", "distinct_ids", "properties", "is_identified"}
+        assert response.results[0][0].get("properties").get("random_uuid") == self.random_uuid
+        assert len(response.results[0][0].get("distinct_ids")) > 0
 
     def test_persons_query_properties(self):
         self.random_uuid = self._create_random_persons()
@@ -181,7 +177,21 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results, [[f"jacob7@{self.random_uuid}.posthog.com"]])
         self.assertEqual(response.hasMore, True)
 
-    def test_source_hogql_query(self):
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    def test_source_hogql_query_poe_on(self):
+        self.random_uuid = self._create_random_persons()
+        source_query = HogQLQuery(query="SELECT distinct person_id FROM events WHERE event='clicky-4'")
+        query = PersonsQuery(
+            select=["properties.email"],
+            orderBy=["properties.email DESC"],
+            source=source_query,
+        )
+        runner = self._create_runner(query)
+        response = runner.calculate()
+        self.assertEqual(response.results, [[f"jacob4@{self.random_uuid}.posthog.com"]])
+
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_source_hogql_query_poe_off(self):
         self.random_uuid = self._create_random_persons()
         source_query = HogQLQuery(query="SELECT distinct person_id FROM events WHERE event='clicky-4'")
         query = PersonsQuery(

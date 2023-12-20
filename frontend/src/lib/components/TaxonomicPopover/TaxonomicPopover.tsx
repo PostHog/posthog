@@ -1,12 +1,12 @@
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
-import { useEffect, useState } from 'react'
-import { LemonButton, LemonButtonProps, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
 import { IconClose } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
+import { useEffect, useState } from 'react'
 
 export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>
-    extends Omit<LemonButtonProps, 'children' | 'onClick'> {
+    extends Omit<LemonButtonProps, 'children' | 'onClick' | 'sideIcon' | 'sideAction'> {
     groupType: TaxonomicFilterGroupType
     value?: ValueType
     onChange: (value: ValueType, groupType: TaxonomicFilterGroupType, item: any) => void
@@ -54,7 +54,7 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
 
     const isClearButtonShown = allowClear && !!localValue
 
-    const buttonPropsFinal = buttonPropsRest as LemonButtonProps
+    const buttonPropsFinal: Omit<LemonButtonProps, 'sideIcon' | 'sideAction'> = buttonPropsRest
     buttonPropsFinal.children = localValue ? (
         <span>{renderValue?.(localValue) ?? localValue}</span>
     ) : (
@@ -75,47 +75,45 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
     }, [value])
 
     return (
-        <div className="LemonButtonWithSideAction">
-            <LemonDropdown
-                overlay={
-                    <TaxonomicFilter
-                        groupType={groupType}
-                        value={value}
-                        onChange={({ type }, payload, item) => {
-                            onChange?.(payload as ValueType, type, item)
-                            setVisible(false)
-                        }}
-                        taxonomicGroupTypes={groupTypes ?? [groupType]}
-                        eventNames={eventNames}
-                        hogQLTable={hogQLTable}
-                        excludedProperties={excludedProperties}
-                    />
-                }
-                sameWidth={false}
-                actionable
-                visible={visible}
-                onClickOutside={() => {
-                    setVisible(false)
-                }}
-            >
-                {isClearButtonShown ? (
-                    <LemonButtonWithSideAction
-                        sideAction={{
-                            icon: <IconClose />,
-                            tooltip: 'Clear selection',
-                            onClick: (e) => {
-                                e.stopPropagation()
-                                onChange?.('' as ValueType, groupType, null)
-                                setLocalValue('' as ValueType)
-                            },
-                            divider: false,
-                        }}
-                        {...buttonPropsFinal}
-                    />
-                ) : (
-                    <LemonButton {...buttonPropsFinal} />
-                )}
-            </LemonDropdown>
-        </div>
+        <LemonDropdown
+            overlay={
+                <TaxonomicFilter
+                    groupType={groupType}
+                    value={value}
+                    onChange={({ type }, payload, item) => {
+                        onChange?.(payload as ValueType, type, item)
+                        setVisible(false)
+                    }}
+                    taxonomicGroupTypes={groupTypes ?? [groupType]}
+                    eventNames={eventNames}
+                    hogQLTable={hogQLTable}
+                    excludedProperties={excludedProperties}
+                />
+            }
+            sameWidth={false}
+            actionable
+            visible={visible}
+            onClickOutside={() => {
+                setVisible(false)
+            }}
+        >
+            {isClearButtonShown ? (
+                <LemonButton
+                    sideAction={{
+                        icon: <IconClose />,
+                        tooltip: 'Clear selection',
+                        onClick: (e) => {
+                            e.stopPropagation()
+                            onChange?.('' as ValueType, groupType, null)
+                            setLocalValue('' as ValueType)
+                        },
+                        divider: false,
+                    }}
+                    {...buttonPropsFinal}
+                />
+            ) : (
+                <LemonButton {...buttonPropsFinal} />
+            )}
+        </LemonDropdown>
     )
 }

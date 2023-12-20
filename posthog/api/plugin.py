@@ -531,6 +531,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
     config = serializers.SerializerMethodField()
     plugin_info = serializers.SerializerMethodField()
     delivery_rate_24h = serializers.SerializerMethodField()
+    error = serializers.SerializerMethodField()
 
     class Meta:
         model = PluginConfig
@@ -554,6 +555,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             "id",
             "team_id",
             "plugin_info",
+            "error",
             "delivery_rate_24h",
             "created_at",
         ]
@@ -603,6 +605,12 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             return self.context["delivery_rates_1d"].get(plugin_config.pk, None)
         else:
             return None
+
+    def get_error(self, plugin_config: PluginConfig) -> None:
+        # Reporting the single latest error is no longer supported: use app
+        # metrics (for fatal errors) or plugin log entries (for all errors) for
+        # error details instead.
+        return None
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:
         if not can_configure_plugins(self.context["get_organization"]()):
@@ -843,4 +851,25 @@ class PipelineTransformationsConfigsViewSet(PluginConfigViewSet):
         queryset = super().get_queryset()
         return queryset.filter(
             Q(plugin__capabilities__has_key="methods") & Q(plugin__capabilities__methods__contains=["processEvent"])
+        )
+
+
+class PipelineDestinationsViewSet(PluginViewSet):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.filter(
+            Q(capabilities__has_key="methods")
+            & (Q(capabilities__methods__contains=["onEvent"]) | Q(capabilities__methods__contains=["composeWebhook"]))
+        )
+
+
+class PipelineDestinationsConfigsViewSet(PluginConfigViewSet):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.filter(
+            Q(plugin__capabilities__has_key="methods")
+            & (
+                Q(plugin__capabilities__methods__contains=["onEvent"])
+                | Q(plugin__capabilities__methods__contains=["composeWebhook"])
+            )
         )

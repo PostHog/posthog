@@ -1,13 +1,13 @@
-import { actions, kea, reducers, path, listeners, selectors } from 'kea'
-
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { urlToAction } from 'kea-router'
-import { HTMLProps, RefObject } from 'react'
-import posthog from 'posthog-js'
 import { subscriptions } from 'kea-subscriptions'
-import { EditorFocusPosition } from '../Notebook/utils'
+import posthog from 'posthog-js'
+import { HTMLProps, RefObject } from 'react'
 
-import type { notebookPopoverLogicType } from './notebookPopoverLogicType'
 import { NotebookNodeResource, NotebookPopoverVisibility } from '~/types'
+
+import { EditorFocusPosition } from '../Notebook/utils'
+import type { notebookPopoverLogicType } from './notebookPopoverLogicType'
 
 export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
     path(['scenes', 'notebooks', 'Notebook', 'notebookPopoverLogic']),

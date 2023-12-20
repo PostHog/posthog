@@ -1,14 +1,16 @@
-import { useEffect } from 'react'
 import { Meta } from '@storybook/react'
-import { mswDecorator } from '~/mocks/browser'
-import { App } from 'scenes/App'
 import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { useEffect } from 'react'
+import { App } from 'scenes/App'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { urls } from 'scenes/urls'
+
+import { mswDecorator } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
 import { DashboardMode } from '~/types'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+
 import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
 
 const meta: Meta = {

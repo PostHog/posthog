@@ -1,5 +1,7 @@
+import { objectClean } from 'lib/utils'
+import { isFunnelsFilter, isLifecycleFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+
 import { ActionsNode, BreakdownFilter, EventsNode, InsightNodeKind, InsightQueryNode, NodeKind } from '~/queries/schema'
-import { ActionFilter, EntityTypes, FilterType, InsightType } from '~/types'
 import {
     isActionsNode,
     isEventsNode,
@@ -10,8 +12,7 @@ import {
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
-import { objectClean } from 'lib/utils'
-import { isFunnelsFilter, isLifecycleFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { ActionFilter, EntityTypes, FilterType, InsightType } from '~/types'
 
 type FilterTypeActionsAndEvents = { events?: ActionFilter[]; actions?: ActionFilter[]; new_entity?: ActionFilter[] }
 

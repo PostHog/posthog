@@ -1,11 +1,13 @@
-import { kea, props, path, connect, actions, reducers, selectors, listeners } from 'kea'
-import { BillingProductV2Type, ProductKey } from '~/types'
-import { urls } from 'scenes/urls'
-
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { combineUrl, router, actionToUrl, urlToAction } from 'kea-router'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { urls } from 'scenes/urls'
+
+import { BillingProductV2Type, ProductKey } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
 
@@ -19,16 +21,20 @@ export enum OnboardingStepKey {
     BILLING = 'billing',
     OTHER_PRODUCTS = 'other_products',
     VERIFY = 'verify',
+    PRODUCT_CONFIGURATION = 'configure',
+    INVITE_TEAMMATES = 'invite_teammates',
 }
 
 // These types have to be set like this, so that kea typegen is happy
 export type AllOnboardingSteps = OnboardingStep[]
 export type OnboardingStep = JSX.Element
 
-export const getProductUri = (productKey: ProductKey): string => {
+export const getProductUri = (productKey: ProductKey, featureFlags: FeatureFlagsSet): string => {
     switch (productKey) {
         case ProductKey.PRODUCT_ANALYTICS:
-            return combineUrl(urls.events(), { onboarding_completed: true }).url
+            return featureFlags[FEATURE_FLAGS.REDIRECT_INGESTION_PRODUCT_ANALYTICS_ONBOARDING] === 'test'
+                ? combineUrl(urls.insights(), { onboarding_completed: true }).url
+                : combineUrl(urls.events(), { onboarding_completed: true }).url
         case ProductKey.SESSION_REPLAY:
             return urls.replay()
         case ProductKey.FEATURE_FLAGS:
@@ -44,7 +50,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
     props({} as OnboardingLogicProps),
     path(['scenes', 'onboarding', 'onboardingLogic']),
     connect({
-        values: [billingLogic, ['billing'], teamLogic, ['currentTeam']],
+        values: [billingLogic, ['billing'], teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']],
         actions: [billingLogic, ['loadBillingSuccess'], teamLogic, ['updateCurrentTeamSuccess']],
     }),
     actions({
@@ -52,7 +58,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         setProductKey: (productKey: string | null) => ({ productKey }),
         completeOnboarding: (nextProductKey?: string) => ({ nextProductKey }),
         setAllOnboardingSteps: (allOnboardingSteps: AllOnboardingSteps) => ({ allOnboardingSteps }),
-        setStepKey: (stepKey: string) => ({ stepKey }),
+        setStepKey: (stepKey: OnboardingStepKey) => ({ stepKey }),
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
         goToNextStep: true,
         goToPreviousStep: true,
@@ -74,21 +80,13 @@ export const onboardingLogic = kea<onboardingLogicType>([
         allOnboardingSteps: [
             [] as AllOnboardingSteps,
             {
-                setAllOnboardingSteps: (_, { allOnboardingSteps }) => allOnboardingSteps as AllOnboardingSteps,
+                setAllOnboardingSteps: (_, { allOnboardingSteps }) => allOnboardingSteps,
             },
         ],
         stepKey: [
-            '' as string,
+            '' as OnboardingStepKey,
             {
                 setStepKey: (_, { stepKey }) => stepKey,
-            },
-        ],
-        onCompleteOnboardingRedirectUrl: [
-            urls.default() as string,
-            {
-                setProductKey: (_, { productKey }) => {
-                    return productKey ? getProductUri(productKey as ProductKey) : urls.default()
-                },
             },
         ],
         subscribedDuringOnboarding: [
@@ -99,6 +97,12 @@ export const onboardingLogic = kea<onboardingLogicType>([
         ],
     })),
     selectors({
+        onCompleteOnboardingRedirectUrl: [
+            (s) => [s.featureFlags, s.productKey],
+            (featureFlags: FeatureFlagsSet, productKey: string | null) => {
+                return productKey ? getProductUri(productKey as ProductKey, featureFlags) : urls.default()
+            },
+        ],
         totalOnboardingSteps: [
             (s) => [s.allOnboardingSteps],
             (allOnboardingSteps: AllOnboardingSteps) => allOnboardingSteps.length,
@@ -153,7 +157,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
     }),
     listeners(({ actions, values }) => ({
         loadBillingSuccess: () => {
-            actions.setProduct(values.billing?.products.find((p) => p.type === values.productKey) || null)
+            if (window.location.pathname.startsWith('/onboarding')) {
+                actions.setProduct(values.billing?.products.find((p) => p.type === values.productKey) || null)
+            }
         },
         setProduct: ({ product }) => {
             if (!product) {
@@ -205,7 +211,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
         },
         resetStepKey: () => {
-            actions.setStepKey(values.allOnboardingSteps[0].props.stepKey)
+            values.allOnboardingSteps[0] && actions.setStepKey(values.allOnboardingSteps[0]?.props.stepKey)
         },
     })),
     actionToUrl(({ values }) => ({

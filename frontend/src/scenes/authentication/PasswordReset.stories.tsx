@@ -1,10 +1,12 @@
 // PasswordReset.stories.tsx
 import { Meta } from '@storybook/react'
-import { PasswordReset } from './PasswordReset'
 import { useEffect } from 'react'
+import { passwordResetLogic } from 'scenes/authentication/passwordResetLogic'
+
 import { useStorybookMocks } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
-import { passwordResetLogic } from 'scenes/authentication/passwordResetLogic'
+
+import { PasswordReset } from './PasswordReset'
 
 // some metadata and optional parameters
 const meta: Meta = {

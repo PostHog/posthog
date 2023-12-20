@@ -1,10 +1,10 @@
-import { useState } from 'react'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { dayjs } from 'lib/dayjs'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCalendarRange, LemonCalendarRangeProps } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { dayjs } from 'lib/dayjs'
 import { formatDateRange } from 'lib/utils'
+import { useState } from 'react'
 
 type Story = StoryObj<typeof LemonCalendarRange>
 const meta: Meta<typeof LemonCalendarRange> = {
@@ -12,6 +12,9 @@ const meta: Meta<typeof LemonCalendarRange> = {
     component: LemonCalendarRange,
     parameters: {
         mockDate: '2023-01-26',
+        testOptions: {
+            include3000: true,
+        },
     },
     tags: ['autodocs'],
 }

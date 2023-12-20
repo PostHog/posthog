@@ -1,6 +1,6 @@
-import { useValues, useActions } from 'kea'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonCheckbox } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 export function CompareFilter(): JSX.Element | null {

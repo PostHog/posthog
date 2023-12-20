@@ -1,10 +1,12 @@
-import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { expectLogic } from 'kea-test-utils'
-import filtersJson from './__mocks__/filters.json'
-import { EntityFilter } from '~/types'
+import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { renameModalLogic } from 'scenes/insights/filters/ActionFilter/renameModalLogic'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
+
 import { initKeaTests } from '~/test/init'
+import { EntityFilter } from '~/types'
+
+import filtersJson from './__mocks__/filters.json'
 
 describe('renameModalLogic', () => {
     let logic: ReturnType<typeof renameModalLogic.build>

@@ -1,8 +1,8 @@
-import { useActions, useValues } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
 import { LemonSwitch, Link } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
+import { useActions, useValues } from 'kea'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 export type SurveySettingsProps = {
     inModal?: boolean

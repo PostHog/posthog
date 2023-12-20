@@ -1,8 +1,10 @@
-import ReactMarkdown from 'react-markdown'
 import './LemonMarkdown.scss'
-import { Link } from '../Link'
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+
 import clsx from 'clsx'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import ReactMarkdown from 'react-markdown'
+
+import { Link } from '../Link'
 
 export interface LemonMarkdownProps {
     children: string

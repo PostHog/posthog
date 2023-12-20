@@ -1,16 +1,5 @@
-import {
-    Hub,
-    Plugin,
-    PluginAttachmentDB,
-    PluginCapabilities,
-    PluginConfig,
-    PluginConfigId,
-    PluginError,
-    PluginLogEntrySource,
-    PluginLogEntryType,
-} from '../../types'
+import { Hub, Plugin, PluginAttachmentDB, PluginCapabilities, PluginConfig, PluginConfigId } from '../../types'
 import { PostgresUse } from './postgres'
-import { sanitizeJsonbValue } from './utils'
 
 function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
     const fields = specificField
@@ -23,8 +12,7 @@ function pluginConfigsInForceQuery(specificField?: keyof PluginConfig): string {
         posthog_pluginconfig.order,
         posthog_pluginconfig.config,
         posthog_pluginconfig.updated_at,
-        posthog_pluginconfig.created_at,
-        posthog_pluginconfig.error IS NOT NULL AS has_error
+        posthog_pluginconfig.created_at
     `
 
     return `SELECT ${fields}
@@ -115,27 +103,6 @@ export async function setPluginCapabilities(
         [capabilities, pluginConfig.plugin_id],
         'setPluginCapabilities'
     )
-}
-
-export async function setError(hub: Hub, pluginError: PluginError | null, pluginConfig: PluginConfig): Promise<void> {
-    await hub.db.postgres.query(
-        PostgresUse.COMMON_WRITE,
-        'UPDATE posthog_pluginconfig SET error = $1 WHERE id = $2',
-        // NOTE: In theory `onEvent` shouldn't be seeing events that still have the null byte, but
-        // it's better to be safe than sorry and sanitize the value here as well.
-        [sanitizeJsonbValue(pluginError), typeof pluginConfig === 'object' ? pluginConfig?.id : pluginConfig],
-        'updatePluginConfigError'
-    )
-    if (pluginError) {
-        await hub.db.queuePluginLogEntry({
-            pluginConfig,
-            source: PluginLogEntrySource.Plugin,
-            type: PluginLogEntryType.Error,
-            message: pluginError.stack ?? pluginError.message,
-            instanceId: hub.instanceId,
-            timestamp: pluginError.time,
-        })
-    }
 }
 
 export async function disablePlugin(hub: Hub, pluginConfigId: PluginConfigId): Promise<void> {

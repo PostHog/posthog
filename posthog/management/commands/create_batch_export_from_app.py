@@ -7,7 +7,7 @@ from psycopg2.extensions import parse_dsn
 from posthog.batch_exports.models import BatchExport, BatchExportDestination
 from posthog.batch_exports.service import backfill_export, sync_batch_export
 from posthog.models.plugin import PluginAttachment, PluginConfig
-from posthog.temporal.client import sync_connect
+from posthog.temporal.common.client import sync_connect
 
 
 class Command(BaseCommand):
@@ -116,7 +116,7 @@ class Command(BaseCommand):
 
         if options.get("backfill_batch_export", False) and dry_run is False:
             client = sync_connect()
-            end_at = dt.datetime.utcnow()
+            end_at = dt.datetime.now(dt.timezone.utc)
             start_at = end_at - (dt.timedelta(hours=1) if interval == "hour" else dt.timedelta(days=1))
             backfill_export(
                 client,

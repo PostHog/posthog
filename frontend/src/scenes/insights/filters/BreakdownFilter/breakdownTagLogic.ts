@@ -1,13 +1,14 @@
 import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+
+import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { InsightLogicProps } from '~/types'
 
 import type { breakdownTagLogicType } from './breakdownTagLogicType'
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 import { isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { cohortsModel } from '~/models/cohortsModel'
-import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
-import { InsightLogicProps } from '~/types'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 export interface BreakdownTagLogicProps {
     insightProps: InsightLogicProps
@@ -40,10 +41,6 @@ export const breakdownTagLogic = kea<breakdownTagLogicType>([
         isNormalizeable: [
             (s) => [s.propertyDefinition],
             (propertyDefinition) => isURLNormalizeable(propertyDefinition?.name || ''),
-        ],
-        shouldShowMenu: [
-            (s) => [s.isHistogramable, s.isNormalizeable],
-            (isHistogramable, isNormalizeable) => isHistogramable || isNormalizeable,
         ],
     }),
     listeners(({ props, actions }) => ({

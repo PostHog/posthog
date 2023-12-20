@@ -1,18 +1,22 @@
+import { combineUrl } from 'kea-router'
+import { toParams } from 'lib/utils'
+
+import { ExportOptions } from '~/exporter/types'
 import {
     ActionType,
     AnnotationType,
     AnyPartialFilterType,
+    AppMetricsUrlParams,
     DashboardType,
     FilterType,
     InsightShortId,
-    ReplayTabs,
+    PipelineAppTabs,
     PipelineTabs,
+    ReplayTabs,
 } from '~/types'
-import { combineUrl } from 'kea-router'
-import { ExportOptions } from '~/exporter/types'
-import { AppMetricsUrlParams } from './apps/appMetricsSceneLogic'
+
+import { OnboardingStepKey } from './onboarding/onboardingLogic'
 import { PluginTab } from './plugins/types'
-import { toParams } from 'lib/utils'
 import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 
 /**
@@ -60,6 +64,7 @@ export const urls = {
         `/batch_exports/${id}` + (params ? `?${toParams(params)}` : ''),
     batchExportEdit: (id: string): string => `/batch_exports/${id}/edit`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
+    insights: (): string => '/insights',
     insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null, query?: string): string =>
         combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
             ...(filters ? { filters } : {}),
@@ -95,8 +100,10 @@ export const urls = {
     personByUUID: (uuid: string, encode: boolean = true): string =>
         encode ? `/persons/${encodeURIComponent(uuid)}` : `/persons/${uuid}`,
     persons: (): string => '/persons',
-    pipeline: (tab?: PipelineTabs): string => `/pipeline/${tab ? tab : 'destinations'}`,
-    pipelineNew: (tab?: PipelineTabs): string => `/pipeline/${tab ? tab : 'destinations'}/new`,
+    pipeline: (tab?: PipelineTabs): string => `/pipeline/${tab ? tab : PipelineTabs.Destinations}`,
+    pipelineApp: (id: string | number, tab?: PipelineAppTabs): string =>
+        `/pipeline/${id}/${tab ? tab : PipelineAppTabs.Configuration}`,
+    pipelineNew: (tab?: PipelineTabs): string => `/pipeline/${tab ? tab : PipelineTabs.Destinations}/new`,
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
@@ -108,9 +115,11 @@ export const urls = {
     featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
     earlyAccessFeatures: (): string => '/early_access_features',
-    earlyAccessFeature: (id: ':id' | 'new' | string): string => `/early_access_features/${id}`,
+    /** @param id A UUID or 'new'. ':id' for routing. */
+    earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     surveys: (): string => '/surveys',
-    survey: (id: ':id' | 'new' | string): string => `/surveys/${id}`,
+    /** @param id A UUID or 'new'. ':id' for routing. */
+    survey: (id: string): string => `/surveys/${id}`,
     surveyTemplates: (): string => '/survey_templates',
     dataWarehouse: (): string => '/data-warehouse',
     dataWarehouseTable: (): string => `/data-warehouse/new`,
@@ -152,9 +161,9 @@ export const urls = {
     verifyEmail: (userUuid: string = '', token: string = ''): string =>
         `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
     inviteSignup: (id: string): string => `/signup/${id}`,
-    ingestion: (): string => '/ingestion',
     products: (): string => '/products',
-    onboarding: (productKey: string): string => `/onboarding/${productKey}`,
+    onboarding: (productKey: string, stepKey?: OnboardingStepKey): string =>
+        `/onboarding/${productKey}${stepKey ? '?step=' + stepKey : ''}`,
     // Cloud only
     organizationBilling: (): string => '/organization/billing',
     // Self-hosted only

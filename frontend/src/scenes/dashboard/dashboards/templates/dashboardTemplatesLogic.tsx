@@ -1,9 +1,9 @@
 import { actions, afterMount, connect, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { DashboardTemplateScope, DashboardTemplateType } from '~/types'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import type { dashboardTemplatesLogicType } from './dashboardTemplatesLogicType'
 

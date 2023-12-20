@@ -1,10 +1,14 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
-
-import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
 import { loaders } from 'kea-loaders'
 import api, { PaginatedResponse } from 'lib/api'
-import { ExternalDataStripeSource, Breadcrumb } from '~/types'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+
+import { Breadcrumb, ExternalDataSourceSchema, ExternalDataStripeSource } from '~/types'
+
+import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
+
+const REFRESH_INTERVAL = 10000
 
 export interface DataWarehouseSource {}
 
@@ -14,6 +18,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         deleteSource: (source: ExternalDataStripeSource) => ({ source }),
         reloadSource: (source: ExternalDataStripeSource) => ({ source }),
         loadingFinished: (source: ExternalDataStripeSource) => ({ source }),
+        updateSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
     }),
     loaders({
         dataWarehouseSources: [
@@ -49,17 +54,26 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             () => [],
             (): Breadcrumb[] => [
                 {
+                    key: Scene.DataWarehouse,
                     name: `Data Warehouse`,
                     path: urls.dataWarehouseExternal(),
                 },
                 {
+                    key: Scene.DataWarehouseSettings,
                     name: 'Data Warehouse Settings',
                     path: urls.dataWarehouseSettings(),
                 },
             ],
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, cache }) => ({
+        loadSourcesSuccess: () => {
+            clearTimeout(cache.refreshTimeout)
+
+            cache.refreshTimeout = setTimeout(() => {
+                actions.loadSources()
+            }, REFRESH_INTERVAL)
+        },
         deleteSource: async ({ source }) => {
             await api.externalDataSources.delete(source.id)
             actions.loadSources()
@@ -69,6 +83,10 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             await api.externalDataSources.reload(source.id)
             actions.loadSources()
             actions.loadingFinished(source)
+        },
+        updateSchema: async ({ schema }) => {
+            await api.externalDataSchemas.update(schema.id, schema)
+            actions.loadSources()
         },
     })),
     afterMount(({ actions }) => {

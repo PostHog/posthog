@@ -1,9 +1,11 @@
-import { useEffect } from 'react'
 import { Meta, StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
+import { useEffect } from 'react'
 import { App } from 'scenes/App'
+import { urls } from 'scenes/urls'
+
 import { mswDecorator } from '~/mocks/browser'
+import { useAvailableFeatures } from '~/mocks/features'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import {
     AvailableFeature,
@@ -20,7 +22,6 @@ import {
     SignificanceCode,
     TrendsExperimentResults,
 } from '~/types'
-import { useAvailableFeatures } from '~/mocks/features'
 
 const MOCK_FUNNEL_EXPERIMENT: Experiment = {
     id: 1,

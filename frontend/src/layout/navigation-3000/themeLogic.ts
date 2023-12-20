@@ -1,29 +1,20 @@
-import { actions, events, kea, path, reducers, selectors } from 'kea'
-import { subscriptions } from 'kea-subscriptions'
+import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import type { themeLogicType } from './themeLogicType'
-import { sceneLogic } from 'scenes/sceneLogic'
 
 export const themeLogic = kea<themeLogicType>([
     path(['layout', 'navigation-3000', 'themeLogic']),
+    connect({
+        values: [featureFlagLogic, ['featureFlags'], userLogic, ['themeMode']],
+    }),
     actions({
-        toggleTheme: true,
-        overrideTheme: (darkModePreference: boolean) => ({ darkModePreference }),
         syncDarkModePreference: (darkModePreference: boolean) => ({ darkModePreference }),
     }),
     reducers({
-        darkModeSavedPreference: [
-            null as boolean | null,
-            {
-                persist: true,
-            },
-            {
-                toggleTheme: (state) => (state === false ? null : !state),
-                overrideTheme: (_, { darkModePreference }) => darkModePreference,
-            },
-        ],
         darkModeSystemPreference: [
             window.matchMedia('(prefers-color-scheme: dark)').matches,
             {
@@ -33,13 +24,8 @@ export const themeLogic = kea<themeLogicType>([
     }),
     selectors({
         isDarkModeOn: [
-            (s) => [
-                s.darkModeSavedPreference,
-                s.darkModeSystemPreference,
-                featureFlagLogic.selectors.featureFlags,
-                sceneLogic.selectors.sceneConfig,
-            ],
-            (darkModeSavedPreference, darkModeSystemPreference, featureFlags, sceneConfig) => {
+            (s) => [s.themeMode, s.darkModeSystemPreference, s.featureFlags, sceneLogic.selectors.sceneConfig],
+            (themeMode, darkModeSystemPreference, featureFlags, sceneConfig) => {
                 // NOTE: Unauthenticated users always get the light mode until we have full support across onboarding flows
                 if (
                     sceneConfig?.layout === 'plain' ||
@@ -48,24 +34,19 @@ export const themeLogic = kea<themeLogicType>([
                 ) {
                     return false
                 }
+
                 // Dark mode is a PostHog 3000 feature
-                // User-saved preference is used when set, oterwise we fall back to the system value
-                return featureFlags[FEATURE_FLAGS.POSTHOG_3000]
-                    ? darkModeSavedPreference ?? darkModeSystemPreference
+                if (featureFlags[FEATURE_FLAGS.POSTHOG_3000] !== 'test') {
+                    return false
+                }
+
+                return featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test'
+                    ? themeMode === 'system'
+                        ? darkModeSystemPreference
+                        : themeMode === 'dark'
                     : false
             },
         ],
-        isThemeSyncedWithSystem: [
-            (s) => [s.darkModeSavedPreference],
-            (darkModeSavedPreference) => {
-                return darkModeSavedPreference === null
-            },
-        ],
-    }),
-    subscriptions({
-        isDarkModeOn: (isDarkModeOn) => {
-            document.body.setAttribute('theme', isDarkModeOn ? 'dark' : 'light')
-        },
     }),
     events(({ cache, actions }) => ({
         afterMount() {

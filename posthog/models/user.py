@@ -1,14 +1,5 @@
 from functools import cached_property
-from typing import (
-    Any,
-    Callable,
-    Dict,
-    List,
-    Optional,
-    Tuple,
-    Type,
-    TypedDict,
-)
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, TypedDict
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
@@ -124,6 +115,12 @@ def events_column_config_default() -> Dict[str, Any]:
     return {"active": "DEFAULT"}
 
 
+class ThemeMode(models.TextChoices):
+    LIGHT = "light", "Light"
+    DARK = "dark", "Dark"
+    SYSTEM = "system", "System"
+
+
 class User(AbstractUser, UUIDClassicModel):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS: List[str] = []
@@ -149,6 +146,7 @@ class User(AbstractUser, UUIDClassicModel):
 
     # Preferences / configuration options
     email_opt_in: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
+    theme_mode: models.CharField = models.CharField(max_length=20, null=True, blank=True, choices=ThemeMode.choices)
     # These override the notification settings
     partial_notification_settings: models.JSONField = models.JSONField(null=True, blank=True)
     anonymize_data: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
@@ -237,6 +235,8 @@ class User(AbstractUser, UUIDClassicModel):
                 # We don't need to check for ExplicitTeamMembership as none can exist for a completely new member
                 self.current_team = organization.teams.order_by("id").filter(access_control=False).first()
             self.save()
+        if level == OrganizationMembership.Level.OWNER and not self.current_organization.customer_id:
+            self.update_billing_customer_email(organization)
         self.update_billing_distinct_ids(organization)
         return membership
 
@@ -268,6 +268,12 @@ class User(AbstractUser, UUIDClassicModel):
         if is_cloud() and get_cached_instance_license() is not None:
             BillingManager(get_cached_instance_license()).update_billing_distinct_ids(organization)
 
+    def update_billing_customer_email(self, organization: Organization) -> None:
+        from ee.billing.billing_manager import BillingManager  # avoid circular import
+
+        if is_cloud() and get_cached_instance_license() is not None:
+            BillingManager(get_cached_instance_license()).update_billing_customer_email(organization)
+
     def get_analytics_metadata(self):
         team_member_count_all: int = (
             OrganizationMembership.objects.filter(organization__in=self.organizations.all())
@@ -275,6 +281,10 @@ class User(AbstractUser, UUIDClassicModel):
             .distinct()
             .count()
         )
+
+        current_organization_membership = None
+        if self.organization:
+            current_organization_membership = self.organization.memberships.filter(user=self).first()
 
         project_setup_complete = False
         if self.team and self.team.completed_snippet_onboarding and self.team.ingested_event:
@@ -294,6 +304,9 @@ class User(AbstractUser, UUIDClassicModel):
             ).exists(),  # has completed the onboarding at least for one project
             # properties dependent on current project / org below
             "organization_id": str(self.organization.id) if self.organization else None,
+            "current_organization_membership_level": current_organization_membership.level
+            if current_organization_membership
+            else None,
             "project_id": str(self.team.uuid) if self.team else None,
             "project_setup_complete": project_setup_complete,
             "joined_at": self.date_joined,

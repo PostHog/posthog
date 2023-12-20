@@ -1,13 +1,15 @@
 import { LemonButton, LemonModal, LemonTable } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { IconDelete, IconSettings } from 'lib/lemon-ui/icons'
 import {
     LemonSelectMultiple,
     LemonSelectMultipleOptionItem,
 } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { TitleWithIcon } from 'lib/components/TitleWithIcon'
+
 import { AccessLevel, Resource, RoleType } from '~/types'
+
 import {
     FormattedResourceLevel,
     permissionsLogic,
@@ -181,7 +183,7 @@ export function ResourcePermission({
                 <>
                     <h5 className="mt-4">Roles</h5>
                     {roles.length > 0 ? (
-                        <div className="pb-2 rounded overflow-y-auto" style={{ maxHeight: 300 }}>
+                        <div className="pb-2 rounded overflow-y-auto max-h-80">
                             {roles.map((role) => {
                                 return (
                                     <RoleRow

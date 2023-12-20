@@ -96,15 +96,15 @@ def prepare_ast_for_printing(
         context.database = context.database or create_hogql_database(context.team_id, context.modifiers)
 
     with context.timings.measure("resolve_types"):
-        node = resolve_types(node, context, scopes=[node.type for node in stack] if stack else None)
+        node = resolve_types(node, context, dialect=dialect, scopes=[node.type for node in stack] if stack else None)
     if context.modifiers.inCohortVia == "leftjoin":
         with context.timings.measure("resolve_in_cohorts"):
-            resolve_in_cohorts(node, stack, context)
+            resolve_in_cohorts(node, dialect, stack, context)
     if dialect == "clickhouse":
         with context.timings.measure("resolve_property_types"):
             node = resolve_property_types(node, context)
         with context.timings.measure("resolve_lazy_tables"):
-            resolve_lazy_tables(node, stack, context)
+            resolve_lazy_tables(node, dialect, stack, context)
 
         # We support global query settings, and local subquery settings.
         # If the global query is a select query with settings, merge the two.
@@ -229,11 +229,41 @@ class _Printer(Visitor):
                 else:
                     where = ast.And(exprs=[extra_where, where])
             else:
-                raise HogQLException(f"Invalid where of type {type(extra_where).__name__} returned by join_expr")
+                raise HogQLException(
+                    f"Invalid where of type {type(extra_where).__name__} returned by join_expr", node=visited_join.where
+                )
 
             next_join = next_join.next_join
 
-        columns = [self.visit(column) for column in node.select] if node.select else ["1"]
+        if node.select:
+            if self.dialect == "clickhouse":
+                # Gather all visible aliases, and/or the last hidden alias for each unique alias name.
+                found_aliases = {}
+                for alias in reversed(node.select):
+                    if isinstance(alias, ast.Alias):
+                        if not found_aliases.get(alias.alias, None) or not alias.hidden:
+                            found_aliases[alias.alias] = alias
+
+                columns = []
+                for column in node.select:
+                    if isinstance(column, ast.Alias):
+                        # It's either a visible alias, or the last hidden alias with this name.
+                        if found_aliases.get(column.alias) == column:
+                            if column.hidden:
+                                # Make the hidden alias visible
+                                column = cast(ast.Alias, clone_expr(column))
+                                column.hidden = False
+                            else:
+                                # Always print visible aliases.
+                                pass
+                        else:
+                            # Non-unique hidden alias. Skip.
+                            column = column.expr
+                    columns.append(self.visit(column))
+            else:
+                columns = [self.visit(column) for column in node.select]
+        else:
+            columns = ["1"]
         window = (
             ", ".join(
                 [f"{self._print_identifier(name)} AS ({self.visit(expr)})" for name, expr in node.window_exprs.items()]
@@ -797,6 +827,29 @@ class _Printer(Visitor):
             else:
                 return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
         elif node.name in HOGQL_POSTHOG_FUNCTIONS:
+            func_meta = HOGQL_POSTHOG_FUNCTIONS[node.name]
+            validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
+            args = [self.visit(arg) for arg in node.args]
+
+            if self.dialect in ("hogql", "clickhouse"):
+                if node.name == "hogql_lookupDomainType":
+                    return f"dictGetOrNull('channel_definition_dict', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source'))"
+                elif node.name == "hogql_lookupPaidDomainType":
+                    return f"dictGetOrNull('channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source'))"
+                elif node.name == "hogql_lookupPaidSourceType":
+                    return (
+                        f"dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce({args[0]}, ''), 'source'))"
+                    )
+                elif node.name == "hogql_lookupPaidMediumType":
+                    return (
+                        f"dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce({args[0]}, ''), 'medium'))"
+                    )
+                elif node.name == "hogql_lookupOrganicDomainType":
+                    return f"dictGetOrNull('channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source'))"
+                elif node.name == "hogql_lookupOrganicSourceType":
+                    return f"dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'source'))"
+                elif node.name == "hogql_lookupOrganicMediumType":
+                    return f"dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
             raise HogQLException(f"Unexpected unresolved HogQL function '{node.name}(...)'")
         else:
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)
@@ -810,8 +863,14 @@ class _Printer(Visitor):
         raise HogQLException(f"Placeholders, such as {{{node.field}}}, are not supported in this context")
 
     def visit_alias(self, node: ast.Alias):
-        inside = self.visit(node.expr)
-        if isinstance(node.expr, ast.Alias):
+        # Skip hidden aliases completely.
+        if node.hidden:
+            return self.visit(node.expr)
+        expr = node.expr
+        while isinstance(expr, ast.Alias) and expr.hidden:
+            expr = expr.expr
+        inside = self.visit(expr)
+        if isinstance(expr, ast.Alias):
             inside = f"({inside})"
         alias = self._print_identifier(node.alias)
         return f"{inside} AS {alias}"
@@ -892,7 +951,10 @@ class _Printer(Visitor):
                     field_sql = "person_props"
 
         else:
-            raise HogQLException(f"Unknown FieldType table type: {type.table_type.__class__.__name__}")
+            error = f"Can't access field '{type.name}' on a table with type '{type.table_type.__class__.__name__}'."
+            if isinstance(type.table_type, ast.LazyJoinType):
+                error += f" Lazy joins should have all been replaced in the resolver."
+            raise HogQLException(error)
 
         return field_sql
 
@@ -1097,6 +1159,8 @@ class _Printer(Visitor):
             return True
         elif isinstance(node.type, ast.FieldType):
             return node.type.is_nullable()
+        elif isinstance(node, ast.Alias):
+            return self._is_nullable(node.expr)
 
         # we don't know if it's nullable, so we assume it can be
         return True

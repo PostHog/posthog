@@ -1,5 +1,6 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useState } from 'react'
+
 import { LemonTab, LemonTabs as LemonTabsComponent } from './LemonTabs'
 
 type Story = StoryObj<typeof LemonTabsComponent>

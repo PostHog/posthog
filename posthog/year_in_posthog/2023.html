@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    {% load static %}
+    <meta charset="utf-8">
+    <title>PostHog Unwrapped</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/apple-touch-icon.png?v=2021-04-29">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32x32.png?v=2021-04-29">
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16x16.png?v=2021-04-29">
+    {% if not debug %}
+        <link rel="shortcut icon" href="/static/icons/favicon.ico?v=2021-04-29">
+    {% else %}
+        <link rel="shortcut icon" href="/static/icons/favicon-dev.ico?v=2021-04-29">
+    {% endif %}
+{#    <link rel="preload" href="https://d1sdjtjk6xzm7.cloudfront.net/MatterSQ-Medium.woff2" as="font" type="font/woff2"#}
+{#          crossorigin="anonymous">#}
+{#    <link rel="preload" href="https://d1sdjtjk6xzm7.cloudfront.net/MatterSQ-SemiBold.woff2" as="font" type="font/woff2"#}
+{#          crossorigin="anonymous">#}
+    <link rel="preload" href="{% static image_webp %}" as="image">
+    <link rel="preload" href="{% static 'year_in_hog/background.png' %}" as="image">
+    <script>
+        !function (t, e) {
+            var o, n, p, r;
+            e.__SV || (window.posthog = e, e._i = [], e.init = function (i, s, a) {
+                function g(t, e) {
+                    var o = e.split(".");
+                    2 == o.length && (t = t[o[0]], e = o[1]), t[e] = function () {
+                        t.push([e].concat(Array.prototype.slice.call(arguments, 0)))
+                    }
+                }
+
+                (p = t.createElement("script")).type = "text/javascript", p.async = !0, p.src = s.api_host + "/static/array.js", (r = t.getElementsByTagName("script")[0]).parentNode.insertBefore(p, r);
+                var u = e;
+                for (void 0 !== a ? u = e[a] = [] : a = "posthog", u.people = u.people || [], u.toString = function (t) {
+                    var e = "posthog";
+                    return "posthog" !== a && (e += "." + a), t || (e += " (stub)"), e
+                }, u.people.toString = function () {
+                    return u.toString(1) + ".people (stub)"
+                }, o = "capture identify alias people.set people.set_once set_config register register_once unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled onFeatureFlags".split(" "), n = 0; n < o.length; n++) g(u, o[n]);
+                e._i.push([i, s, a])
+            }, e.__SV = 1)
+        }(document, window.posthog || []);
+        posthog.init('{{api_token}}', {
+            api_host: window.location.origin, loaded: function (posthog) {
+                posthog.capture('year in posthog viewed', {
+                    'yearInPostHog': 2023, 'badge': '{{badge}}',     {% for stat in stats %}
+                        '{{ stat.description }}': {{ stat.count }},
+                    {% endfor %}
+                });
+            }
+        })
+    </script>
+    {# can defer loading of the tooltip css #}
+    <link rel="preload" href="https://unpkg.com/microtip@0.2.2/microtip.css" as="style"
+          onload="this.onload=null;this.rel='stylesheet'">
+    <noscript>
+        <link rel="stylesheet" href="https://unpkg.com/microtip@0.2.2/microtip.css">
+    </noscript>
+    <style>
+        /* Matter; bold (800); latin */
+        @font-face {
+            font-family: MatterSQ;
+            font-style: normal;
+            font-weight: 800;
+
+            src: url('https://d1sdjtjk6xzm7.cloudfront.net/MatterSQ-Bold.woff2') format('woff2'),
+            url('https://d1sdjtjk6xzm7.cloudfront.net/MatterSQ-Bold.woff') format('woff');
+            font-display: swap;
+        }
+
+        /* Matter; bold (700); latin */
+        @font-face {
+            font-family: MatterSQ;
+            font-style: normal;
+            font-weight: 700;
+
+            src: url('https://d1sdjtjk6xzm7.cloudfront.net/MatterSQ-SemiBold.woff2') format('woff2'),
+            url('https://d1sdjtjk6xzm7.cloudfront.net/MatterSQ-SemiBold.woff') format('woff');
+            font-display: swap;
+        }
+
+        /* Matter; medium (500); latin */
+        @font-face {
+            font-family: MatterSQ;
+            font-style: normal;
+            font-weight: 500;
+
+            src: url('https://d1sdjtjk6xzm7.cloudfront.net/MatterSQ-Medium.woff2') format('woff2'),
+            url('https://d1sdjtjk6xzm7.cloudfront.net/MatterSQ-Medium.woff') format('woff');
+            font-display: swap;
+        }
+
+        html {
+            font-family: "MatterSQ", -apple-system, BlinkMacSystemFont, avenir next, avenir, segoe ui, helvetica, sans-serif;
+        }
+
+        body {
+            background-color: #35373e;
+            color: #fff;
+            height: 100vh;
+            width: 100vw;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            font-weight: 400;
+            font-size: 32px;
+            line-height: 1.25;
+            align-items: center;
+        }
+
+        body:before {
+            content: ' ';
+            display: block;
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0.1;
+            background-image: url("{%  static "year_in_hog/background.png" %}");
+            background-repeat: no-repeat;
+            background-position: 50% 0;
+            background-size: cover;
+            pointer-events: none;
+        }
+
+        h1 {
+            margin: 0;
+            text-align: center;
+        }
+
+        h2 {
+            margin: 1rem 0 0.5rem;
+        }
+
+        .text-center {
+            text-align: center;
+        }
+
+        .flex {
+            display: flex;
+        }
+
+        .grow {
+            flex-grow: 1;
+        }
+
+        .items-center {
+            align-items: center;
+        }
+
+        @media only screen and (min-width: 650px) {
+            body {
+                font-size: 1.5rem;
+            }
+        }
+
+        main {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            max-width: 1280px;
+            gap: 2rem;
+        }
+
+        .column {
+            width: 90vw;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .column.left {
+            min-width: 326px;
+            margin-bottom: 2rem;
+        }
+
+        .column.right {
+            align-items: start;
+        }
+
+        .footer {
+            flex-shrink: 0;
+            height: 4rem;
+            background-color: #f3f4ef;
+            color: #35373e;
+            width: 100vw;
+            display: flex;
+            flex-direction: row;
+            z-index: 9999;
+            align-items: center;
+        }
+
+        .footer a {
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            color: #35373e;
+            cursor: pointer;
+        }
+
+        .highlight {
+            color: {{ highlight_color }};
+        }
+
+        {% for _, b in badges.items %}
+            .highlight.{{ b.badge }} {
+                color: {{ b.highlight_color }};
+            }
+        {% endfor %}
+
+        .muted {
+            color: #969696;
+        }
+
+        .text-sm {
+            font-weight: 300;
+            font-size: 1rem;
+            line-height: 1rem;
+        }
+
+        .text-xl {
+            font-weight: 600;
+            font-size: 1.5rem;
+            line-height: 2rem;
+        }
+
+        .text-2xl {
+            font-weight: 600;
+            font-size: 2rem;
+            line-height: 1;
+        }
+
+        .text-3xl {
+            font-weight: 600;
+            font-size: 2rem;
+            line-height: 1;
+        }
+
+        .my-4 {
+            margin-top: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .my-8 {
+            margin-top: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .p-1 {
+            padding: 0.25rem;
+        }
+
+        .px-1 {
+            padding-left: 0.25rem;
+            padding-right: 0.25rem;
+        }
+
+        .px-4 {
+            padding-left: 1rem;
+            padding-right: 1rem;
+        }
+
+        .pb-4 {
+            padding-bottom: 1rem;
+        }
+
+        .pt-2 {
+            padding-top: 0.5rem;
+        }
+
+        .pl-8 {
+            padding-left: 2rem;
+        }
+
+        .achievements-wrapper {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            width: 100%;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100%, 1fr)); /* Change to 1 column */
+        }
+
+        .badge.mini {
+            width: 250px;
+            height: 250px;
+        }
+
+        .achievement {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .sharing {
+            display: flex;
+            flex-direction: row;
+            width: 100%;
+            justify-content: space-around;
+            padding-top: 4rem;
+            align-items: center;
+            white-space: nowrap;
+        }
+
+        .sharing * {
+            display: flex;
+            flex-basis: 100%;
+        }
+
+        .sharing svg {
+            width: 48px;
+            height: 48px;
+        }
+
+        .footer .sharing {
+            display: none;
+        }
+
+        :root {
+            --microtip-font-size: 15px;
+        }
+
+        @media (min-width: 600px) {
+            .grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(45%, 1fr));
+                gap: 10px; /* Adjust the gap between grid items as needed */
+                width: 100%;
+            }
+
+            .badge.mini {
+                width: 100px;
+                height: 100px;
+            }
+        }
+
+        @media (min-width: 769px) {
+            main {
+                flex-direction: row;
+            }
+
+            .column.left {
+                width: 45%;
+                margin: 0;
+            }
+
+            .column.right {
+                width: 55%;
+            }
+
+            .grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(45%, 1fr));
+                gap: 10px; /* Adjust the gap between grid items as needed */
+                width: 100%;
+            }
+
+            .badge.mini {
+                width: 100px;
+                height: 100px;
+            }
+
+            .right .sharing {
+                display: none;
+            }
+
+            .footer .sharing {
+                display: flex;
+            }
+
+            .footer .sharing > div:first-child {
+                font-weight: 400;
+                font-size: 1rem;
+                line-height: 1;
+                padding-right: 0.75rem;
+            }
+
+            .sharing {
+                padding-top: 0;
+            }
+
+            .sharing svg {
+                width: 24px;
+                height: 24px;
+                padding-right: 1rem;
+            }
+
+            .sharing path {
+                fill: black;
+            }
+        }
+
+        @media (min-width: 1024px) {
+            .grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(30%, 1fr));
+                gap: 10px; /* Adjust the gap between grid items as needed */
+                width: 100%;
+            }
+        }
+
+        @media (min-width: 1200px) {
+            .grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(23%, 1fr));
+                gap: 10px; /* Adjust the gap between grid items as needed */
+                width: 100%;
+            }
+        }
+    </style>
+    <meta name="description" content="{{ explanation }}">
+    <meta name="image" content="{{ request.scheme }}://{{ request.META.HTTP_HOST }}{% static opengraph_image %}">
+    <meta property="og:url" content="{{ page_url }}">
+    <meta property="og:title" content="PostHog Unwrapped">
+    <meta property="og:description"
+          content="No hedgehogs were harmed in the course of this year on @posthog. {{ explanation }}">
+    <meta property="og:image" content="{{ request.scheme }}://{{ request.META.HTTP_HOST }}{% static opengraph_image %}">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:creator" content="@PostHog">
+    <meta name="twitter:title" content="PostHog Unwrapped">
+    <meta name="twitter:description"
+          content="{{ explanation }}">
+    <meta name="twitter:image"
+          content="{{ request.scheme }}://{{ request.META.HTTP_HOST }}{% static opengraph_image %}">
+    <meta name="twitter:site" content="@PostHog">
+    {% for stat in stats %}
+        <meta name="twitter:label{{ forloop.counter }}" content="{{ stat.description }}"/>
+        <meta name="twitter:data{{ forloop.counter }}" content="{{ stat.count }}"/>
+    {% endfor %}
+</head>
+<body>
+<main class="px-4 pb-4" role="main">
+    <div class="left column">
+        <div>This year, you're {% if badge == "astronaut" %}an{% else %}a{% endif %}</div>
+
+        <picture class="badge my-8">
+            <source type="image/webp" srcset="{% static image_webp %}" width="326" height="326">
+            <source type="image/png" srcset="{% static image_png %}" width="326" height="326">
+            <img class="badge" src="{% static image_png %}" width="326" height="326"
+                 alt="image for this badge {{ badge }}. An illustration of a hedgehog who is a {{ human_badge }}">
+        </picture>
+
+        <h1 class="highlight text-3xl">{{ human_badge }}</h1>
+    </div>
+    <div class="right column">
+        <div class="muted">You earned this badge because...</div>
+        <div class="highlight text-2xl my-4">{{ explanation }}</div>
+        <div class="stats grid pt-2">
+            {% for stat in stats %}
+                <div class="stat p-1">
+                    <div class="highlight text-3xl">{{ stat.count }}</div>
+                    <div>{{ stat.description }}</div>
+                </div>
+            {% endfor %}
+        </div>
+        {% if badges %}
+            <div class="achievements-wrapper pt-2">
+                <h2 class="highlight text-xl">Achievements unlocked {{ achievements_count }}/{{ max_achievements }}</h2>
+                <div class="achievements grid">
+                    {% for _, b in badges.items %}
+                        <div class="achievement text-sm" aria-label="{{ b.explanation }}" role="tooltip"
+                             data-microtip-position="top-left" data-microtip-size="medium">
+                            <picture class="badge mini">
+                                <source type="image/webp" srcset="{% static b.image_webp %}" width="100" height="100">
+                                <source type="image/png" srcset="{% static b.image_png %}" width="100" height="100">
+                                <img class="badge mini" src="{% static b.image_png %}" width="100" height="100"
+                                     loading="lazy"
+                                     alt="An illustration of a hedgehog who is a {{ b.human_badge }}">
+                            </picture>
+                            <div class="my-4 text-center highlight {{ b.badge }}">{{ b.human_badge }}</div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        {% endif %}
+        <div class="sharing">{% include "sharing-buttons.html" %}</div>
+    </div>
+
+</main>
+<footer class="footer" role="contentinfo">
+    <div class="pl-8 text-xl grow items-center flex">
+        <a href="https://posthog.com">
+            <svg fill="#35373e" width="3.5rem" height="3.5rem" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path fill-rule="evenodd"
+                      d="M2.751 14.926a.44.44 0 0 0-.751.31v2.017c0 .243.197.44.44.44h2.016a.44.44 0 0 0 .311-.751l-2.016-2.016Zm-.622-1.502A.44.44 0 0 1 2 13.113v-2.274a.44.44 0 0 1 .751-.311l6.414 6.414a.44.44 0 0 1-.31.75H6.58a.44.44 0 0 1-.31-.128l-4.141-4.14Zm0-4.398A.44.44 0 0 1 2 8.715V6.44a.44.44 0 0 1 .751-.311l10.812 10.812a.44.44 0 0 1-.31.75h-2.275a.44.44 0 0 1-.311-.128L2.129 9.026Zm4.398 0a.44.44 0 0 1-.13-.311V6.44a.44.44 0 0 1 .752-.311l7.916 7.916a.44.44 0 0 1 .129.31v2.275a.44.44 0 0 1-.751.31L6.527 9.027Zm4.269-2.585a.44.44 0 0 1 .75-.311l3.519 3.518a.44.44 0 0 1 .129.31v2.275a.44.44 0 0 1-.751.311l-3.518-3.518a.44.44 0 0 1-.13-.311V6.44Zm5.77 4.709 4.142 4.14c.532.533 1.224.87 1.963.967.241.031.439.226.439.468v.528a.44.44 0 0 1-.44.44h-6.414a.44.44 0 0 1-.44-.44v-5.792a.44.44 0 0 1 .75-.311Zm.657 4.432a.704.704 0 1 0 1.408 0 .704.704 0 0 0-1.408 0Z"
+                      clip-rule="evenodd"></path>
+            </svg>
+            <span>&nbsp;PostHog Unwrapped</span>
+        </a>
+    </div>
+    <div>
+        <div class="sharing">{% include "sharing-buttons.html" %}</div>
+    </div>
+</footer>
+</body>
+</html>

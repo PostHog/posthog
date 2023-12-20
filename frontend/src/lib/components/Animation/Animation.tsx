@@ -1,9 +1,10 @@
 import './Animation.scss'
+
 import { Player } from '@lottiefiles/react-lottie-player'
-import { useEffect, useState } from 'react'
 import clsx from 'clsx'
-import { AnimationType, getAnimationSource, animations } from 'lib/animations/animations'
+import { animations, AnimationType, getAnimationSource } from 'lib/animations/animations'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { useEffect, useState } from 'react'
 
 export interface AnimationProps {
     /** Animation to show */
@@ -39,7 +40,7 @@ export function Animation({
     // Actually fetch the animation. Uses a cache to avoid multiple requests for the same file.
     // Show a fallback spinner if failed to fetch.
     useEffect(() => {
-        let unmounted = false
+        let unmounted = false // Poor person's abort controller
         async function loadAnimation(): Promise<void> {
             try {
                 const source = await getAnimationSource(type)
@@ -48,7 +49,7 @@ export function Animation({
                 !unmounted && setShowFallbackSpinner(true)
             }
         }
-        loadAnimation()
+        void loadAnimation()
         return () => {
             unmounted = true
         }

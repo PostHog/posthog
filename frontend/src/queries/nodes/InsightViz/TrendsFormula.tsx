@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
-import { EditorFilterProps } from '~/types'
-import { useActions, useValues } from 'kea'
 import { LemonInput } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
+import { EditorFilterProps } from '~/types'
 
 // When updating this regex, remember to update the regex with the same name in mixins/common.py
 const ALLOWED_FORMULA_CHARACTERS = /^[a-zA-Z \-*^0-9+/().]+$/

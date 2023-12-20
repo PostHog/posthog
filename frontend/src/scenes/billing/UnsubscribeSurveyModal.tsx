@@ -1,8 +1,10 @@
 import { LemonBanner, LemonButton, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
-import { billingProductLogic } from './billingProductLogic'
 import { useActions, useValues } from 'kea'
+
 import { BillingProductV2Type } from '~/types'
+
 import { billingLogic } from './billingLogic'
+import { billingProductLogic } from './billingProductLogic'
 
 export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const { surveyID, surveyResponse } = useValues(billingProductLogic({ product }))

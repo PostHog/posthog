@@ -1,8 +1,4 @@
-from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.feature_flag import FeatureFlagSerializer
-from posthog.api.feature_flag import CanEditFeatureFlag
-from posthog.models import FeatureFlag, Team
-from posthog.permissions import OrganizationMemberPermissions
+from typing import Dict
 from django.core.exceptions import ObjectDoesNotExist
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -12,6 +8,15 @@ from rest_framework import (
     viewsets,
     status,
 )
+from posthog.api.cohort import CohortSerializer
+from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.feature_flag import FeatureFlagSerializer
+from posthog.api.feature_flag import CanEditFeatureFlag
+from posthog.api.shared import UserBasicSerializer
+from posthog.models import FeatureFlag, Team
+from posthog.models.cohort import Cohort
+from posthog.models.filters.filter import Filter
+from posthog.permissions import OrganizationMemberPermissions
 
 
 class OrganizationFeatureFlagView(
@@ -40,15 +45,10 @@ class OrganizationFeatureFlagView(
             {
                 "flag_id": flag.id,
                 "team_id": flag.team_id,
-                "created_by": {
-                    "id": flag.created_by.id,
-                    "uuid": flag.created_by.uuid,
-                    "distinct_id": flag.created_by.distinct_id,
-                    "first_name": flag.created_by.first_name,
-                    "email": flag.created_by.email,
-                    "is_email_verified": flag.created_by.is_email_verified,
-                },
-                "filters": flag.filters,
+                "created_by": UserBasicSerializer(flag.created_by).data
+                if hasattr(flag, "created_by") and flag.created_by
+                else None,
+                "filters": flag.get_filters(),
                 "created_at": flag.created_at,
                 "active": flag.active,
             }
@@ -86,7 +86,7 @@ class OrganizationFeatureFlagView(
         for target_project_id in target_project_ids:
             # Target project does not exist
             try:
-                Team.objects.get(id=target_project_id)
+                target_project = Team.objects.get(id=target_project_id)
             except ObjectDoesNotExist:
                 failed_projects.append(
                     {
@@ -96,18 +96,83 @@ class OrganizationFeatureFlagView(
                 )
                 continue
 
-            context = {
-                "request": request,
-                "team_id": target_project_id,
-            }
+            # get all linked cohorts, sorted by creation order
+            seen_cohorts_cache: Dict[int, Cohort] = {}
+            sorted_cohort_ids = flag_to_copy.get_cohort_ids(
+                seen_cohorts_cache=seen_cohorts_cache, sort_by_topological_order=True
+            )
+
+            # destination cohort id is different from original cohort id - create mapping
+            name_to_dest_cohort_id: Dict[str, int] = {}
+            # create cohorts in the destination project
+            if len(sorted_cohort_ids):
+                for cohort_id in sorted_cohort_ids:
+                    original_cohort = seen_cohorts_cache[cohort_id]
+
+                    # search in destination project by name
+                    destination_cohort = Cohort.objects.filter(
+                        name=original_cohort.name, team_id=target_project_id, deleted=False
+                    ).first()
+
+                    # create new cohort in the destination project
+                    if not destination_cohort:
+                        prop_group = Filter(
+                            data={"properties": original_cohort.properties.to_dict(), "is_simplified": True}
+                        ).property_groups
+
+                        for prop in prop_group.flat:
+                            if prop.type == "cohort" and not isinstance(prop.value, list):
+                                try:
+                                    original_child_cohort_id = int(prop.value)
+                                    original_child_cohort = seen_cohorts_cache[original_child_cohort_id]
+                                    prop.value = name_to_dest_cohort_id[original_child_cohort.name]
+                                except (ValueError, TypeError):
+                                    continue
+
+                        destination_cohort_serializer = CohortSerializer(
+                            data={
+                                "team": target_project,
+                                "name": original_cohort.name,
+                                "groups": [],
+                                "filters": {"properties": prop_group.to_dict()},
+                                "description": original_cohort.description,
+                                "is_static": original_cohort.is_static,
+                            },
+                            context={
+                                "request": request,
+                                "team_id": target_project.id,
+                            },
+                        )
+                        destination_cohort_serializer.is_valid(raise_exception=True)
+                        destination_cohort = destination_cohort_serializer.save()
+
+                    if destination_cohort is not None:
+                        name_to_dest_cohort_id[original_cohort.name] = destination_cohort.id
+
+            # reference correct destination cohort ids in the flag
+            for group in flag_to_copy.conditions:
+                props = group.get("properties", [])
+                for prop in props:
+                    if isinstance(prop, dict) and prop.get("type") == "cohort":
+                        try:
+                            original_cohort_id = int(prop["value"])
+                            cohort_name = (seen_cohorts_cache[original_cohort_id]).name
+                            prop["value"] = name_to_dest_cohort_id[cohort_name]
+                        except (ValueError, TypeError):
+                            continue
+
             flag_data = {
                 "key": flag_to_copy.key,
                 "name": flag_to_copy.name,
-                "filters": flag_to_copy.filters,
+                "filters": flag_to_copy.get_filters(),
                 "active": flag_to_copy.active,
                 "rollout_percentage": flag_to_copy.rollout_percentage,
                 "ensure_experience_continuity": flag_to_copy.ensure_experience_continuity,
                 "deleted": False,
+            }
+            context = {
+                "request": request,
+                "team_id": target_project_id,
             }
 
             existing_flag = FeatureFlag.objects.filter(

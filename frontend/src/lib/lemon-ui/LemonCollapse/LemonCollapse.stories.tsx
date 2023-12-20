@@ -1,4 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
 import { LemonCollapse as LemonCollapseComponent } from './LemonCollapse'
 
 type Story = StoryObj<typeof LemonCollapseComponent>

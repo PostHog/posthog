@@ -1,15 +1,16 @@
+import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconSad } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { humanFriendlyDuration, humanFriendlyMilliseconds } from 'lib/utils'
 import { RefCallback, useEffect, useState } from 'react'
 import useResizeObserver from 'use-resize-observer'
+
 import { isInteractionNode, isQueryNode, isSessionNode, TimeToSeeNode, TimeToSeeSessionNode } from '../types'
 import { sessionNodeFacts, SpanData, traceLogic } from './traceLogic'
-import { Tooltip } from '@posthog/lemon-ui'
 
 export interface TraceProps {
     timeToSeeSession: TimeToSeeSessionNode

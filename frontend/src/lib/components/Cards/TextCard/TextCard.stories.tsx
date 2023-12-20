@@ -1,5 +1,7 @@
 import { Meta, Story } from '@storybook/react'
+
 import { DashboardTile, InsightColor } from '~/types'
+
 import { TextCard } from './TextCard'
 
 const meta: Meta = {

@@ -1,11 +1,12 @@
 import { Meta } from '@storybook/react'
-import { mswDecorator, setFeatureFlags } from '~/mocks/browser'
-import { useEffect } from 'react'
 import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { App } from 'scenes/App'
-import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useEffect } from 'react'
+import { App } from 'scenes/App'
+import { urls } from 'scenes/urls'
+
+import { mswDecorator, setFeatureFlags } from '~/mocks/browser'
+import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
 const meta: Meta = {
     title: 'PostHog 3000/Navigation',

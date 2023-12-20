@@ -32,6 +32,7 @@ RUN corepack enable && \
     rm -rf /tmp/pnpm-store
 
 COPY frontend/ frontend/
+COPY ee/frontend/ ee/frontend/
 COPY ./bin/ ./bin/
 COPY babel.config.js tsconfig.json webpack.config.js ./
 RUN pnpm build

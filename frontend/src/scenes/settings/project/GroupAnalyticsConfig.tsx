@@ -1,9 +1,11 @@
-import { useActions, useValues } from 'kea'
-import { GroupType } from '~/types'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+
+import { GroupType } from '~/types'
+
 import { groupAnalyticsConfigLogic } from './groupAnalyticsConfigLogic'
 
 export function GroupAnalyticsConfig(): JSX.Element | null {

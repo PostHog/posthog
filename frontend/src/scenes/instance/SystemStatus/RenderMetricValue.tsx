@@ -1,7 +1,8 @@
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { InstanceSetting, SystemStatusRow } from '~/types'
-import { IconLock } from 'lib/lemon-ui/icons'
 import { TZLabel } from '@posthog/apps-common'
+import { IconLock } from 'lib/lemon-ui/icons'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+
+import { InstanceSetting, SystemStatusRow } from '~/types'
 
 const TIMESTAMP_VALUES = new Set(['last_event_ingested_timestamp'])
 

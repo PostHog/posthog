@@ -1,11 +1,12 @@
-import { EventsQuery, InsightVizNode } from '../../queries/schema'
 import { actions, afterMount, kea, path, reducers } from 'kea'
-import { DataTableNode, Node, NodeKind, QuerySchema, TrendsQuery } from '~/queries/schema'
-
-import type { inAppFeedbackLogicType } from './inAppFeedbackLogicType'
-import api from 'lib/api'
 import { loaders } from 'kea-loaders'
+import api from 'lib/api'
+
+import { DataTableNode, Node, NodeKind, QuerySchema, TrendsQuery } from '~/queries/schema'
 import { EventType } from '~/types'
+
+import { EventsQuery, InsightVizNode } from '../../queries/schema'
+import type { inAppFeedbackLogicType } from './inAppFeedbackLogicType'
 
 const EVENT_NAME = 'Feedback Sent'
 const FEEDBACK_PROPERTY = '$feedback'
@@ -61,7 +62,7 @@ export const inAppFeedbackLogic = kea<inAppFeedbackLogicType>([
             },
         ],
         dataTableQuery: [
-            DEFAULT_DATATABLE_QUERY as DataTableNode,
+            DEFAULT_DATATABLE_QUERY,
             {
                 setDataTableQuery: (_, { query }) => {
                     if (query.kind === NodeKind.DataTableNode) {
@@ -74,7 +75,7 @@ export const inAppFeedbackLogic = kea<inAppFeedbackLogicType>([
             },
         ],
         trendQuery: [
-            DEFAULT_TREND_INSIGHT_VIZ_NODE as InsightVizNode,
+            DEFAULT_TREND_INSIGHT_VIZ_NODE,
             {
                 setDataTableQuery: (_, { query }) => {
                     if (query.kind === NodeKind.DataTableNode) {
@@ -114,7 +115,7 @@ export const inAppFeedbackLogic = kea<inAppFeedbackLogicType>([
                         event: eventName,
                         orderBy: ['-timestamp'],
                     })
-                    return response.results as EventType[]
+                    return response.results
                 },
             },
         ],

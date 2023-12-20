@@ -1,19 +1,24 @@
-import { useEffect, useRef } from 'react'
+import 'chartjs-adapter-dayjs-3'
+
+import ChartDataLabels, { Context } from 'chartjs-plugin-datalabels'
+import { useActions, useValues } from 'kea'
 import {
     ActiveElement,
     Chart,
+    ChartDataset,
     ChartEvent,
     ChartItem,
-    ChartType,
-    TooltipModel,
     ChartOptions,
-    ChartDataset,
+    ChartType,
     Plugin,
+    TooltipModel,
 } from 'lib/Chart'
-import 'chartjs-adapter-dayjs-3'
-import { areObjectValuesEmpty } from '~/lib/utils'
-import { GraphType } from '~/types'
+import { SeriesLetter } from 'lib/components/SeriesGlyph'
+import { useEffect, useRef } from 'react'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
+import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import {
     ensureTooltip,
     filterNestedDataset,
@@ -21,14 +26,11 @@ import {
     onChartClick,
     onChartHover,
 } from 'scenes/insights/views/LineGraph/LineGraph'
-import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
-import { useActions, useValues } from 'kea'
-import { groupsModel } from '~/models/groupsModel'
 import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import ChartDataLabels, { Context } from 'chartjs-plugin-datalabels'
+
+import { areObjectValuesEmpty } from '~/lib/utils'
+import { groupsModel } from '~/models/groupsModel'
+import { GraphType } from '~/types'
 
 let timer: NodeJS.Timeout | null = null
 
@@ -50,6 +52,11 @@ function getPercentageForDataPoint(context: Context): number {
     return ((context.dataset.data[context.dataIndex] as number) / total) * 100
 }
 
+export interface PieChartProps extends LineGraphProps {
+    showLabelOnSeries?: boolean | null
+    disableHoverOffset?: boolean | null
+}
+
 export function PieChart({
     datasets: _datasets,
     hiddenLegendKeys,
@@ -60,12 +67,14 @@ export function PieChart({
     trendsFilter,
     formula,
     showValueOnSeries,
+    showLabelOnSeries,
     supportsPercentStackView,
     showPercentStackView,
     tooltip: tooltipConfig,
     showPersonsModal = true,
     labelGroupType,
-}: LineGraphProps): JSX.Element {
+    disableHoverOffset,
+}: PieChartProps): JSX.Element {
     const isPie = type === GraphType.Pie
     const isPercentStackView = !!supportsPercentStackView && !!showPercentStackView
 
@@ -114,12 +123,14 @@ export function PieChart({
                 layout: {
                     padding: {
                         top: 12, // 12 px so that the label isn't cropped
+                        left: 20,
+                        right: 20,
                         bottom: 20, // 12 px so that the label isn't cropped + 8 px of padding against the number below
                     },
                 },
                 borderWidth: 0,
                 borderRadius: 0,
-                hoverOffset: onlyOneValue ? 0 : 16, // don't offset hovered segment if it is 100%
+                hoverOffset: onlyOneValue || disableHoverOffset ? 0 : 16, // don't offset hovered segment if it is 100%
                 onHover(event: ChartEvent, _: ActiveElement[], chart: Chart) {
                     onChartHover(event, chart, onClick)
                 },
@@ -135,11 +146,8 @@ export function PieChart({
                         },
                         display: (context) => {
                             const percentage = getPercentageForDataPoint(context)
-                            return showValueOnSeries !== false && // show if true or unset
-                                context.dataset.data.length > 1 &&
-                                percentage > 5
-                                ? 'auto'
-                                : false
+                            const showValueForSeries = showValueOnSeries !== false && context.dataset.data.length > 1 // show if true or unset
+                            return (showValueForSeries || showLabelOnSeries) && percentage > 5 ? 'auto' : false
                         },
                         padding: (context) => {
                             // in order to make numbers below 10 look circular we need a little padding
@@ -149,6 +157,10 @@ export function PieChart({
                             return { top: paddingY, bottom: paddingY, left: paddingX, right: paddingX }
                         },
                         formatter: (value: number, context) => {
+                            if (showLabelOnSeries) {
+                                // cast to any as it seems like TypeScript types are wrong
+                                return (context.dataset as any).labels?.[context.dataIndex]
+                            }
                             if (isPercentStackView) {
                                 const percentage = getPercentageForDataPoint(context)
                                 return `${percentage.toFixed(1)}%`

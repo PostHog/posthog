@@ -13,8 +13,8 @@ from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
 from posthog.api.geoip import get_geoip_properties
-from posthog.api.utils import get_project_id, get_token
 from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX
+from posthog.api.utils import get_project_id, get_token
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.logging.timing import timed
@@ -222,9 +222,19 @@ def get_decide(request: HttpRequest):
                 else False
             )
 
-            if settings.NEW_ANALYTICS_CAPTURE_TEAM_IDS and str(team.id) in settings.NEW_ANALYTICS_CAPTURE_TEAM_IDS:
-                if random() < settings.NEW_ANALYTICS_CAPTURE_SAMPLING_RATE:
-                    response["analytics"] = {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT}
+            if str(team.id) not in settings.NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS:
+                if (
+                    "*" in settings.NEW_ANALYTICS_CAPTURE_TEAM_IDS
+                    or str(team.id) in settings.NEW_ANALYTICS_CAPTURE_TEAM_IDS
+                ):
+                    if random() < settings.NEW_ANALYTICS_CAPTURE_SAMPLING_RATE:
+                        response["analytics"] = {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT}
+
+            if (
+                settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS
+                and str(team.id) not in settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS
+            ):
+                response["elementsChainAsString"] = True
 
             if team.session_recording_opt_in and (
                 on_permitted_recording_domain(team, request) or not team.recording_domains

@@ -3,9 +3,9 @@ import uuid
 from typing import Dict, Optional, cast
 from unittest import mock
 from unittest.mock import ANY, patch
+from zoneinfo import ZoneInfo
 
 import pytest
-from zoneinfo import ZoneInfo
 from django.core import mail
 from django.urls.base import reverse
 from django.utils import timezone
@@ -543,6 +543,7 @@ class TestSignupAPI(APIBaseTest):
 
     @patch("posthoganalytics.capture")
     @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_distinct_ids")
+    @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_customer_email")
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @mock.patch("posthog.tasks.user_identify.identify_task")
@@ -553,11 +554,13 @@ class TestSignupAPI(APIBaseTest):
         mock_sso_providers,
         mock_request,
         mock_update_distinct_ids,
+        mock_update_billing_customer_email,
         mock_capture,
     ):
         with self.is_cloud(True):
             self.run_test_for_allowed_domain(mock_sso_providers, mock_request, mock_capture)
         assert mock_update_distinct_ids.called_once()
+        assert mock_update_billing_customer_email.called_once()
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")

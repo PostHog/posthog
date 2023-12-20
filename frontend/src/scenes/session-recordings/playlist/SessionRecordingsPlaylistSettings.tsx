@@ -1,10 +1,11 @@
-import { useActions, useValues } from 'kea'
-import { DurationTypeSelect } from 'scenes/session-recordings/filters/DurationTypeSelect'
-import { playerSettingsLogic } from '../player/playerSettingsLogic'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { LemonSwitch } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
 import { IconPause, IconPlay } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { DurationTypeSelect } from 'scenes/session-recordings/filters/DurationTypeSelect'
+
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
 
 export function SessionRecordingsPlaylistSettings(): JSX.Element {
     const { autoplayDirection, durationTypeToShow, hideViewedRecordings } = useValues(playerSettingsLogic)

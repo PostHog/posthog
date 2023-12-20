@@ -1,9 +1,10 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { LemonDivider, LemonDividerProps } from './LemonDivider'
-import { LemonRow } from 'lib/lemon-ui/LemonRow'
-import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonRow } from 'lib/lemon-ui/LemonRow'
+
+import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
 import { ProfileBubbles } from '../ProfilePicture'
+import { LemonDivider, LemonDividerProps } from './LemonDivider'
 
 type Story = StoryObj<typeof LemonDivider>
 const meta: Meta<typeof LemonDivider> = {

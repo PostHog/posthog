@@ -1,19 +1,20 @@
-from rest_framework import request, response, status
-from posthog.permissions import OrganizationMemberPermissions
+from typing import Any, List
+
+from rest_framework import filters, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotAuthenticated
 from rest_framework.permissions import IsAuthenticated
-from rest_framework import filters, serializers, viewsets
+
+from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.shared import UserBasicSerializer
+from posthog.hogql.database.database import SerializedField, serialize_fields
+from posthog.models import User
+from posthog.permissions import OrganizationMemberPermissions
 from posthog.warehouse.models import (
-    DataWarehouseTable,
     DataWarehouseCredential,
     DataWarehouseSavedQuery,
+    DataWarehouseTable,
 )
-from posthog.hogql.database.database import serialize_fields, SerializedField
-from posthog.api.shared import UserBasicSerializer
-from posthog.api.routing import StructuredViewSetMixin
-
-from posthog.models import User
-from typing import Any, List
+from posthog.warehouse.api.external_data_source import SimpleExternalDataSourceSerializers
 
 
 class CredentialSerializer(serializers.ModelSerializer):
@@ -34,6 +35,8 @@ class TableSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     credential = CredentialSerializer()
     columns = serializers.SerializerMethodField(read_only=True)
+    external_data_source = SimpleExternalDataSourceSerializers(read_only=True)
+    external_schema = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = DataWarehouseTable
@@ -47,11 +50,18 @@ class TableSerializer(serializers.ModelSerializer):
             "url_pattern",
             "credential",
             "columns",
+            "external_data_source",
+            "external_schema",
         ]
-        read_only_fields = ["id", "created_by", "created_at", "columns"]
+        read_only_fields = ["id", "created_by", "created_at", "columns", "external_data_source", "external_schema"]
 
     def get_columns(self, table: DataWarehouseTable) -> List[SerializedField]:
         return serialize_fields(table.hogql_definition().fields)
+
+    def get_external_schema(self, instance: DataWarehouseTable):
+        from posthog.warehouse.api.external_data_schema import SimpleExternalDataSchemaSerializer
+
+        return SimpleExternalDataSchemaSerializer(instance.externaldataschema_set.first(), read_only=True).data or None
 
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
@@ -69,6 +79,18 @@ class TableSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(str(err))
         table.save()
         return table
+
+
+class SimpleTableSerializer(serializers.ModelSerializer):
+    columns = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = DataWarehouseTable
+        fields = ["id", "name", "columns"]
+        read_only_fields = ["id", "name", "columns"]
+
+    def get_columns(self, table: DataWarehouseTable) -> List[SerializedField]:
+        return serialize_fields(table.hogql_definition().fields)
 
 
 class TableViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
@@ -91,11 +113,15 @@ class TableViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             return (
                 self.queryset.filter(team_id=self.team_id)
                 .exclude(deleted=True)
-                .prefetch_related("created_by")
+                .prefetch_related("created_by", "externaldataschema_set")
                 .order_by(self.ordering)
             )
 
-        return self.queryset.filter(team_id=self.team_id).prefetch_related("created_by").order_by(self.ordering)
+        return (
+            self.queryset.filter(team_id=self.team_id)
+            .prefetch_related("created_by", "externaldataschema_set")
+            .order_by(self.ordering)
+        )
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: DataWarehouseTable = self.get_object()

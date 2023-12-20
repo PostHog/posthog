@@ -1,14 +1,14 @@
-import { Dispatch, RefObject, SetStateAction } from 'react'
 import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
+import { D3Selector } from 'lib/hooks/useD3'
+import { stripHTTP } from 'lib/utils'
+import { Dispatch, RefObject, SetStateAction } from 'react'
 
 import { PathsFilterType } from '~/types'
-import { stripHTTP } from 'lib/utils'
-import { D3Selector } from 'lib/hooks/useD3'
 
-import { HIDE_PATH_CARD_HEIGHT, FALLBACK_CANVAS_WIDTH } from './Paths'
-import { roundedRect, isSelectedPathStartOrEnd, PathNodeData, PathTargetLink } from './pathUtils'
+import { FALLBACK_CANVAS_WIDTH, HIDE_PATH_CARD_HEIGHT } from './Paths'
 import { PathNode } from './pathsDataLogic'
+import { isSelectedPathStartOrEnd, PathNodeData, PathTargetLink, roundedRect } from './pathUtils'
 
 const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, height: number): D3Selector => {
     return d3

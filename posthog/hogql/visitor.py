@@ -282,6 +282,7 @@ class CloningVisitor(Visitor):
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             alias=node.alias,
+            hidden=node.hidden,
             expr=self.visit(node.expr),
         )
 

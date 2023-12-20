@@ -1,10 +1,10 @@
-import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
-import { IconBookmarkBorder } from 'lib/lemon-ui/icons'
-import { DataTableNode } from '~/queries/schema'
 import equal from 'fast-deep-equal'
 import { useValues } from 'kea'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { teamLogic } from 'scenes/teamLogic'
+
 import { getEventsQueriesForTeam } from '~/queries/nodes/DataTable/defaultEventsQuery'
+import { DataTableNode } from '~/queries/schema'
 
 interface SavedQueriesProps {
     query: DataTableNode
@@ -48,7 +48,6 @@ export function SavedQueries({ query, setQuery }: SavedQueriesProps): JSX.Elemen
             }}
             type="secondary"
             status="primary-alt"
-            icon={<IconBookmarkBorder />}
         >
             {selectedTitle}
         </LemonButtonWithDropdown>

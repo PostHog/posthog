@@ -1,11 +1,12 @@
+import { useValues } from 'kea'
+import { CodeEditor } from 'lib/components/CodeEditors'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { AnyResponseType, DataNode as DataNodeType, DataTableNode } from '~/queries/schema'
-import { useValues } from 'kea'
+
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
-import { CodeEditor } from 'lib/components/CodeEditors'
+import { AnyResponseType, DataNode as DataNodeType, DataTableNode } from '~/queries/schema'
 
 interface DataNodeProps {
     query: DataNodeType

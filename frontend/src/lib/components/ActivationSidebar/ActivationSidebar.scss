@@ -1,20 +1,20 @@
 @import '../../../styles/mixins';
 
 .ActivationSideBar {
-    z-index: var(--z-lemon-sidebar);
-    transition: 200ms ease margin, 200ms ease transform;
     position: absolute;
     right: 0;
+    z-index: var(--z-lemon-sidebar);
     flex-shrink: 0;
+    width: 25rem;
     height: 100%;
+    margin-left: -25rem;
     background: var(--side);
     border-left: 1px solid var(--border);
-    width: 25rem;
-    margin-left: -25rem;
+    transition: 200ms ease margin, 200ms ease transform;
 
     @include screen($lg) {
-        height: initial;
         position: relative;
+        height: initial;
     }
 }
 
@@ -26,10 +26,10 @@
     position: sticky;
     top: 3.5rem;
     right: 0;
-    width: 100%;
-    height: calc(100vh - 3.5rem);
     display: flex;
     flex-direction: column;
+    width: 100%;
+    height: calc(100vh - 3.5rem);
     overflow: scroll;
 
     > div > ul {

@@ -1,7 +1,8 @@
-import { InsightModel, InsightType } from '~/types'
-import { INSIGHT_TYPES_METADATA, InsightTypeMetadata, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
-import { containsHogQLQuery, dateRangeFor, isDataTableNode, isInsightQueryNode } from '~/queries/utils'
 import { dateFilterToText } from 'lib/utils'
+import { INSIGHT_TYPES_METADATA, InsightTypeMetadata, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
+
+import { containsHogQLQuery, dateRangeFor, isDataTableNode, isInsightQueryNode } from '~/queries/utils'
+import { InsightModel, InsightType } from '~/types'
 
 export function TopHeading({ insight }: { insight: InsightModel }): JSX.Element {
     const { filters, query } = insight

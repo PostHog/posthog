@@ -1,17 +1,18 @@
-import { useActions, useValues } from 'kea'
-import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
-import { JSSnippet } from 'lib/components/JSSnippet'
-import { JSBookmarklet } from 'lib/components/JSBookmarklet'
-import { CodeSnippet } from 'lib/components/CodeSnippet'
-import { IconRefresh } from 'lib/lemon-ui/icons'
-import { Link } from 'lib/lemon-ui/Link'
+import { urls } from '@posthog/apps-common'
 import { LemonButton, LemonInput, LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'
-import { useState } from 'react'
-import { TimezoneConfig } from './TimezoneConfig'
-import { WeekStartConfig } from './WeekStartConfig'
+import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { urls } from '@posthog/apps-common'
+import { CodeSnippet } from 'lib/components/CodeSnippet'
+import { JSBookmarklet } from 'lib/components/JSBookmarklet'
+import { JSSnippet } from 'lib/components/JSSnippet'
+import { IconRefresh } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
+import { useState } from 'react'
+import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
+
+import { TimezoneConfig } from './TimezoneConfig'
+import { WeekStartConfig } from './WeekStartConfig'
 
 export function ProjectDisplayName(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
@@ -28,7 +29,7 @@ export function ProjectDisplayName(): JSX.Element {
     }
 
     return (
-        <div className="space-y-4" style={{ maxWidth: '40rem' }}>
+        <div className="space-y-4 max-w-160">
             <LemonInput value={name} onChange={setName} disabled={currentTeamLoading} />
             <LemonButton
                 type="primary"

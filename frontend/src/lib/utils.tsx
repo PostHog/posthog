@@ -1,54 +1,31 @@
-import { CSSProperties } from 'react'
-import api from './api'
-import {
-    ActionFilter,
-    ActionType,
-    ActorType,
-    AnyCohortCriteriaType,
-    AnyFilterLike,
-    AnyFilterType,
-    AnyPropertyFilter,
-    BehavioralCohortType,
-    BehavioralEventType,
-    ChartDisplayType,
-    CohortCriteriaGroupFilter,
-    CohortType,
-    DateMappingOption,
-    EmptyPropertyFilter,
-    EventType,
-    FilterLogicalOperator,
-    FunnelVizType,
-    GroupActorType,
-    InsightType,
-    IntervalType,
-    PropertyFilterValue,
-    PropertyGroupFilter,
-    PropertyGroupFilterValue,
-    PropertyOperator,
-    PropertyType,
-    TimeUnitType,
-    TrendsFilterType,
-} from '~/types'
 import * as Sentry from '@sentry/react'
 import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
-import { NON_TIME_SERIES_DISPLAY_TYPES, WEBHOOK_SERVICES } from 'lib/constants'
-import { KeyMappingInterface } from 'lib/taxonomy'
-import { AlignType } from 'rc-trigger/lib/interface'
+import { WEBHOOK_SERVICES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { getAppContext } from './utils/getAppContext'
+import { AlignType } from 'rc-trigger/lib/interface'
+import { CSSProperties } from 'react'
+
 import {
-    isHogQLPropertyFilter,
-    isPropertyFilterWithOperator,
-    isValidPropertyFilter,
-} from './components/PropertyFilters/utils'
-import { IconCopy } from 'lib/lemon-ui/icons'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
-import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { urls } from 'scenes/urls'
-import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
-import { CUSTOM_OPTION_KEY } from './components/DateFilter/dateFilterLogic'
+    ActionType,
+    ActorType,
+    DateMappingOption,
+    EventType,
+    GroupActorType,
+    IntervalType,
+    PropertyOperator,
+    PropertyType,
+    TimeUnitType,
+} from '~/types'
+
+import { CUSTOM_OPTION_KEY } from './components/DateFilter/types'
+import { LemonTagType } from './lemon-ui/LemonTag'
+import { getAppContext } from './utils/getAppContext'
+
+/**
+ * WARNING: Be very careful importing things here. This file is heavily used and can trigger a lot of cyclic imports
+ * Preferably create a dedicated file in utils/..
+ */
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -180,38 +157,6 @@ export function percentage(
         maximumFractionDigits,
         minimumFractionDigits: fixedPrecision ? maximumFractionDigits : undefined,
     })
-}
-
-export async function deleteWithUndo<T extends Record<string, any>>({
-    undo = false,
-    ...props
-}: {
-    undo?: boolean
-    endpoint: string
-    object: T
-    idField?: keyof T
-    callback?: (undo: boolean, object: T) => void
-}): Promise<void> {
-    await api.update(`api/${props.endpoint}/${props.object[props.idField || 'id']}`, {
-        ...props.object,
-        deleted: !undo,
-    })
-    props.callback?.(undo, props.object)
-    lemonToast[undo ? 'success' : 'info'](
-        <>
-            <b>{props.object.name || <i>{props.object.derived_name || 'Unnamed'}</i>}</b> has been{' '}
-            {undo ? 'restored' : 'deleted'}
-        </>,
-        {
-            toastId: `delete-item-${props.object.id}-${undo}`,
-            button: undo
-                ? undefined
-                : {
-                      label: 'Undo',
-                      action: () => deleteWithUndo({ undo: true, ...props }),
-                  },
-        }
-    )
 }
 
 export const selectStyle: Record<string, (base: Partial<CSSProperties>) => Partial<CSSProperties>> = {
@@ -365,50 +310,6 @@ export function isOperatorDate(operator: PropertyOperator): boolean {
     )
 }
 
-export function formatPropertyLabel(
-    item: Record<string, any>,
-    cohortsById: Partial<Record<CohortType['id'], CohortType>>,
-    keyMapping: KeyMappingInterface,
-    valueFormatter: (value: PropertyFilterValue | undefined) => string | string[] | null = (s) => [String(s)]
-): string {
-    if (isHogQLPropertyFilter(item as AnyFilterLike)) {
-        return extractExpressionComment(item.key)
-    }
-    const { value, key, operator, type } = item
-    return type === 'cohort'
-        ? cohortsById[value]?.name || `ID ${value}`
-        : (keyMapping[type === 'element' ? 'element' : 'event'][key]?.label || key) +
-              (isOperatorFlag(operator)
-                  ? ` ${allOperatorsMapping[operator]}`
-                  : ` ${(allOperatorsMapping[operator || 'exact'] || '?').split(' ')[0]} ${
-                        value && value.length === 1 && value[0] === '' ? '(empty string)' : valueFormatter(value) || ''
-                    } `)
-}
-
-/** Format a label that gets returned from the /insights api */
-export function formatLabel(label: string, action: ActionFilter): string {
-    if (action.math === 'dau') {
-        label += ` (Unique users) `
-    } else if (action.math === 'hogql') {
-        label += ` (${action.math_hogql})`
-    } else if (['sum', 'avg', 'min', 'max', 'median', 'p90', 'p95', 'p99'].includes(action.math || '')) {
-        label += ` (${action.math} of ${action.math_property}) `
-    }
-    if (action.properties?.length) {
-        label += ` (${action.properties
-            .map(
-                (property) =>
-                    `${property.key ? `${property.key} ` : ''}${
-                        allOperatorsMapping[
-                            (isPropertyFilterWithOperator(property) && property.operator) || 'exact'
-                        ].split(' ')[0]
-                    } ${property.value}`
-            )
-            .join(', ')})`
-    }
-    return label.trim()
-}
-
 /** Compare objects deeply. */
 export function objectsEqual(obj1: any, obj2: any): boolean {
     return equal(obj1, obj2)
@@ -492,8 +393,16 @@ export function idToKey(array: Record<string, any>[], keyField: string = 'id'): 
     return object
 }
 
-export function delay(ms: number): Promise<number> {
-    return new Promise((resolve) => window.setTimeout(resolve, ms))
+export function delay(ms: number, signal?: AbortSignal): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const timeoutId = setTimeout(resolve, ms)
+        if (signal) {
+            signal.addEventListener('abort', () => {
+                clearTimeout(timeoutId)
+                reject(new DOMException('Aborted', 'AbortError'))
+            })
+        }
+    })
 }
 
 export function clearDOMTextSelection(): void {
@@ -522,8 +431,13 @@ export function slugify(text: string): string {
         .replace(/--+/g, '-')
 }
 
+export const DEFAULT_DECIMAL_PLACES = 2
+
 /** Format number with comma as the thousands separator. */
-export function humanFriendlyNumber(d: number, precision: number = 2): string {
+export function humanFriendlyNumber(d: number, precision: number = DEFAULT_DECIMAL_PLACES): string {
+    if (isNaN(precision) || precision < 0) {
+        precision = DEFAULT_DECIMAL_PLACES
+    }
     return d.toLocaleString('en-US', { maximumFractionDigits: precision })
 }
 
@@ -955,7 +869,8 @@ const dateOptionsMap = {
     m: 'month',
     w: 'week',
     d: 'day',
-}
+    h: 'hour',
+} as const
 
 export function dateFilterToText(
     dateFrom: string | dayjs.Dayjs | null | undefined,
@@ -1027,77 +942,171 @@ export function dateFilterToText(
     return defaultValue
 }
 
+export function dateStringToComponents(date: string | null): {
+    amount: number
+    unit: (typeof dateOptionsMap)[keyof typeof dateOptionsMap]
+    clip: 'Start' | 'End'
+} | null {
+    if (!date) {
+        return null
+    }
+    const parseDate = /^([-+]?)([0-9]*)([hdwmqy])(|Start|End)$/
+    const matches = date.match(parseDate)
+    if (!matches) {
+        return null
+    }
+    const [, sign, rawAmount, rawUnit, clip] = matches
+    const amount = rawAmount ? parseInt(sign + rawAmount) : 0
+    const unit = dateOptionsMap[rawUnit] || 'day'
+    return { amount, unit, clip: clip as 'Start' | 'End' }
+}
+
 /** Convert a string like "-30d" or "2022-02-02" or "-1mEnd" to `Dayjs().startOf('day')` */
 export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
     if (isDate.test(date || '')) {
         return dayjs(date)
     }
-    const parseDate = /^([-+]?)([0-9]*)([dmwqy])(|Start|End)$/
-    const matches = (date || '').match(parseDate)
-    let response: null | dayjs.Dayjs = null
-    if (matches) {
-        const [, sign, rawAmount, rawUnit, clip] = matches
-        const amount = rawAmount ? parseInt(sign + rawAmount) : 0
-        const unit = dateOptionsMap[rawUnit] || 'day'
-
-        switch (unit) {
-            case 'year':
-                response = dayjs().add(amount, 'year')
-                break
-            case 'quarter':
-                response = dayjs().add(amount * 3, 'month')
-                break
-            case 'month':
-                response = dayjs().add(amount, 'month')
-                break
-            case 'week':
-                response = dayjs().add(amount * 7, 'day')
-                break
-            default:
-                response = dayjs().add(amount, 'day')
-                break
-        }
-
-        if (clip === 'Start') {
-            return response.startOf(unit)
-        } else if (clip === 'End') {
-            return response.endOf(unit)
-        }
-        return response.startOf('day')
+    const dateComponents = dateStringToComponents(date)
+    if (!dateComponents) {
+        return null
     }
-    return response
+
+    const { unit, amount, clip } = dateComponents
+    let response: dayjs.Dayjs
+
+    switch (unit) {
+        case 'year':
+            response = dayjs().add(amount, 'year')
+            break
+        case 'quarter':
+            response = dayjs().add(amount * 3, 'month')
+            break
+        case 'month':
+            response = dayjs().add(amount, 'month')
+            break
+        case 'week':
+            response = dayjs().add(amount * 7, 'day')
+            break
+        case 'day':
+            response = dayjs().add(amount, 'day')
+            break
+        case 'hour':
+            response = dayjs().add(amount, 'hour')
+            break
+        default:
+            throw new UnexpectedNeverError(unit)
+    }
+
+    if (clip === 'Start') {
+        return response.startOf(unit)
+    } else if (clip === 'End') {
+        return response.endOf(unit)
+    }
+    return response.startOf('day')
 }
 
-export async function copyToClipboard(value: string, description: string = 'text'): Promise<boolean> {
-    if (!navigator.clipboard) {
-        lemonToast.warning('Oops! Clipboard capabilities are only available over HTTPS or on localhost')
-        return false
-    }
-
-    try {
-        await navigator.clipboard.writeText(value)
-        lemonToast.info(`Copied ${description} to clipboard`, {
-            icon: <IconCopy />,
-        })
-        return true
-    } catch (e) {
-        // If the Clipboard API fails, fallback to textarea method
-        try {
-            const textArea = document.createElement('textarea')
-            textArea.value = value
-            document.body.appendChild(textArea)
-            textArea.select()
-            document.execCommand('copy')
-            document.body.removeChild(textArea)
-            lemonToast.info(`Copied ${description} to clipboard`, {
-                icon: <IconCopy />,
-            })
-            return true
-        } catch (err) {
-            lemonToast.error(`Could not copy ${description} to clipboard: ${err}`)
-            return false
+export const getDefaultInterval = (dateFrom: string | null, dateTo: string | null): IntervalType => {
+    // use the default mapping if we can
+    for (const mapping of dateMapping) {
+        const mappingFrom = mapping.values[0] ?? null
+        const mappingTo = mapping.values[1] ?? null
+        if (mappingFrom === dateFrom && mappingTo === dateTo && mapping.defaultInterval) {
+            return mapping.defaultInterval
         }
     }
+
+    const parsedDateFrom = dateStringToComponents(dateFrom)
+    const parsedDateTo = dateStringToComponents(dateTo)
+
+    if (parsedDateFrom?.unit === 'hour' || parsedDateTo?.unit === 'hour') {
+        return 'hour'
+    }
+
+    if (parsedDateFrom?.unit === 'day' || parsedDateTo?.unit === 'day' || dateFrom === 'mStart') {
+        return 'day'
+    }
+
+    if (
+        parsedDateFrom?.unit === 'month' ||
+        parsedDateTo?.unit === 'month' ||
+        parsedDateFrom?.unit === 'quarter' ||
+        parsedDateTo?.unit === 'quarter' ||
+        parsedDateFrom?.unit === 'year' ||
+        parsedDateTo?.unit === 'year' ||
+        dateFrom === 'all'
+    ) {
+        return 'month'
+    }
+
+    const dateFromDayJs = dateStringToDayJs(dateFrom)
+    const dateToDayJs = dateStringToDayJs(dateTo)
+
+    const intervalMonths = dateFromDayJs?.diff(dateToDayJs, 'month')
+    if (intervalMonths != null && Math.abs(intervalMonths) >= 2) {
+        return 'month'
+    }
+    const intervalDays = dateFromDayJs?.diff(dateToDayJs, 'day')
+    if (intervalDays != null && Math.abs(intervalDays) >= 14) {
+        return 'week'
+    }
+    if (intervalDays != null && Math.abs(intervalDays) >= 2) {
+        return 'day'
+    }
+    const intervalHours = dateFromDayJs?.diff(dateToDayJs, 'hour')
+    if (intervalHours != null && Math.abs(intervalHours) >= 1) {
+        return 'hour'
+    }
+
+    return 'day'
+}
+
+/* If the interval changes, check if it's compatible with the selected dates, and return new dates
+ * from a map of sensible defaults if not */
+export const areDatesValidForInterval = (
+    interval: IntervalType,
+    oldDateFrom: string | null,
+    oldDateTo: string | null
+): boolean => {
+    const parsedOldDateFrom = dateStringToDayJs(oldDateFrom)
+    const parsedOldDateTo = dateStringToDayJs(oldDateTo) || dayjs()
+
+    if (oldDateFrom === 'all' || !parsedOldDateFrom) {
+        return interval === 'month'
+    } else if (interval === 'month') {
+        return parsedOldDateTo.diff(parsedOldDateFrom, 'month') >= 2
+    } else if (interval === 'week') {
+        return parsedOldDateTo.diff(parsedOldDateFrom, 'week') >= 2
+    } else if (interval === 'day') {
+        const diff = parsedOldDateTo.diff(parsedOldDateFrom, 'day')
+        return diff >= 2
+    } else if (interval === 'hour') {
+        return (
+            parsedOldDateTo.diff(parsedOldDateFrom, 'hour') >= 2 &&
+            parsedOldDateTo.diff(parsedOldDateFrom, 'hour') < 24 * 7 * 2 // 2 weeks
+        )
+    }
+    throw new UnexpectedNeverError(interval)
+}
+
+const defaultDatesForInterval = {
+    hour: { dateFrom: '-24h', dateTo: null },
+    day: { dateFrom: '-7d', dateTo: null },
+    week: { dateFrom: '-28d', dateTo: null },
+    month: { dateFrom: '-6m', dateTo: null },
+}
+
+export const updateDatesWithInterval = (
+    interval: IntervalType,
+    oldDateFrom: string | null,
+    oldDateTo: string | null
+): { dateFrom: string | null; dateTo: string | null } => {
+    if (areDatesValidForInterval(interval, oldDateFrom, oldDateTo)) {
+        return {
+            dateFrom: oldDateFrom,
+            dateTo: oldDateTo,
+        }
+    }
+    return defaultDatesForInterval[interval]
 }
 
 export function clamp(value: number, min: number, max: number): number {
@@ -1239,7 +1248,7 @@ export function hashCodeForString(s: string): number {
     return Math.abs(hash)
 }
 
-export function colorForString(s: string): string {
+export function colorForString(s: string): LemonTagType {
     /*
     Returns a color name for a given string, where the color will always be the same for the same string.
     */
@@ -1256,46 +1265,6 @@ export function midEllipsis(input: string, maxLength: number): string {
     const excessLeft = Math.ceil((input.length - maxLength) / 2)
     const excessRight = Math.ceil((input.length - maxLength + 1) / 2)
     return `${input.slice(0, middle - excessLeft)}…${input.slice(middle + excessRight)}`
-}
-
-export const disableHourFor: Record<string, boolean> = {
-    dStart: false,
-    '-1d': false,
-    '-7d': false,
-    '-14d': false,
-    '-30d': false,
-    '-90d': true,
-    mStart: false,
-    '-1mStart': false,
-    yStart: true,
-    all: true,
-    other: false,
-}
-
-export function autocorrectInterval(filters: Partial<AnyFilterType>): IntervalType | undefined {
-    if ('display' in filters && filters.display && NON_TIME_SERIES_DISPLAY_TYPES.includes(filters.display)) {
-        // Non-time-series insights should not have an interval
-        return undefined
-    }
-    if (isFunnelsFilter(filters) && filters.funnel_viz_type !== FunnelVizType.Trends) {
-        // Only trend funnels support intervals
-        return undefined
-    }
-    if (!filters.interval) {
-        return 'day'
-    }
-
-    // @ts-expect-error - Old legacy interval support
-    const minute_disabled = filters.interval === 'minute'
-    const hour_disabled = disableHourFor[filters.date_from || 'other'] && filters.interval === 'hour'
-
-    if (minute_disabled) {
-        return 'hour'
-    } else if (hour_disabled) {
-        return 'day'
-    } else {
-        return filters.interval
-    }
 }
 
 export function pluralize(count: number, singular: string, plural?: string, includeNumber: boolean = true): string {
@@ -1385,7 +1354,7 @@ export function humanTzOffset(timezone?: string): string {
 
 /** Join array of string into a list ("a, b, and c"). Uses the Oxford comma, but only if there are at least 3 items. */
 export function humanList(arr: readonly string[]): string {
-    return arr.length > 2 ? arr.slice(0, -1).join(', ') + ', and ' + arr.slice(-1) : arr.join(' and ')
+    return arr.length > 2 ? arr.slice(0, -1).join(', ') + ', and ' + arr.at(-1) : arr.join(' and ')
 }
 
 export function resolveWebhookService(webhookUrl: string): string {
@@ -1426,6 +1395,11 @@ export function hexToRGBA(hex: string, alpha = 1): string {
     return `rgba(${[r, g, b, a].join(',')})`
 }
 
+export function RGBToRGBA(rgb: string, a: number): string {
+    const [r, g, b] = rgb.slice(4, rgb.length - 1).split(',')
+    return `rgba(${[r, g, b, a].join(',')})`
+}
+
 export function lightenDarkenColor(hex: string, pct: number): string {
     /**
      * Returns a lightened or darkened color, similar to SCSS darken()
@@ -1447,7 +1421,7 @@ export function lightenDarkenColor(hex: string, pct: number): string {
     return `rgb(${[r, g, b].join(',')})`
 }
 
-export function toString(input?: any | null): string {
+export function toString(input?: any): string {
     return input?.toString() || ''
 }
 
@@ -1542,64 +1516,6 @@ export function getEventNamesForAction(actionId: string | number, allActions: Ac
     return allActions
         .filter((a) => a.id === id)
         .flatMap((a) => a.steps?.filter((step) => step.event).map((step) => String(step.event)) as string[])
-}
-
-export function isPropertyGroup(
-    properties:
-        | PropertyGroupFilter
-        | PropertyGroupFilterValue
-        | AnyPropertyFilter[]
-        | AnyPropertyFilter
-        | Record<string, any>
-        | null
-        | undefined
-): properties is PropertyGroupFilter {
-    return (
-        (properties as PropertyGroupFilter)?.type !== undefined &&
-        (properties as PropertyGroupFilter)?.values !== undefined
-    )
-}
-
-export function flattenPropertyGroup(
-    flattenedProperties: AnyPropertyFilter[],
-    propertyGroup: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter
-): AnyPropertyFilter[] {
-    const obj: AnyPropertyFilter = {} as EmptyPropertyFilter
-    Object.keys(propertyGroup).forEach(function (k) {
-        obj[k] = propertyGroup[k]
-    })
-    if (isValidPropertyFilter(obj)) {
-        flattenedProperties.push(obj)
-    }
-    if (isPropertyGroup(propertyGroup)) {
-        return propertyGroup.values.reduce(flattenPropertyGroup, flattenedProperties)
-    }
-    return flattenedProperties
-}
-
-export function convertPropertiesToPropertyGroup(
-    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined
-): PropertyGroupFilter {
-    if (isPropertyGroup(properties)) {
-        return properties
-    }
-    if (properties && properties.length > 0) {
-        return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values: properties }] }
-    }
-    return { type: FilterLogicalOperator.And, values: [] }
-}
-
-/** Flatten a filter group into an array of filters. NB: Logical operators (AND/OR) are lost in the process. */
-export function convertPropertyGroupToProperties(
-    properties?: PropertyGroupFilter | AnyPropertyFilter[]
-): AnyPropertyFilter[] | undefined {
-    if (isPropertyGroup(properties)) {
-        return flattenPropertyGroup([], properties).filter(isValidPropertyFilter)
-    }
-    if (properties) {
-        return properties.filter(isValidPropertyFilter)
-    }
-    return properties
 }
 
 export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous
@@ -1711,41 +1627,6 @@ export function range(startOrEnd: number, end?: number): number[] {
     return Array.from({ length }, (_, i) => i + start)
 }
 
-export function processCohort(cohort: CohortType): CohortType {
-    return {
-        ...cohort,
-        ...{
-            /* Populate value_property with value and overwrite value with corresponding behavioral filter type */
-            filters: {
-                properties: {
-                    ...cohort.filters.properties,
-                    values: (cohort.filters.properties?.values?.map((group) =>
-                        'values' in group
-                            ? {
-                                  ...group,
-                                  values: (group.values as AnyCohortCriteriaType[]).map((c) =>
-                                      c.type &&
-                                      [BehavioralFilterKey.Cohort, BehavioralFilterKey.Person].includes(c.type) &&
-                                      !('value_property' in c)
-                                          ? {
-                                                ...c,
-                                                value_property: c.value,
-                                                value:
-                                                    c.type === BehavioralFilterKey.Cohort
-                                                        ? BehavioralCohortType.InCohort
-                                                        : BehavioralEventType.HaveProperty,
-                                            }
-                                          : c
-                                  ),
-                              }
-                            : group
-                    ) ?? []) as CohortCriteriaGroupFilter[] | AnyCohortCriteriaType[],
-                },
-            },
-        },
-    }
-}
-
 export function interleave(arr: any[], delimiter: any): any[] {
     return arr.flatMap((item, index, _arr) =>
         _arr.length - 1 !== index // check for the last item
@@ -1771,51 +1652,6 @@ export function downloadFile(file: File): void {
         URL.revokeObjectURL(link.href)
         link?.parentNode?.removeChild(link)
     }, 0)
-}
-
-export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'>): string | undefined {
-    let insightParams: Partial<TrendsFilterType> | undefined
-    if (event.event === '$pageview') {
-        insightParams = {
-            insight: InsightType.TRENDS,
-            interval: 'day',
-            display: ChartDisplayType.ActionsLineGraph,
-            actions: [],
-            events: [
-                {
-                    id: '$pageview',
-                    name: '$pageview',
-                    type: 'events',
-                    order: 0,
-                    properties: [
-                        {
-                            key: '$current_url',
-                            value: event.properties.$current_url,
-                            type: 'event',
-                        },
-                    ],
-                },
-            ],
-        }
-    } else if (event.event !== '$autocapture') {
-        insightParams = {
-            insight: InsightType.TRENDS,
-            interval: 'day',
-            display: ChartDisplayType.ActionsLineGraph,
-            actions: [],
-            events: [
-                {
-                    id: event.event,
-                    name: event.event,
-                    type: 'events',
-                    order: 0,
-                    properties: [],
-                },
-            ],
-        }
-    }
-
-    return insightParams ? urls.insightNew(insightParams) : undefined
 }
 
 export function inStorybookTestRunner(): boolean {
@@ -1850,4 +1686,29 @@ export function flattenObject(ob: Record<string, any>): Record<string, any> {
         }
     }
     return toReturn
+}
+
+export const shouldIgnoreInput = (e: KeyboardEvent): boolean => {
+    return (
+        ['input', 'textarea'].includes((e.target as HTMLElement).tagName.toLowerCase()) ||
+        (e.target as HTMLElement).isContentEditable ||
+        (e.target as HTMLElement).parentElement?.isContentEditable ||
+        false
+    )
+}
+
+export const base64Encode = (str: string): string => {
+    const data = new TextEncoder().encode(str)
+    const binString = Array.from(data, (byte) => String.fromCharCode(byte)).join('')
+    return btoa(binString)
+}
+
+export const base64Decode = (encodedString: string): string => {
+    const binString = atob(encodedString)
+    const data = new Uint8Array(binString.length)
+    for (let i = 0; i < binString.length; i++) {
+        data[i] = binString.charCodeAt(i)
+    }
+
+    return new TextDecoder().decode(data)
 }

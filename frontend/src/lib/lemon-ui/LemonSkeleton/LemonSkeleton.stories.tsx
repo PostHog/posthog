@@ -1,8 +1,8 @@
 import { Meta } from '@storybook/react'
-
-import { LemonSkeleton } from './LemonSkeleton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+
+import { LemonSkeleton } from './LemonSkeleton'
 
 const meta: Meta<typeof LemonSkeleton> = {
     title: 'Lemon UI/Lemon Skeleton',

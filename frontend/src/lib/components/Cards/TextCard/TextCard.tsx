@@ -1,16 +1,18 @@
 import './TextCard.scss'
-import { ResizeHandle1D, ResizeHandle2D } from 'lib/components/Cards/handles'
-import clsx from 'clsx'
-import { DashboardBasicType, DashboardTile } from '~/types'
+
 import { LemonButton, LemonButtonWithDropdown, LemonDivider } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
+import { ResizeHandle1D, ResizeHandle2D } from 'lib/components/Cards/handles'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import React from 'react'
-import { More } from 'lib/lemon-ui/LemonButton/More'
+import { urls } from 'scenes/urls'
+
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { DashboardBasicType, DashboardTile } from '~/types'
 
 interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
     dashboardId?: string | number
@@ -32,7 +34,6 @@ interface TextCardBodyProps extends Pick<React.HTMLAttributes<HTMLDivElement>, '
 
 export function TextContent({ text, closeDetails, className }: TextCardBodyProps): JSX.Element {
     return (
-        // eslint-disable-next-line react/forbid-dom-props
         <div className={clsx('p-2 w-full overflow-auto', className)} onClick={() => closeDetails?.()}>
             <LemonMarkdown>{text}</LemonMarkdown>
         </div>

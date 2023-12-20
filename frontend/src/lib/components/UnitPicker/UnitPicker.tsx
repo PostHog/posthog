@@ -1,11 +1,11 @@
-import { AggregationAxisFormat, INSIGHT_UNIT_OPTIONS } from 'scenes/insights/aggregationAxisFormat'
+import { useActions, useValues } from 'kea'
+import { CustomUnitModal } from 'lib/components/UnitPicker/CustomUnitModal'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { useMemo, useRef, useState } from 'react'
-import { useActions, useValues } from 'kea'
-import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { CustomUnitModal } from 'lib/components/UnitPicker/CustomUnitModal'
+import { useMemo, useRef, useState } from 'react'
+import { AggregationAxisFormat, INSIGHT_UNIT_OPTIONS } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -82,7 +82,7 @@ export function UnitPicker(): JSX.Element {
     }, [localAxisFormat, trendsFilter])
 
     return (
-        <div className="flex flex-1 pt-1.5 pb-2 pr-2">
+        <div className="flex-1 mb-2.5 mx-2">
             <CustomUnitModal
                 formativeElement={customUnitModal}
                 isOpen={customUnitModal !== null}
@@ -92,12 +92,12 @@ export function UnitPicker(): JSX.Element {
                 overlayRef={(ref) => (customUnitModalRef.current = ref)}
             />
             <LemonButtonWithDropdown
-                className="flex flex-1 ml-2"
                 onClick={() => setIsVisible(!isVisible)}
                 size={'small'}
                 type={'secondary'}
                 status="stealth"
                 data-attr="chart-aggregation-axis-format"
+                fullWidth
                 dropdown={{
                     onClickOutside: () => setIsVisible(false),
                     additionalRefs: [customUnitModalRef],

@@ -1,8 +1,9 @@
 import { Meta, StoryFn } from '@storybook/react'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+
 import { setFeatureFlags, useStorybookMocks } from '~/mocks/browser'
 import { NotebookNodeType } from '~/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export default {
     title: 'Scenes-App/Notebooks/Components/Notebook Select Button',
@@ -88,22 +89,6 @@ export const WithSlowNetworkResponse = Template.bind({})
 WithSlowNetworkResponse.args = {
     resource: { type: NotebookNodeType.Recording, attrs: { id: 'very_slow' } },
     visible: true,
-}
-WithSlowNetworkResponse.parameters = {
-    testOptions: {
-        waitForLoadersToDisappear: false,
-    },
-}
-
-export const WithSlowNetworkResponseClosedPopover = Template.bind({})
-WithSlowNetworkResponseClosedPopover.args = {
-    resource: { type: NotebookNodeType.Recording, attrs: { id: 'very_slow' } },
-    visible: false,
-}
-WithSlowNetworkResponseClosedPopover.parameters = {
-    testOptions: {
-        waitForLoadersToDisappear: false,
-    },
 }
 
 export const WithNoExistingContainingNotebooks = Template.bind({})

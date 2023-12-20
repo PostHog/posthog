@@ -1,11 +1,11 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, Node, NodeKind } from '~/queries/schema'
 
 import type { personsSceneLogicType } from './personsSceneLogicType'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 const getDefaultQuery = (usePersonsQuery = false): DataTableNode => ({
     kind: NodeKind.DataTableNode,

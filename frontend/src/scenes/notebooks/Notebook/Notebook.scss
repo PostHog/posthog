@@ -1,14 +1,20 @@
 .Notebook {
-    flex: 1;
     display: flex;
+    flex: 1;
     flex-direction: column;
     width: 100%;
 
+    // overriding ::selection is necessary here because
+    // antd makes it invisible otherwise
+    span::selection {
+        color: var(--primary-3000);
+    }
+
     .NotebookEditor {
+        position: relative;
         flex: 1;
         width: 100%;
         overflow: hidden;
-        position: relative;
 
         .ProseMirror {
             &-focused {
@@ -28,29 +34,36 @@
             }
 
             > .is-empty::before {
-                content: attr(data-placeholder);
                 float: left;
+                height: 0;
                 color: rgb(0 0 0 / 20%);
+                pointer-events: none;
+                content: attr(data-placeholder);
 
                 [theme='dark'] & {
                     color: rgb(255 255 255 / 20%);
                 }
-
-                pointer-events: none;
-                height: 0;
             }
 
             > ol {
                 list-style-type: decimal;
+
+                ol {
+                    list-style-type: lower-alpha;
+                }
             }
 
             > ul {
                 list-style-type: disc;
+
+                ul {
+                    list-style-type: circle;
+                }
             }
 
             > ul[data-type='taskList'] {
-                list-style-type: none;
                 padding-left: 0;
+                list-style-type: none;
 
                 li {
                     display: flex;
@@ -80,6 +93,11 @@
             > ol {
                 padding-left: 1rem;
 
+                ul,
+                ol {
+                    padding-left: 1rem;
+                }
+
                 li {
                     p {
                         margin-bottom: 0.2rem;
@@ -88,47 +106,50 @@
             }
 
             > pre {
+                padding: 0.5rem;
+                margin-bottom: 0.5rem;
+                overflow-x: auto;
                 background-color: rgb(0 0 0 / 5%);
                 border-radius: var(--radius);
-                overflow-x: auto;
-                margin-bottom: 0.5rem;
-                padding: 0.5rem;
             }
 
             > code,
             > p code {
+                padding: 0.2rem;
                 background-color: rgb(0 0 0 / 5%);
                 border-radius: var(--radius);
-                padding: 0.2rem;
             }
         }
 
         .Backlink {
             padding: 0.125rem 0.25rem;
+            background-color: var(--bg-light);
             border: 1px solid var(--border);
             border-radius: var(--radius);
-            background-color: var(--white);
 
             &:hover {
                 background-color: var(--side);
             }
 
             & svg {
-                color: var(--muted-dark);
+                color: var(--text-3000);
             }
 
             &.Backlink--selected {
-                outline-style: solid;
-                outline-color: var(--primary-bg-active);
+                border-color: var(--primary-3000);
             }
 
             &.Backlink--active {
-                border: 1px solid var(--brand-blue);
-                background: var(--brand-blue);
                 color: var(--white);
+                background: var(--primary-3000);
+                border: 1px solid var(--primary-3000);
 
                 & .Backlink__label,
                 & svg {
+                    color: var(--white);
+                }
+
+                span::selection {
                     color: var(--white);
                 }
             }
@@ -147,27 +168,19 @@
         }
     }
 
-    &--editable {
-        .NotebookEditor .ProseMirror {
-            // Add some padding to help clicking below the last element
-            padding-bottom: 10rem;
-            flex: 1;
-        }
-    }
-
     .NotebookColumn {
+        --notebook-sidebar-height: calc(100vh - 9rem);
+
         position: relative;
         width: 0;
         transition: width var(--notebook-popover-transition-properties);
 
-        --notebook-sidebar-height: calc(100vh - 9rem);
-
         .NotebookColumn__content {
             position: sticky;
-            align-self: flex-start;
             top: 0;
-            transform: translateX(-100%);
+            align-self: flex-start;
             transition: transform var(--notebook-popover-transition-properties);
+            transform: translateX(-100%);
         }
 
         .NotebookScene &,
@@ -191,6 +204,11 @@
             .NotebookColumn__content {
                 width: var(--notebook-column-left-width);
                 transform: translateX(-100%);
+
+                > .LemonWidget .LemonWidget__content {
+                    max-height: var(--notebook-sidebar-height);
+                    overflow: auto;
+                }
             }
         }
 
@@ -218,12 +236,28 @@
         }
     }
 
+    &--editable {
+        .NotebookEditor .ProseMirror {
+            flex: 1;
+
+            // Add some padding to help clicking below the last element
+            padding-bottom: 10rem;
+        }
+
+        .NotebookColumn--left.NotebookColumn--showing {
+            & + .NotebookEditor {
+                .ProseMirror {
+                    // Add a lot of padding to allow the entire column to always be on screen
+                    padding-bottom: 100vh;
+                }
+            }
+        }
+    }
+
     .NotebookHistory {
-        flex: 1;
         display: flex;
+        flex: 1;
         flex-direction: column;
-        height: var(--notebook-sidebar-height);
-        overflow: hidden;
     }
 
     .NotebookInlineMenu {
@@ -231,15 +265,8 @@
         box-shadow: 0 4px 10px 0 rgb(0 0 0 / 10%);
 
         .LemonInput {
-            border: 0;
             min-height: 0;
-        }
-    }
-
-    .NotebookColumnLeft__widget {
-        > .LemonWidget__content {
-            max-height: calc(100vh - 220px);
-            overflow: auto;
+            border: 0;
         }
     }
 
@@ -257,12 +284,6 @@
     .NotebookMention {
         display: inline-flex;
         max-height: 22px;
-    }
-
-    // overriding ::selection is necessary here because
-    // antd makes it invisible otherwise
-    span::selection {
-        color: var(--primary);
     }
 
     // Overrides for insight controls

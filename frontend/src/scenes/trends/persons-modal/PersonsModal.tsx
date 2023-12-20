@@ -1,5 +1,31 @@
-import { useState } from 'react'
+import './PersonsModal.scss'
+
+import { LemonBadge, LemonButton, LemonDivider, LemonInput, LemonModal, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonModalProps } from '@posthog/lemon-ui'
+import { Skeleton } from 'antd'
 import { useActions, useValues } from 'kea'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { triggerExport } from 'lib/components/ExportButton/exporter'
+import { PropertiesTable } from 'lib/components/PropertiesTable'
+import { PropertiesTimeline } from 'lib/components/PropertiesTimeline'
+import { IconPlayCircle, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
+import { useState } from 'react'
+import { createRoot } from 'react-dom/client'
+import { GroupActorDisplay, groupDisplayId } from 'scenes/persons/GroupActorDisplay'
+import { asDisplay } from 'scenes/persons/person-utils'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { Noun } from '~/models/groupsModel'
+import { InsightPersonsQuery } from '~/queries/schema'
 import {
     ActorType,
     ExporterFormat,
@@ -7,35 +33,13 @@ import {
     PropertyDefinitionType,
     SessionRecordingType,
 } from '~/types'
-import { personsModalLogic } from './personsModalLogic'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
-import { GroupActorDisplay, groupDisplayId } from 'scenes/persons/GroupActorDisplay'
-import { IconPlayCircle, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
-import { triggerExport } from 'lib/components/ExportButton/exporter'
-import { LemonButton, LemonBadge, LemonDivider, LemonInput, LemonModal, LemonSelect, Link } from '@posthog/lemon-ui'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { createRoot } from 'react-dom/client'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { SaveCohortModal } from './SaveCohortModal'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { Skeleton } from 'antd'
-import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
-import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { Noun } from '~/models/groupsModel'
-import { LemonModalProps } from '@posthog/lemon-ui'
-import { PropertiesTimeline } from 'lib/components/PropertiesTimeline'
-import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { teamLogic } from 'scenes/teamLogic'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
-import './PersonsModal.scss'
-import { asDisplay } from 'scenes/persons/person-utils'
+import { personsModalLogic } from './personsModalLogic'
+import { SaveCohortModal } from './SaveCohortModal'
 
 export interface PersonsModalProps extends Pick<LemonModalProps, 'inline'> {
     onAfterClose?: () => void
+    query?: InsightPersonsQuery | null
     url?: string | null
     urlsIndex?: number
     urls?: {
@@ -49,6 +53,7 @@ export function PersonsModal({
     url: _url,
     urlsIndex,
     urls,
+    query,
     title,
     onAfterClose,
     inline,
@@ -58,6 +63,7 @@ export function PersonsModal({
 
     const logic = personsModalLogic({
         url: originalUrl,
+        query: query,
     })
 
     const {
@@ -70,8 +76,10 @@ export function PersonsModal({
         isModalOpen,
         missingActorsCount,
         propertiesTimelineFilterFromUrl,
+        exploreUrl,
+        personsQuery,
     } = useValues(logic)
-    const { loadActors, setSearchTerm, saveCohortWithUrl, setIsCohortModalOpen, closeModal } = useActions(logic)
+    const { setSearchTerm, saveAsCohort, setIsCohortModalOpen, closeModal, loadNextActors } = useActions(logic)
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { currentTeam } = useValues(teamLogic)
 
@@ -129,7 +137,7 @@ export function PersonsModal({
                             </>
                         ) : (
                             <span>
-                                {actorsResponse?.next ? 'More than ' : ''}
+                                {actorsResponse?.next || actorsResponse?.next_offset ? 'More than ' : ''}
                                 <b>
                                     {totalActorsCount || 'No'} unique{' '}
                                     {pluralize(totalActorsCount, actorLabel.singular, actorLabel.plural, false)}
@@ -165,13 +173,9 @@ export function PersonsModal({
                             </div>
                         )}
 
-                        {actorsResponse?.next && (
+                        {(actorsResponse?.next || actorsResponse?.next_offset) && (
                             <div className="m-4 flex justify-center">
-                                <LemonButton
-                                    type="primary"
-                                    onClick={() => actorsResponse?.next && loadActors({ url: actorsResponse?.next })}
-                                    loading={actorsResponseLoading}
-                                >
+                                <LemonButton type="primary" onClick={loadNextActors} loading={actorsResponseLoading}>
                                     Load more {actorLabel.plural}
                                 </LemonButton>
                             </div>
@@ -179,40 +183,51 @@ export function PersonsModal({
                     </div>
                 </div>
                 <LemonModal.Footer>
-                    <div className="flex-1">
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => {
-                                triggerExport({
-                                    export_format: ExporterFormat.CSV,
-                                    export_context: {
-                                        path: originalUrl,
-                                    },
-                                })
-                            }}
-                            data-attr="person-modal-download-csv"
-                            disabled={!actors.length}
-                        >
-                            Download CSV
-                        </LemonButton>
+                    <div className="flex justify-between gap-2 w-full">
+                        <div className="flex gap-2">
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => {
+                                    void triggerExport({
+                                        export_format: ExporterFormat.CSV,
+                                        export_context: query
+                                            ? { source: personsQuery as Record<string, any> }
+                                            : { path: originalUrl },
+                                    })
+                                }}
+                                data-attr="person-modal-download-csv"
+                                disabled={!actors.length}
+                            >
+                                Download CSV
+                            </LemonButton>
+                            {actors && actors.length > 0 && !isGroupType(actors[0]) && (
+                                <LemonButton
+                                    onClick={() => setIsCohortModalOpen(true)}
+                                    type="secondary"
+                                    data-attr="person-modal-save-as-cohort"
+                                    disabled={!actors.length}
+                                >
+                                    Save as cohort
+                                </LemonButton>
+                            )}
+                        </div>
+                        {exploreUrl && (
+                            <LemonButton
+                                type="primary"
+                                to={exploreUrl}
+                                data-attr="person-modal-new-insight"
+                                onClick={() => {
+                                    closeModal()
+                                }}
+                            >
+                                Explore
+                            </LemonButton>
+                        )}
                     </div>
-                    <LemonButton type="secondary" onClick={closeModal}>
-                        Close
-                    </LemonButton>
-                    {actors && actors.length > 0 && !isGroupType(actors[0]) && (
-                        <LemonButton
-                            onClick={() => setIsCohortModalOpen(true)}
-                            type="primary"
-                            data-attr="person-modal-save-as-cohort"
-                            disabled={!actors.length}
-                        >
-                            Save as cohort
-                        </LemonButton>
-                    )}
                 </LemonModal.Footer>
             </LemonModal>
             <SaveCohortModal
-                onSave={(title) => saveCohortWithUrl(title)}
+                onSave={(title) => saveAsCohort(title)}
                 onCancel={() => setIsCohortModalOpen(false)}
                 isOpen={isCohortModalOpen}
             />

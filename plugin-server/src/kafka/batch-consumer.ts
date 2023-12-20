@@ -29,6 +29,7 @@ export const startBatchConsumer = async ({
     topic,
     autoCommit,
     sessionTimeout,
+    maxPollIntervalMs,
     consumerMaxBytesPerPartition,
     consumerMaxBytes,
     consumerMaxWaitMs,
@@ -44,6 +45,7 @@ export const startBatchConsumer = async ({
     topic: string
     autoCommit: boolean
     sessionTimeout: number
+    maxPollIntervalMs: number
     consumerMaxBytesPerPartition: number
     consumerMaxBytes: number
     consumerMaxWaitMs: number
@@ -78,6 +80,7 @@ export const startBatchConsumer = async ({
         ...connectionConfig,
         'group.id': groupId,
         'session.timeout.ms': sessionTimeout,
+        'max.poll.interval.ms': maxPollIntervalMs,
         'enable.auto.commit': autoCommit,
         'enable.auto.offset.store': false,
         /**
@@ -218,6 +221,7 @@ export const startBatchConsumer = async ({
                 batchesProcessed += 1
 
                 const processingTimeMs = new Date().valueOf() - startProcessingTimeMs
+                consumedBatchDuration.labels({ topic, groupId }).observe(processingTimeMs)
                 if (processingTimeMs > SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS) {
                     status.warn(
                         '🕒',
@@ -289,6 +293,12 @@ export const startBatchConsumer = async ({
 
     return { isHealthy, stop, join, consumer }
 }
+
+export const consumedBatchDuration = new Histogram({
+    name: 'consumed_batch_duration_ms',
+    help: 'Main loop consumer batch processing duration in ms',
+    labelNames: ['topic', 'groupId'],
+})
 
 export const consumerBatchSize = new Histogram({
     name: 'consumed_batch_size',
