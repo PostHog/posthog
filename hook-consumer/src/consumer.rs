@@ -13,28 +13,28 @@ use tokio::sync;
 
 use crate::error::{ConsumerError, WebhookError};
 
-/// A WebhookJob is any PgQueueJob that returns webhook required parameters and metadata.
+/// A WebhookJob is any PgQueueJob that returns a reference to webhook parameters and metadata.
 trait WebhookJob: PgQueueJob + std::marker::Send {
-    fn parameters<'a>(&'a self) -> &'a WebhookJobParameters;
-    fn metadata<'a>(&'a self) -> &'a WebhookJobMetadata;
+    fn parameters(&self) -> &WebhookJobParameters;
+    fn metadata(&self) -> &WebhookJobMetadata;
 }
 
 impl WebhookJob for PgTransactionJob<'_, WebhookJobParameters, WebhookJobMetadata> {
-    fn parameters<'a>(&'a self) -> &'a WebhookJobParameters {
+    fn parameters(&self) -> &WebhookJobParameters {
         &self.job.parameters
     }
 
-    fn metadata<'a>(&'a self) -> &'a WebhookJobMetadata {
+    fn metadata(&self) -> &WebhookJobMetadata {
         &self.job.metadata
     }
 }
 
 impl WebhookJob for PgJob<WebhookJobParameters, WebhookJobMetadata> {
-    fn parameters<'a>(&'a self) -> &'a WebhookJobParameters {
+    fn parameters(&self) -> &WebhookJobParameters {
         &self.job.parameters
     }
 
-    fn metadata<'a>(&'a self) -> &'a WebhookJobMetadata {
+    fn metadata(&self) -> &WebhookJobMetadata {
         &self.job.metadata
     }
 }
