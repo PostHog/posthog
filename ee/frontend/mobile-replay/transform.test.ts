@@ -476,6 +476,26 @@ describe('replay/transform', () => {
                 ).toMatchSnapshot()
             })
 
+            test('open keyboard custom event', () => {
+                expect(
+                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                        timestamp: 1,
+                        type: EventType.Custom,
+                        data: { tag: 'keyboard', payload: { open: true, height: 150 } },
+                    })
+                ).toMatchSnapshot()
+            })
+
+            test('closed keyboard custom event', () => {
+                expect(
+                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                        timestamp: 1,
+                        type: EventType.Custom,
+                        data: { tag: 'keyboard', payload: { open: false } },
+                    })
+                ).toMatchSnapshot()
+            })
+
             test('radio_group', () => {
                 expect(
                     posthogEEModule.mobileReplay?.transformEventToWeb({

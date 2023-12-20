@@ -3,13 +3,14 @@ from typing import Dict
 
 from posthog.constants import TRENDS_TABLE
 from posthog.models import Filter
-from posthog.queries.trends.breakdown import BREAKDOWN_OTHER_NUMERIC_LABEL
-from posthog.queries.trends.trends import Trends
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    snapshot_clickhouse_queries,
+from posthog.queries.trends.breakdown import (
+    BREAKDOWN_OTHER_NUMERIC_LABEL,
+    BREAKDOWN_OTHER_STRING_LABEL,
+    BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_NULL_NUMERIC_LABEL,
 )
+from posthog.queries.trends.trends import Trends
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.test.test_journeys import journeys_for
 
 
@@ -457,7 +458,7 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             [(item["breakdown_value"], item["count"], item["data"]) for item in response],
             [
-                ("", 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                (BREAKDOWN_NULL_STRING_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
                 (
                     "https://example.com",
                     1.0,
@@ -493,18 +494,105 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
-    def test_breakdown_numeric_hogql_to_string(self):
+    def test_breakdown_numeric_hogql(self):
         response = self._run(
             {
                 "breakdown": "length(properties.$current_url)",
                 "breakdown_type": "hogql",
+                "breakdown_limit": 2,
             },
         )
         self.assertEqual(
             [(item["breakdown_value"], item["count"], item["data"]) for item in response],
             [
-                (BREAKDOWN_OTHER_NUMERIC_LABEL, 6.0, [1.0, 1.0, 4.0]),
+                (BREAKDOWN_NULL_NUMERIC_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                (19, 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                (BREAKDOWN_OTHER_NUMERIC_LABEL, 1.0, [1.0]),
+            ],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_breakdown_numeric_hogql_hide_other(self):
+        response = self._run(
+            {
+                "breakdown": "length(properties.$current_url)",
+                "breakdown_type": "hogql",
+                "breakdown_hide_other_aggregation": True,
+                "breakdown_limit": 2,
+            },
+        )
+        self.assertEqual(
+            [(item["breakdown_value"], item["count"], item["data"]) for item in response],
+            [
+                (BREAKDOWN_NULL_NUMERIC_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                (19, 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ],
+        )
+        response = self._run(
+            {
+                "breakdown": "length(properties.$current_url)",
+                "breakdown_type": "hogql",
+                "breakdown_hide_other_aggregation": True,
+                "breakdown_limit": 3,
+            },
+        )
+        self.assertEqual(
+            [(item["breakdown_value"], item["count"], item["data"]) for item in response],
+            [
+                (BREAKDOWN_NULL_NUMERIC_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
                 (19, 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
                 (20, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_breakdown_string_hogql(self):
+        response = self._run(
+            {
+                "breakdown": "properties.$current_url",
+                "breakdown_type": "hogql",
+                "breakdown_limit": 2,
+            },
+        )
+        self.assertEqual(
+            [(item["breakdown_value"], item["count"], item["data"]) for item in response],
+            [
+                (BREAKDOWN_NULL_STRING_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ("https://example.com", 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                (BREAKDOWN_OTHER_STRING_LABEL, 1.0, [1.0]),
+            ],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_breakdown_string_hogql_hide_other(self):
+        response = self._run(
+            {
+                "breakdown": "properties.$current_url",
+                "breakdown_type": "hogql",
+                "breakdown_hide_other_aggregation": True,
+                "breakdown_limit": 2,
+            },
+        )
+        self.assertEqual(
+            [(item["breakdown_value"], item["count"], item["data"]) for item in response],
+            [
+                (BREAKDOWN_NULL_STRING_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ("https://example.com", 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ],
+        )
+        response = self._run(
+            {
+                "breakdown": "properties.$current_url",
+                "breakdown_type": "hogql",
+                "breakdown_hide_other_aggregation": True,
+                "breakdown_limit": 3,
+            },
+        )
+        self.assertEqual(
+            [(item["breakdown_value"], item["count"], item["data"]) for item in response],
+            [
+                (BREAKDOWN_NULL_STRING_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ("https://example.com", 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ("https://example.com/", 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
             ],
         )

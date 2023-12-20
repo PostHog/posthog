@@ -27,7 +27,20 @@ export const CorsPlugin: ReplayPlugin & {
     onBuild: (node) => {
         if (node.nodeName === 'STYLE') {
             const styleElement = node as HTMLStyleElement
-            styleElement.textContent = CorsPlugin._replaceFontCssUrls(styleElement.textContent)
+            const childNodes = styleElement.childNodes
+            for (let i = 0; i < childNodes.length; i++) {
+                // not every node in a style element is text
+                // e.g. formatted text might cause some <br/> elements to be present
+                // separating lines of text
+                if (childNodes[i].nodeType == 3) {
+                    // then this is a text node
+                    // TODO what about CSS import URLs we could replace those too?
+                    const updatedContent = CorsPlugin._replaceFontCssUrls(childNodes[i].textContent)
+                    if (updatedContent !== childNodes[i].textContent) {
+                        childNodes[i].textContent = updatedContent
+                    }
+                }
+            }
         }
 
         if (node.nodeName === 'LINK') {

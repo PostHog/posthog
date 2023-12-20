@@ -29,7 +29,7 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     random_uuid: str
 
     def _create_random_persons(self) -> str:
-        random_uuid = str(UUIDT())
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for index in range(10):
             _create_person(
                 properties={

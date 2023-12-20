@@ -1,9 +1,10 @@
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { humanFriendlyDetailedTime } from 'lib/utils'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { DatabaseTableListRow } from 'scenes/data-warehouse/types'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
@@ -111,11 +112,32 @@ export function DatabaseTables<T extends DatabaseTableListRow>({
                                   dataIndex: 'name',
                                   render: function RenderType(_, obj: T) {
                                       return (
-                                          <LemonTag type="default" className="uppercase">
-                                              {obj.external_data_source
-                                                  ? obj.external_data_source.source_type
-                                                  : 'PostHog'}
-                                          </LemonTag>
+                                          <LemonDropdown
+                                              placement="top"
+                                              showArrow
+                                              trigger="hover"
+                                              overlay={
+                                                  <span>
+                                                      Last synced:{' '}
+                                                      {obj.external_schema?.last_synced_at
+                                                          ? humanFriendlyDetailedTime(
+                                                                obj.external_schema?.last_synced_at
+                                                            )
+                                                          : 'Pending'}
+                                                  </span>
+                                              }
+                                          >
+                                              <span>
+                                                  <LemonTag
+                                                      type={obj.external_schema?.should_sync ? 'primary' : 'default'}
+                                                      className="uppercase"
+                                                  >
+                                                      {obj.external_data_source
+                                                          ? obj.external_data_source.source_type
+                                                          : 'PostHog'}
+                                                  </LemonTag>
+                                              </span>
+                                          </LemonDropdown>
                                       )
                                   },
                               },
