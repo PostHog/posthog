@@ -10,7 +10,7 @@ class TestProcessScheduledChanges(APIBaseTest):
             name="Flag 1",
             key="flag-1",
             active=False,
-            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            filters={"groups": []},
             team=self.team,
             created_by=self.user,
         )
@@ -54,7 +54,7 @@ class TestProcessScheduledChanges(APIBaseTest):
             record_id=feature_flag.id,
             model_name="FeatureFlag",
             payload=payload,
-            scheduled_at=(datetime.now(timezone.utc) - timedelta(seconds=30)).isoformat(),
+            scheduled_at=(datetime.now(timezone.utc) - timedelta(seconds=30)),
         )
 
         process_scheduled_changes()
@@ -79,7 +79,7 @@ class TestProcessScheduledChanges(APIBaseTest):
             record_id=feature_flag.id,
             model_name="FeatureFlag",
             payload=payload,
-            scheduled_at=(datetime.now(timezone.utc) - timedelta(seconds=30)).isoformat(),
+            scheduled_at=(datetime.now(timezone.utc) - timedelta(seconds=30)),
         )
 
         process_scheduled_changes()
@@ -89,3 +89,88 @@ class TestProcessScheduledChanges(APIBaseTest):
 
         updated_scheduled_change = ScheduledChange.objects.get(id=scheduled_change.id)
         self.assertEqual(updated_scheduled_change.failure_reason, "Invalid payload")
+
+    def test_schedule_feature_flag_multiple_changes(self) -> None:
+        feature_flag = FeatureFlag.objects.create(
+            name="Flag",
+            key="flag-1",
+            active=True,
+            filters={"groups": []},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        # Create 4 scheduled changes
+        # 1. Due in the past
+        change_past_condition = {
+            "properties": [{"key": "$geoip_city_name", "value": ["Sydney"], "operator": "exact", "type": "person"}],
+            "rollout_percentage": 50,
+            "variant": None,
+        }
+        change_past = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={
+                "field": "filters",
+                "value": {"groups": [change_past_condition], "multivariate": None, "payloads": {}},
+            },
+            scheduled_at=(datetime.now(timezone.utc) - timedelta(hours=1)),
+        )
+
+        # 2. Due in the past and already executed
+        change_past_executed_at = datetime.now(timezone.utc) - timedelta(hours=5)
+        change_past_executed = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"field": "active", "value": False},
+            scheduled_at=change_past_executed_at,
+            executed_at=change_past_executed_at,
+        )
+
+        # 3. Due exactly now
+        change_due_now_condition = {
+            "properties": [{"key": "$geoip_city_name", "value": ["New York"], "operator": "exact", "type": "person"}],
+            "rollout_percentage": 75,
+            "variant": None,
+        }
+        change_due_now = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={
+                "field": "filters",
+                "value": {"groups": [change_due_now_condition], "multivariate": None, "payloads": {}},
+            },
+            scheduled_at=datetime.now(timezone.utc),
+        )
+
+        # 4. Due in the future
+        change_due_future = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"field": "active", "value": False},
+            scheduled_at=(datetime.now(timezone.utc) + timedelta(hours=1)),
+        )
+
+        process_scheduled_changes()
+
+        # Refresh change records
+        change_past = ScheduledChange.objects.get(id=change_past.id)
+        change_past_executed = ScheduledChange.objects.get(id=change_past_executed.id)
+        change_due_now = ScheduledChange.objects.get(id=change_due_now.id)
+        change_due_future = ScheduledChange.objects.get(id=change_due_future.id)
+
+        # Changes due have been marked executed
+        self.assertIsNotNone(change_past.executed_at)
+        self.assertIsNotNone(change_due_now.executed_at)
+
+        # Other changes have not been executed
+        self.assertEqual(change_past_executed.executed_at, change_past_executed_at)
+        self.assertIsNone(change_due_future.executed_at)
+
+        # The changes due have been propagated in the correct order (oldest scheduled_at first)
+        updated_flag = FeatureFlag.objects.get(key="flag-1")
+        self.assertEqual(updated_flag.filters["groups"], [change_past_condition, change_due_now_condition])
