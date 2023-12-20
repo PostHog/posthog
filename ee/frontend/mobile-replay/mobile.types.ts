@@ -118,12 +118,15 @@ type wireframeBase = {
     /**
      * @description x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0
      */
-    x: number
-    y: number
+    x?: number
+    y?: number
     /*
-     * @description width and height are the dimensions of the element, the only accepted units is pixels. You can omit the unit.
+     * @description the width dimension of the element, either '100vw' i.e. viewport width. Or a value in pixels. You can omit the unit when specifying pixels.
      */
-    width: number
+    width: number | '100vw'
+    /*
+     * @description the height dimension of the element, the only accepted units is pixels. You can omit the unit.
+     */
     height: number
     childWireframes?: wireframe[]
     type: MobileNodeType
@@ -289,7 +292,34 @@ export type metaEvent = {
     }
 }
 
-export type mobileEvent = fullSnapshotEvent | metaEvent | customEvent | incrementalSnapshotEvent
+// this is a custom event _but_ rrweb only types tag as string, and we want to be more specific
+export type keyboardEvent = {
+    type: EventType.Custom
+    data: {
+        tag: 'keyboard'
+        payload:
+            | {
+                  open: true
+                  styles?: MobileStyles
+                  /**
+                   * @description x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present then the keyboard is at the bottom of the screen
+                   */
+                  x?: number
+                  y?: number
+                  /*
+                   * @description the height dimension of the keyboard, the only accepted units is pixels. You can omit the unit.
+                   */
+                  height: number
+                  /*
+                   * @description the width dimension of the keyboard, the only accepted units is pixels. You can omit the unit. If not present defaults to width of the viewport
+                   */
+                  width?: number
+              }
+            | { open: false }
+    }
+}
+
+export type mobileEvent = fullSnapshotEvent | metaEvent | customEvent | incrementalSnapshotEvent | keyboardEvent
 
 export type mobileEventWithTime = mobileEvent & {
     timestamp: number

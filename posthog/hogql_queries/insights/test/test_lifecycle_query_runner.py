@@ -39,7 +39,7 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def _create_random_events(self) -> str:
-        random_uuid = str(UUIDT())
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         _create_person(
             properties={"sneaky_mail": "tim@posthog.com", "random_uuid": random_uuid},
             team=self.team,

@@ -2,15 +2,15 @@
   '
   SELECT groupArray(start_of_period) AS date,
          groupArray(round(multiply(counts, divide(1, 0.1)))) AS total,
-         status
+         status AS status
   FROM
     (SELECT if(ifNull(equals(status, 'dormant'), 0), negate(sum(counts)), negate(negate(sum(counts)))) AS counts,
-            start_of_period,
-            status
+            start_of_period AS start_of_period,
+            status AS status
      FROM
        (SELECT periods.start_of_period AS start_of_period,
                0 AS counts,
-               sec.status
+               sec.status AS status
         FROM
           (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS start_of_period
            FROM numbers(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC'))), toStartOfDay(plus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC')), toIntervalDay(1))))) AS numbers) AS periods
@@ -20,9 +20,9 @@
              (SELECT 1) ARRAY
            JOIN ['new', 'returning', 'resurrecting', 'dormant'] AS status) AS sec
         ORDER BY sec.status ASC, start_of_period ASC
-        UNION ALL SELECT start_of_period,
+        UNION ALL SELECT start_of_period AS start_of_period,
                          count(DISTINCT person_id) AS counts,
-                         status
+                         status AS status
         FROM
           (SELECT events__pdi__person.id AS person_id,
                   min(toTimeZone(events__pdi__person.created_at, 'UTC')) AS created_at,
@@ -73,15 +73,15 @@
   '
   SELECT groupArray(start_of_period) AS date,
          groupArray(counts) AS total,
-         status
+         status AS status
   FROM
     (SELECT if(ifNull(equals(status, 'dormant'), 0), negate(sum(counts)), negate(negate(sum(counts)))) AS counts,
-            start_of_period,
-            status
+            start_of_period AS start_of_period,
+            status AS status
      FROM
        (SELECT periods.start_of_period AS start_of_period,
                0 AS counts,
-               sec.status
+               sec.status AS status
         FROM
           (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC'))), toIntervalDay(numbers.number)) AS start_of_period
            FROM numbers(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'UTC'))), toStartOfDay(plus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'UTC')), toIntervalDay(1))))) AS numbers) AS periods
@@ -91,9 +91,9 @@
              (SELECT 1) ARRAY
            JOIN ['new', 'returning', 'resurrecting', 'dormant'] AS status) AS sec
         ORDER BY sec.status ASC, start_of_period ASC
-        UNION ALL SELECT start_of_period,
+        UNION ALL SELECT start_of_period AS start_of_period,
                          count(DISTINCT person_id) AS counts,
-                         status
+                         status AS status
         FROM
           (SELECT events__pdi__person.id AS person_id,
                   min(toTimeZone(events__pdi__person.created_at, 'UTC')) AS created_at,
@@ -144,15 +144,15 @@
   '
   SELECT groupArray(start_of_period) AS date,
          groupArray(counts) AS total,
-         status
+         status AS status
   FROM
     (SELECT if(ifNull(equals(status, 'dormant'), 0), negate(sum(counts)), negate(negate(sum(counts)))) AS counts,
-            start_of_period,
-            status
+            start_of_period AS start_of_period,
+            status AS status
      FROM
        (SELECT periods.start_of_period AS start_of_period,
                0 AS counts,
-               sec.status
+               sec.status AS status
         FROM
           (SELECT minus(toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'US/Pacific'))), toIntervalDay(numbers.number)) AS start_of_period
            FROM numbers(dateDiff('day', toStartOfDay(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-12 00:00:00', 6, 'US/Pacific'))), toStartOfDay(plus(assumeNotNull(parseDateTime64BestEffortOrNull('2020-01-19 23:59:59', 6, 'US/Pacific')), toIntervalDay(1))))) AS numbers) AS periods
@@ -162,9 +162,9 @@
              (SELECT 1) ARRAY
            JOIN ['new', 'returning', 'resurrecting', 'dormant'] AS status) AS sec
         ORDER BY sec.status ASC, start_of_period ASC
-        UNION ALL SELECT start_of_period,
+        UNION ALL SELECT start_of_period AS start_of_period,
                          count(DISTINCT person_id) AS counts,
-                         status
+                         status AS status
         FROM
           (SELECT events__pdi__person.id AS person_id,
                   min(toTimeZone(events__pdi__person.created_at, 'US/Pacific')) AS created_at,

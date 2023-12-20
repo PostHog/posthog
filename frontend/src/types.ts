@@ -871,6 +871,7 @@ export interface MatchedRecording {
 interface CommonActorType {
     id: string | number
     properties: Record<string, any>
+    /** @format date-time */
     created_at: string
     matched_recordings: MatchedRecording[]
     value_at_data_point: number | null
@@ -1759,6 +1760,7 @@ export interface FilterType {
     breakdown_normalize_url?: boolean
     breakdowns?: Breakdown[]
     breakdown_group_type_index?: number | null
+    breakdown_hide_other_aggregation?: boolean | null
     aggregation_group_type_index?: number // Groups aggregation
 }
 
@@ -1878,8 +1880,10 @@ export interface RetentionEntity {
 export interface RetentionFilterType extends FilterType {
     retention_type?: RetentionType
     retention_reference?: 'total' | 'previous' // retention wrt cohort size or previous period
-    /** @asType integer */
-    total_intervals?: number // retention total intervals
+    /**
+     * @asType integer
+     */
+    total_intervals?: number
     returning_entity?: RetentionEntity
     target_entity?: RetentionEntity
     period?: RetentionPeriod
@@ -3299,6 +3303,7 @@ export interface DataWarehouseTable {
     credential: DataWarehouseCredential
     columns: DatabaseSchemaQueryResponseField[]
     external_data_source?: ExternalDataStripeSource
+    external_schema?: SimpleExternalDataSourceSchema
 }
 
 export type DataWarehouseTableTypes = 'CSV' | 'Parquet'
@@ -3337,11 +3342,14 @@ export interface ExternalDataStripeSource {
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]
 }
-
-export interface ExternalDataSourceSchema {
+export interface SimpleExternalDataSourceSchema {
     id: string
     name: string
     should_sync: boolean
+    last_synced_at?: Dayjs
+}
+
+export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
 }
 

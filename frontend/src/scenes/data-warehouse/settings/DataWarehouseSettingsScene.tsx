@@ -253,6 +253,17 @@ const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
                         }
                     },
                 },
+                {
+                    title: 'Last Synced At',
+                    key: 'last_synced_at',
+                    render: function Render(_, schema) {
+                        return schema.last_synced_at ? (
+                            <>
+                                <TZLabel time={schema.last_synced_at} formatDate="MMM DD, YYYY" formatTime="HH:mm" />
+                            </>
+                        ) : null
+                    },
+                },
             ]}
         />
     )

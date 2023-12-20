@@ -183,6 +183,15 @@ export function isDatabaseSchemaQuery(node?: Node): node is DatabaseSchemaQuery 
     return node?.kind === NodeKind.DatabaseSchemaQuery
 }
 
+export function isQueryForGroup(query: PersonsNode | PersonsQuery): boolean {
+    return (
+        isPersonsQuery(query) &&
+        isInsightPersonsQuery(query.source) &&
+        isRetentionQuery(query.source.source) &&
+        query.source.source.aggregation_group_type_index !== undefined
+    )
+}
+
 export function isInsightQueryWithSeries(
     node?: Node
 ): node is TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery {
