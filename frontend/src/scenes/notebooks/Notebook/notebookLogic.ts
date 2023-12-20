@@ -632,10 +632,11 @@ export const notebookLogic = kea<notebookLogicType>([
         insertComment: ({ context }) => {
             actions.openSidePanel(SidePanelTab.Discussion)
             actions.setItemContext(context, (result) => {
-                if (!result.sent) {
-                    queueMicrotask(() => {
-                        values.editor?.removeComment(context.id)
-                    })
+                if (!result.sent && values.editor) {
+                    const pos = values.editor.findCommentPosition(context.id)
+                    if (pos) {
+                        values.editor.removeComment(pos)
+                    }
                 }
             })
             if (router.values.currentLocation.pathname !== urls.notebook(values.shortId)) {

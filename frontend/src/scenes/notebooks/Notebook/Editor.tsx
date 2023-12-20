@@ -253,6 +253,7 @@ export function Editor(): JSX.Element {
                 getMarks: (type: string) => getMarks(editor, type),
                 updateMark: (type, attrs) => editor.commands.updateAttributes(type, attrs),
                 removeMark: (type) => editor.commands.unsetMark(type),
+                findCommentPosition: (markId: string) => findCommentPosition(editor, markId),
                 removeComment: (pos: number) => removeCommentMark(editor, pos),
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
                 insertContent: (content: JSONContent) => editor.chain().insertContent(content).focus().run(),
@@ -391,6 +392,19 @@ export function hasMatchingNode(
                 attrEntries.every(([attr, value]: [string, any]) => node.attrs && node.attrs[attr] === value)
             )
     )
+}
+
+export function findCommentPosition(editor: TTEditor, markId: string): number | null {
+    let result = null
+    const doc = editor.state.doc
+    doc.descendants((node, pos) => {
+        const mark = node.marks.find((mark) => mark.type.name === 'comment' && mark.attrs.id === markId)
+        if (mark) {
+            result = pos
+            return
+        }
+    })
+    return result
 }
 
 export function getMarks(editor: TTEditor, type: string): { id: string; pos: number }[] {

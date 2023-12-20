@@ -106,6 +106,7 @@ export interface NotebookEditor {
     focus: (position?: EditorFocusPosition) => void
     chain: () => EditorCommands
     destroy: () => void
+    findCommentPosition: (markId: string) => number | null
     getMarks: (type: string) => { id: string; pos: number }[]
     updateMark: (type: string, attrs: Record<string, any>) => void
     removeMark: (type: string) => void
