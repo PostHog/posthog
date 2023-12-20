@@ -235,7 +235,7 @@ export const userLogic = kea<userLogicType>([
 
         themeMode: [
             (s) => [s.user],
-            (user) => {
+            (user): 'light' | 'dark' | 'system' => {
                 return user?.theme_mode || 'light'
             },
         ],

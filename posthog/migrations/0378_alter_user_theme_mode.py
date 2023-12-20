@@ -4,15 +4,19 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('posthog', '0377_flatpersonoverride'),
+        ("posthog", "0377_flatpersonoverride"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='user',
-            name='theme_mode',
-            field=models.CharField(blank=True, choices=[('light', 'Light'), ('dark', 'Dark'), ('system', 'System')], max_length=20, null=True),
+            model_name="user",
+            name="theme_mode",
+            field=models.CharField(
+                blank=True,
+                choices=[("light", "Light"), ("dark", "Dark"), ("system", "System")],
+                max_length=20,
+                null=True,
+            ),
         ),
     ]
