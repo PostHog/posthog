@@ -17,6 +17,7 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { notebooksModel, openNotebook, SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
 import {
     ActivityScope,
+    CommentType,
     NotebookNodeType,
     NotebookSyncStatus,
     NotebookTarget,
@@ -91,7 +92,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 // scope: ActivityScope.NOTEBOOK,
                 // item_id: props.shortId,
             }),
-            ['setItemContext', 'sendComposedContentSuccess', 'deleteCommentSuccess'],
+            ['setItemContext', 'sendComposedContentSuccess'],
         ],
     })),
     actions({
@@ -641,11 +642,6 @@ export const notebookLogic = kea<notebookLogicType>([
                 router.actions.push(urls.notebook(values.shortId))
             }
         },
-        deleteCommentSuccess({ payload }) {
-            if (payload?.comment?.item_context?.id) {
-                values.editor?.removeComment(payload.comment.item_context.id)
-            }
-        },
         selectComment: ({ markId }) => {
             const commentId = values.comments?.find((x) => x.item_context?.id === markId)?.id
 
@@ -657,7 +653,7 @@ export const notebookLogic = kea<notebookLogicType>([
         },
     })),
 
-    subscriptions(({ actions }) => ({
+    subscriptions(({ values, actions }) => ({
         notebook: (notebook?: NotebookType) => {
             // Keep the list logic up to date with any changes
             if (notebook && notebook.short_id !== SCRATCHPAD_NOTEBOOK.short_id) {
@@ -665,6 +661,20 @@ export const notebookLogic = kea<notebookLogicType>([
             }
             // If the notebook ever changes, we want to reset the scheduled refresh
             actions.scheduleNotebookRefresh()
+        },
+        comments: (comments: CommentType[] | undefined | null) => {
+            if (comments && comments.length >= 0 && values.editor) {
+                const { editor } = values
+                const commentMarkIds = comments
+                    .filter((comment) => comment.item_context?.type === 'mark')
+                    .map((comment) => comment.item_context?.id)
+
+                editor.getMarks('comment').forEach((mark) => {
+                    if (!commentMarkIds.includes(mark.id)) {
+                        editor.removeComment(mark.pos)
+                    }
+                })
+            }
         },
     })),
 

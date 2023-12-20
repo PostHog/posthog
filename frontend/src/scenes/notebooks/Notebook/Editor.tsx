@@ -250,9 +250,10 @@ export function Editor(): JSX.Element {
                 focus: (position?: EditorFocusPosition) => queueMicrotask(() => editor.commands.focus(position)),
                 chain: () => editor.chain().focus(),
                 destroy: () => editor.destroy(),
+                getMarks: (type: string) => getMarks(editor, type),
                 updateMark: (type, attrs) => editor.commands.updateAttributes(type, attrs),
                 removeMark: (type) => editor.commands.unsetMark(type),
-                removeComment: (commentId: string) => removeCommentMark(editor, commentId),
+                removeComment: (pos: number) => removeCommentMark(editor, pos),
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
                 insertContent: (content: JSONContent) => editor.chain().insertContent(content).focus().run(),
                 insertContentAfterNode: (position: number, content: JSONContent) => {
@@ -392,17 +393,18 @@ export function hasMatchingNode(
     )
 }
 
-export function removeCommentMark(editor: TTEditor, commentId: string): void {
+export function getMarks(editor: TTEditor, type: string): { id: string; pos: number }[] {
+    const results: { id: string; pos: number }[] = []
     const doc = editor.state.doc
 
     doc.descendants((node, pos) => {
-        const commentMark = node.marks.find((mark) => mark.type.name === 'comment' && mark.attrs.id === commentId)
-
-        if (!commentMark) {
-            return
-        }
-
-        editor.commands.setNodeSelection(pos)
-        editor.commands.unsetMark('comment', { extendEmptyMarkRange: true })
+        const marks = node.marks.filter((mark) => mark.type.name === type)
+        marks.forEach((mark) => results.push({ id: mark.attrs.id, pos }))
     })
+
+    return results
+}
+
+export function removeCommentMark(editor: TTEditor, pos: number): void {
+    editor.chain().setNodeSelection(pos).unsetMark('comment', { extendEmptyMarkRange: true }).run()
 }
