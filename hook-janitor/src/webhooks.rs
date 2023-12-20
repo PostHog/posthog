@@ -241,6 +241,10 @@ impl WebhookCleaner {
     }
 
     async fn send_metrics_to_kafka(&self, metrics: Vec<AppMetric>) -> Result<()> {
+        if metrics.is_empty() {
+            return Ok(());
+        }
+
         let payloads: Vec<String> = metrics
             .into_iter()
             .map(|metric| serde_json::to_string(&metric))
@@ -320,33 +324,34 @@ impl WebhookCleaner {
         // future if necessary.
 
         let mut tx = self.start_serializable_txn().await?;
-        let mut rows_processed = 0;
 
-        {
+        let completed_agg_row_count = {
             let completed_rows = self.get_completed_rows(&mut tx).await?;
-            rows_processed += completed_rows.len();
+            let row_count = completed_rows.len();
             let completed_app_metrics: Vec<AppMetric> =
                 completed_rows.into_iter().map(Into::into).collect();
             self.send_metrics_to_kafka(completed_app_metrics).await?;
-        }
+            row_count
+        };
 
-        {
+        let failed_agg_row_count = {
             let failed_rows = self.get_failed_rows(&mut tx).await?;
-            rows_processed += failed_rows.len();
+            let row_count = failed_rows.len();
             let failed_app_metrics: Vec<AppMetric> =
                 failed_rows.into_iter().map(Into::into).collect();
             self.send_metrics_to_kafka(failed_app_metrics).await?;
-        }
+            row_count
+        };
 
-        if rows_processed != 0 {
+        if completed_agg_row_count + failed_agg_row_count != 0 {
             let rows_deleted = self.delete_observed_rows(&mut tx).await?;
             self.commit_txn(tx).await?;
             debug!(
-                "WebhookCleaner finished cleanup, processed and deleted {} rows",
-                rows_deleted
+                "WebhookCleaner finished cleanup, processed and deleted {} rows ({}/{} aggregated completed/failed rows)",
+                rows_deleted, completed_agg_row_count, failed_agg_row_count
             );
         } else {
-            debug!("WebhookCleaner finished cleanup, no-op");
+            debug!("WebhookCleaner finished cleanup, there were no rows to process");
         }
 
         Ok(())
