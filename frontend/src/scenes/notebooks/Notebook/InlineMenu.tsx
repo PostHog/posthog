@@ -15,6 +15,7 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
     const { href, target } = editor.getAttributes('link')
     const menuRef = useRef<HTMLDivElement>(null)
     const hasDiscussions = useFeatureFlag('DISCUSSIONS')
+    const commentSelected = editor.isActive('comment')
 
     const setLink = (href: string): void => {
         editor.commands.setMark('link', { href: href })
@@ -113,12 +114,11 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
                         />
                     </>
                 )}
-                {hasDiscussions && (
+                {hasDiscussions && !commentSelected && (
                     <>
                         <LemonDivider vertical />
                         <LemonButton
                             onClick={() => {
-                                // TODO: Should we only allow this if the comment mark is already active?
                                 const markId = uuid()
                                 editor.chain().setMark('comment', { id: markId }).run()
                                 insertComment({ type: 'mark', id: markId })
