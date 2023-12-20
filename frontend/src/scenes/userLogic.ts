@@ -8,7 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { getAppContext } from 'lib/utils/getAppContext'
 import posthog from 'posthog-js'
 
-import { AvailableFeature, OrganizationBasicType, ProductKey, UserType } from '~/types'
+import { AvailableFeature, OrganizationBasicType, ProductKey, UserTheme, UserType } from '~/types'
 
 import type { userLogicType } from './userLogicType'
 
@@ -231,6 +231,13 @@ export const userLogic = kea<userLogicType>([
                               orgA.id === user?.organization?.id ? -2 : orgA.name.localeCompare(orgB.name)
                           ) || []
                     : [],
+        ],
+
+        themeMode: [
+            (s) => [s.user],
+            (user): UserTheme => {
+                return user?.theme_mode || 'light'
+            },
         ],
     }),
     afterMount(({ actions }) => {
