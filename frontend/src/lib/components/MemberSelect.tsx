@@ -80,16 +80,12 @@ export function MemberSelect({
                                     role="menuitem"
                                     size="small"
                                     icon={
-                                        <ProfilePicture
-                                            size="md"
-                                            name={member.user.first_name}
-                                            email={member.user.email}
-                                        />
+                                        <ProfilePicture size="md" name={member.user.name} email={member.user.email} />
                                     }
                                     onClick={() => _onChange(member.user)}
                                 >
                                     <span className="flex items-center justify-between gap-2 flex-1">
-                                        <span>{member.user.first_name}</span>
+                                        <span>{member.user.name}</span>
                                         <span className="text-muted-alt">
                                             {meFirstMembers[0] === member && `(you)`}
                                         </span>
@@ -112,7 +108,7 @@ export function MemberSelect({
                     selectedMember
                 ) : selectedMember ? (
                     <span>
-                        {selectedMember.first_name}
+                        {selectedMember.name}
                         {meFirstMembers[0].user.uuid === selectedMember.uuid ? ` (you)` : ''}
                     </span>
                 ) : (

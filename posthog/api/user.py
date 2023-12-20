@@ -81,6 +81,7 @@ class UserSerializer(serializers.ModelSerializer):
     current_password = serializers.CharField(write_only=True, required=False)
     notification_settings = serializers.DictField(required=False)
     scene_personalisation = ScenePersonalisationBasicSerializer(many=True, read_only=True)
+    name = serializers.CharField(required=False, read_only=True)
 
     class Meta:
         model = User
@@ -89,6 +90,7 @@ class UserSerializer(serializers.ModelSerializer):
             "uuid",
             "distinct_id",
             "first_name",
+            "name",
             "email",
             "pending_email",
             "email_opt_in",
@@ -121,6 +123,9 @@ class UserSerializer(serializers.ModelSerializer):
 
     def get_has_password(self, instance: User) -> bool:
         return instance.has_usable_password()
+
+    def get_name(self, instance: User) -> bool:
+        return instance.first_name if not instance.last_name else f"{instance.first_name} {instance.last_name}"
 
     def get_is_impersonated(self, _) -> Optional[bool]:
         if "request" not in self.context:

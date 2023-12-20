@@ -147,6 +147,7 @@ interface UserBaseType {
     uuid: string
     distinct_id: string
     first_name: string
+    name: string
     email: string
 }
 
