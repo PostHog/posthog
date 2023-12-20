@@ -48,7 +48,7 @@ export const LemonDropdown: React.FunctionComponent<LemonDropdownProps & React.R
 
             useEffect(() => {
                 onVisibilityChange?.(localVisible)
-            }, [localVisible, onVisibilityChange])
+            }, [localVisible])
 
             return (
                 <Popover
