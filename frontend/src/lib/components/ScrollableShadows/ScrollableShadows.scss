@@ -1,7 +1,6 @@
 .ScrollableShadows {
     position: relative;
     display: flex;
-    height: 100%;
     overflow: hidden;
 
     &::before,
@@ -23,6 +22,8 @@
     }
 
     &.ScrollableShadows--horizontal {
+        height: 100%;
+
         .ScrollableShadows__inner {
             overflow-x: auto;
         }
@@ -37,6 +38,8 @@
     }
 
     &.ScrollableShadows--vertical {
+        width: 100%;
+
         .ScrollableShadows__inner {
             overflow-y: auto;
         }
