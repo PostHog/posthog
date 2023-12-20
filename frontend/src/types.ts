@@ -187,7 +187,7 @@ export interface UserType extends UserBaseType {
     has_seen_product_intro_for?: Record<string, boolean>
     scene_personalisation?: SceneDashboardChoice[]
     /** Null means "sync with system". */
-    theme_mode: 'light' | 'dark' | null
+    theme_mode: 'light' | 'dark' | 'system' | null
 }
 
 export interface NotificationSettings {

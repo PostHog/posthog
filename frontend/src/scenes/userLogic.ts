@@ -232,6 +232,13 @@ export const userLogic = kea<userLogicType>([
                           ) || []
                     : [],
         ],
+
+        themeMode: [
+            (s) => [s.user],
+            (user) => {
+                return user?.theme_mode || 'light'
+            },
+        ],
     }),
     afterMount(({ actions }) => {
         const preloadedUser = getAppContext()?.current_user
