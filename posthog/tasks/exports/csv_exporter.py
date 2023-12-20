@@ -71,7 +71,7 @@ def add_query_params(url: str, params: Dict[str, str]) -> str:
     return urlunparse(parsed)
 
 
-def _convert_response_to_csv_data(data: Any) -> List[Any]:
+def _convert_response_to_csv_data(data: Any, path: Optional[str] = None) -> List[Any]:
     if isinstance(data.get("results"), list):
         results = data.get("results")
 
@@ -123,8 +123,15 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
             csv_rows = []
             for item in items:
                 line = {"person": item["person"]["name"]}
+
+                interval = "Day"
+                if path and "period=Week" in path:
+                    interval = "Week"
+                if path and "period=Month" in path:
+                    interval = "Month"
+
                 for index, data in enumerate(item["appearances"]):
-                    line[f"Day {index}"] = data
+                    line[f"{interval} {index}"] = data
 
                 csv_rows.append(line)
             return csv_rows
@@ -224,7 +231,7 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000) -> None:
 
                 raise unexpected_empty_json_response
 
-            csv_rows = _convert_response_to_csv_data(data)
+            csv_rows = _convert_response_to_csv_data(data, path)
 
             all_csv_rows = all_csv_rows + csv_rows
 
