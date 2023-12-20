@@ -144,6 +144,9 @@ export const commentsLogic = kea<commentsLogicType>([
     })),
 
     listeners(({ values, actions }) => ({
+        setReplyingComment: () => {
+            actions.clearItemContext()
+        },
         clearItemContext: () => {
             values.itemContext?.callback?.({ sent: false })
             actions.setItemContext(null)

@@ -637,6 +637,9 @@ export const notebookLogic = kea<notebookLogicType>([
                     })
                 }
             })
+            if (router.values.currentLocation.pathname !== urls.notebook(values.shortId)) {
+                router.actions.push(urls.notebook(values.shortId))
+            }
         },
         deleteCommentSuccess({ payload }) {
             if (payload?.comment?.item_context?.id) {

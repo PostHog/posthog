@@ -17,11 +17,6 @@ export const NotebookMarkComment = Mark.create({
                 parseHTML: (el) => (el as HTMLSpanElement).dataset.id,
                 renderHTML: (attrs) => ({ 'data-id': attrs.id }),
             },
-            commentId: {
-                default: null,
-                parseHTML: (el) => (el as HTMLSpanElement).dataset.commentId,
-                renderHTML: (attrs) => ({ 'data-comment-id': attrs.commentId }),
-            },
         }
     },
 
@@ -30,10 +25,6 @@ export const NotebookMarkComment = Mark.create({
             {
                 tag: 'span[data-id]',
                 getAttrs: (el) => !!(el as HTMLSpanElement).dataset.id?.trim() && null,
-            },
-            {
-                tag: 'span[data-comment-id]',
-                getAttrs: (el) => !!(el as HTMLSpanElement).dataset.commentId?.trim() && null,
             },
         ]
     },
