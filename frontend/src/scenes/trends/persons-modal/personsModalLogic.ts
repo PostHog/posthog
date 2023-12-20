@@ -43,7 +43,6 @@ export interface ListActorsResponse {
 export const personsModalLogic = kea<personsModalLogicType>([
     path(['scenes', 'trends', 'personsModalLogic']),
     props({} as PersonModalLogicProps),
-    // key((props) => props.url),
     actions({
         setSearchTerm: (search: string) => ({ search }),
         saveAsCohort: (cohortName: string) => ({ cohortName }),
