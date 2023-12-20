@@ -21,7 +21,7 @@ from posthog.warehouse.data_load.service import (
 )
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, ExternalDataJob
 from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer
-from posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline import (
+from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
 

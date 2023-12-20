@@ -11,6 +11,7 @@ from posthog.settings.base_variables import TEST
 from structlog.typing import FilteringBoundLogger
 from dlt.sources import DltResource
 
+
 @dataclass
 class PipelineInputs:
     source_id: UUID
@@ -40,14 +41,14 @@ class DataImportPipeline:
             credentials = {
                 "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
                 "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
-                "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT
+                "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
             }
-        
-        credentials = {
-            "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
-            "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
-        }
-    
+        else:
+            credentials = {
+                "aws_access_key_id": settings.AIRBYTE_BUCKET_KEY,
+                "aws_secret_access_key": settings.AIRBYTE_BUCKET_SECRET,
+            }
+
         return dlt.destinations.filesystem(
             credentials=credentials,
             bucket_url=settings.BUCKET_URL,  # type: ignore
@@ -69,9 +70,9 @@ class DataImportPipeline:
         if not self.inputs.schemas:
             self.logger.info(f"No schemas found for source id {self.inputs.source_id}")
             return None
-    
+
         return self.inputs.schemas
-        
+
     def _run(self):
         pipeline = self._create_pipeline()
         pipeline.run(self.source, loader_file_format=self.loader_file_format)

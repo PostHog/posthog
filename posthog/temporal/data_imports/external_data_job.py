@@ -11,6 +11,7 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.batch_exports.base import PostHogWorkflow
 
 from posthog.warehouse.data_load.validate_schema import validate_schema_and_update_table
+from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING
 from posthog.temporal.data_imports.pipelines.pipeline import DataImportPipeline, PipelineInputs
 from posthog.warehouse.external_data_source.jobs import (
     create_external_data_job,
@@ -141,12 +142,17 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
         dataset_name=model.folder_path,
     )
 
-    if model.pipeline.source_type == 'stripe':
+    source = None
+    if model.pipeline.source_type == ExternalDataSource.Type.STRIPE:
         from posthog.temporal.data_imports.pipelines.stripe.helpers import stripe_source
-        stripe_secret_key = model.pipeline.job_inputs.get('stripe_secret_key', None)
+
+        stripe_secret_key = model.pipeline.job_inputs.get("stripe_secret_key", None)
         if not stripe_secret_key:
             raise ValueError(f"Stripe secret key not found for job {model.id}")
         source = stripe_source(api_key=stripe_secret_key, endpoints=inputs.schemas)
+
+    if not source:
+        raise ValueError(f"Source not found for job {model.id}")
 
     await DataImportPipeline(job_inputs, source, logger).run()
 
