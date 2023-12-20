@@ -97,7 +97,13 @@ ADD_EVENT_COUNT_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_A
 # migration to add source column to the session replay table
 ALTER_SESSION_REPLAY_ADD_SOURCE_COLUMN = """
     ALTER TABLE {table_name} on CLUSTER '{cluster}'
-    ADD COLUMN IF NOT EXISTS snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC'))
+    ADD COLUMN IF NOT EXISTS snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))
+"""
+
+# migration to remove source column to the session replay table
+ALTER_SESSION_REPLAY_DROP_SOURCE_COLUMN = """
+    ALTER TABLE {table_name} on CLUSTER '{cluster}'
+    DROP COLUMN EXISTS snapshot_source SYNC
 """
 
 ADD_SOURCE_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_SOURCE_COLUMN.format(
@@ -111,6 +117,11 @@ ADD_SOURCE_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPL
 )
 
 ADD_SOURCE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_SOURCE_COLUMN.format(
+    table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+    cluster=settings.CLICKHOUSE_CLUSTER,
+)
+
+DROP_COLUMN_SOURCE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_DROP_SOURCE_COLUMN.format(
     table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
 )
