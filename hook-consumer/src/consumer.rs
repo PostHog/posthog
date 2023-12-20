@@ -3,13 +3,41 @@ use std::sync::Arc;
 use std::time;
 
 use async_std::task;
-use hook_common::pgqueue::{PgJobError, PgQueue, PgQueueError, PgTransactionJob};
+use hook_common::pgqueue::{
+    PgJob, PgJobError, PgQueue, PgQueueError, PgQueueJob, PgTransactionJob,
+};
 use hook_common::webhook::{HttpMethod, WebhookJobError, WebhookJobMetadata, WebhookJobParameters};
 use http::StatusCode;
 use reqwest::header;
 use tokio::sync;
 
 use crate::error::{ConsumerError, WebhookError};
+
+/// A WebhookJob is any PgQueueJob that returns webhook required parameters and metadata.
+trait WebhookJob: PgQueueJob + std::marker::Send {
+    fn parameters<'a>(&'a self) -> &'a WebhookJobParameters;
+    fn metadata<'a>(&'a self) -> &'a WebhookJobMetadata;
+}
+
+impl WebhookJob for PgTransactionJob<'_, WebhookJobParameters, WebhookJobMetadata> {
+    fn parameters<'a>(&'a self) -> &'a WebhookJobParameters {
+        &self.job.parameters
+    }
+
+    fn metadata<'a>(&'a self) -> &'a WebhookJobMetadata {
+        &self.job.metadata
+    }
+}
+
+impl WebhookJob for PgJob<WebhookJobParameters, WebhookJobMetadata> {
+    fn parameters<'a>(&'a self) -> &'a WebhookJobParameters {
+        &self.job.parameters
+    }
+
+    fn metadata<'a>(&'a self) -> &'a WebhookJobMetadata {
+        &self.job.metadata
+    }
+}
 
 /// A consumer to poll `PgQueue` and spawn tasks to process webhooks when a job becomes available.
 pub struct WebhookConsumer<'p> {
@@ -55,7 +83,9 @@ impl<'p> WebhookConsumer<'p> {
     }
 
     /// Wait until a job becomes available in our queue.
-    async fn wait_for_job<'a>(&self) -> Result<PgJob<WebhookJobParameters>, WebhookConsumerError> {
+    async fn wait_for_job<'a>(
+        &self,
+    ) -> Result<PgJob<WebhookJobParameters, WebhookJobMetadata>, ConsumerError> {
         loop {
             if let Some(job) = self.queue.dequeue(&self.name).await? {
                 return Ok(job);
@@ -65,70 +95,8 @@ impl<'p> WebhookConsumer<'p> {
         }
     }
 
-    /// Run this consumer to continuously process any jobs that become available.
-    pub async fn run(&self) -> Result<(), WebhookConsumerError> {
-        let semaphore = Arc::new(sync::Semaphore::new(self.max_concurrent_jobs));
-
-        loop {
-            let webhook_job = self.wait_for_job().await?;
-
-            // reqwest::Client internally wraps with Arc, so this allocation is cheap.
-            let client = self.client.clone();
-            let permit = semaphore.clone().acquire_owned().await.unwrap();
-
-            tokio::spawn(async move {
-                let result = process_webhook_job(client, webhook_job).await;
-                drop(permit);
-                result
-            });
-        }
-    }
-}
-
-/// A consumer to poll `PgQueue` and spawn tasks to process webhooks when a job becomes available.
-pub struct WebhookTransactionConsumer<'p> {
-    /// An identifier for this consumer. Used to mark jobs we have consumed.
-    name: String,
-    /// The queue we will be dequeuing jobs from.
-    queue: &'p PgQueue,
-    /// The interval for polling the queue.
-    poll_interval: time::Duration,
-    /// The client used for HTTP requests.
-    client: reqwest::Client,
-    /// Maximum number of concurrent jobs being processed.
-    max_concurrent_jobs: usize,
-}
-
-impl<'p> WebhookTransactionConsumer<'p> {
-    pub fn new(
-        name: &str,
-        queue: &'p PgQueue,
-        poll_interval: time::Duration,
-        request_timeout: time::Duration,
-        max_concurrent_jobs: usize,
-    ) -> Result<Self, WebhookConsumerError> {
-        let mut headers = header::HeaderMap::new();
-        headers.insert(
-            header::CONTENT_TYPE,
-            header::HeaderValue::from_static("application/json"),
-        );
-
-        let client = reqwest::Client::builder()
-            .default_headers(headers)
-            .timeout(request_timeout)
-            .build()?;
-
-        Ok(Self {
-            name: name.to_owned(),
-            queue,
-            poll_interval,
-            client,
-            max_concurrent_jobs,
-        })
-    }
-
-    /// Wait until a job becomes available in our queue.
-    async fn wait_for_job<'a>(
+    /// Wait until a job becomes available in our queue in transactional mode.
+    async fn wait_for_job_tx<'a>(
         &self,
     ) -> Result<PgTransactionJob<'a, WebhookJobParameters, WebhookJobMetadata>, ConsumerError> {
         loop {
@@ -152,7 +120,26 @@ impl<'p> WebhookTransactionConsumer<'p> {
             let permit = semaphore.clone().acquire_owned().await.unwrap();
 
             tokio::spawn(async move {
-                let result = process_webhook_job_tx(client, webhook_job).await;
+                let result = process_webhook_job(client, webhook_job).await;
+                drop(permit);
+                result
+            });
+        }
+    }
+
+    /// Run this consumer to continuously process any jobs that become available in transactional mode.
+    pub async fn run_tx(&self) -> Result<(), ConsumerError> {
+        let semaphore = Arc::new(sync::Semaphore::new(self.max_concurrent_jobs));
+
+        loop {
+            let webhook_job = self.wait_for_job_tx().await?;
+
+            // reqwest::Client internally wraps with Arc, so this allocation is cheap.
+            let client = self.client.clone();
+            let permit = semaphore.clone().acquire_owned().await.unwrap();
+
+            tokio::spawn(async move {
+                let result = process_webhook_job(client, webhook_job).await;
                 drop(permit);
                 result
             });
@@ -173,16 +160,18 @@ impl<'p> WebhookTransactionConsumer<'p> {
 ///
 /// * `client`: An HTTP client to execute the webhook job request.
 /// * `webhook_job`: The webhook job to process as dequeued from `hook_common::pgqueue::PgQueue`.
-async fn process_webhook_job(
+async fn process_webhook_job<W: WebhookJob>(
     client: reqwest::Client,
-    webhook_job: PgTransactionJob<'_, WebhookJobParameters, WebhookJobMetadata>,
+    webhook_job: W,
 ) -> Result<(), ConsumerError> {
+    let parameters = webhook_job.parameters();
+
     match send_webhook(
         client,
-        &webhook_job.job.parameters.method,
-        &webhook_job.job.parameters.url,
-        &webhook_job.job.parameters.headers,
-        webhook_job.job.parameters.body.clone(),
+        &parameters.method,
+        &parameters.url,
+        &parameters.headers,
+        parameters.body.clone(),
     )
     .await
     {
@@ -237,66 +226,6 @@ async fn process_webhook_job(
                 .fail(WebhookJobError::from(&error))
                 .await
                 .map_err(|job_error| ConsumerError::PgJobError(job_error.to_string()))?;
-            Ok(())
-        }
-    }
-}
-
-/// Process a webhook job by transitioning it to its appropriate state after its request is sent.
-/// After we finish, the webhook job will be set as completed (if the request was successful), retryable (if the request
-/// was unsuccessful but we can still attempt a retry), or failed (if the request was unsuccessful and no more retries
-/// may be attempted).
-///
-/// A webhook job is considered retryable after a failing request if:
-/// 1. The job has attempts remaining (i.e. hasn't reached `max_attempts`), and...
-/// 2. The status code indicates retrying at a later point could resolve the issue. This means: 429 and any 5XX.
-///
-/// # Arguments
-///
-/// * `webhook_job`: The webhook job to process as dequeued from `hook_common::pgqueue::PgQueue`.
-/// * `request_timeout`: A timeout for the HTTP request.
-async fn process_webhook_job(
-    client: reqwest::Client,
-    webhook_job: PgJob<WebhookJobParameters>,
-) -> Result<(), WebhookConsumerError> {
-    match send_webhook(
-        client,
-        &webhook_job.job.parameters.method,
-        &webhook_job.job.parameters.url,
-        &webhook_job.job.parameters.headers,
-        webhook_job.job.parameters.body.clone(),
-    )
-    .await
-    {
-        Ok(_) => {
-            webhook_job
-                .complete()
-                .await
-                .map_err(|error| WebhookConsumerError::PgJobError(error.to_string()))?;
-            Ok(())
-        }
-        Err(WebhookConsumerError::RetryableWebhookError {
-            reason,
-            retry_after,
-        }) => match webhook_job.retry(reason.to_string(), retry_after).await {
-            Ok(_) => Ok(()),
-            Err(PgJobError::RetryInvalidError {
-                job: webhook_job,
-                error: fail_error,
-            }) => {
-                webhook_job
-                    .fail(fail_error.to_string())
-                    .await
-                    .map_err(|job_error| WebhookConsumerError::PgJobError(job_error.to_string()))?;
-                Ok(())
-            }
-            Err(job_error) => Err(WebhookConsumerError::PgJobError(job_error.to_string())),
-        },
-        Err(error) => {
-            webhook_job
-                .fail(error.to_string())
-                .await
-                .map_err(|job_error| WebhookConsumerError::PgJobError(job_error.to_string()))?;
             Ok(())
         }
     }

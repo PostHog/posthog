@@ -31,7 +31,11 @@ async fn main() -> Result<(), ConsumerError> {
         config.max_concurrent_jobs,
     );
 
-    let _ = consumer.run().await;
+    if config.transactional {
+        consumer.run_tx().await?;
+    } else {
+        consumer.run().await?;
+    }
 
     Ok(())
 }

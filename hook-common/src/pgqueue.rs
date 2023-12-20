@@ -6,6 +6,7 @@ use std::default::Default;
 use std::str::FromStr;
 use std::time;
 
+use async_trait::async_trait;
 use chrono;
 use serde;
 use sqlx::postgres::{PgPool, PgPoolOptions};
@@ -149,6 +150,22 @@ impl<J, M> Job<J, M> {
     }
 }
 
+#[async_trait]
+pub trait PgQueueJob {
+    async fn complete(mut self) -> Result<CompletedJob, PgJobError<Box<Self>>>;
+
+    async fn fail<E: serde::Serialize + std::marker::Sync + std::marker::Send>(
+        mut self,
+        error: E,
+    ) -> Result<FailedJob<E>, PgJobError<Box<Self>>>;
+
+    async fn retry<E: serde::Serialize + std::marker::Sync + std::marker::Send>(
+        mut self,
+        error: E,
+        preferred_retry_interval: Option<time::Duration>,
+    ) -> Result<RetryableJob<E>, PgJobError<Box<Self>>>;
+}
+
 /// A Job that can be updated in PostgreSQL.
 #[derive(Debug)]
 pub struct PgJob<J, M> {
@@ -158,15 +175,86 @@ pub struct PgJob<J, M> {
     pub retry_policy: RetryPolicy,
 }
 
-impl<J, M> PgJob<J, M> {
-    pub async fn retry<E: serde::Serialize + std::marker::Sync>(
+#[async_trait]
+impl<J: std::marker::Send, M: std::marker::Send> PgQueueJob for PgJob<J, M> {
+    async fn complete(mut self) -> Result<CompletedJob, PgJobError<Box<PgJob<J, M>>>> {
+        let completed_job = self.job.complete();
+
+        let base_query = format!(
+            r#"
+UPDATE
+    "{0}"
+SET
+    finished_at = NOW(),
+    status = 'completed'::job_status
+WHERE
+    "{0}".id = $2
+    AND queue = $1
+RETURNING
+    "{0}".*
+            "#,
+            &self.table
+        );
+
+        sqlx::query(&base_query)
+            .bind(&completed_job.queue)
+            .bind(completed_job.id)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(|error| PgJobError::QueryError {
+                command: "UPDATE".to_owned(),
+                error,
+            })?;
+
+        Ok(completed_job)
+    }
+
+    async fn fail<E: serde::Serialize + std::marker::Sync + std::marker::Send>(
+        mut self,
+        error: E,
+    ) -> Result<FailedJob<E>, PgJobError<Box<PgJob<J, M>>>> {
+        let failed_job = self.job.fail(error);
+
+        let base_query = format!(
+            r#"
+UPDATE
+    "{0}"
+SET
+    finished_at = NOW(),
+    status = 'failed'::job_status
+    errors = array_append("{0}".errors, $3)
+WHERE
+    "{0}".id = $2
+    AND queue = $1
+RETURNING
+    "{0}".*
+
+            "#,
+            &self.table
+        );
+
+        sqlx::query(&base_query)
+            .bind(&failed_job.queue)
+            .bind(failed_job.id)
+            .bind(&failed_job.error)
+            .execute(&mut *self.connection)
+            .await
+            .map_err(|error| PgJobError::QueryError {
+                command: "UPDATE".to_owned(),
+                error,
+            })?;
+
+        Ok(failed_job)
+    }
+
+    async fn retry<E: serde::Serialize + std::marker::Sync + std::marker::Send>(
         mut self,
         error: E,
         preferred_retry_interval: Option<time::Duration>,
-    ) -> Result<RetryableJob<E>, PgJobError<PgJob<J, M>>> {
+    ) -> Result<RetryableJob<E>, PgJobError<Box<PgJob<J, M>>>> {
         if self.job.is_gte_max_attempts() {
             return Err(PgJobError::RetryInvalidError {
-                job: self,
+                job: Box::new(self),
                 error: "Maximum attempts reached".to_owned(),
             });
         }
@@ -206,76 +294,6 @@ RETURNING
             })?;
 
         Ok(retryable_job)
-    }
-
-    pub async fn complete(mut self) -> Result<CompletedJob, PgJobError<PgJob<J, M>>> {
-        let completed_job = self.job.complete();
-
-        let base_query = format!(
-            r#"
-UPDATE
-    "{0}"
-SET
-    finished_at = NOW(),
-    status = 'completed'::job_status
-WHERE
-    "{0}".id = $2
-    AND queue = $1
-RETURNING
-    "{0}".*
-            "#,
-            &self.table
-        );
-
-        sqlx::query(&base_query)
-            .bind(&completed_job.queue)
-            .bind(completed_job.id)
-            .execute(&mut *self.connection)
-            .await
-            .map_err(|error| PgJobError::QueryError {
-                command: "UPDATE".to_owned(),
-                error,
-            })?;
-
-        Ok(completed_job)
-    }
-
-    pub async fn fail<E: serde::Serialize + std::marker::Sync>(
-        mut self,
-        error: E,
-    ) -> Result<FailedJob<E>, PgJobError<PgJob<J, M>>> {
-        let failed_job = self.job.fail(error);
-
-        let base_query = format!(
-            r#"
-UPDATE
-    "{0}"
-SET
-    finished_at = NOW(),
-    status = 'failed'::job_status
-    errors = array_append("{0}".errors, $3)
-WHERE
-    "{0}".id = $2
-    AND queue = $1
-RETURNING
-    "{0}".*
-
-            "#,
-            &self.table
-        );
-
-        sqlx::query(&base_query)
-            .bind(&failed_job.queue)
-            .bind(failed_job.id)
-            .bind(&failed_job.error)
-            .execute(&mut *self.connection)
-            .await
-            .map_err(|error| PgJobError::QueryError {
-                command: "UPDATE".to_owned(),
-                error,
-            })?;
-
-        Ok(failed_job)
     }
 }
 
@@ -289,15 +307,103 @@ pub struct PgTransactionJob<'c, J, M> {
     pub retry_policy: RetryPolicy,
 }
 
-impl<'c, J, M> PgTransactionJob<'c, J, M> {
-    pub async fn retry<E: serde::Serialize + std::marker::Sync>(
+#[async_trait]
+impl<'c, J: std::marker::Send, M: std::marker::Send> PgQueueJob for PgTransactionJob<'c, J, M> {
+    async fn complete(
+        mut self,
+    ) -> Result<CompletedJob, PgJobError<Box<PgTransactionJob<'c, J, M>>>> {
+        let completed_job = self.job.complete();
+
+        let base_query = format!(
+            r#"
+UPDATE
+    "{0}"
+SET
+    finished_at = NOW(),
+    status = 'completed'::job_status
+WHERE
+    "{0}".id = $2
+    AND queue = $1
+RETURNING
+    "{0}".*
+            "#,
+            &self.table
+        );
+
+        sqlx::query(&base_query)
+            .bind(&completed_job.queue)
+            .bind(completed_job.id)
+            .execute(&mut *self.transaction)
+            .await
+            .map_err(|error| PgJobError::QueryError {
+                command: "UPDATE".to_owned(),
+                error,
+            })?;
+
+        self.transaction
+            .commit()
+            .await
+            .map_err(|error| PgJobError::TransactionError {
+                command: "COMMIT".to_owned(),
+                error,
+            })?;
+
+        Ok(completed_job)
+    }
+
+    async fn fail<E: serde::Serialize + std::marker::Sync + std::marker::Send>(
+        mut self,
+        error: E,
+    ) -> Result<FailedJob<E>, PgJobError<Box<PgTransactionJob<'c, J, M>>>> {
+        let failed_job = self.job.fail(error);
+
+        let base_query = format!(
+            r#"
+UPDATE
+    "{0}"
+SET
+    finished_at = NOW(),
+    status = 'failed'::job_status
+    errors = array_append("{0}".errors, $3)
+WHERE
+    "{0}".id = $2
+    AND queue = $1
+RETURNING
+    "{0}".*
+            "#,
+            &self.table
+        );
+
+        sqlx::query(&base_query)
+            .bind(&failed_job.queue)
+            .bind(failed_job.id)
+            .bind(&failed_job.error)
+            .execute(&mut *self.transaction)
+            .await
+            .map_err(|error| PgJobError::QueryError {
+                command: "UPDATE".to_owned(),
+                error,
+            })?;
+
+        self.transaction
+            .commit()
+            .await
+            .map_err(|error| PgJobError::TransactionError {
+                command: "COMMIT".to_owned(),
+                error,
+            })?;
+
+        Ok(failed_job)
+    }
+
+    async fn retry<E: serde::Serialize + std::marker::Sync + std::marker::Send>(
         mut self,
         error: E,
         preferred_retry_interval: Option<time::Duration>,
-    ) -> Result<RetryableJob<E>, PgJobError<PgTransactionJob<'c, J, M>>> {
+    ) -> Result<RetryableJob<E>, PgJobError<Box<PgTransactionJob<'c, J, M>>>> {
         if self.job.is_gte_max_attempts() {
             return Err(PgJobError::RetryInvalidError {
-                job: self,
+                job: Box::new(self),
                 error: "Maximum attempts reached".to_owned(),
             });
         }
@@ -346,93 +452,6 @@ RETURNING
             })?;
 
         Ok(retryable_job)
-    }
-
-    pub async fn complete(
-        mut self,
-    ) -> Result<CompletedJob, PgJobError<PgTransactionJob<'c, J, M>>> {
-        let completed_job = self.job.complete();
-
-        let base_query = format!(
-            r#"
-UPDATE
-    "{0}"
-SET
-    finished_at = NOW(),
-    status = 'completed'::job_status
-WHERE
-    "{0}".id = $2
-    AND queue = $1
-RETURNING
-    "{0}".*
-            "#,
-            &self.table
-        );
-
-        sqlx::query(&base_query)
-            .bind(&completed_job.queue)
-            .bind(completed_job.id)
-            .execute(&mut *self.transaction)
-            .await
-            .map_err(|error| PgJobError::QueryError {
-                command: "UPDATE".to_owned(),
-                error,
-            })?;
-
-        self.transaction
-            .commit()
-            .await
-            .map_err(|error| PgJobError::TransactionError {
-                command: "COMMIT".to_owned(),
-                error,
-            })?;
-
-        Ok(completed_job)
-    }
-
-    pub async fn fail<E: serde::Serialize + std::marker::Sync>(
-        mut self,
-        error: E,
-    ) -> Result<FailedJob<E>, PgJobError<PgTransactionJob<'c, J, M>>> {
-        let failed_job = self.job.fail(error);
-
-        let base_query = format!(
-            r#"
-UPDATE
-    "{0}"
-SET
-    finished_at = NOW(),
-    status = 'failed'::job_status
-    errors = array_append("{0}".errors, $3)
-WHERE
-    "{0}".id = $2
-    AND queue = $1
-RETURNING
-    "{0}".*
-            "#,
-            &self.table
-        );
-
-        sqlx::query(&base_query)
-            .bind(&failed_job.queue)
-            .bind(failed_job.id)
-            .bind(&failed_job.error)
-            .execute(&mut *self.transaction)
-            .await
-            .map_err(|error| PgJobError::QueryError {
-                command: "UPDATE".to_owned(),
-                error,
-            })?;
-
-        self.transaction
-            .commit()
-            .await
-            .map_err(|error| PgJobError::TransactionError {
-                command: "COMMIT".to_owned(),
-                error,
-            })?;
-
-        Ok(failed_job)
     }
 }
 
