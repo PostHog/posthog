@@ -75,8 +75,8 @@ function AccountInfo(): JSX.Element {
                 sideIcon={<IconSettings className="text-2xl" />}
             >
                 <ProfilePicture name={user?.first_name} email={user?.email} size="xl" />
-                <div className="AccountInfo__identification SitePopover__main-info">
-                    <strong>{user?.first_name}</strong>
+                <div className="AccountInfo__identification SitePopover__main-info font-sans font-normal">
+                    <div className="font-medium mb-1">{user?.first_name}</div>
                     <div className="supplement" title={user?.email}>
                         {user?.email}
                     </div>
@@ -101,7 +101,7 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
                 onClick={closeSitePopover}
             >
                 <div className="SitePopover__main-info SitePopover__organization">
-                    <strong>{organization.name}</strong>
+                    <span className="font-medium">{organization.name}</span>
                     <AccessLevelIndicator organization={organization} />
                 </div>
             </LemonButton>
