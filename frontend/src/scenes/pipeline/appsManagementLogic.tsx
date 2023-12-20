@@ -1,7 +1,7 @@
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import posthog from 'posthog-js'
 import { canGloballyManagePlugins, canInstallPlugins } from 'scenes/plugins/access'
 import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
