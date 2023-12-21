@@ -1511,6 +1511,12 @@ def test_events(db, team) -> List[UUID]:
                 "date_exact_including_seconds_and_milliseconds": f"{datetime(2021, 3, 31, 23, 59, 59, 12):%d/%m/%Y %H:%M:%S.%f}"
             },
         ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            properties={"email": "test@post\nhog.com"},
+        ),
     ]
 
 
@@ -1749,6 +1755,8 @@ TEST_PROPERTIES = [
         [20, 21],
         id="can match before date only values",
     ),
+    # Regression test, we were previously matching on newline characters
+    pytest.param(Property(key="email", value=r"test@post.hog.com", operator="regex"), []),
 ]
 
 
