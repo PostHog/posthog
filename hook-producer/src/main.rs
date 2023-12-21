@@ -4,7 +4,7 @@ use envconfig::Envconfig;
 use eyre::Result;
 
 use hook_common::metrics;
-use hook_common::pgqueue::{PgQueue, RetryPolicy};
+use hook_common::pgqueue::PgQueue;
 
 mod config;
 mod handlers;
@@ -29,8 +29,6 @@ async fn main() {
         &config.queue_name,
         &config.table_name,
         &config.database_url,
-        // TODO: It seems unnecessary that the producer side needs to know about the retry policy.
-        RetryPolicy::default(),
     )
     .await
     .expect("failed to initialize queue");

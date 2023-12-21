@@ -108,7 +108,7 @@ mod tests {
         body::Body,
         http::{self, Request, StatusCode},
     };
-    use hook_common::pgqueue::{PgQueue, RetryPolicy};
+    use hook_common::pgqueue::PgQueue;
     use hook_common::webhook::{HttpMethod, WebhookJobParameters};
     use http_body_util::BodyExt; // for `collect`
     use std::collections;
@@ -122,7 +122,6 @@ mod tests {
             "test_index",
             "job_queue",
             "postgres://posthog:posthog@localhost:15432/test_database",
-            RetryPolicy::default(),
         )
         .await
         .expect("failed to construct pg_queue");
@@ -171,7 +170,6 @@ mod tests {
             "test_index",
             "job_queue",
             "postgres://posthog:posthog@localhost:15432/test_database",
-            RetryPolicy::default(),
         )
         .await
         .expect("failed to construct pg_queue");
@@ -215,7 +213,6 @@ mod tests {
             "test_index",
             "job_queue",
             "postgres://posthog:posthog@localhost:15432/test_database",
-            RetryPolicy::default(),
         )
         .await
         .expect("failed to construct pg_queue");
@@ -243,7 +240,6 @@ mod tests {
             "test_index",
             "job_queue",
             "postgres://posthog:posthog@localhost:15432/test_database",
-            RetryPolicy::default(),
         )
         .await
         .expect("failed to construct pg_queue");
@@ -271,7 +267,6 @@ mod tests {
             "test_index",
             "job_queue",
             "postgres://posthog:posthog@localhost:15432/test_database",
-            RetryPolicy::default(),
         )
         .await
         .expect("failed to construct pg_queue");
