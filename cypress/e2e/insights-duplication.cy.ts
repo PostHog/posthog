@@ -45,7 +45,7 @@ describe('Insights', () => {
         })
 
         it('can duplicate from insight view', () => {
-            cy.get('.page-buttons [data-attr="more-button"]').click()
+            cy.get('.TopBar3000 [data-attr="more-button"]').click()
             cy.get('[data-attr="duplicate-insight-from-insight-view"]').click()
             cy.get('[data-attr="insight-name"]').should('contain', `${insightName} (copy)`)
 

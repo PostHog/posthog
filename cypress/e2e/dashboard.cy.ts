@@ -110,7 +110,7 @@ describe('Dashboard', () => {
         cy.get('.EmptyDashboard').should('exist')
 
         // Check that dashboard is not pinned by default
-        cy.get('.page-buttons [data-attr="dashboard-three-dots-options-menu"]').click()
+        cy.get('.TopBar3000 [data-attr="dashboard-three-dots-options-menu"]').click()
         cy.get('button').contains('Pin dashboard').should('exist')
     })
 

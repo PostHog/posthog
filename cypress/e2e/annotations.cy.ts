@@ -10,10 +10,10 @@ describe('Annotations', () => {
     })
 
     it('Create annotation', () => {
-        cy.get('.page-buttons [data-attr=create-annotation]').click()
+        cy.get('.TopBar3000 [data-attr=create-annotation]').click()
         cy.get('[data-attr=create-annotation-input]').type('Test Annotation')
         cy.get('[data-attr=create-annotation-submit]').click()
         cy.get('[data-attr=annotations-table]').contains('Test Annotation').should('exist')
-        cy.get('h2').should('not.have.text', 'Create your first annotation')
+        cy.contains('Create your first annotation').should('not.exist')
     })
 })
