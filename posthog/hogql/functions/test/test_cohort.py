@@ -1,9 +1,11 @@
+import pytest
 from django.test import override_settings
 
 from posthog.hogql import ast
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.test.utils import pretty_print_response_in_tests
 from posthog.models import Cohort
 from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.utils import UUIDT
@@ -23,7 +25,7 @@ class TestCohort(BaseTest):
     maxDiff = None
 
     def _create_random_events(self) -> str:
-        random_uuid = str(UUIDT())
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         _create_person(
             properties={"$os": "Chrome", "random_uuid": random_uuid},
             team=self.team,
@@ -34,6 +36,7 @@ class TestCohort(BaseTest):
         flush_persons_and_events()
         return random_uuid
 
+    @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_in_cohort_dynamic(self):
         random_uuid = self._create_random_events()
@@ -47,17 +50,11 @@ class TestCohort(BaseTest):
             self.team,
             modifiers=HogQLQueryModifiers(inCohortVia="subquery"),
         )
-        self.assertEqual(
-            response.clickhouse,
-            f"SELECT events.event FROM events WHERE and(equals(events.team_id, {self.team.pk}), in(events.person_id, (SELECT cohortpeople.person_id FROM cohortpeople WHERE and(equals(cohortpeople.team_id, {self.team.pk}), equals(cohortpeople.cohort_id, {cohort.pk})) GROUP BY cohortpeople.person_id, cohortpeople.cohort_id, cohortpeople.version HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0))), equals(events.event, %(hogql_val_0)s)) LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
-        )
-        self.assertEqual(
-            response.hogql,
-            f"SELECT event FROM events WHERE and(in(person_id, (SELECT person_id FROM raw_cohort_people WHERE equals(cohort_id, {cohort.pk}) GROUP BY person_id, cohort_id, version HAVING greater(sum(sign), 0))), equals(event, '{random_uuid}')) LIMIT 100",
-        )
+        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0][0], random_uuid)
 
+    @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_in_cohort_static(self):
         cohort = Cohort.objects.create(
@@ -69,18 +66,12 @@ class TestCohort(BaseTest):
             self.team,
             modifiers=HogQLQueryModifiers(inCohortVia="subquery"),
         )
-        self.assertEqual(
-            response.clickhouse,
-            f"SELECT events.event FROM events WHERE and(equals(events.team_id, {self.team.pk}), in(events.person_id, (SELECT person_static_cohort.person_id FROM person_static_cohort WHERE and(equals(person_static_cohort.team_id, {self.team.pk}), equals(person_static_cohort.cohort_id, {cohort.pk}))))) LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
-        )
-        self.assertEqual(
-            response.hogql,
-            f"SELECT event FROM events WHERE in(person_id, (SELECT person_id FROM static_cohort_people WHERE equals(cohort_id, {cohort.pk}))) LIMIT 100",
-        )
+        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
 
+    @pytest.mark.usefixtures("unittest_snapshot")
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_in_cohort_strings(self):
-        cohort = Cohort.objects.create(
+        Cohort.objects.create(
             team=self.team,
             name="my cohort",
             is_static=True,
@@ -90,14 +81,7 @@ class TestCohort(BaseTest):
             self.team,
             modifiers=HogQLQueryModifiers(inCohortVia="subquery"),
         )
-        self.assertEqual(
-            response.clickhouse,
-            f"SELECT events.event FROM events WHERE and(equals(events.team_id, {self.team.pk}), in(events.person_id, (SELECT person_static_cohort.person_id FROM person_static_cohort WHERE and(equals(person_static_cohort.team_id, {self.team.pk}), equals(person_static_cohort.cohort_id, {cohort.pk}))))) LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
-        )
-        self.assertEqual(
-            response.hogql,
-            f"SELECT event FROM events WHERE in(person_id, (SELECT person_id FROM static_cohort_people WHERE equals(cohort_id, {cohort.pk}))) LIMIT 100",
-        )
+        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot
 
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=True)
     def test_in_cohort_error(self):

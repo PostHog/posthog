@@ -142,7 +142,7 @@
         "papaparse": "^5.4.1",
         "pmtiles": "^2.11.0",
         "posthog-js": "1.96.0",
-        "posthog-js-lite": "2.0.0-alpha5",
+        "posthog-js-lite": "2.5.0",
         "prettier": "^2.8.8",
         "prop-types": "^15.7.2",
         "protomaps-themes-base": "2.0.0-alpha.1",

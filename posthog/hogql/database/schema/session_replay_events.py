@@ -17,6 +17,8 @@ from posthog.hogql.database.schema.person_distinct_ids import (
 )
 from posthog.schema import HogQLQueryModifiers
 
+RAW_ONLY_FIELDS = ["min_first_timestamp", "max_last_timestamp"]
+
 SESSION_REPLAY_EVENTS_COMMON_FIELDS: Dict[str, FieldOrTable] = {
     "session_id": StringDatabaseField(name="session_id"),
     "team_id": IntegerDatabaseField(name="team_id"),
@@ -88,6 +90,10 @@ def select_from_session_replay_events_table(requested_fields: Dict[str, List[str
     group_by_fields: List[ast.Expr] = []
 
     for name, chain in requested_fields.items():
+        if name in RAW_ONLY_FIELDS:
+            # these fields are accounted for by start_time and end_time, so can be skipped in the "not raw" table
+            continue
+
         if name in aggregate_fields:
             select_fields.append(ast.Alias(alias=name, expr=aggregate_fields[name]))
         else:
@@ -103,7 +109,7 @@ def select_from_session_replay_events_table(requested_fields: Dict[str, List[str
 
 class SessionReplayEventsTable(LazyTable):
     fields: Dict[str, FieldOrTable] = {
-        **SESSION_REPLAY_EVENTS_COMMON_FIELDS,
+        **{k: v for k, v in SESSION_REPLAY_EVENTS_COMMON_FIELDS.items() if k not in RAW_ONLY_FIELDS},
         "start_time": DateTimeDatabaseField(name="start_time"),
         "end_time": DateTimeDatabaseField(name="end_time"),
         "first_url": StringDatabaseField(name="first_url"),

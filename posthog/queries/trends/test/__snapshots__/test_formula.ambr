@@ -21,37 +21,33 @@
 # name: TestFormula.test_breakdown
   '
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') AS value,
-            sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as count
-     FROM events e
-     WHERE team_id = 2
-       AND event = 'session start'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') AS value,
+         sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event = 'session start'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 25
+  OFFSET 0
   '
 ---
 # name: TestFormula.test_breakdown.1
   '
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') AS value,
-            avg(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as count
-     FROM events e
-     WHERE team_id = 2
-       AND event = 'session start'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') AS value,
+         avg(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event = 'session start'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 25
+  OFFSET 0
   '
 ---
 # name: TestFormula.test_breakdown.2
@@ -87,7 +83,7 @@
                        day_start
               UNION ALL SELECT sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as total,
                                toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                               transform(replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', ''), (['London', 'Paris']), (['London', 'Paris']), '$$_posthog_breakdown_other_$$') as breakdown_value
+                               transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['London', 'Paris']), (['London', 'Paris']), '$$_posthog_breakdown_other_$$') as breakdown_value
               FROM events e
               WHERE e.team_id = 2
                 AND event = 'session start'
@@ -128,7 +124,7 @@
                        day_start
               UNION ALL SELECT avg(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as total,
                                toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                               transform(replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', ''), (['London', 'Paris']), (['London', 'Paris']), '$$_posthog_breakdown_other_$$') as breakdown_value
+                               transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['London', 'Paris']), (['London', 'Paris']), '$$_posthog_breakdown_other_$$') as breakdown_value
               FROM events e
               WHERE e.team_id = 2
                 AND event = 'session start'
@@ -147,37 +143,33 @@
 # name: TestFormula.test_breakdown_aggregated
   '
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') AS value,
-            sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as count
-     FROM events e
-     WHERE team_id = 2
-       AND event = 'session start'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') AS value,
+         sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event = 'session start'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 25
+  OFFSET 0
   '
 ---
 # name: TestFormula.test_breakdown_aggregated.1
   '
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') AS value,
-            avg(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as count
-     FROM events e
-     WHERE team_id = 2
-       AND event = 'session start'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') AS value,
+         avg(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event = 'session start'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 25
+  OFFSET 0
   '
 ---
 # name: TestFormula.test_breakdown_aggregated.2
@@ -187,7 +179,7 @@
          arrayFilter(x -> notEmpty(x), [replaceRegexpAll(sub_A.breakdown_value, '^"|"$', ''), replaceRegexpAll(sub_B.breakdown_value, '^"|"$', '')])[1]
   FROM
     (SELECT sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) AS total,
-            transform(replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', ''), (['London', 'Paris']), (['London', 'Paris']), '$$_posthog_breakdown_other_$$') AS breakdown_value
+            transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['London', 'Paris']), (['London', 'Paris']), '$$_posthog_breakdown_other_$$') AS breakdown_value
      FROM events e
      WHERE e.team_id = 2
        AND event = 'session start'
@@ -197,7 +189,7 @@
      ORDER BY breakdown_value) as sub_A
   FULL OUTER JOIN
     (SELECT avg(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) AS total,
-            transform(replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', ''), (['London', 'Paris']), (['London', 'Paris']), '$$_posthog_breakdown_other_$$') AS breakdown_value
+            transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['London', 'Paris']), (['London', 'Paris']), '$$_posthog_breakdown_other_$$') AS breakdown_value
      FROM events e
      WHERE e.team_id = 2
        AND event = 'session start'
@@ -356,65 +348,61 @@
 # name: TestFormula.test_breakdown_hogql
   '
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT concat(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), ' : ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'location'), ''), 'null'), '^"|"$', '')), '')) AS value,
-            sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as count
-     FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 2
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     INNER JOIN
-       (SELECT id,
-               argMax(properties, version) as person_props
-        FROM person
-        WHERE team_id = 2
-        GROUP BY id
-        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
+  SELECT concat(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), ' : ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'location'), ''), 'null'), '^"|"$', '')), '')) AS value,
+         sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as count
+  FROM events e
+  INNER JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
      WHERE team_id = 2
-       AND event = 'session start'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+  INNER JOIN
+    (SELECT id,
+            argMax(properties, version) as person_props
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
+  WHERE team_id = 2
+    AND event = 'session start'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 25
+  OFFSET 0
   '
 ---
 # name: TestFormula.test_breakdown_hogql.1
   '
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT concat(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), ' : ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'location'), ''), 'null'), '^"|"$', '')), '')) AS value,
-            avg(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as count
-     FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 2
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     INNER JOIN
-       (SELECT id,
-               argMax(properties, version) as person_props
-        FROM person
-        WHERE team_id = 2
-        GROUP BY id
-        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
+  SELECT concat(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), ' : ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'location'), ''), 'null'), '^"|"$', '')), '')) AS value,
+         avg(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as count
+  FROM events e
+  INNER JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
      WHERE team_id = 2
-       AND event = 'session start'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+  INNER JOIN
+    (SELECT id,
+            argMax(properties, version) as person_props
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
+  WHERE team_id = 2
+    AND event = 'session start'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 25
+  OFFSET 0
   '
 ---
 # name: TestFormula.test_breakdown_hogql.2
@@ -450,7 +438,7 @@
                        day_start
               UNION ALL SELECT sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as total,
                                toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                               transform(concat(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), ' : ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'location'), ''), 'null'), '^"|"$', '')), '')), (['some_val : London', 'some_val : Paris']), (['some_val : London', 'some_val : Paris']), '$$_posthog_breakdown_other_$$') as breakdown_value
+                               transform(ifNull(nullIf(concat(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), ' : ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'location'), ''), 'null'), '^"|"$', '')), '')), ''), '$$_posthog_breakdown_null_$$'), (['some_val : London', 'some_val : Paris']), (['some_val : London', 'some_val : Paris']), '$$_posthog_breakdown_other_$$') as breakdown_value
               FROM events e
               INNER JOIN
                 (SELECT distinct_id,
@@ -505,7 +493,7 @@
                        day_start
               UNION ALL SELECT avg(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as total,
                                toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                               transform(concat(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), ' : ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'location'), ''), 'null'), '^"|"$', '')), '')), (['some_val : London', 'some_val : Paris']), (['some_val : London', 'some_val : Paris']), '$$_posthog_breakdown_other_$$') as breakdown_value
+                               transform(ifNull(nullIf(concat(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), ' : ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'location'), ''), 'null'), '^"|"$', '')), '')), ''), '$$_posthog_breakdown_null_$$'), (['some_val : London', 'some_val : Paris']), (['some_val : London', 'some_val : Paris']), '$$_posthog_breakdown_other_$$') as breakdown_value
               FROM events e
               INNER JOIN
                 (SELECT distinct_id,
@@ -538,37 +526,33 @@
 # name: TestFormula.test_breakdown_with_different_breakdown_values_per_series
   '
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') AS value,
-            sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as count
-     FROM events e
-     WHERE team_id = 2
-       AND event = 'session start'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') AS value,
+         sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event = 'session start'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 25
+  OFFSET 0
   '
 ---
 # name: TestFormula.test_breakdown_with_different_breakdown_values_per_series.1
   '
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') AS value,
-            sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as count
-     FROM events e
-     WHERE team_id = 2
-       AND event = 'session end'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') AS value,
+         sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event = 'session end'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 25
+  OFFSET 0
   '
 ---
 # name: TestFormula.test_breakdown_with_different_breakdown_values_per_series.2
@@ -604,7 +588,7 @@
                        day_start
               UNION ALL SELECT sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as total,
                                toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                               transform(replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', ''), (['London', 'Paris']), (['London', 'Paris']), '$$_posthog_breakdown_other_$$') as breakdown_value
+                               transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['London', 'Paris']), (['London', 'Paris']), '$$_posthog_breakdown_other_$$') as breakdown_value
               FROM events e
               WHERE e.team_id = 2
                 AND event = 'session start'
@@ -639,13 +623,13 @@
               CROSS JOIN
                 (SELECT breakdown_value
                  FROM
-                   (SELECT ['London', 'Belo Horizonte', ''] as breakdown_value) ARRAY
+                   (SELECT ['London', 'Belo Horizonte', '$$_posthog_breakdown_null_$$'] as breakdown_value) ARRAY
                  JOIN breakdown_value) as sec
               ORDER BY breakdown_value,
                        day_start
               UNION ALL SELECT sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as total,
                                toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                               transform(replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', ''), (['London', 'Belo Horizonte', '']), (['London', 'Belo Horizonte', '']), '$$_posthog_breakdown_other_$$') as breakdown_value
+                               transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['London', 'Belo Horizonte', '$$_posthog_breakdown_null_$$']), (['London', 'Belo Horizonte', '$$_posthog_breakdown_null_$$']), '$$_posthog_breakdown_other_$$') as breakdown_value
               FROM events e
               WHERE e.team_id = 2
                 AND event = 'session end'

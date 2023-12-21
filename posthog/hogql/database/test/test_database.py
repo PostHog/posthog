@@ -70,7 +70,7 @@ class TestDatabase(BaseTest):
 
         self.assertEqual(
             response.clickhouse,
-            f"SELECT whatever.id FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
+            f"SELECT whatever.id AS id FROM s3Cluster('posthog', %(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1",
         )
 
     def test_database_group_type_mappings(self):
@@ -100,17 +100,20 @@ class TestDatabase(BaseTest):
         query = print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
             query
-            == "SELECT numbers.number, multiply(numbers.number, 2) AS double, plus(plus(1, 1), numbers.number) FROM numbers(2) AS numbers LIMIT 10000"
+            == "SELECT numbers.number AS number, multiply(numbers.number, 2) AS double, plus(plus(1, 1), numbers.number) FROM numbers(2) AS numbers LIMIT 10000"
         ), query
 
         sql = "select double from (select double from numbers(2))"
         query = print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
             query
-            == "SELECT double FROM (SELECT multiply(numbers.number, 2) AS double FROM numbers(2) AS numbers) LIMIT 10000"
+            == "SELECT double AS double FROM (SELECT multiply(numbers.number, 2) AS double FROM numbers(2) AS numbers) LIMIT 10000"
         ), query
 
         # expression fields are not included in select *
         sql = "select * from (select * from numbers(2))"
         query = print_ast(parse_select(sql), context, dialect="clickhouse")
-        assert query == "SELECT number FROM (SELECT numbers.number FROM numbers(2) AS numbers) LIMIT 10000", query
+        assert (
+            query
+            == "SELECT number AS number FROM (SELECT numbers.number AS number FROM numbers(2) AS numbers) LIMIT 10000"
+        ), query
