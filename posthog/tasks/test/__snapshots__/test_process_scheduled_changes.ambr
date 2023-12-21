@@ -36,7 +36,7 @@
          "posthog_scheduledchange"."updated_at"
   FROM "posthog_scheduledchange"
   WHERE ("posthog_scheduledchange"."executed_at" IS NULL
-         AND "posthog_scheduledchange"."scheduled_at" < '2023-12-21T10:07:29.636959+00:00'::timestamptz)
+         AND "posthog_scheduledchange"."scheduled_at" < '2023-12-21T10:20:41.458170+00:00'::timestamptz)
   ORDER BY "posthog_scheduledchange"."scheduled_at" ASC
   LIMIT 10000
   FOR
