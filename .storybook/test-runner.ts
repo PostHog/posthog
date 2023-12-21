@@ -167,6 +167,11 @@ async function expectStoryToMatchSceneSnapshot(
     browser: SupportedBrowserName,
     theme: SnapshotTheme
 ): Promise<void> {
+    await page.evaluate(() => {
+        // The screenshot gets clipped by overflow hidden on .Navigation3000
+        document.querySelector('Navigation3000')?.setAttribute('style', 'overflow: visible;')
+    })
+
     await expectLocatorToMatchStorySnapshot(page.locator('main'), context, browser, theme)
 }
 
