@@ -9,11 +9,6 @@ const meta: Meta<typeof LemonTable> = {
     title: 'Lemon UI/Lemon Table',
     component: LemonTable,
     tags: ['autodocs'],
-    parameters: {
-        testOptions: {
-            include3000: true,
-        },
-    },
 }
 export default meta
 
