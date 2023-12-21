@@ -14,7 +14,7 @@ export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
     const placeholder = replyingCommentId
         ? 'Reply...'
         : props.scope !== 'Misc'
-        ? `Comment on ${props.scope}/${props.item_id ?? 'general'}`
+        ? `Comment on ${props.item_id ? 'this ' : ''}${props.scope}`
         : props.item_id
         ? `Comment on ${props.item_id}`
         : `Comment`

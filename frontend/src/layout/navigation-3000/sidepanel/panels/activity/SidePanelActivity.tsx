@@ -1,5 +1,14 @@
 import { IconNotification } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSelect, LemonSkeleton, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonSelect,
+    LemonSelectOption,
+    LemonSkeleton,
+    LemonTabs,
+    Link,
+    Spinner,
+} from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLog'
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -71,6 +80,19 @@ export const SidePanelActivity = (): JSX.Element => {
         lastScrollPositionRef.current = e.currentTarget.scrollTop
     }
 
+    const scopeMenuOptions: LemonSelectOption<ActivityScope | null>[] = [
+        { value: null, label: 'All activity' },
+        ...Object.values(ActivityScope).map((x) => ({
+            value: x,
+            label: x as string,
+        })),
+    ]
+
+    const activeScopeMenuOption = filters.scope ? filters.scope + `${filters.item_id ?? ''}` : null
+
+    if (filters.item_id && activeScopeMenuOption) {
+        scopeMenuOptions.unshift({ value: activeScopeMenuOption as any, label: `This ${filters.scope}` })
+    }
     return (
         <div className="flex flex-col overflow-hidden flex-1">
             <SidePanelPaneHeader title="Activity" />
@@ -124,15 +146,9 @@ export const SidePanelActivity = (): JSX.Element => {
                                 <span>Filter for activity on:</span>
                                 <LemonSelect
                                     size="small"
-                                    options={[
-                                        { value: undefined, label: 'All activity' },
-                                        ...Object.values(ActivityScope).map((x) => ({
-                                            value: x,
-                                            label: x,
-                                        })),
-                                    ]}
+                                    options={scopeMenuOptions}
                                     placeholder="All activity"
-                                    value={filters?.scope ?? null}
+                                    value={activeScopeMenuOption ?? undefined}
                                     onChange={(value) =>
                                         setFilters({
                                             ...filters,

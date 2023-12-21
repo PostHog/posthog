@@ -1,5 +1,6 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
@@ -40,9 +41,15 @@ export type ActivityFilters = {
     user?: UserBasicType['id']
 }
 
-const activityFiltersForScene = (sceneConfig: SceneConfig | null): ActivityFilters | null => {
+export const activityFiltersForScene = (sceneConfig: SceneConfig | null): ActivityFilters | null => {
     if (sceneConfig?.activityScope) {
-        return { scope: sceneConfig.activityScope }
+        // NOTE: - HACKY, we are just parsing the item_id from the url optimistically...
+        const pathParts = router.values.currentLocation.pathname.split('/')
+        const item_id = pathParts[2]
+
+        // TODO: Implement custom interceptor for things like "replays/recent?session_id=1234"
+
+        return { scope: sceneConfig.activityScope, item_id }
     }
     return null
 }
