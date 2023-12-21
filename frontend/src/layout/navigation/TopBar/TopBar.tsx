@@ -15,7 +15,6 @@ import { organizationLogic } from 'scenes/organizationLogic'
 
 import { NotebookButton } from '~/layout/navigation/TopBar/NotebookButton'
 import { YearInHogButton } from '~/layout/navigation/TopBar/YearInHogButton'
-import { NotificationBell } from '~/layout/navigation-3000/sidepanel/panels/activity/NotificationBell'
 import { groupsModel } from '~/models/groupsModel'
 import { Logo } from '~/toolbar/assets/Logo'
 
@@ -91,7 +90,6 @@ export function TopBar(): JSX.Element {
                                     />
                                 )}
                             {hasNotebooks && <NotebookButton />}
-                            <NotificationBell />
                         </>
                     ) : (
                         currentOrganization?.teams &&

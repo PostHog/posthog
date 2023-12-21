@@ -20,6 +20,7 @@
     }
 
     &.LemonTabs--borderless {
+        --lemon-tabs-margin-bottom: 0;
         .LemonTabs__bar::before {
             content: none;
         }

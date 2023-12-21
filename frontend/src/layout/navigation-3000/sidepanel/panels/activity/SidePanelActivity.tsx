@@ -8,16 +8,16 @@ import { useEffect, useRef } from 'react'
 import { urls } from 'scenes/urls'
 
 import {
-    notificationsLogic,
+    sidePanelActivityLogic,
     SidePanelActivityTab,
-} from '~/layout/navigation-3000/sidepanel/panels/activity/notificationsLogic'
+} from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 
 const SCROLL_TRIGGER_OFFSET = 100
 
 export const SidePanelActivityIcon = (props: { className?: string }): JSX.Element => {
-    const { unreadCount } = useValues(notificationsLogic)
+    const { unreadCount } = useValues(sidePanelActivityLogic)
 
     return (
         <IconWithCount count={unreadCount} {...props}>
@@ -36,9 +36,9 @@ export const SidePanelActivity = (): JSX.Element => {
         allActivityHasNext,
         importantChangesLoading,
         hasUnread,
-    } = useValues(notificationsLogic)
+    } = useValues(sidePanelActivityLogic)
     const { togglePolling, setActiveTab, maybeLoadOlderActivity, markAllAsRead, loadImportantChanges } =
-        useActions(notificationsLogic)
+        useActions(sidePanelActivityLogic)
 
     usePageVisibility((pageIsVisible) => {
         togglePolling(pageIsVisible)

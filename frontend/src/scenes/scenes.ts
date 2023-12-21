@@ -9,7 +9,7 @@ import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { EventsQuery } from '~/queries/schema'
-import { InsightShortId, PipelineAppTabs, PipelineTabs, PropertyFilterType, ReplayTabs } from '~/types'
+import { ActivityScope, InsightShortId, PipelineAppTabs, PipelineTabs, PropertyFilterType, ReplayTabs } from '~/types'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -46,13 +46,16 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.Dashboards]: {
         projectBased: true,
         name: 'Dashboards',
+        activityScope: ActivityScope.DASHBOARD,
     },
     [Scene.Dashboard]: {
         projectBased: true,
+        activityScope: ActivityScope.DASHBOARD,
     },
     [Scene.Insight]: {
         projectBased: true,
         name: 'Insights',
+        activityScope: ActivityScope.INSIGHT,
     },
     [Scene.WebAnalytics]: {
         projectBased: true,
@@ -82,34 +85,42 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.DataManagement]: {
         projectBased: true,
         name: 'Data management',
+        activityScope: ActivityScope.DATA_MANAGEMENT,
     },
     [Scene.EventDefinition]: {
         projectBased: true,
         name: 'Data management',
+        activityScope: ActivityScope.EVENT_DEFINITION,
     },
     [Scene.PropertyDefinition]: {
         projectBased: true,
         name: 'Data management',
+        activityScope: ActivityScope.PROPERTY_DEFINITION,
     },
     [Scene.Replay]: {
         projectBased: true,
         name: 'Session replay',
+        activityScope: ActivityScope.REPLAY,
     },
     [Scene.ReplaySingle]: {
         projectBased: true,
         name: 'Replay recording',
+        activityScope: ActivityScope.REPLAY,
     },
     [Scene.ReplayPlaylist]: {
         projectBased: true,
         name: 'Replay playlist',
+        activityScope: ActivityScope.REPLAY,
     },
     [Scene.Person]: {
         projectBased: true,
         name: 'Person',
+        activityScope: ActivityScope.PERSON,
     },
     [Scene.PersonsManagement]: {
         projectBased: true,
         name: 'People & groups',
+        activityScope: ActivityScope.PERSON,
     },
     [Scene.Action]: {
         projectBased: true,
@@ -122,10 +133,12 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.Pipeline]: {
         projectBased: true,
         name: 'Pipeline',
+        activityScope: ActivityScope.PLUGIN,
     },
     [Scene.PipelineApp]: {
         projectBased: true,
         name: 'Pipeline app',
+        activityScope: ActivityScope.PLUGIN,
     },
     [Scene.Experiments]: {
         projectBased: true,
@@ -138,9 +151,11 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.FeatureFlags]: {
         projectBased: true,
         name: 'Feature flags',
+        activityScope: ActivityScope.FEATURE_FLAG,
     },
     [Scene.FeatureFlag]: {
         projectBased: true,
+        activityScope: ActivityScope.FEATURE_FLAG,
     },
     [Scene.Surveys]: {
         projectBased: true,
@@ -187,18 +202,22 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.Apps]: {
         projectBased: true,
         name: 'Apps',
+        activityScope: ActivityScope.PLUGIN,
     },
     [Scene.FrontendAppScene]: {
         projectBased: true,
         name: 'App',
+        activityScope: ActivityScope.PLUGIN,
     },
     [Scene.AppMetrics]: {
         projectBased: true,
         name: 'Apps',
+        activityScope: ActivityScope.PLUGIN,
     },
     [Scene.SavedInsights]: {
         projectBased: true,
         name: 'Product analytics',
+        activityScope: ActivityScope.INSIGHT,
     },
     [Scene.ProjectHomepage]: {
         projectBased: true,
@@ -295,10 +314,12 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         hideProjectNotice: true, // Currently doesn't render well...
         name: 'Notebook',
         layout: 'app-raw',
+        activityScope: ActivityScope.NOTEBOOK,
     },
     [Scene.Notebooks]: {
         projectBased: true,
         name: 'Notebooks',
+        activityScope: ActivityScope.NOTEBOOK,
     },
     [Scene.Canvas]: {
         projectBased: true,

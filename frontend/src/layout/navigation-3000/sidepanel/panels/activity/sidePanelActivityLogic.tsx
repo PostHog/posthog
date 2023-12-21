@@ -9,7 +9,7 @@ import { toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { notificationsLogicType } from './notificationsLogicType'
+import type { sidePanelActivityLogicType } from './sidePanelActivityLogicType'
 
 const POLL_TIMEOUT = 5 * 60 * 1000
 
@@ -29,10 +29,9 @@ export enum SidePanelActivityTab {
     All = 'all',
 }
 
-export const notificationsLogic = kea<notificationsLogicType>([
-    path(['layout', 'navigation', 'TopBar', 'notificationsLogic']),
+export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
+    path(['scenes', 'navigation', 'sidepanel', 'sidePanelActivityLogic']),
     actions({
-        toggleNotificationsPopover: true,
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
         incrementErrorCount: true,
         clearErrorCount: true,
@@ -144,19 +143,8 @@ export const notificationsLogic = kea<notificationsLogicType>([
                 clearErrorCount: () => 0,
             },
         ],
-        isNotificationPopoverOpen: [
-            false,
-            {
-                toggleNotificationsPopover: (state) => !state,
-            },
-        ],
     }),
     listeners(({ values, actions }) => ({
-        toggleNotificationsPopover: () => {
-            if (!values.isNotificationPopoverOpen) {
-                actions.markAllAsRead()
-            }
-        },
         setActiveTab: ({ tab }) => {
             if (tab === SidePanelActivityTab.All && !values.allActivityResponseLoading) {
                 actions.loadAllActivity()

@@ -8,7 +8,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { SidePanelTab } from '~/types'
 
-import { notificationsLogic } from './panels/activity/notificationsLogic'
+import { sidePanelActivityLogic } from './panels/activity/sidePanelActivityLogic'
 import { sidePanelDiscussionLogic } from './panels/discussion/sidePanelDiscussionLogic'
 import type { sidePanelLogicType } from './sidePanelLogicType'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
@@ -33,7 +33,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             sidePanelStateLogic,
             ['selectedTab', 'sidePanelOpen'],
             // We need to mount this to ensure that marking as read works when the panel closes
-            notificationsLogic,
+            sidePanelActivityLogic,
             ['unreadCount'],
             sidePanelDiscussionLogic,
             ['commentCount', 'commentCountLoading'],
@@ -97,7 +97,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 if (featureflags[FEATURE_FLAGS.DISCUSSIONS]) {
                     tabs.push(SidePanelTab.Discussion)
                 }
-                tabs.push(SidePanelTab.Activity)
                 tabs.push(SidePanelTab.FeaturePreviews)
                 tabs.push(SidePanelTab.Welcome)
 
