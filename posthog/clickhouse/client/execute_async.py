@@ -137,11 +137,11 @@ def enqueue_process_query_task(
     if bypass_celery:
         # Call directly ( for testing )
         process_query_task(
-            team_id, query_id, query_json, limit_context=LimitContext.EXPORT, refresh_requested=refresh_requested
+            team_id, query_id, query_json, limit_context=LimitContext.QUERY_ASYNC, refresh_requested=refresh_requested
         )
     else:
         task = process_query_task.delay(
-            team_id, query_id, query_json, limit_context=LimitContext.EXPORT, refresh_requested=refresh_requested
+            team_id, query_id, query_json, limit_context=LimitContext.QUERY_ASYNC, refresh_requested=refresh_requested
         )
         query_status.task_id = task.id
         manager.store_query_status(query_status)
