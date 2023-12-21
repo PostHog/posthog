@@ -122,6 +122,17 @@ module.exports = {
                         importNames: ['Alert'],
                         message: 'Please use LemonBanner from @posthog/lemon-ui instead.',
                     },
+                    {
+                        name: 'antd',
+                        importNames: ['Row'],
+                        message:
+                            'use flex utility classes instead, e.g. <Row align="middle"> could be <div className="flex items-center">',
+                    },
+                    {
+                        name: 'antd',
+                        importNames: ['Col'],
+                        message: 'use flex utility classes instead - most of the time can simply be a plain <div>',
+                    },
                 ],
             },
         ],
@@ -141,15 +152,6 @@ module.exports = {
             'warn',
             {
                 forbid: [
-                    {
-                        element: 'Row',
-                        message:
-                            'use flex utility classes instead, e.g. <Row align="middle"> could be <div className="flex items-center">',
-                    },
-                    {
-                        element: 'Col',
-                        message: 'use flex utility classes instead - most of the time can simply be a plain <div>',
-                    },
                     {
                         element: 'Divider',
                         message: 'use <LemonDivider> instead',
