@@ -277,6 +277,63 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 1)
 
+    @also_test_with_materialized_columns(event_properties=["example_value"])
+    @snapshot_clickhouse_queries
+    def test_event_property_regex_is_patched_for_dotall_setting(self):
+        with freeze_time("2020-01-10 12:00:00"):
+            _create_person(
+                properties={"email": "tom@posthog.com"},
+                distinct_ids=["2", "some-random-uid"],
+                team=self.team,
+                immediate=True,
+            )
+            _create_event(
+                team=self.team,
+                event="demonstrate dot all",
+                distinct_id="2",
+                properties={
+                    "example_value": """a
+b"""
+                },
+            )
+        with freeze_time("2020-01-10 12:11:00"):
+            _create_event(
+                team=self.team,
+                event="demonstrate dot all",
+                distinct_id="2",
+                # should match /a.b/
+                properties={"example_value": "aab"},
+            )
+        with freeze_time("2020-01-10 12:11:00"):
+            _create_event(
+                team=self.team,
+                event="demonstrate dot all",
+                distinct_id="2",
+                # should match /a.b/
+                properties={"example_value": "abb"},
+            )
+        with freeze_time("2020-01-10 12:11:00"):
+            _create_event(
+                team=self.team,
+                event="demonstrate dot all",
+                distinct_id="2",
+                # won't match /a.b/
+                properties={"example_value": "abc"},
+            )
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-10 12:14:00"):
+            query = EventsQuery(
+                event="demonstrate dot all",
+                select=[
+                    "properties.example_value",
+                ],
+                properties=[{"key": "example_value", "value": "a.b", "operator": "regex", "type": "event"}],
+            )
+            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
+            # assert [x[0] for x in response["results"]] == ['aab', 'abb']
+            assert [x[0] for x in response["results"]] == []
+
     @also_test_with_materialized_columns(event_properties=["key"], person_properties=["email"])
     @snapshot_clickhouse_queries
     def test_person_property_filter(self):

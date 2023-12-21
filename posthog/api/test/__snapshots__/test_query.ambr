@@ -100,6 +100,32 @@
                     allow_experimental_object_type=1
   '
 ---
+# name: TestQuery.test_event_property_regex_is_patched_for_dotall_setting
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'example_value'), ''), 'null'), '^"|"$', '') AS example_value
+  FROM events
+  WHERE and(equals(events.team_id, 2), match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'example_value'), ''), 'null'), '^"|"$', ''), '(?-s)a.b'), equals(events.event, 'demonstrate dot all'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+  ORDER BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'example_value'), ''), 'null'), '^"|"$', '') ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1
+  '
+---
+# name: TestQuery.test_event_property_regex_is_patched_for_dotall_setting_materialized
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT nullIf(nullIf(events.mat_example_value, ''), 'null') AS example_value
+  FROM events
+  WHERE and(equals(events.team_id, 2), match(nullIf(nullIf(events.mat_example_value, ''), 'null'), '(?-s)a.b'), equals(events.event, 'demonstrate dot all'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-10 12:14:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-09 12:14:00.000000', 6, 'UTC')))
+  ORDER BY nullIf(nullIf(events.mat_example_value, ''), 'null') ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1
+  '
+---
 # name: TestQuery.test_events_query_all_time_date
   '
   /* user_id:0 request:_snapshot_ */

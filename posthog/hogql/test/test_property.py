@@ -141,7 +141,7 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "regex"}),
-            self._parse_expr("match(properties.a, '.*')"),
+            self._parse_expr("match(properties.a, '(?-s).*')"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "not_regex"}),
@@ -203,7 +203,7 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "regex"}),
-            self._parse_expr("match(properties.a, 'b') or match(properties.a, 'c')"),
+            self._parse_expr("match(properties.a, '(?-s)b') or match(properties.a, '(?-s)c')"),
         )
         # negative
         self.assertEqual(
@@ -230,7 +230,7 @@ class TestProperty(BaseTest):
                     "operator": "not_regex",
                 }
             ),
-            self._parse_expr("not(match(properties.a, 'b')) and not(match(properties.a, 'c'))"),
+            self._parse_expr("not(match(properties.a, '(?-s)b')) and not(match(properties.a, '(?-s)c'))"),
         )
 
     def test_property_to_expr_feature(self):
