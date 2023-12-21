@@ -179,6 +179,11 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             render: PercentageCell,
             align: 'right',
         },
+        scroll_gt80_percentage: {
+            title: 'Deep Scroll Rate',
+            render: PercentageCell,
+            align: 'right',
+        },
     },
 }
 
