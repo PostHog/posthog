@@ -300,7 +300,7 @@ class FeatureFlag(models.Model):
     def scheduled_changes_dispatcher(self, payload):
         from posthog.api.feature_flag import FeatureFlagSerializer
 
-        if "field" not in payload or "value" not in payload:
+        if "operation" not in payload or "value" not in payload:
             raise Exception("Invalid payload")
 
         context = {
@@ -309,14 +309,14 @@ class FeatureFlag(models.Model):
         }
         serializer_data = {}
 
-        if payload["field"] == "filters":
+        if payload["operation"] == "add_release_condition":
             existing_groups = self.filters.get("groups", [])
             new_groups = payload["value"].get("groups", [])
             serializer_data["filters"] = {"groups": existing_groups + new_groups}
-        elif payload["field"] == "active":
+        elif payload["operation"] == "update_status":
             serializer_data["active"] = payload["value"]
         else:
-            raise Exception(f"Unrecognized field: {payload['field']}")
+            raise Exception(f"Unrecognized operation: {payload['operation']}")
 
         serializer = FeatureFlagSerializer(self, data=serializer_data, context=context, partial=True)
         if serializer.is_valid(raise_exception=True):

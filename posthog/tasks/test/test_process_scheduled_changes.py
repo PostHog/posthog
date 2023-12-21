@@ -19,7 +19,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
             team=self.team,
             record_id=feature_flag.id,
             model_name="FeatureFlag",
-            payload={"field": "active", "value": True},
+            payload={"operation": "update_status", "value": True},
             scheduled_at=(datetime.now(timezone.utc) - timedelta(seconds=30)).isoformat(),
         )
 
@@ -45,7 +45,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         }
 
         payload = {
-            "field": "filters",
+            "operation": "add_release_condition",
             "value": {"groups": [new_release_condition], "payloads": {}, "multivariate": None},
         }
 
@@ -113,7 +113,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
             record_id=feature_flag.id,
             model_name="FeatureFlag",
             payload={
-                "field": "filters",
+                "operation": "add_release_condition",
                 "value": {"groups": [change_past_condition], "multivariate": None, "payloads": {}},
             },
             scheduled_at=(datetime.now(timezone.utc) - timedelta(hours=1)),
@@ -125,7 +125,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
             team=self.team,
             record_id=feature_flag.id,
             model_name="FeatureFlag",
-            payload={"field": "active", "value": False},
+            payload={"operation": "update_status", "value": False},
             scheduled_at=change_past_executed_at,
             executed_at=change_past_executed_at,
         )
@@ -141,7 +141,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
             record_id=feature_flag.id,
             model_name="FeatureFlag",
             payload={
-                "field": "filters",
+                "operation": "add_release_condition",
                 "value": {"groups": [change_due_now_condition], "multivariate": None, "payloads": {}},
             },
             scheduled_at=datetime.now(timezone.utc),
@@ -152,7 +152,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
             team=self.team,
             record_id=feature_flag.id,
             model_name="FeatureFlag",
-            payload={"field": "active", "value": False},
+            payload={"operation": "update_status", "value": False},
             scheduled_at=(datetime.now(timezone.utc) + timedelta(hours=1)),
         )
 
