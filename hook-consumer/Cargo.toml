@@ -10,6 +10,7 @@ envconfig = { workspace = true }
 futures = "0.3"
 hook-common = { path = "../hook-common" }
 http = { version = "0.2" }
+metrics = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_derive = { workspace = true }
