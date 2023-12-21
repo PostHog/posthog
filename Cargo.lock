@@ -1035,6 +1035,7 @@ dependencies = [
  "futures",
  "hook-common",
  "http 0.2.11",
+ "metrics",
  "reqwest",
  "serde",
  "serde_derive",

@@ -2,8 +2,24 @@ use std::time::Instant;
 
 use axum::{
     body::Body, extract::MatchedPath, http::Request, middleware::Next, response::IntoResponse,
+    routing::get, Router,
 };
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
+
+/// Bind a TcpListener on the provided bind address to serve metrics on it.
+pub async fn serve_metrics(bind: &str) -> Result<(), std::io::Error> {
+    let recorder_handle = setup_metrics_recorder();
+
+    let router = Router::new()
+        .route("/metrics", get(recorder_handle.render()))
+        .layer(axum::middleware::from_fn(track_metrics));
+
+    let listener = tokio::net::TcpListener::bind(bind).await?;
+
+    axum::serve(listener, router).await?;
+
+    Ok(())
+}
 
 pub fn setup_metrics_recorder() -> PrometheusHandle {
     const EXPONENTIAL_SECONDS: &[f64] = &[
