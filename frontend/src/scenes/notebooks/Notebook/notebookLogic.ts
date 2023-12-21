@@ -659,9 +659,10 @@ export const notebookLogic = kea<notebookLogicType>([
         },
         comments: (comments: CommentType[] | undefined | null, prevComments: CommentType[] | undefined | null) => {
             const commentsLoaded = comments && comments.length >= 0 && prevComments === null
-            const commentsCountChanged = comments && prevComments && comments?.length != prevComments?.length
+            const commentsCountChanged =
+                comments?.length && prevComments?.length ? comments?.length != prevComments?.length : false
 
-            if ((commentsLoaded || commentsCountChanged) && values.editor) {
+            if ((commentsLoaded || commentsCountChanged) && comments && values.editor) {
                 const { editor } = values
                 const commentMarkIds = comments
                     .filter((comment) => comment.item_context?.type === 'mark')

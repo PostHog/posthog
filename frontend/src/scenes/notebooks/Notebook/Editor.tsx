@@ -420,5 +420,10 @@ export function getMarks(editor: TTEditor, type: string): { id: string; pos: num
 }
 
 export function removeCommentMark(editor: TTEditor, pos: number): void {
-    editor.chain().setNodeSelection(pos).unsetMark('comment', { extendEmptyMarkRange: true }).run()
+    editor
+        .chain()
+        .setNodeSelection(pos)
+        .unsetMark('comment', { extendEmptyMarkRange: true })
+        .setNodeSelection(0) // need to reset the selection so that the editor does not complain after mark is removed
+        .run()
 }
