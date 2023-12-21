@@ -167,12 +167,7 @@ async function expectStoryToMatchSceneSnapshot(
     browser: SupportedBrowserName,
     theme: SnapshotTheme
 ): Promise<void> {
-    await page.evaluate(() => {
-        // The screenshot gets clipped by the overflow hidden of the sidebar
-        document.querySelector('.SideBar')?.setAttribute('style', 'overflow: visible;')
-    })
-
-    await expectLocatorToMatchStorySnapshot(page.locator('.main-app-content'), context, browser, theme)
+    await expectLocatorToMatchStorySnapshot(page.locator('.Navigation3000__scene'), context, browser, theme)
 }
 
 async function expectStoryToMatchComponentSnapshot(
