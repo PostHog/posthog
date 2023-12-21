@@ -80,13 +80,7 @@ export function MemberSelect({
                                     fullWidth
                                     role="menuitem"
                                     size="small"
-                                    icon={
-                                        <ProfilePicture
-                                            size="md"
-                                            name={fullName(member.user)}
-                                            email={member.user.email}
-                                        />
-                                    }
+                                    icon={<ProfilePicture size="md" user={member.user} />}
                                     onClick={() => _onChange(member.user)}
                                 >
                                     <span className="flex items-center justify-between gap-2 flex-1">
