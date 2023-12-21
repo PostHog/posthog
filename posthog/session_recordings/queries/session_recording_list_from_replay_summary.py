@@ -87,9 +87,9 @@ class LogQuery:
     PREWHERE team_id = %(team_id)s
             -- regardless of what other filters are applied
             -- limit by storage TTL
-            AND e.timestamp >= %(clamped_to_storage_ttl)s
+            AND timestamp >= %(clamped_to_storage_ttl)s
             -- make sure we don't get the occasional unexpected future event
-            AND e.timestamp <= now()
+            AND timestamp <= now()
             -- and then any time filter for the events query
             {events_timestamp_clause}
     WHERE 1=1
