@@ -1,4 +1,4 @@
-import { LemonSelect, LemonTabs } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import React from 'react'
 
@@ -29,12 +29,11 @@ export const WebTabs = ({
                         options={tabs.map(({ id, linkText }) => ({ value: id, label: linkText }))}
                     />
                 ) : (
-                    <LemonTabs
-                        inline
-                        borderless
-                        activeKey={activeTabId}
-                        onChange={setActiveTabId}
-                        tabs={tabs.map(({ id, linkText }) => ({ key: id, label: linkText }))}
+                    <LemonSegmentedButton
+                        size="small"
+                        options={tabs.map(({ id, linkText }) => ({ label: linkText, value: id }))}
+                        onChange={(value) => setActiveTabId(value)}
+                        value={activeTabId}
                     />
                 )}
             </div>

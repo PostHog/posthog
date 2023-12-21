@@ -1147,6 +1147,10 @@ $decorations: underline, overline, line-through, no-underline;
     font-family: var(--font-mono);
 }
 
+.ligatures-none {
+    font-variant-ligatures: none;
+}
+
 .opacity-0 {
     opacity: 0;
 }

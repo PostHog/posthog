@@ -85,8 +85,12 @@ class LogQuery:
     SELECT distinct log_source_id as session_id
     FROM log_entries
     PREWHERE team_id = %(team_id)s
+            -- regardless of what other filters are applied
+            -- limit by storage TTL
             AND timestamp >= %(clamped_to_storage_ttl)s
+            -- make sure we don't get the occasional unexpected future event
             AND timestamp <= now()
+            -- and then any time filter for the events query
             {events_timestamp_clause}
     WHERE 1=1
     {console_log_clause}
@@ -274,10 +278,12 @@ class SessionIdEventsQuery(EventQuery):
             -- regardless of what other filters are applied
             -- limit by storage TTL
             AND e.timestamp >= %(clamped_to_storage_ttl)s
+            -- make sure we don't get the occasional unexpected future event
             AND e.timestamp <= now()
+            -- and then any time filter for the events query
+            {events_timestamp_clause}
         WHERE
             notEmpty(`$session_id`)
-            {events_timestamp_clause}
             {event_filter_where_conditions}
             {prop_filter_clause}
             {provided_session_ids_clause}
