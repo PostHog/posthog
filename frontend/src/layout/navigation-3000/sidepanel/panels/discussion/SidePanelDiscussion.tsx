@@ -26,7 +26,9 @@ export const SidePanelDiscussion = (): JSX.Element => {
     const { setReplyingComment } = useActions(commentsLogic(commentsLogicProps))
 
     useEffect(() => {
-        setReplyingComment(selectedTabOptions || null)
+        if (selectedTabOptions) {
+            setReplyingComment(selectedTabOptions)
+        }
     }, [selectedTabOptions])
 
     return (

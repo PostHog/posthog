@@ -663,8 +663,11 @@ export const notebookLogic = kea<notebookLogicType>([
             // If the notebook ever changes, we want to reset the scheduled refresh
             actions.scheduleNotebookRefresh()
         },
-        comments: (comments: CommentType[] | undefined | null) => {
-            if (comments && comments.length >= 0 && values.editor) {
+        comments: (comments: CommentType[] | undefined | null, prevComments: CommentType[] | undefined | null) => {
+            const commentsLoaded = comments && comments.length >= 0 && prevComments === null
+            const commentsCountChanged = comments && prevComments && comments?.length != prevComments?.length
+
+            if ((commentsLoaded || commentsCountChanged) && values.editor) {
                 const { editor } = values
                 const commentMarkIds = comments
                     .filter((comment) => comment.item_context?.type === 'mark')
