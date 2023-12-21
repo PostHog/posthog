@@ -36,8 +36,6 @@ declare module '@storybook/types' {
             snapshotBrowsers?: SupportedBrowserName[]
             /** If taking a component snapshot, you can narrow it down by specifying the selector. */
             snapshotTargetSelector?: string
-            /** Include snapshots of buttons in 3000. */
-            include3000?: boolean
         }
         msw?: {
             mocks?: Mocks
@@ -99,7 +97,6 @@ async function expectStoryToMatchSnapshot(
         waitForLoadersToDisappear = true,
         waitForSelector,
         excludeNavigationFromSnapshot = false,
-        include3000 = false,
     } = storyContext.parameters?.testOptions ?? {}
 
     let check: (

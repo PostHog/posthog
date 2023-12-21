@@ -7,9 +7,6 @@ const meta: Meta<typeof CodeSnippet> = {
     title: 'Lemon UI/Code Snippet',
     component: CodeSnippet,
     tags: ['autodocs'],
-    parameters: {
-        testOptions: { include3000: true },
-    },
 }
 export default meta
 const BasicTemplate: StoryFn<typeof CodeSnippet> = (props: CodeSnippetProps) => {
