@@ -128,8 +128,8 @@ where
 
     let error_type = match error_type {
         ErrorType::ConnectionError => "Connection Error".to_owned(),
-        ErrorType::TimeoutError => "Timeout".to_owned(),
-        ErrorType::BadHttpStatus(s) => format!("HTTP Status: {}", s),
+        ErrorType::TimeoutError => "Timeout Error".to_owned(),
+        ErrorType::BadHttpStatus(s) => format!("Bad HTTP Status: {}", s),
         ErrorType::ParseError => "Parse Error".to_owned(),
     };
     serializer.serialize_str(&error_type)
