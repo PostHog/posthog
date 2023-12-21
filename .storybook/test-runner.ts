@@ -139,22 +139,20 @@ async function expectStoryToMatchSnapshot(
         Array.from(document.querySelectorAll('img')).every((i: HTMLImageElement) => i.complete)
     )
 
-    await check(page, context, browser, 'legacy', storyContext.parameters?.testOptions?.snapshotTargetSelector)
+    // snapshot light theme
+    await page.evaluate(() => {
+        document.body.classList.add('posthog-3000')
+        document.body.setAttribute('theme', 'light')
+    })
 
-    if (include3000) {
-        await page.evaluate(() => {
-            document.body.classList.add('posthog-3000')
-            document.body.setAttribute('theme', 'light')
-        })
+    await check(page, context, browser, 'light', storyContext.parameters?.testOptions?.snapshotTargetSelector)
 
-        await check(page, context, browser, 'light', storyContext.parameters?.testOptions?.snapshotTargetSelector)
+    // snapshot dark theme
+    await page.evaluate(() => {
+        document.body.setAttribute('theme', 'dark')
+    })
 
-        await page.evaluate(() => {
-            document.body.setAttribute('theme', 'dark')
-        })
-
-        await check(page, context, browser, 'dark', storyContext.parameters?.testOptions?.snapshotTargetSelector)
-    }
+    await check(page, context, browser, 'dark', storyContext.parameters?.testOptions?.snapshotTargetSelector)
 }
 
 async function expectStoryToMatchFullPageSnapshot(
