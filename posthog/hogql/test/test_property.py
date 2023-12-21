@@ -145,7 +145,7 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "not_regex"}),
-            self._parse_expr("not(match(properties.a, '.*'))"),
+            self._parse_expr("not(match(properties.a, '(?-s).*'))"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": [], "operator": "exact"}),

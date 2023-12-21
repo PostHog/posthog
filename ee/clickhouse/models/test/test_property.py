@@ -1515,7 +1515,15 @@ def test_events(db, team) -> List[UUID]:
             event="$pageview",
             team=team,
             distinct_id="whatever",
+            # new line character shouldn't be matched by a single regex dot
             properties={"email": "test@post\nhog.com"},
+        ),
+        _create_event(
+            event="$pageview",
+            team=team,
+            distinct_id="whatever",
+            # not a new line character - instead a single character - should match
+            properties={"email": "test@postnhog.com"},
         ),
     ]
 
@@ -1756,7 +1764,8 @@ TEST_PROPERTIES = [
         id="can match before date only values",
     ),
     # Regression test, we were previously matching on newline characters
-    pytest.param(Property(key="email", value=r"test@post.hog.com", operator="regex"), []),
+    # this should match one of two possibles (how are you supposed to figure out the expected index 🙈)
+    pytest.param(Property(key="email", value=r"test@post.hog.com", operator="regex"), [28]),
 ]
 
 

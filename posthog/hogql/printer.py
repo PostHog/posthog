@@ -542,16 +542,16 @@ class _Printer(Visitor):
         elif node.op == ast.CompareOperationOp.GlobalNotIn:
             op = f"globalNotIn({left}, {right})"
         elif node.op == ast.CompareOperationOp.Regex:
-            op = f"match({left}, {right})"
+            op = f"match({left}, concat('(?-s)', {right}))"
             value_if_both_sides_are_null = True
         elif node.op == ast.CompareOperationOp.NotRegex:
-            op = f"not(match({left}, {right}))"
+            op = f"not(match({left}, concat('(?-s)', {right})))"
             value_if_one_side_is_null = True
         elif node.op == ast.CompareOperationOp.IRegex:
-            op = f"match({left}, concat('(?i)', {right}))"
+            op = f"match({left}, concat('(?i-s)', {right}))"
             value_if_both_sides_are_null = True
         elif node.op == ast.CompareOperationOp.NotIRegex:
-            op = f"not(match({left}, concat('(?i)', {right})))"
+            op = f"not(match({left}, concat('(?i-s)', {right})))"
             value_if_one_side_is_null = True
         elif node.op == ast.CompareOperationOp.Gt:
             op = f"greater({left}, {right})"

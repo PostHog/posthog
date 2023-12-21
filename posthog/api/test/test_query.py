@@ -331,8 +331,8 @@ b"""
                 properties=[{"key": "example_value", "value": "a.b", "operator": "regex", "type": "event"}],
             )
             response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
-            # assert [x[0] for x in response["results"]] == ['aab', 'abb']
-            assert [x[0] for x in response["results"]] == []
+            assert "(?-s)" in response["hogql"]
+            assert [x[0] for x in response["results"]] == ["aab", "abb"]
 
     @also_test_with_materialized_columns(event_properties=["key"], person_properties=["email"])
     @snapshot_clickhouse_queries
