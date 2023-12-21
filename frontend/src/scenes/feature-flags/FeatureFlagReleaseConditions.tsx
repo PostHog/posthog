@@ -430,7 +430,7 @@ export function FeatureFlagReleaseConditions({
                             </LemonBanner>
                         )}
                 </div>
-                {!readOnly && showGroupsOptions && (
+                {!readOnly && showGroupsOptions && usageContext !== 'schedule' && (
                     <div className="centered">
                         Match by
                         <Select

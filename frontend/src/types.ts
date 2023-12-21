@@ -2445,12 +2445,21 @@ export enum ScheduledChangeModels {
     FeatureFlag = 'FeatureFlag',
 }
 
+export enum ScheduledChangeOperationType {
+    UpdateStatus = 'update_status',
+    AddReleaseCondition = 'add_release_condition',
+}
+
+export type ScheduledChangePayload =
+    | { operation: ScheduledChangeOperationType.UpdateStatus; value: boolean }
+    | { operation: ScheduledChangeOperationType.AddReleaseCondition; value: FeatureFlagFilters }
+
 export interface ScheduledChangeType {
     id: number
     team_id: number
     record_id: number | string
     model_name: ScheduledChangeModels
-    payload: Record<string, any>
+    payload: ScheduledChangePayload
     scheduled_at: string
     executed_at: string | null
     failure_reason: string | null
