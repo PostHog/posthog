@@ -59,6 +59,10 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins
 
         if params.get("user"):
             queryset = queryset.filter(user=params.get("user"))
+        if params.get("scope"):
+            queryset = queryset.filter(scope=params.get("scope"))
+        if params.get("item_id"):
+            queryset = queryset.filter(item_id=params.get("item_id"))
 
         return queryset
 

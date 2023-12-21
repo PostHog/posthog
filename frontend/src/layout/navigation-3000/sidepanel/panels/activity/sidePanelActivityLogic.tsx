@@ -1,5 +1,6 @@
-import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogItem, humanize, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
@@ -7,7 +8,10 @@ import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { toParams } from 'lib/utils'
 import posthog from 'posthog-js'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
+
+import { ActivityScope, UserBasicType } from '~/types'
 
 import type { sidePanelActivityLogicType } from './sidePanelActivityLogicType'
 
@@ -29,8 +33,17 @@ export enum SidePanelActivityTab {
     All = 'all',
 }
 
+export type ActivityFilters = {
+    scope?: ActivityScope
+    item_id?: ActivityLogItem['item_id']
+    user?: UserBasicType['id']
+}
+
 export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelActivityLogic']),
+    connect({
+        values: [sceneLogic, ['sceneConfig']],
+    }),
     actions({
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
         incrementErrorCount: true,
@@ -41,6 +54,28 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
         loadOlderActivity: true,
         maybeLoadOlderActivity: true,
         loadImportantChanges: (onlyUnread = true) => ({ onlyUnread }),
+        setFilters: (filters: ActivityFilters | null) => ({ filters }),
+    }),
+    reducers({
+        activeTab: [
+            SidePanelActivityTab.Unread as SidePanelActivityTab,
+            {
+                setActiveTab: (_, { tab }) => tab,
+            },
+        ],
+        errorCounter: [
+            0,
+            {
+                incrementErrorCount: (state) => (state >= 5 ? 5 : state + 1),
+                clearErrorCount: () => 0,
+            },
+        ],
+        filters: [
+            null as ActivityFilters | null,
+            {
+                setFilters: (_, { filters }) => filters,
+            },
+        ],
     }),
     loaders(({ actions, values, cache }) => ({
         importantChanges: [
@@ -105,11 +140,10 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
             null as ChangesResponse | null,
             {
                 loadAllActivity: async (_, breakpoint) => {
-                    await breakpoint(1)
-
                     const response = await api.get<ChangesResponse>(
-                        `api/projects/${teamLogic.values.currentTeamId}/activity_log`
+                        `api/projects/${teamLogic.values.currentTeamId}/activity_log?` + toParams(values.filters ?? {})
                     )
+                    breakpoint()
                     return response
                 },
 
@@ -129,21 +163,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
             },
         ],
     })),
-    reducers({
-        activeTab: [
-            SidePanelActivityTab.Unread as SidePanelActivityTab,
-            {
-                setActiveTab: (_, { tab }) => tab,
-            },
-        ],
-        errorCounter: [
-            0,
-            {
-                incrementErrorCount: (state) => (state >= 5 ? 5 : state + 1),
-                clearErrorCount: () => 0,
-            },
-        ],
-    }),
+
     listeners(({ values, actions }) => ({
         setActiveTab: ({ tab }) => {
             if (tab === SidePanelActivityTab.All && !values.allActivityResponseLoading) {
@@ -154,6 +174,12 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
         maybeLoadOlderActivity: () => {
             if (!values.allActivityResponseLoading && values.allActivityResponse?.next) {
                 actions.loadOlderActivity()
+            }
+        },
+
+        setFilters: () => {
+            if (values.activeTab === SidePanelActivityTab.All) {
+                actions.loadAllActivity()
             }
         },
     })),
@@ -224,10 +250,25 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
         unreadCount: [(s) => [s.unread], (unread) => (unread || []).length],
         hasUnread: [(s) => [s.unreadCount], (unreadCount) => unreadCount > 0],
     }),
-    events(({ actions, cache }) => ({
-        afterMount: () => actions.loadImportantChanges(),
-        beforeUnmount: () => {
-            clearTimeout(cache.pollTimeout)
+
+    subscriptions(({ actions }) => ({
+        sceneConfig: (sceneConfig) => {
+            // TODO: Parse sceneConfig into scope and item_id
+            if (sceneConfig?.activityScope) {
+                actions.setFilters({ scope: sceneConfig.activityScope })
+            }
         },
     })),
+
+    afterMount(({ actions, values }) => {
+        actions.loadImportantChanges()
+
+        if (values.sceneConfig?.activityScope) {
+            actions.setFilters({ scope: values.sceneConfig.activityScope })
+        }
+    }),
+
+    beforeUnmount(({ cache }) => {
+        clearTimeout(cache.pollTimeout)
+    }),
 ])

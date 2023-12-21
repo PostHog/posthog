@@ -1,7 +1,9 @@
 import { IconNotification } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSkeleton, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSelect, LemonSkeleton, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLog'
+import { MemberSelect } from 'lib/components/MemberSelect'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { useEffect, useRef } from 'react'
@@ -11,6 +13,7 @@ import {
     sidePanelActivityLogic,
     SidePanelActivityTab,
 } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
+import { ActivityScope } from '~/types'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 
@@ -36,8 +39,9 @@ export const SidePanelActivity = (): JSX.Element => {
         allActivityHasNext,
         importantChangesLoading,
         hasUnread,
+        filters,
     } = useValues(sidePanelActivityLogic)
-    const { togglePolling, setActiveTab, maybeLoadOlderActivity, markAllAsRead, loadImportantChanges } =
+    const { togglePolling, setActiveTab, maybeLoadOlderActivity, markAllAsRead, loadImportantChanges, setFilters } =
         useActions(sidePanelActivityLogic)
 
     usePageVisibility((pageIsVisible) => {
@@ -89,10 +93,11 @@ export const SidePanelActivity = (): JSX.Element => {
                     />
                 </div>
 
-                <div className="flex-1 overflow-y-auto px-2 pt-2">
+                {/* Controls */}
+                <div className="shrink-0 space-y-2 p-2">
                     {activeTab === SidePanelActivityTab.Unread ? (
-                        <div className="flex-1 overflow-y-auto space-y-px">
-                            <LemonBanner type="info" className="mb-2">
+                        <>
+                            <LemonBanner type="info">
                                 Notifications shows you changes others make to{' '}
                                 <Link to={urls.savedInsights('history')}>Insights</Link> and{' '}
                                 <Link to={urls.featureFlags('history')}>Feature Flags</Link> that you created. Come join{' '}
@@ -107,51 +112,106 @@ export const SidePanelActivity = (): JSX.Element => {
                                     </LemonButton>
                                 </div>
                             ) : null}
-
-                            {importantChangesLoading && !hasNotifications ? (
-                                <LemonSkeleton className="my-2 h-12" repeat={10} fade />
-                            ) : hasNotifications ? (
-                                notifications.map((logItem, index) => (
-                                    <ActivityLogRow logItem={logItem} key={index} showExtendedDescription={false} />
-                                ))
-                            ) : (
-                                <p>You're all caught up!</p>
-                            )}
-                        </div>
+                        </>
                     ) : activeTab === SidePanelActivityTab.All ? (
-                        <div className="flex-1 overflow-y-auto space-y-px" ref={contentRef} onScroll={handleScroll}>
-                            {allActivityResponseLoading && !allActivity.length ? (
-                                <LemonSkeleton className="my-2 h-12" repeat={10} fade />
-                            ) : allActivity.length ? (
-                                <>
-                                    {allActivity.map((logItem, index) => (
-                                        <ActivityLogRow logItem={logItem} key={index} showExtendedDescription={false} />
-                                    ))}
+                        <div className="flex items-center justify-between gap-2">
+                            <div>{allActivityResponseLoading ? <Spinner textColored /> : null}</div>
 
-                                    <div className="m-4 h-10 flex items-center justify-center gap-2 text-muted-alt">
-                                        {allActivityResponseLoading ? (
-                                            <>
-                                                <Spinner textColored /> Loading older activity
-                                            </>
-                                        ) : allActivityHasNext ? (
-                                            <LemonButton
-                                                type="secondary"
-                                                fullWidth
-                                                center
-                                                onClick={() => maybeLoadOlderActivity()}
-                                            >
-                                                Load more
-                                            </LemonButton>
-                                        ) : (
-                                            'No more results'
-                                        )}
-                                    </div>
-                                </>
-                            ) : (
-                                <p>You're all caught up!</p>
-                            )}
+                            <div className="flex ites-center gap-2">
+                                <LemonSelect
+                                    size="small"
+                                    options={Object.values(ActivityScope).map((x) => ({
+                                        value: x,
+                                        label: x,
+                                    }))}
+                                    placeholder="All Activity"
+                                    value={filters?.scope ?? null}
+                                    onChange={(value) => ({
+                                        ...filters,
+                                        scope: value ?? undefined,
+                                        item_id: undefined,
+                                    })}
+                                    dropdownMatchSelectWidth={false}
+                                />
+
+                                <MemberSelect
+                                    size="small"
+                                    type="secondary"
+                                    value={filters?.user ?? null}
+                                    onChange={(user) =>
+                                        setFilters({
+                                            ...filters,
+                                            user: user?.id ?? undefined,
+                                        })
+                                    }
+                                />
+                            </div>
                         </div>
                     ) : null}
+                </div>
+
+                <div className="flex flex-col flex-1 overflow-hidden" ref={contentRef} onScroll={handleScroll}>
+                    <ScrollableShadows direction="vertical" innerClassName="p-2 space-y-x">
+                        {activeTab === SidePanelActivityTab.Unread ? (
+                            <>
+                                {importantChangesLoading && !hasNotifications ? (
+                                    <LemonSkeleton className="my-2 h-12" repeat={10} fade />
+                                ) : hasNotifications ? (
+                                    notifications.map((logItem, index) => (
+                                        <ActivityLogRow logItem={logItem} key={index} showExtendedDescription={false} />
+                                    ))
+                                ) : (
+                                    <div className="border rounded text-center border-dashed p-6 text-muted-alt">
+                                        You're all caught up!
+                                    </div>
+                                )}
+                            </>
+                        ) : activeTab === SidePanelActivityTab.All ? (
+                            <>
+                                {allActivityResponseLoading && !allActivity.length ? (
+                                    <LemonSkeleton className="my-2 h-12" repeat={10} fade />
+                                ) : allActivity.length ? (
+                                    <>
+                                        {allActivity.map((logItem, index) => (
+                                            <ActivityLogRow
+                                                logItem={logItem}
+                                                key={index}
+                                                showExtendedDescription={false}
+                                            />
+                                        ))}
+
+                                        <div className="m-4 h-10 flex items-center justify-center gap-2 text-muted-alt">
+                                            {allActivityResponseLoading ? (
+                                                <>
+                                                    <Spinner textColored /> Loading older activity
+                                                </>
+                                            ) : allActivityHasNext ? (
+                                                <LemonButton
+                                                    type="secondary"
+                                                    fullWidth
+                                                    center
+                                                    onClick={() => maybeLoadOlderActivity()}
+                                                >
+                                                    Load more
+                                                </LemonButton>
+                                            ) : (
+                                                'No more results'
+                                            )}
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="border rounded text-center border-dashed p-6 flex flex-col gap-2 items-center">
+                                        <span>No activity yet</span>
+                                        {filters ? (
+                                            <LemonButton type="secondary" onClick={() => setFilters(null)}>
+                                                Clear filters
+                                            </LemonButton>
+                                        ) : null}
+                                    </div>
+                                )}
+                            </>
+                        ) : null}
+                    </ScrollableShadows>
                 </div>
             </div>
         </div>
