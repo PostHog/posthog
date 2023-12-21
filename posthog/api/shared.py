@@ -11,8 +11,6 @@ from posthog.models.organization import OrganizationMembership
 
 
 class UserBasicSerializer(serializers.ModelSerializer):
-    name = serializers.CharField(required=False, read_only=True)
-
     class Meta:
         model = User
         fields = [
@@ -21,7 +19,6 @@ class UserBasicSerializer(serializers.ModelSerializer):
             "distinct_id",
             "first_name",
             "last_name",
-            "name",
             "email",
             "is_email_verified",
         ]

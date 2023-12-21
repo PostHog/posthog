@@ -81,7 +81,6 @@ class UserSerializer(serializers.ModelSerializer):
     current_password = serializers.CharField(write_only=True, required=False)
     notification_settings = serializers.DictField(required=False)
     scene_personalisation = ScenePersonalisationBasicSerializer(many=True, read_only=True)
-    name = serializers.CharField(required=False, read_only=True)
 
     class Meta:
         model = User
@@ -91,7 +90,6 @@ class UserSerializer(serializers.ModelSerializer):
             "distinct_id",
             "first_name",
             "last_name",
-            "name",
             "email",
             "pending_email",
             "email_opt_in",
