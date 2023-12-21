@@ -1,5 +1,6 @@
-import { LemonButton, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { IconDelete, IconEllipsis } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
@@ -9,7 +10,6 @@ import { Link } from 'lib/lemon-ui/Link'
 import { useEffect } from 'react'
 import { ContainsTypeFilters } from 'scenes/notebooks/NotebooksTable/ContainsTypeFilter'
 import { DEFAULT_FILTERS, notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { urls } from 'scenes/urls'
 
 import { notebooksModel } from '~/models/notebooksModel'
@@ -42,7 +42,6 @@ export function NotebooksTable(): JSX.Element {
     const { notebooksAndTemplates, filters, notebooksResponseLoading, notebookTemplates, sortValue, pagination } =
         useValues(notebooksTableLogic)
     const { loadNotebooks, setFilters, setSortValue } = useActions(notebooksTableLogic)
-    const { meFirstMembers } = useValues(membersLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
 
     useEffect(() => {
@@ -121,20 +120,11 @@ export function NotebooksTable(): JSX.Element {
                     <ContainsTypeFilters filters={filters} setFilters={setFilters} />
                     <div className="flex items-center gap-2">
                         <span>Created by:</span>
-                        <LemonSelect
-                            options={[
-                                { value: DEFAULT_FILTERS.createdBy, label: DEFAULT_FILTERS.createdBy },
-                                ...meFirstMembers.map((x) => ({
-                                    value: x.user.uuid,
-                                    label: x.user.first_name,
-                                })),
-                            ]}
+                        <MemberSelect
                             size="small"
+                            type="secondary"
                             value={filters.createdBy}
-                            onChange={(v): void => {
-                                setFilters({ createdBy: v || DEFAULT_FILTERS.createdBy })
-                            }}
-                            dropdownMatchSelectWidth={false}
+                            onChange={(user) => setFilters({ createdBy: user?.uuid || DEFAULT_FILTERS.createdBy })}
                         />
                     </div>
                 </div>

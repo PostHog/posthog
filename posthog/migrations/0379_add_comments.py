@@ -8,7 +8,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0377_flatpersonoverride"),
+        ("posthog", "0378_alter_user_theme_mode"),
     ]
 
     operations = [

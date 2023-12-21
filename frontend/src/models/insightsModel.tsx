@@ -1,6 +1,6 @@
 import { actions, connect, kea, listeners, path } from 'kea'
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { promptLogic } from 'lib/logic/promptLogic'
 import { teamLogic } from 'scenes/teamLogic'
 

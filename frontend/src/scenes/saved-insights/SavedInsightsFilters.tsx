@@ -1,9 +1,9 @@
 import { IconCalendar } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 
@@ -16,8 +16,6 @@ export function SavedInsightsFilters(): JSX.Element {
     const { filters } = useValues(savedInsightsLogic)
 
     const { tab, createdBy, insightType, dateFrom, dateTo, dashboardId, search } = filters
-
-    const { meFirstMembers } = useValues(membersLogic)
 
     return (
         <div className="flex justify-between gap-2 mb-2 items-center flex-wrap">
@@ -76,21 +74,11 @@ export function SavedInsightsFilters(): JSX.Element {
                 {tab !== SavedInsightsTabs.Yours ? (
                     <div className="flex items-center gap-2">
                         <span>Created by:</span>
-                        {/* TODO: Fix issues with user name order due to numbers having priority */}
-                        <LemonSelect
+                        <MemberSelect
                             size="small"
-                            options={[
-                                { value: 'All users' as number | 'All users', label: 'All Users' },
-                                ...meFirstMembers.map((x) => ({
-                                    value: x.user.id,
-                                    label: x.user.first_name,
-                                })),
-                            ]}
-                            value={createdBy}
-                            onChange={(v: any): void => {
-                                setSavedInsightsFilters({ createdBy: v })
-                            }}
-                            dropdownMatchSelectWidth={false}
+                            type="secondary"
+                            value={createdBy === 'All users' ? null : createdBy}
+                            onChange={(user) => setSavedInsightsFilters({ createdBy: user?.id || 'All users' })}
                         />
                     </div>
                 ) : null}

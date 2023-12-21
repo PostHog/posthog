@@ -1,9 +1,12 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { retentionToActorsQuery } from 'scenes/retention/queries'
+import { urls } from 'scenes/urls'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
-import { isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
+import { DataTableNode, NodeKind, PersonsQuery, RetentionQuery } from '~/queries/schema'
+import { isInsightPersonsQuery, isLifecycleQuery, isRetentionQuery, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 import type { retentionModalLogicType } from './retentionModalLogicType'
@@ -24,7 +27,7 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
         closeModal: true,
     })),
     reducers({
-        selectedRow: [
+        selectedInterval: [
             null as number | null,
             {
                 openModal: (_, { rowIndex }) => rowIndex,
@@ -41,6 +44,36 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
                         ? undefined
                         : querySource?.aggregation_group_type_index
                 return aggregationLabel(aggregation_group_type_index)
+            },
+        ],
+        personsQuery: [
+            (s) => [s.querySource, s.selectedInterval],
+            (querySource: RetentionQuery, selectedInterval): PersonsQuery | null => {
+                if (!querySource) {
+                    return null
+                }
+                return retentionToActorsQuery(querySource, selectedInterval ?? 0)
+            },
+        ],
+        exploreUrl: [
+            (s) => [s.personsQuery],
+            (personsQuery): string | null => {
+                if (!personsQuery) {
+                    return null
+                }
+                const query: DataTableNode = {
+                    kind: NodeKind.DataTableNode,
+                    source: personsQuery,
+                    full: true,
+                }
+                if (
+                    isInsightPersonsQuery(personsQuery.source) &&
+                    isRetentionQuery(personsQuery.source.source) &&
+                    personsQuery.source.source.aggregation_group_type_index !== undefined
+                ) {
+                    query.showPropertyFilter = false
+                }
+                return urls.insightNew(undefined, undefined, JSON.stringify(query))
             },
         ],
     }),

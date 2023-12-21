@@ -90,6 +90,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.Support)
                 }
                 tabs.push(SidePanelTab.Settings)
+                tabs.push(SidePanelTab.Activity)
                 if (isReady && !hasCompletedAllTasks) {
                     tabs.push(SidePanelTab.Activation)
                 }
@@ -105,15 +106,19 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         ],
 
         visibleTabs: [
-            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.commentCount],
-            (enabledTabs, selectedTab, sidePanelOpen, commentCount): SidePanelTab[] => {
-                return enabledTabs.filter((tab: any) => {
+            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.commentCount, s.unreadCount],
+            (enabledTabs, selectedTab, sidePanelOpen, commentCount, unreadCount): SidePanelTab[] => {
+                return enabledTabs.filter((tab) => {
                     if (tab === selectedTab && sidePanelOpen) {
                         return true
                     }
 
                     if (tab === SidePanelTab.Discussion) {
                         return commentCount > 0
+                    }
+
+                    if (tab === SidePanelTab.Activity && unreadCount) {
+                        return true
                     }
 
                     // Hide certain tabs unless they are selected

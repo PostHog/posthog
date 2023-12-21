@@ -118,6 +118,7 @@ def events_column_config_default() -> Dict[str, Any]:
 class ThemeMode(models.TextChoices):
     LIGHT = "light", "Light"
     DARK = "dark", "Dark"
+    SYSTEM = "system", "System"
 
 
 class User(AbstractUser, UUIDClassicModel):
