@@ -227,43 +227,6 @@ input::-ms-clear {
     height: var(--radius);
 }
 
-// Horizontal scrollability indication
-
-.scrollable {
-    &::before,
-    &::after {
-        position: absolute;
-        top: 0;
-        left: 0;
-        z-index: 1;
-        width: 100%;
-        height: 100%;
-        pointer-events: none;
-        content: '';
-        opacity: 0;
-        transition: opacity 200ms ease;
-    }
-
-    &::before {
-        box-shadow: 16px 0 16px -16px rgb(0 0 0 / 25%) inset;
-    }
-
-    &::after {
-        box-shadow: -16px 0 16px -16px rgb(0 0 0 / 25%) inset;
-    }
-
-    &.scrollable--right::after,
-    &.scrollable--left::before {
-        opacity: 1;
-    }
-}
-
-.scrollable__inner {
-    width: 100%;
-    height: 100%;
-    overflow: auto;
-}
-
 // Form & input styles
 
 .input-set {
@@ -504,6 +467,10 @@ input::-ms-clear {
     &.main-app-content--container {
         align-self: center;
         max-width: 72rem;
+
+        @include screen($xxl) {
+            max-width: 108rem;
+        }
     }
 
     @include screen($sm) {

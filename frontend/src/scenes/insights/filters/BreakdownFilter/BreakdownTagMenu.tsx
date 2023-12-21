@@ -4,16 +4,22 @@ import { LemonButton, LemonDivider, LemonInput, LemonSwitch } from '@posthog/lem
 import { useActions, useValues } from 'kea'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { breakdownTagLogic } from './breakdownTagLogic'
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
 export const BreakdownTagMenu = (): JSX.Element => {
+    const { insightProps } = useValues(insightLogic)
     const { isHistogramable, isNormalizeable } = useValues(breakdownTagLogic)
     const { removeBreakdown } = useActions(breakdownTagLogic)
+    const { breakdown } = useValues(insightVizDataLogic(insightProps))
+    const { updateBreakdown } = useActions(insightVizDataLogic(insightProps))
 
-    const { histogramBinCount, histogramBinsUsed, breakdownFilter } = useValues(taxonomicBreakdownFilterLogic)
-    const { setHistogramBinCount, setHistogramBinsUsed, setNormalizeBreakdownURL } =
+    const { histogramBinCount, breakdownLimit, histogramBinsUsed, breakdownFilter } =
+        useValues(taxonomicBreakdownFilterLogic)
+    const { setHistogramBinCount, setBreakdownLimit, setHistogramBinsUsed, setNormalizeBreakdownURL } =
         useActions(taxonomicBreakdownFilterLogic)
 
     return (
@@ -50,7 +56,7 @@ export const BreakdownTagMenu = (): JSX.Element => {
                     }
                 />
             )}
-            {isHistogramable && (
+            {isHistogramable ? (
                 <>
                     <LemonButton
                         onClick={() => {
@@ -84,6 +90,58 @@ export const BreakdownTagMenu = (): JSX.Element => {
                     >
                         Do not bin numeric values
                     </LemonButton>
+                </>
+            ) : (
+                <>
+                    <LemonSwitch
+                        fullWidth
+                        className="min-h-10 px-2"
+                        checked={!breakdown?.breakdown_hide_other_aggregation}
+                        onChange={() =>
+                            updateBreakdown({
+                                ...breakdown,
+                                breakdown_hide_other_aggregation: !breakdown?.breakdown_hide_other_aggregation,
+                            })
+                        }
+                        label={
+                            <div className="flex gap-1">
+                                <span>Group remaining values under "Other"</span>
+                                <Tooltip
+                                    title={
+                                        <>
+                                            If you have over {breakdown?.breakdown_limit ?? 25} breakdown options, the
+                                            smallest ones are aggregated under the label "Other". Use this toggle to
+                                            show/hide the "Other" option.
+                                        </>
+                                    }
+                                >
+                                    <IconInfo className="text-muted text-xl shrink-0" />
+                                </Tooltip>
+                            </div>
+                        }
+                    />
+                    <div>
+                        <LemonButton
+                            onClick={() => {
+                                updateBreakdown({ breakdown_limit: breakdownLimit })
+                            }}
+                            status="stealth"
+                            active={histogramBinsUsed}
+                            fullWidth
+                        >
+                            Breakdown limit:{' '}
+                            <LemonInput
+                                min={1}
+                                value={breakdownLimit}
+                                onChange={(newValue) => {
+                                    setBreakdownLimit(newValue ?? 25)
+                                }}
+                                fullWidth={false}
+                                className="w-20 ml-2"
+                                type="number"
+                            />
+                        </LemonButton>
+                    </div>
                 </>
             )}
             <LemonDivider />

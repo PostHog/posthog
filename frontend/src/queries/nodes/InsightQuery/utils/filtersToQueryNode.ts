@@ -234,7 +234,10 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             breakdowns: filters.breakdowns,
             breakdown_group_type_index: filters.breakdown_group_type_index,
             ...(isTrendsFilter(filters)
-                ? { breakdown_histogram_bin_count: filters.breakdown_histogram_bin_count }
+                ? {
+                      breakdown_histogram_bin_count: filters.breakdown_histogram_bin_count,
+                      breakdown_hide_other_aggregation: filters.breakdown_hide_other_aggregation,
+                  }
                 : {}),
         })
     }
@@ -254,6 +257,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             aggregation_axis_format: filters.aggregation_axis_format,
             aggregation_axis_prefix: filters.aggregation_axis_prefix,
             aggregation_axis_postfix: filters.aggregation_axis_postfix,
+            decimal_places: filters.decimal_places,
             formula: filters.formula,
             display: filters.display,
             show_values_on_series: filters.show_values_on_series,

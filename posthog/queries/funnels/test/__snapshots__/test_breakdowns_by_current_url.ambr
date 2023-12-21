@@ -1,21 +1,19 @@
 # name: TestBreakdownsByCurrentURL.test_breakdown_by_current_url
   '
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT array(if(empty(trim(TRAILING '/?#'
-                                from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
-                                                                                                                            from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')))) AS value,
-            count(*) as count
-     FROM events e
-     WHERE team_id = 2
-       AND event IN ['terminate funnel', 'watched movie']
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 100
-     OFFSET 0)
+  SELECT array(if(empty(trim(TRAILING '/?#'
+                             from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
+                                                                                                                         from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')))) AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event IN ['terminate funnel', 'watched movie']
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 100
+  OFFSET 0
   '
 ---
 # name: TestBreakdownsByCurrentURL.test_breakdown_by_current_url.1
@@ -95,21 +93,19 @@
 # name: TestBreakdownsByCurrentURL.test_breakdown_by_pathname
   '
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT array(if(empty(trim(TRAILING '/?#'
-                                from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
-                                                                                                                         from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', '')))) AS value,
-            count(*) as count
-     FROM events e
-     WHERE team_id = 2
-       AND event IN ['terminate funnel', 'watched movie']
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 100
-     OFFSET 0)
+  SELECT array(if(empty(trim(TRAILING '/?#'
+                             from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
+                                                                                                                      from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', '')))) AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event IN ['terminate funnel', 'watched movie']
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 100
+  OFFSET 0
   '
 ---
 # name: TestBreakdownsByCurrentURL.test_breakdown_by_pathname.1

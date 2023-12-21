@@ -1495,7 +1495,19 @@
   '
   
   CREATE MATERIALIZED VIEW IF NOT EXISTS session_replay_events_mv ON CLUSTER 'posthog'
-  TO posthog_test.writable_session_replay_events
+  TO posthog_test.writable_session_replay_events (
+  `session_id` String, `team_id` Int64, `distinct_id` String,
+  `min_first_timestamp` DateTime64(6, 'UTC'),
+  `max_last_timestamp` DateTime64(6, 'UTC'),
+  `first_url` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
+  `click_count` Int64, `keypress_count` Int64,
+  `mouse_activity_count` Int64, `active_milliseconds` Int64,
+  `console_log_count` Int64, `console_warn_count` Int64,
+  `console_error_count` Int64, `size` Int64, `message_count` Int64,
+  `event_count` Int64,
+  `snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
+  `_timestamp` Nullable(DateTime)
+  )
   AS SELECT
   session_id,
   team_id,

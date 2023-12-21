@@ -4,7 +4,7 @@
 
 PATHNAME_SCROLL_CTE = """
 SELECT
-    events.properties.`$prev_pageview_pathname` AS $pathname,
+    events.properties.`$prev_pageview_pathname` AS pathname,
     avg(CASE
         WHEN toFloat(JSONExtractRaw(events.properties, '$prev_pageview_max_content_percentage')) IS NULL THEN NULL
         WHEN toFloat(JSONExtractRaw(events.properties, '$prev_pageview_max_content_percentage')) > 0.8 THEN 100
@@ -16,7 +16,7 @@ FROM
 WHERE
     (event = '$pageview' OR event = '$pageleave') AND events.properties.`$prev_pageview_pathname` IS NOT NULL
     AND ({pathname_scroll_where})
-GROUP BY $pathname
+GROUP BY pathname
 """
 
 COUNTS_CTE = """

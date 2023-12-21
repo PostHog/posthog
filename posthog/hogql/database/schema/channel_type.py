@@ -88,7 +88,7 @@ multiIf(
             match(properties.$initial_utm_medium, 'push$'),
             'Push',
 
-            NULL
+            'Other'
         )
     )
 )""",

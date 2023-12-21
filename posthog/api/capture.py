@@ -470,7 +470,6 @@ def get_event(request):
 
     try:
         if replay_events:
-            # The new flow we only enable if the dedicated kafka is enabled
             alternative_replay_events = preprocess_replay_events_for_blob_ingestion(
                 replay_events, settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES
             )

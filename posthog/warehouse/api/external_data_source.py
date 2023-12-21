@@ -21,7 +21,7 @@ from posthog.warehouse.data_load.service import (
 )
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, ExternalDataJob
 from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer
-from posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline import (
+from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
 
@@ -62,6 +62,19 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
     def get_schemas(self, instance: ExternalDataSource):
         schemas = instance.schemas.order_by("name").all()
         return ExternalDataSchemaSerializer(schemas, many=True, read_only=True).data
+
+
+class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
+    class Meta:
+        model = ExternalDataSource
+        fields = [
+            "id",
+            "created_at",
+            "created_by",
+            "status",
+            "source_type",
+        ]
+        read_only_fields = ["id", "created_by", "created_at", "status", "source_type"]
 
 
 class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):

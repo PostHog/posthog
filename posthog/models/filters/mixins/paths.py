@@ -1,5 +1,5 @@
 import json
-from typing import Dict, List, Literal, Optional, Tuple, cast
+from typing import Dict, List, Literal, Optional
 
 from posthog.constants import (
     CUSTOM_EVENT,
@@ -67,41 +67,6 @@ class EndPointMixin(BaseParamMixin):
     @include_dict
     def end_point_to_dict(self):
         return {"end_point": self.end_point} if self.end_point else {}
-
-
-class PropTypeDerivedMixin(PathTypeMixin):
-    @cached_property
-    def prop_type(self) -> str:
-        if self.path_type == SCREEN_EVENT:
-            return "properties->> '$screen_name'"
-        elif self.path_type == CUSTOM_EVENT:
-            return "event"
-        elif self.path_type == HOGQL:
-            return "event"
-        else:
-            return "properties->> '$current_url'"
-
-
-class ComparatorDerivedMixin(PropTypeDerivedMixin):
-    @cached_property
-    def comparator(self) -> str:
-        if self.path_type == SCREEN_EVENT:
-            return "{} =".format(self.prop_type)
-        elif self.path_type == CUSTOM_EVENT:
-            return "event ="
-        else:
-            return "{} =".format(self.prop_type)
-
-
-class TargetEventDerivedMixin(PropTypeDerivedMixin):
-    @cached_property
-    def target_event(self) -> Tuple[Optional[PathType], Dict[str, str]]:
-        if self.path_type == SCREEN_EVENT:
-            return cast(PathType, SCREEN_EVENT), {"event": SCREEN_EVENT}
-        elif self.path_type == HOGQL or self.path_type == CUSTOM_EVENT:
-            return None, {}
-        else:
-            return cast(PathType, PAGEVIEW_EVENT), {"event": PAGEVIEW_EVENT}
 
 
 class PathsHogQLExpressionMixin(PathTypeMixin):

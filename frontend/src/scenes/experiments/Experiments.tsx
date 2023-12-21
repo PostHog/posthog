@@ -38,6 +38,7 @@ export function Experiments(): JSX.Element {
         searchTerm,
         shouldShowEmptyState,
         shouldShowProductIntroduction,
+        searchStatus,
     } = useValues(experimentsLogic)
     const { setExperimentsTab, deleteExperiment, archiveExperiment, setSearchStatus, setSearchTerm } =
         useActions(experimentsLogic)
@@ -242,7 +243,8 @@ export function Experiments(): JSX.Element {
                                                 { label: 'Complete', value: ProgressStatus.Complete },
                                             ] as { label: string; value: string }[]
                                         }
-                                        value="all"
+                                        value={searchStatus ?? 'all'}
+                                        dropdownMatchSelectWidth={false}
                                         dropdownMaxContentWidth
                                     />
                                 </div>

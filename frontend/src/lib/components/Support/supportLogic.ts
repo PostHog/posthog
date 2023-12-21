@@ -4,7 +4,7 @@ import { actions, connect, kea, listeners, path, props, reducers, selectors } fr
 import { forms } from 'kea-forms'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
@@ -62,11 +62,11 @@ export const TARGET_AREA_TO_NAME = {
     data_management: 'Data Management',
     data_warehouse: 'Data Warehouse',
     ingestion: 'Event Ingestion',
-    experiments: 'Experiments',
+    experiments: 'A/B Testing',
     feature_flags: 'Feature Flags',
     analytics: 'Product Analytics (Insights, Dashboards, Annotations)',
     session_replay: 'Session Replay (Recordings)',
-    toolbar: 'Toolbar & heatmaps',
+    toolbar: 'Toolbar & Heatmaps',
     surveys: 'Surveys',
     web_analytics: 'Web Analytics',
     'posthog-3000': 'PostHog 3000',
