@@ -3,13 +3,51 @@ use std::sync::Arc;
 use std::time;
 
 use async_std::task;
-use hook_common::pgqueue::{PgJobError, PgQueue, PgQueueError, PgTransactionJob};
-use hook_common::webhook::{HttpMethod, WebhookJobError, WebhookJobMetadata, WebhookJobParameters};
+use hook_common::{
+    pgqueue::{PgJob, PgJobError, PgQueue, PgQueueError, PgQueueJob, PgTransactionJob},
+    retry::RetryPolicy,
+    webhook::{HttpMethod, WebhookJobError, WebhookJobMetadata, WebhookJobParameters},
+};
 use http::StatusCode;
 use reqwest::header;
 use tokio::sync;
 
 use crate::error::{ConsumerError, WebhookError};
+
+/// A WebhookJob is any PgQueueJob that returns a reference to webhook parameters and metadata.
+trait WebhookJob: PgQueueJob + std::marker::Send {
+    fn parameters(&self) -> &WebhookJobParameters;
+    fn metadata(&self) -> &WebhookJobMetadata;
+    fn attempt(&self) -> i32;
+}
+
+impl WebhookJob for PgTransactionJob<'_, WebhookJobParameters, WebhookJobMetadata> {
+    fn parameters(&self) -> &WebhookJobParameters {
+        &self.job.parameters
+    }
+
+    fn metadata(&self) -> &WebhookJobMetadata {
+        &self.job.metadata
+    }
+
+    fn attempt(&self) -> i32 {
+        self.job.attempt
+    }
+}
+
+impl WebhookJob for PgJob<WebhookJobParameters, WebhookJobMetadata> {
+    fn parameters(&self) -> &WebhookJobParameters {
+        &self.job.parameters
+    }
+
+    fn metadata(&self) -> &WebhookJobMetadata {
+        &self.job.metadata
+    }
+
+    fn attempt(&self) -> i32 {
+        self.job.attempt
+    }
+}
 
 /// A consumer to poll `PgQueue` and spawn tasks to process webhooks when a job becomes available.
 pub struct WebhookConsumer<'p> {
@@ -23,6 +61,8 @@ pub struct WebhookConsumer<'p> {
     client: reqwest::Client,
     /// Maximum number of concurrent jobs being processed.
     max_concurrent_jobs: usize,
+    /// The retry policy used to calculate retry intervals when a job fails with a retryable error.
+    retry_policy: RetryPolicy,
 }
 
 impl<'p> WebhookConsumer<'p> {
@@ -32,6 +72,7 @@ impl<'p> WebhookConsumer<'p> {
         poll_interval: time::Duration,
         request_timeout: time::Duration,
         max_concurrent_jobs: usize,
+        retry_policy: RetryPolicy,
     ) -> Self {
         let mut headers = header::HeaderMap::new();
         headers.insert(
@@ -51,11 +92,25 @@ impl<'p> WebhookConsumer<'p> {
             poll_interval,
             client,
             max_concurrent_jobs,
+            retry_policy,
         }
     }
 
     /// Wait until a job becomes available in our queue.
     async fn wait_for_job<'a>(
+        &self,
+    ) -> Result<PgJob<WebhookJobParameters, WebhookJobMetadata>, ConsumerError> {
+        loop {
+            if let Some(job) = self.queue.dequeue(&self.name).await? {
+                return Ok(job);
+            } else {
+                task::sleep(self.poll_interval).await;
+            }
+        }
+    }
+
+    /// Wait until a job becomes available in our queue in transactional mode.
+    async fn wait_for_job_tx<'a>(
         &self,
     ) -> Result<PgTransactionJob<'a, WebhookJobParameters, WebhookJobMetadata>, ConsumerError> {
         loop {
@@ -68,23 +123,58 @@ impl<'p> WebhookConsumer<'p> {
     }
 
     /// Run this consumer to continuously process any jobs that become available.
-    pub async fn run(&self) -> Result<(), ConsumerError> {
+    pub async fn run(&self, transactional: bool) -> Result<(), ConsumerError> {
         let semaphore = Arc::new(sync::Semaphore::new(self.max_concurrent_jobs));
 
-        loop {
-            let webhook_job = self.wait_for_job().await?;
-
-            // reqwest::Client internally wraps with Arc, so this allocation is cheap.
-            let client = self.client.clone();
-            let permit = semaphore.clone().acquire_owned().await.unwrap();
-
-            tokio::spawn(async move {
-                let result = process_webhook_job(client, webhook_job).await;
-                drop(permit);
-                result
-            });
+        if transactional {
+            loop {
+                let webhook_job = self.wait_for_job_tx().await?;
+                spawn_webhook_job_processing_task(
+                    self.client.clone(),
+                    semaphore.clone(),
+                    self.retry_policy,
+                    webhook_job,
+                )
+                .await;
+            }
+        } else {
+            loop {
+                let webhook_job = self.wait_for_job().await?;
+                spawn_webhook_job_processing_task(
+                    self.client.clone(),
+                    semaphore.clone(),
+                    self.retry_policy,
+                    webhook_job,
+                )
+                .await;
+            }
         }
     }
+}
+
+/// Spawn a Tokio task to process a Webhook Job once we successfully acquire a permit.
+///
+/// # Arguments
+///
+/// * `client`: An HTTP client to execute the webhook job request.
+/// * `semaphore`: A semaphore used for rate limiting purposes. This function will panic if this semaphore is closed.
+/// * `webhook_job`: The webhook job to process as dequeued from `hook_common::pgqueue::PgQueue`.
+async fn spawn_webhook_job_processing_task<W: WebhookJob + 'static>(
+    client: reqwest::Client,
+    semaphore: Arc<sync::Semaphore>,
+    retry_policy: RetryPolicy,
+    webhook_job: W,
+) -> tokio::task::JoinHandle<Result<(), ConsumerError>> {
+    let permit = semaphore
+        .acquire_owned()
+        .await
+        .expect("semaphore has been closed");
+
+    tokio::spawn(async move {
+        let result = process_webhook_job(client, webhook_job, &retry_policy).await;
+        drop(permit);
+        result
+    })
 }
 
 /// Process a webhook job by transitioning it to its appropriate state after its request is sent.
@@ -100,16 +190,19 @@ impl<'p> WebhookConsumer<'p> {
 ///
 /// * `client`: An HTTP client to execute the webhook job request.
 /// * `webhook_job`: The webhook job to process as dequeued from `hook_common::pgqueue::PgQueue`.
-async fn process_webhook_job(
+async fn process_webhook_job<W: WebhookJob>(
     client: reqwest::Client,
-    webhook_job: PgTransactionJob<'_, WebhookJobParameters, WebhookJobMetadata>,
+    webhook_job: W,
+    retry_policy: &RetryPolicy,
 ) -> Result<(), ConsumerError> {
+    let parameters = webhook_job.parameters();
+
     match send_webhook(
         client,
-        &webhook_job.job.parameters.method,
-        &webhook_job.job.parameters.url,
-        &webhook_job.job.parameters.headers,
-        webhook_job.job.parameters.body.clone(),
+        &parameters.method,
+        &parameters.url,
+        &parameters.headers,
+        parameters.body.clone(),
     )
     .await
     {
@@ -142,8 +235,11 @@ async fn process_webhook_job(
             Ok(())
         }
         Err(WebhookError::RetryableRequestError { error, retry_after }) => {
+            let retry_interval =
+                retry_policy.time_until_next_retry(webhook_job.attempt() as u32, retry_after);
+
             match webhook_job
-                .retry(WebhookJobError::from(&error), retry_after)
+                .retry(WebhookJobError::from(&error), retry_interval)
                 .await
             {
                 Ok(_) => Ok(()),
@@ -271,7 +367,7 @@ mod tests {
     // This is due to a long-standing cargo bug that reports imports and helper functions as unused.
     // See: https://github.com/rust-lang/rust/issues/46379.
     #[allow(unused_imports)]
-    use hook_common::pgqueue::{JobStatus, NewJob, RetryPolicy};
+    use hook_common::pgqueue::{JobStatus, NewJob};
     #[allow(unused_imports)]
     use sqlx::PgPool;
 
@@ -329,7 +425,7 @@ mod tests {
         let worker_id = worker_id();
         let queue_name = "test_wait_for_job".to_string();
         let table_name = "job_queue".to_string();
-        let queue = PgQueue::new_from_pool(&queue_name, &table_name, db, RetryPolicy::default())
+        let queue = PgQueue::new_from_pool(&queue_name, &table_name, db)
             .await
             .expect("failed to connect to PG");
 
@@ -362,6 +458,7 @@ mod tests {
             time::Duration::from_millis(100),
             time::Duration::from_millis(5000),
             10,
+            RetryPolicy::default(),
         );
 
         let consumed_job = consumer

@@ -394,7 +394,7 @@ mod tests {
     use hook_common::kafka_messages::app_metrics::{
         Error as WebhookError, ErrorDetails, ErrorType,
     };
-    use hook_common::pgqueue::{NewJob, PgJob, PgQueue, RetryPolicy};
+    use hook_common::pgqueue::{NewJob, PgJob, PgQueue, PgQueueJob};
     use hook_common::webhook::{HttpMethod, WebhookJobMetadata, WebhookJobParameters};
     use rdkafka::consumer::{Consumer, StreamConsumer};
     use rdkafka::mocking::MockCluster;
@@ -649,10 +649,9 @@ mod tests {
         )
         .expect("unable to create webhook cleaner");
 
-        let queue =
-            PgQueue::new_from_pool("webhooks", "job_queue", db.clone(), RetryPolicy::default())
-                .await
-                .expect("failed to connect to local test postgresql database");
+        let queue = PgQueue::new_from_pool("webhooks", "job_queue", db.clone())
+            .await
+            .expect("failed to connect to local test postgresql database");
 
         async fn get_count_from_new_conn(db: &PgPool, status: &str) -> i64 {
             let mut conn = db.acquire().await.unwrap();

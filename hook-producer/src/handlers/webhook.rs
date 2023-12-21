@@ -108,7 +108,7 @@ mod tests {
         body::Body,
         http::{self, Request, StatusCode},
     };
-    use hook_common::pgqueue::{PgQueue, RetryPolicy};
+    use hook_common::pgqueue::PgQueue;
     use hook_common::webhook::{HttpMethod, WebhookJobParameters};
     use http_body_util::BodyExt;
     use sqlx::PgPool; // for `collect`
@@ -119,10 +119,9 @@ mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn webhook_success(db: PgPool) {
-        let pg_queue =
-            PgQueue::new_from_pool("test_index", "job_queue", db, RetryPolicy::default())
-                .await
-                .expect("failed to construct pg_queue");
+        let pg_queue = PgQueue::new_from_pool("test_index", "job_queue", db)
+            .await
+            .expect("failed to construct pg_queue");
 
         let app = app(pg_queue, None);
 
@@ -164,10 +163,9 @@ mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn webhook_bad_url(db: PgPool) {
-        let pg_queue =
-            PgQueue::new_from_pool("test_index", "job_queue", db, RetryPolicy::default())
-                .await
-                .expect("failed to construct pg_queue");
+        let pg_queue = PgQueue::new_from_pool("test_index", "job_queue", db)
+            .await
+            .expect("failed to construct pg_queue");
 
         let app = app(pg_queue, None);
 
@@ -204,10 +202,9 @@ mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn webhook_payload_missing_fields(db: PgPool) {
-        let pg_queue =
-            PgQueue::new_from_pool("test_index", "job_queue", db, RetryPolicy::default())
-                .await
-                .expect("failed to construct pg_queue");
+        let pg_queue = PgQueue::new_from_pool("test_index", "job_queue", db)
+            .await
+            .expect("failed to construct pg_queue");
 
         let app = app(pg_queue, None);
 
@@ -228,10 +225,9 @@ mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn webhook_payload_not_json(db: PgPool) {
-        let pg_queue =
-            PgQueue::new_from_pool("test_index", "job_queue", db, RetryPolicy::default())
-                .await
-                .expect("failed to construct pg_queue");
+        let pg_queue = PgQueue::new_from_pool("test_index", "job_queue", db)
+            .await
+            .expect("failed to construct pg_queue");
 
         let app = app(pg_queue, None);
 
@@ -252,10 +248,9 @@ mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn webhook_payload_body_too_large(db: PgPool) {
-        let pg_queue =
-            PgQueue::new_from_pool("test_index", "job_queue", db, RetryPolicy::default())
-                .await
-                .expect("failed to construct pg_queue");
+        let pg_queue = PgQueue::new_from_pool("test_index", "job_queue", db)
+            .await
+            .expect("failed to construct pg_queue");
 
         let app = app(pg_queue, None);
 

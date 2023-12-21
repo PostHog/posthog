@@ -26,6 +26,9 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub retry_policy: RetryPolicyConfig,
 
+    #[envconfig(default = "true")]
+    pub transactional: bool,
+
     #[envconfig(default = "job_queue")]
     pub table_name: String,
 }
