@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time;
 
 use hook_common::{
-    pgqueue::{PgJob, PgJobError, PgQueue, PgQueueError, PgQueueJob, PgTransactionJob},
+    pgqueue::{Job, PgJob, PgJobError, PgQueue, PgQueueError, PgQueueJob, PgTransactionJob},
     retry::RetryPolicy,
     webhook::{HttpMethod, WebhookJobError, WebhookJobMetadata, WebhookJobParameters},
 };
@@ -13,13 +13,23 @@ use tokio::sync;
 
 use crate::error::{ConsumerError, WebhookError};
 
-/// A WebhookJob is any PgQueueJob that returns a reference to webhook parameters and metadata.
+/// A WebhookJob is any PgQueueJob with WebhookJobParameters and WebhookJobMetadata.
 trait WebhookJob: PgQueueJob + std::marker::Send {
     fn parameters(&self) -> &WebhookJobParameters;
     fn metadata(&self) -> &WebhookJobMetadata;
-    fn attempt(&self) -> i32;
-    fn queue(&self) -> String;
-    fn target(&self) -> String;
+    fn job(&self) -> &Job<WebhookJobParameters, WebhookJobMetadata>;
+
+    fn attempt(&self) -> i32 {
+        self.job().attempt
+    }
+
+    fn queue(&self) -> String {
+        self.job().queue.to_owned()
+    }
+
+    fn target(&self) -> String {
+        self.job().target.to_owned()
+    }
 }
 
 impl WebhookJob for PgTransactionJob<'_, WebhookJobParameters, WebhookJobMetadata> {
@@ -31,16 +41,8 @@ impl WebhookJob for PgTransactionJob<'_, WebhookJobParameters, WebhookJobMetadat
         &self.job.metadata
     }
 
-    fn attempt(&self) -> i32 {
-        self.job.attempt
-    }
-
-    fn queue(&self) -> String {
-        self.job.queue.to_owned()
-    }
-
-    fn target(&self) -> String {
-        self.job.target.to_owned()
+    fn job(&self) -> &Job<WebhookJobParameters, WebhookJobMetadata> {
+        &self.job
     }
 }
 
@@ -53,16 +55,8 @@ impl WebhookJob for PgJob<WebhookJobParameters, WebhookJobMetadata> {
         &self.job.metadata
     }
 
-    fn attempt(&self) -> i32 {
-        self.job.attempt
-    }
-
-    fn queue(&self) -> String {
-        self.job.queue.to_owned()
-    }
-
-    fn target(&self) -> String {
-        self.job.target.to_owned()
+    fn job(&self) -> &Job<WebhookJobParameters, WebhookJobMetadata> {
+        &self.job
     }
 }
 
@@ -199,8 +193,13 @@ async fn spawn_webhook_job_processing_task<W: WebhookJob + 'static>(
     metrics::increment_counter!("webhook_jobs_total", &labels);
 
     tokio::spawn(async move {
+        let now = tokio::time::Instant::now();
         let result = process_webhook_job(client, webhook_job, &retry_policy).await;
         drop(permit);
+
+        let elapsed = now.elapsed().as_secs_f64();
+        metrics::histogram!("webhook_jobs_processing_duration_seconds", elapsed, &labels);
+
         result
     })
 }

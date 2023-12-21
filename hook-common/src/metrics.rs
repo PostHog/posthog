@@ -27,10 +27,7 @@ pub fn setup_metrics_recorder() -> PrometheusHandle {
     ];
 
     PrometheusBuilder::new()
-        .set_buckets_for_metric(
-            Matcher::Full("http_requests_duration_seconds".to_string()),
-            EXPONENTIAL_SECONDS,
-        )
+        .set_buckets(EXPONENTIAL_SECONDS)
         .unwrap()
         .install_recorder()
         .unwrap()
