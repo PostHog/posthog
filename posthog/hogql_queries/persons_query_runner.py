@@ -1,7 +1,6 @@
 from datetime import timedelta
 from typing import List, Generator, Sequence, Iterator, Optional
 from posthog.hogql import ast
-from posthog.hogql.constants import get_max_limit_for_context, get_default_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import has_aggregation
 from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy, GroupStrategy
@@ -17,7 +16,9 @@ class PersonsQueryRunner(QueryRunner):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.paginator = HogQLHasMorePaginator(limit=self.query_limit(), offset=self.query.offset or 0)
+        self.paginator = HogQLHasMorePaginator.from_limit_context(
+            limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
+        )
         self.source_query_runner: Optional[QueryRunner] = None
 
         if self.query.source:
@@ -79,11 +80,6 @@ class PersonsQueryRunner(QueryRunner):
             return self.query.select
 
         return self.strategy.input_columns()
-
-    def query_limit(self) -> int:
-        max_rows = get_max_limit_for_context(self.limit_context)
-        default_rows = get_default_limit_for_context(self.limit_context)
-        return min(max_rows, default_rows if self.query.limit is None else self.query.limit)
 
     def source_id_column(self, source_query: ast.SelectQuery) -> List[str]:
         # Figure out the id column of the source query, first column that has id in the name

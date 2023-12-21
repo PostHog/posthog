@@ -51,36 +51,49 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.Dashboard]: {
         projectBased: true,
         activityScope: ActivityScope.DASHBOARD,
+        defaultDocsPath: '/docs/product-analytics/dashboards',
     },
+    [Scene.Dashboard]: {
+        projectBased: true,
+        defaultDocsPath: '/docs/product-analytics/dashboards',
+    },
+
     [Scene.Insight]: {
         projectBased: true,
         name: 'Insights',
         activityScope: ActivityScope.INSIGHT,
+        defaultDocsPath: '/docs/product-analytics/insights',
     },
     [Scene.WebAnalytics]: {
         projectBased: true,
         name: 'Web analytics',
         layout: 'app-container',
+        defaultDocsPath: '/docs/web-analytics',
     },
     [Scene.Cohort]: {
         projectBased: true,
         name: 'Cohort',
+        defaultDocsPath: '/docs/data/cohorts',
     },
     [Scene.Events]: {
         projectBased: true,
         name: 'Event explorer',
+        defaultDocsPath: '/docs/data/events',
     },
     [Scene.BatchExports]: {
         projectBased: true,
         name: 'Batch exports',
+        defaultDocsPath: '/docs/cdp/batch-exports',
     },
     [Scene.BatchExportEdit]: {
         projectBased: true,
         name: 'Edit batch export',
+        defaultDocsPath: '/docs/cdp/batch-exports',
     },
     [Scene.BatchExport]: {
         projectBased: true,
         name: 'Batch export',
+        defaultDocsPath: '/docs/cdp/batch-exports',
     },
     [Scene.DataManagement]: {
         projectBased: true,
@@ -91,6 +104,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Data management',
         activityScope: ActivityScope.EVENT_DEFINITION,
+        defaultDocsPath: '/docs/data/events',
     },
     [Scene.PropertyDefinition]: {
         projectBased: true,
@@ -101,52 +115,63 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Session replay',
         activityScope: ActivityScope.REPLAY,
+        defaultDocsPath: '/docs/session-replay',
     },
     [Scene.ReplaySingle]: {
         projectBased: true,
         name: 'Replay recording',
         activityScope: ActivityScope.REPLAY,
+        defaultDocsPath: '/docs/session-replay',
     },
     [Scene.ReplayPlaylist]: {
         projectBased: true,
         name: 'Replay playlist',
         activityScope: ActivityScope.REPLAY,
+        defaultDocsPath: '/docs/session-replay',
     },
     [Scene.Person]: {
         projectBased: true,
         name: 'Person',
         activityScope: ActivityScope.PERSON,
+        defaultDocsPath: '/docs/session-replay',
     },
     [Scene.PersonsManagement]: {
         projectBased: true,
         name: 'People & groups',
         activityScope: ActivityScope.PERSON,
+        defaultDocsPath: '/docs/data/persons',
     },
     [Scene.Action]: {
         projectBased: true,
         name: 'Action',
+        defaultDocsPath: '/docs/data/actions',
     },
     [Scene.Group]: {
         projectBased: true,
         name: 'People & groups',
+        defaultDocsPath: '/docs/product-analytics/group-analytics',
     },
     [Scene.Pipeline]: {
         projectBased: true,
         name: 'Pipeline',
         activityScope: ActivityScope.PLUGIN,
+        defaultDocsPath: '/docs/cdp',
     },
     [Scene.PipelineApp]: {
         projectBased: true,
         name: 'Pipeline app',
         activityScope: ActivityScope.PLUGIN,
+        defaultDocsPath: '/docs/cdp',
     },
     [Scene.Experiments]: {
         projectBased: true,
         name: 'A/B testing',
+        defaultDocsPath: '/docs/experiments',
     },
     [Scene.Experiment]: {
         projectBased: true,
         name: 'Experiment',
+        defaultDocsPath: '/docs/experiments/creating-an-experiment',
     },
     [Scene.FeatureFlags]: {
         projectBased: true,
@@ -156,68 +181,88 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.FeatureFlag]: {
         projectBased: true,
         activityScope: ActivityScope.FEATURE_FLAG,
+        defaultDocsPath: '/docs/feature-flags',
+    },
+    [Scene.FeatureFlag]: {
+        projectBased: true,
+        defaultDocsPath: '/docs/feature-flags/creating-feature-flags',
     },
     [Scene.Surveys]: {
         projectBased: true,
         name: 'Surveys',
+        defaultDocsPath: '/docs/feature-flags/creating-feature-flags',
     },
     [Scene.Survey]: {
         projectBased: true,
         name: 'Survey',
+        defaultDocsPath: '/docs/surveys',
     },
     [Scene.SurveyTemplates]: {
         projectBased: true,
         name: 'New survey',
+        defaultDocsPath: '/docs/surveys/creating-surveys',
     },
     [Scene.DataWarehouse]: {
         projectBased: true,
         name: 'Data warehouse',
+        defaultDocsPath: '/docs/feature-flags/creating-feature-flags',
     },
     [Scene.DataWarehousePosthog]: {
         projectBased: true,
         name: 'Data warehouse',
+        defaultDocsPath: '/docs/data-warehouse',
     },
     [Scene.DataWarehouseExternal]: {
         projectBased: true,
         name: 'Data warehouse',
+        defaultDocsPath: '/docs/data-warehouse/setup',
     },
     [Scene.DataWarehouseSavedQueries]: {
         projectBased: true,
         name: 'Data warehouse',
+        defaultDocsPath: '/docs/data-warehouse/view',
     },
     [Scene.DataWarehouseSettings]: {
         projectBased: true,
         name: 'Data warehouse settings',
+        defaultDocsPath: '/docs/data-warehouse',
     },
     [Scene.DataWarehouseTable]: {
         projectBased: true,
         name: 'Data warehouse table',
+        defaultDocsPath: '/docs/data-warehouse',
     },
     [Scene.EarlyAccessFeatures]: {
         projectBased: true,
+        defaultDocsPath: '/docs/data-warehouse',
     },
     [Scene.EarlyAccessFeature]: {
         projectBased: true,
+        defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
     },
     [Scene.Apps]: {
         projectBased: true,
         name: 'Apps',
         activityScope: ActivityScope.PLUGIN,
+        defaultDocsPath: '/docs/cdp',
     },
     [Scene.FrontendAppScene]: {
         projectBased: true,
         name: 'App',
         activityScope: ActivityScope.PLUGIN,
+        defaultDocsPath: '/docs/cdp',
     },
     [Scene.AppMetrics]: {
         projectBased: true,
         name: 'Apps',
         activityScope: ActivityScope.PLUGIN,
+        defaultDocsPath: '/docs/cdp',
     },
     [Scene.SavedInsights]: {
         projectBased: true,
         name: 'Product analytics',
         activityScope: ActivityScope.INSIGHT,
+        defaultDocsPath: '/docs/product-analytics',
     },
     [Scene.ProjectHomepage]: {
         projectBased: true,
@@ -237,6 +282,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.ToolbarLaunch]: {
         projectBased: true,
         name: 'Launch toolbar',
+        defaultDocsPath: '/docs/toolbar',
     },
     [Scene.Site]: {
         projectBased: true,
@@ -246,14 +292,17 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     // Organization-based routes
     [Scene.OrganizationCreateFirst]: {
         name: 'Organization creation',
+        defaultDocsPath: '/docs/data/organizations-and-projects',
     },
     [Scene.OrganizationCreationConfirm]: {
         name: 'Confirm organization creation',
         onlyUnauthenticated: true,
+        defaultDocsPath: '/docs/data/organizations-and-projects',
     },
     [Scene.ProjectCreateFirst]: {
         name: 'Project creation',
         organizationBased: true,
+        defaultDocsPath: '/docs/data/organizations-and-projects',
     },
     // Onboarding/setup routes
     [Scene.Login]: {
@@ -293,6 +342,7 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.Billing]: {
         hideProjectNotice: true,
         organizationBased: true,
+        defaultDocsPath: '/pricing',
     },
     [Scene.Unsubscribe]: {
         allowUnauthenticated: true,
@@ -315,16 +365,19 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Notebook',
         layout: 'app-raw',
         activityScope: ActivityScope.NOTEBOOK,
+        defaultDocsPath: '/blog/introducing-notebooks',
     },
     [Scene.Notebooks]: {
         projectBased: true,
         name: 'Notebooks',
         activityScope: ActivityScope.NOTEBOOK,
+        defaultDocsPath: '/blog/introducing-notebooks',
     },
     [Scene.Canvas]: {
         projectBased: true,
         name: 'Canvas',
         layout: 'app-raw',
+        defaultDocsPath: '/blog/introducing-notebooks',
     },
     [Scene.Settings]: {
         projectBased: true,

@@ -135,7 +135,8 @@ export interface SceneConfig {
     organizationBased?: boolean
     /** Route requires project access (used e.g. by breadcrumbs). `true` implies also `organizationBased` */
     projectBased?: boolean
-
     /** Set the scope of the activity (affects activity and discussion panel) */
     activityScope?: ActivityScope
+    /** Default docs path - what the docs side panel will open by default if this scene is active  */
+    defaultDocsPath?: string
 }

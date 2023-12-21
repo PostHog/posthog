@@ -1047,6 +1047,12 @@
                 "hogql": {
                     "type": "string"
                 },
+                "limit": {
+                    "type": "integer"
+                },
+                "offset": {
+                    "type": "integer"
+                },
                 "results": {
                     "items": {
                         "items": {},
@@ -1067,7 +1073,7 @@
                     "type": "array"
                 }
             },
-            "required": ["columns", "types", "results", "hogql"],
+            "required": ["columns", "types", "results", "hogql", "limit", "offset"],
             "type": "object"
         },
         "FeaturePropertyFilter": {
