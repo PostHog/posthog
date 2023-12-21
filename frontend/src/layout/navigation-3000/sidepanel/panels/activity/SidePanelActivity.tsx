@@ -88,9 +88,9 @@ export const SidePanelActivity = (): JSX.Element => {
         })),
     ]
 
-    const activeScopeMenuOption = filters.scope ? filters.scope + `${filters.item_id ?? ''}` : null
+    const activeScopeMenuOption = filters?.scope ? filters.scope + `${filters.item_id ?? ''}` : null
 
-    if (filters.item_id && activeScopeMenuOption) {
+    if (filters?.item_id && activeScopeMenuOption) {
         scopeMenuOptions.unshift({ value: activeScopeMenuOption as any, label: `This ${filters.scope}` })
     }
     return (
@@ -138,7 +138,6 @@ export const SidePanelActivity = (): JSX.Element => {
                     ) : activeTab === SidePanelActivityTab.All ? (
                         <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2">
-                                {filters?.item_id ? <span className="text-muted-alt">Showing</span> : null}
                                 {allActivityResponseLoading ? <Spinner textColored /> : null}
                             </div>
 
