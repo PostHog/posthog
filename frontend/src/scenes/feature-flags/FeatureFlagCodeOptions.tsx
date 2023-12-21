@@ -118,7 +118,15 @@ export const OPTIONS: InstructionOption[] = [
 
 export const LOCAL_EVALUATION_LIBRARIES: string[] = [SDKKey.NODE_JS, SDKKey.PYTHON, SDKKey.RUBY, SDKKey.PHP, SDKKey.GO]
 
-export const PAYLOAD_LIBRARIES: string[] = [SDKKey.JS_WEB, SDKKey.NODE_JS, SDKKey.PYTHON, SDKKey.RUBY, SDKKey.REACT]
+export const PAYLOAD_LIBRARIES: string[] = [
+    SDKKey.JS_WEB,
+    SDKKey.NODE_JS,
+    SDKKey.PYTHON,
+    SDKKey.RUBY,
+    SDKKey.REACT,
+    SDKKey.ANDROID,
+    SDKKey.REACT_NATIVE,
+]
 
 export const BOOTSTRAPPING_OPTIONS: InstructionOption[] = [
     {
