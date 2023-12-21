@@ -1,5 +1,5 @@
 import { IconExternal, IconHome } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
