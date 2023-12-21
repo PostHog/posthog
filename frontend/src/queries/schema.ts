@@ -259,6 +259,10 @@ export interface EventsQueryResponse {
     hogql: string
     hasMore?: boolean
     timings?: QueryTiming[]
+    /** @asType integer */
+    limit: number
+    /** @asType integer */
+    offset: number
 }
 export interface EventsQueryPersonColumn {
     uuid: string
