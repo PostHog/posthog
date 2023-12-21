@@ -10,11 +10,11 @@ class ExternalDataSource(CreatedMetaFields, UUIDModel):
         STRIPE = "Stripe", "Stripe"
 
     class Status(models.TextChoices):
-        RUNNING = "running", "Running"
-        PAUSED = "paused", "Paused"
-        ERROR = "error", "Error"
-        COMPLETED = "completed", "Completed"
-        CANCELLED = "cancelled", "Cancelled"
+        RUNNING = "Running", "Running"
+        PAUSED = "Paused", "Paused"
+        ERROR = "Error", "Error"
+        COMPLETED = "Completed", "Completed"
+        CANCELLED = "Cancelled", "Cancelled"
 
     source_id: models.CharField = models.CharField(max_length=400)
     connection_id: models.CharField = models.CharField(max_length=400)

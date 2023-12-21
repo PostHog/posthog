@@ -25,6 +25,7 @@ from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSeriali
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
+import temporalio
 
 logger = structlog.get_logger(__name__)
 
@@ -147,7 +148,11 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 source=new_source_model,
             )
 
-        sync_external_data_job_workflow(new_source_model, create=True)
+        try:
+            sync_external_data_job_workflow(new_source_model, create=True)
+        except Exception as e:
+            # Log error but don't fail because the source model was already created
+            logger.exception("Could not trigger external data job", exc_info=e)
 
         return Response(status=status.HTTP_201_CREATED, data={"id": new_source_model.pk})
 
@@ -199,7 +204,16 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 data={"message": "Monthly sync limit reached. Please contact PostHog support to increase your limit."},
             )
 
-        trigger_external_data_workflow(instance)
+        try:
+            trigger_external_data_workflow(instance)
+
+        except temporalio.service.RPCError as e:
+            # schedule doesn't exist
+            if e.message == "sql: no rows in result set":
+                sync_external_data_job_workflow(instance, create=True)
+        except Exception as e:
+            logger.exception("Could not trigger external data job", exc_info=e)
+            raise
 
         instance.status = "Running"
         instance.save()

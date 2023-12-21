@@ -175,9 +175,9 @@ MONTHLY_LIMIT = 1_000_000
 
 
 def check_synced_row_limits() -> None:
-    teams = ExternalDataSource.objects.values_list("team", flat=True)
-    for team in teams:
-        check_synced_row_limits_of_team.delay(team.pk)
+    team_ids = ExternalDataSource.objects.values_list("team", flat=True)
+    for team_id in team_ids:
+        check_synced_row_limits_of_team.delay(team_id)
 
 
 @app.task(ignore_result=True)

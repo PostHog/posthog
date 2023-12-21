@@ -1,6 +1,7 @@
 from posthog.warehouse.models import ExternalDataJob
+from django.db.models import F
 
-CHUNK_SIZE = 10000
+CHUNK_SIZE = 10_000
 
 
 def limit_paginated_generator(f):
@@ -21,14 +22,17 @@ def limit_paginated_generator(f):
         count = 0
         for item in gen:
             if count >= CHUNK_SIZE:
-                model.rows_synced += count
-                model.save()
+                ExternalDataJob.objects.filter(id=job_id, team_id=team_id).update(rows_synced=F("rows_synced") + count)
                 count = 0
+
+                model.refresh_from_db()
+
+            if model.status == ExternalDataJob.Status.CANCELLED:
+                break
 
             yield item
             count += len(item)
 
-        model.rows_synced += count
-        model.save()
+        ExternalDataJob.objects.filter(id=job_id, team_id=team_id).update(rows_synced=F("rows_synced") + count)
 
     return wrapped
