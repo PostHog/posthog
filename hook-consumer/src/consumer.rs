@@ -109,42 +109,55 @@ impl<'p> WebhookConsumer<'p> {
     }
 
     /// Run this consumer to continuously process any jobs that become available.
-    pub async fn run(&self) -> Result<(), ConsumerError> {
+    pub async fn run(&self, transactional: bool) -> Result<(), ConsumerError> {
         let semaphore = Arc::new(sync::Semaphore::new(self.max_concurrent_jobs));
 
-        loop {
-            let webhook_job = self.wait_for_job().await?;
-
-            // reqwest::Client internally wraps with Arc, so this allocation is cheap.
-            let client = self.client.clone();
-            let permit = semaphore.clone().acquire_owned().await.unwrap();
-
-            tokio::spawn(async move {
-                let result = process_webhook_job(client, webhook_job).await;
-                drop(permit);
-                result
-            });
+        if transactional {
+            loop {
+                let webhook_job = self.wait_for_job_tx().await?;
+                spawn_webhook_job_processing_task(
+                    self.client.clone(),
+                    semaphore.clone(),
+                    webhook_job,
+                )
+                .await;
+            }
+        } else {
+            loop {
+                let webhook_job = self.wait_for_job().await?;
+                spawn_webhook_job_processing_task(
+                    self.client.clone(),
+                    semaphore.clone(),
+                    webhook_job,
+                )
+                .await;
+            }
         }
     }
+}
 
-    /// Run this consumer to continuously process any jobs that become available in transactional mode.
-    pub async fn run_tx(&self) -> Result<(), ConsumerError> {
-        let semaphore = Arc::new(sync::Semaphore::new(self.max_concurrent_jobs));
+/// Spawn a Tokio task to process a Webhook Job once we successfully acquire a permit.
+///
+/// # Arguments
+///
+/// * `client`: An HTTP client to execute the webhook job request.
+/// * `semaphore`: A semaphore used for rate limiting purposes. This function will panic if this semaphore is closed.
+/// * `webhook_job`: The webhook job to process as dequeued from `hook_common::pgqueue::PgQueue`.
+async fn spawn_webhook_job_processing_task<W: WebhookJob + 'static>(
+    client: reqwest::Client,
+    semaphore: Arc<sync::Semaphore>,
+    webhook_job: W,
+) -> tokio::task::JoinHandle<Result<(), ConsumerError>> {
+    let permit = semaphore
+        .acquire_owned()
+        .await
+        .expect("semaphore has been closed");
 
-        loop {
-            let webhook_job = self.wait_for_job_tx().await?;
-
-            // reqwest::Client internally wraps with Arc, so this allocation is cheap.
-            let client = self.client.clone();
-            let permit = semaphore.clone().acquire_owned().await.unwrap();
-
-            tokio::spawn(async move {
-                let result = process_webhook_job(client, webhook_job).await;
-                drop(permit);
-                result
-            });
-        }
-    }
+    tokio::spawn(async move {
+        let result = process_webhook_job(client, webhook_job).await;
+        drop(permit);
+        result
+    })
 }
 
 /// Process a webhook job by transitioning it to its appropriate state after its request is sent.
