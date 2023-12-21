@@ -3,10 +3,11 @@ use std::sync::Arc;
 use std::time;
 
 use async_std::task;
-use hook_common::pgqueue::{
-    PgJob, PgJobError, PgQueue, PgQueueError, PgQueueJob, PgTransactionJob,
+use hook_common::{
+    pgqueue::{PgJob, PgJobError, PgQueue, PgQueueError, PgQueueJob, PgTransactionJob},
+    retry::RetryPolicy,
+    webhook::{HttpMethod, WebhookJobError, WebhookJobMetadata, WebhookJobParameters},
 };
-use hook_common::webhook::{HttpMethod, WebhookJobError, WebhookJobMetadata, WebhookJobParameters};
 use http::StatusCode;
 use reqwest::header;
 use tokio::sync;
@@ -17,6 +18,7 @@ use crate::error::{ConsumerError, WebhookError};
 trait WebhookJob: PgQueueJob + std::marker::Send {
     fn parameters(&self) -> &WebhookJobParameters;
     fn metadata(&self) -> &WebhookJobMetadata;
+    fn attempt(&self) -> i32;
 }
 
 impl WebhookJob for PgTransactionJob<'_, WebhookJobParameters, WebhookJobMetadata> {
@@ -27,6 +29,10 @@ impl WebhookJob for PgTransactionJob<'_, WebhookJobParameters, WebhookJobMetadat
     fn metadata(&self) -> &WebhookJobMetadata {
         &self.job.metadata
     }
+
+    fn attempt(&self) -> i32 {
+        self.job.attempt
+    }
 }
 
 impl WebhookJob for PgJob<WebhookJobParameters, WebhookJobMetadata> {
@@ -36,6 +42,10 @@ impl WebhookJob for PgJob<WebhookJobParameters, WebhookJobMetadata> {
 
     fn metadata(&self) -> &WebhookJobMetadata {
         &self.job.metadata
+    }
+
+    fn attempt(&self) -> i32 {
+        self.job.attempt
     }
 }
 
@@ -62,6 +72,7 @@ impl<'p> WebhookConsumer<'p> {
         poll_interval: time::Duration,
         request_timeout: time::Duration,
         max_concurrent_jobs: usize,
+        retry_policy: RetryPolicy,
     ) -> Self {
         let mut headers = header::HeaderMap::new();
         headers.insert(
@@ -81,85 +92,8 @@ impl<'p> WebhookConsumer<'p> {
             poll_interval,
             client,
             max_concurrent_jobs,
-        }
-    }
-
-    /// Wait until a job becomes available in our queue.
-    async fn wait_for_job<'a>(&self) -> Result<PgJob<WebhookJobParameters>, WebhookConsumerError> {
-        loop {
-            if let Some(job) = self.queue.dequeue(&self.name).await? {
-                return Ok(job);
-            } else {
-                task::sleep(self.poll_interval).await;
-            }
-        }
-    }
-
-    /// Run this consumer to continuously process any jobs that become available.
-    pub async fn run(&self) -> Result<(), WebhookConsumerError> {
-        let semaphore = Arc::new(sync::Semaphore::new(self.max_concurrent_jobs));
-        let retry_policy = self.retry_policy.clone();
-
-        loop {
-            let webhook_job = self.wait_for_job().await?;
-
-            // reqwest::Client internally wraps with Arc, so this allocation is cheap.
-            let client = self.client.clone();
-            let permit = semaphore.clone().acquire_owned().await.unwrap();
-
-            tokio::spawn(async move {
-                let result = process_webhook_job(client, webhook_job, &retry_policy).await;
-                drop(permit);
-                result
-            });
-        }
-    }
-}
-
-/// A consumer to poll `PgQueue` and spawn tasks to process webhooks when a job becomes available.
-pub struct WebhookTransactionConsumer<'p> {
-    /// An identifier for this consumer. Used to mark jobs we have consumed.
-    name: String,
-    /// The queue we will be dequeuing jobs from.
-    queue: &'p PgQueue,
-    /// The interval for polling the queue.
-    poll_interval: time::Duration,
-    /// The client used for HTTP requests.
-    client: reqwest::Client,
-    /// Maximum number of concurrent jobs being processed.
-    max_concurrent_jobs: usize,
-    /// The retry policy used to calculate retry intervals when a job fails with a retryable error.
-    retry_policy: RetryPolicy,
-}
-
-impl<'p> WebhookTransactionConsumer<'p> {
-    pub fn new(
-        name: &str,
-        queue: &'p PgQueue,
-        poll_interval: time::Duration,
-        request_timeout: time::Duration,
-        max_concurrent_jobs: usize,
-        retry_policy: RetryPolicy,
-    ) -> Result<Self, WebhookConsumerError> {
-        let mut headers = header::HeaderMap::new();
-        headers.insert(
-            header::CONTENT_TYPE,
-            header::HeaderValue::from_static("application/json"),
-        );
-
-        let client = reqwest::Client::builder()
-            .default_headers(headers)
-            .timeout(request_timeout)
-            .build()?;
-
-        Ok(Self {
-            name: name.to_owned(),
-            queue,
-            poll_interval,
-            client,
-            max_concurrent_jobs,
             retry_policy,
-        })
+        }
     }
 
     /// Wait until a job becomes available in our queue.
@@ -191,7 +125,6 @@ impl<'p> WebhookTransactionConsumer<'p> {
     /// Run this consumer to continuously process any jobs that become available.
     pub async fn run(&self, transactional: bool) -> Result<(), ConsumerError> {
         let semaphore = Arc::new(sync::Semaphore::new(self.max_concurrent_jobs));
-        let retry_policy = self.retry_policy.clone();
 
         if transactional {
             loop {
@@ -199,6 +132,7 @@ impl<'p> WebhookTransactionConsumer<'p> {
                 spawn_webhook_job_processing_task(
                     self.client.clone(),
                     semaphore.clone(),
+                    self.retry_policy,
                     webhook_job,
                 )
                 .await;
@@ -209,6 +143,7 @@ impl<'p> WebhookTransactionConsumer<'p> {
                 spawn_webhook_job_processing_task(
                     self.client.clone(),
                     semaphore.clone(),
+                    self.retry_policy,
                     webhook_job,
                 )
                 .await;
@@ -227,6 +162,7 @@ impl<'p> WebhookTransactionConsumer<'p> {
 async fn spawn_webhook_job_processing_task<W: WebhookJob + 'static>(
     client: reqwest::Client,
     semaphore: Arc<sync::Semaphore>,
+    retry_policy: RetryPolicy,
     webhook_job: W,
 ) -> tokio::task::JoinHandle<Result<(), ConsumerError>> {
     let permit = semaphore
@@ -235,7 +171,7 @@ async fn spawn_webhook_job_processing_task<W: WebhookJob + 'static>(
         .expect("semaphore has been closed");
 
     tokio::spawn(async move {
-        let result = process_webhook_job(client, webhook_job).await;
+        let result = process_webhook_job(client, webhook_job, &retry_policy).await;
         drop(permit);
         result
     })
@@ -257,6 +193,7 @@ async fn spawn_webhook_job_processing_task<W: WebhookJob + 'static>(
 async fn process_webhook_job<W: WebhookJob>(
     client: reqwest::Client,
     webhook_job: W,
+    retry_policy: &RetryPolicy,
 ) -> Result<(), ConsumerError> {
     let parameters = webhook_job.parameters();
 
@@ -298,8 +235,11 @@ async fn process_webhook_job<W: WebhookJob>(
             Ok(())
         }
         Err(WebhookError::RetryableRequestError { error, retry_after }) => {
+            let retry_interval =
+                retry_policy.time_until_next_retry(webhook_job.attempt() as u32, retry_after);
+
             match webhook_job
-                .retry(WebhookJobError::from(&error), retry_after)
+                .retry(WebhookJobError::from(&error), retry_interval)
                 .await
             {
                 Ok(_) => Ok(()),
@@ -320,74 +260,6 @@ async fn process_webhook_job<W: WebhookJob>(
                 .fail(WebhookJobError::from(&error))
                 .await
                 .map_err(|job_error| ConsumerError::PgJobError(job_error.to_string()))?;
-            Ok(())
-        }
-    }
-}
-
-/// Process a webhook job by transitioning it to its appropriate state after its request is sent.
-/// After we finish, the webhook job will be set as completed (if the request was successful), retryable (if the request
-/// was unsuccessful but we can still attempt a retry), or failed (if the request was unsuccessful and no more retries
-/// may be attempted).
-///
-/// A webhook job is considered retryable after a failing request if:
-/// 1. The job has attempts remaining (i.e. hasn't reached `max_attempts`), and...
-/// 2. The status code indicates retrying at a later point could resolve the issue. This means: 429 and any 5XX.
-///
-/// # Arguments
-///
-/// * `webhook_job`: The webhook job to process as dequeued from `hook_common::pgqueue::PgQueue`.
-/// * `request_timeout`: A timeout for the HTTP request.
-async fn process_webhook_job(
-    client: reqwest::Client,
-    webhook_job: PgJob<WebhookJobParameters>,
-    retry_policy: &RetryPolicy,
-) -> Result<(), WebhookConsumerError> {
-    match send_webhook(
-        client,
-        &webhook_job.job.parameters.method,
-        &webhook_job.job.parameters.url,
-        &webhook_job.job.parameters.headers,
-        webhook_job.job.parameters.body.clone(),
-    )
-    .await
-    {
-        Ok(_) => {
-            webhook_job
-                .complete()
-                .await
-                .map_err(|error| WebhookConsumerError::PgJobError(error.to_string()))?;
-            Ok(())
-        }
-        Err(WebhookConsumerError::RetryableWebhookError {
-            reason,
-            retry_after,
-        }) => {
-            let retry_interval =
-                retry_policy.time_until_next_retry(webhook_job.job.attempt as u32, retry_after);
-
-            match webhook_job.retry(reason.to_string(), retry_interval).await {
-                Ok(_) => Ok(()),
-                Err(PgJobError::RetryInvalidError {
-                    job: webhook_job,
-                    error: fail_error,
-                }) => {
-                    webhook_job
-                        .fail(fail_error.to_string())
-                        .await
-                        .map_err(|job_error| {
-                            WebhookConsumerError::PgJobError(job_error.to_string())
-                        })?;
-                    Ok(())
-                }
-                Err(job_error) => Err(WebhookConsumerError::PgJobError(job_error.to_string())),
-            }
-        }
-        Err(error) => {
-            webhook_job
-                .fail(error.to_string())
-                .await
-                .map_err(|job_error| WebhookConsumerError::PgJobError(job_error.to_string()))?;
             Ok(())
         }
     }
@@ -585,6 +457,7 @@ mod tests {
             time::Duration::from_millis(100),
             time::Duration::from_millis(5000),
             10,
+            RetryPolicy::default(),
         );
 
         let consumed_job = consumer

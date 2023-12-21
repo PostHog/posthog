@@ -24,6 +24,7 @@ async fn main() -> Result<(), ConsumerError> {
         config.poll_interval.0,
         config.request_timeout.0,
         config.max_concurrent_jobs,
+        retry_policy,
     );
 
     consumer.run(config.transactional).await?;

@@ -160,7 +160,7 @@ pub trait PgQueueJob {
     async fn retry<E: serde::Serialize + std::marker::Sync + std::marker::Send>(
         mut self,
         error: E,
-        preferred_retry_interval: Option<time::Duration>,
+        retry_interval: time::Duration,
     ) -> Result<RetryableJob<E>, PgJobError<Box<Self>>>;
 }
 
@@ -247,7 +247,7 @@ RETURNING
     async fn retry<E: serde::Serialize + std::marker::Sync + std::marker::Send>(
         mut self,
         error: E,
-        preferred_retry_interval: Option<time::Duration>,
+        retry_interval: time::Duration,
     ) -> Result<RetryableJob<E>, PgJobError<Box<PgJob<J, M>>>> {
         if self.job.is_gte_max_attempts() {
             return Err(PgJobError::RetryInvalidError {
@@ -392,7 +392,7 @@ RETURNING
     async fn retry<E: serde::Serialize + std::marker::Sync + std::marker::Send>(
         mut self,
         error: E,
-        preferred_retry_interval: Option<time::Duration>,
+        retry_interval: time::Duration,
     ) -> Result<RetryableJob<E>, PgJobError<Box<PgTransactionJob<'c, J, M>>>> {
         if self.job.is_gte_max_attempts() {
             return Err(PgJobError::RetryInvalidError {

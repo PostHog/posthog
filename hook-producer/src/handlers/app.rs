@@ -31,7 +31,7 @@ mod tests {
         body::Body,
         http::{Request, StatusCode},
     };
-    use hook_common::pgqueue::{PgQueue, RetryPolicy};
+    use hook_common::pgqueue::PgQueue;
     use http_body_util::BodyExt; // for `collect`
     use tower::ServiceExt; // for `call`, `oneshot`, and `ready`
 
@@ -41,7 +41,6 @@ mod tests {
             "test_index",
             "job_queue",
             "postgres://posthog:posthog@localhost:15432/test_database",
-            RetryPolicy::default(),
         )
         .await
         .expect("failed to construct pg_queue");

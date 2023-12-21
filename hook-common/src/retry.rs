@@ -4,11 +4,11 @@ use std::time;
 /// The retry policy that PgQueue will use to determine how to set scheduled_at when enqueuing a retry.
 pub struct RetryPolicy {
     /// Coefficient to multiply initial_interval with for every past attempt.
-    backoff_coefficient: u32,
+    pub backoff_coefficient: u32,
     /// The backoff interval for the first retry.
-    initial_interval: time::Duration,
+    pub initial_interval: time::Duration,
     /// The maximum possible backoff between retries.
-    maximum_interval: Option<time::Duration>,
+    pub maximum_interval: Option<time::Duration>,
 }
 
 impl RetryPolicy {
