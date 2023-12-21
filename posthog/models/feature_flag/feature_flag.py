@@ -298,15 +298,29 @@ class FeatureFlag(models.Model):
         return list(cohort_ids)
 
     def scheduled_changes_dispatcher(self, payload):
+        from posthog.api.feature_flag import FeatureFlagSerializer
+
         if "field" not in payload or "value" not in payload:
             raise Exception("Invalid payload")
-        elif payload["field"] == "active":
-            self.active = payload["value"]
-        elif payload["field"] == "filters":
-            for group in payload["value"]["groups"]:
-                self.filters["groups"].append(group)
 
-        self.save()
+        context = {
+            "request": {"user": self.created_by},
+            "team_id": self.team_id,
+        }
+        serializer_data = {}
+
+        if payload["field"] == "filters":
+            existing_groups = self.filters.get("groups", [])
+            new_groups = payload["value"].get("groups", [])
+            serializer_data["filters"] = {"groups": existing_groups + new_groups}
+        elif payload["field"] == "active":
+            serializer_data["active"] = payload["value"]
+        else:
+            raise Exception(f"Unrecognized field: {payload['field']}")
+
+        serializer = FeatureFlagSerializer(self, data=serializer_data, context=context, partial=True)
+        if serializer.is_valid(raise_exception=True):
+            serializer.save()
 
     @property
     def uses_cohorts(self) -> bool:
