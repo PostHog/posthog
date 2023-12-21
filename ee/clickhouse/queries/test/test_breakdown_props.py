@@ -242,8 +242,8 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                         "funnel_window_days": 14,
                     }
                 )
-                res = sorted(get_breakdown_prop_values(filter, Entity(entity_params[0]), "count(*)", self.team))
-                self.assertEqual(res[0], ["test", "test2"])
+                res = sorted(get_breakdown_prop_values(filter, Entity(entity_params[0]), "count(*)", self.team)[0])
+                self.assertEqual(res, ["test", "test2"])
 
     @snapshot_clickhouse_queries
     def test_breakdown_group_props(self):
