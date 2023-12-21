@@ -159,6 +159,7 @@ export const SettingsMap: SettingSection[] = [
                 id: 'replay-ingestion',
                 title: 'Ingestion controls',
                 component: <ReplayCostControl />,
+                flag: 'SESSION_RECORDING_SAMPLING',
                 features: [
                     AvailableFeature.SESSION_REPLAY_SAMPLING,
                     AvailableFeature.RECORDING_DURATION_MINIMUM,

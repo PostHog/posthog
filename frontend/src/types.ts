@@ -92,8 +92,8 @@ export enum AvailableFeature {
     SURVEYS_TEXT_HTML = 'surveys_text_html',
     SURVEYS_MULTIPLE_QUESTIONS = 'surveys_multiple_questions',
     SESSION_REPLAY_SAMPLING = 'session_replay_sampling',
-    RECORDING_DURATION_MINIMUM = 'recording_duration_minimum',
-    FEATURE_FLAG_BASED_RECORDING = 'feature_flag_based_recording',
+    RECORDING_DURATION_MINIMUM = 'replay_recording_duration_minimum',
+    FEATURE_FLAG_BASED_RECORDING = 'replay_feature_flag_based_recording',
 }
 
 export enum ProductKey {

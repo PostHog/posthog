@@ -78,9 +78,19 @@ export const settingsLogic = kea<settingsLogicType>([
                     settings = sections.find((x) => x.id === selectedSectionId)?.settings || []
                 }
 
-                return settings
-                    .filter((x) => (x.flag ? featureFlags[FEATURE_FLAGS[x.flag]] : true))
-                    .filter((x) => (x.features ? x.features.some((feat) => hasAvailableFeature(feat)) : true))
+                return settings.filter((x) => {
+                    if (x.flag && x.features) {
+                        return (
+                            x.features.some((feat) => hasAvailableFeature(feat)) || featureFlags[FEATURE_FLAGS[x.flag]]
+                        )
+                    } else if (x.features) {
+                        return x.features.some((feat) => hasAvailableFeature(feat))
+                    } else if (x.flag) {
+                        return featureFlags[FEATURE_FLAGS[x.flag]]
+                    }
+
+                    return true
+                })
             },
         ],
     }),

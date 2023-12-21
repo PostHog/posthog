@@ -7,7 +7,7 @@ import { FlagSelector } from 'lib/components/FlagSelector'
 import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -181,12 +181,12 @@ export function ReplayCostControl(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
-    const { featureFlag } = useValues(featureFlagLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const samplingControlFeatureEnabled = hasAvailableFeature(AvailableFeature.SESSION_REPLAY_SAMPLING)
     const recordingDurationMinimumFeatureEnabled = hasAvailableFeature(AvailableFeature.RECORDING_DURATION_MINIMUM)
     const featureFlagRecordingFeatureEnabled = hasAvailableFeature(AvailableFeature.FEATURE_FLAG_BASED_RECORDING)
     const costControlFeaturesEnabled =
-        featureFlag[FEATURE_FLAGS.SESSION_RECORDING_SAMPLING] ||
+        featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SAMPLING] ||
         samplingControlFeatureEnabled ||
         recordingDurationMinimumFeatureEnabled ||
         featureFlagRecordingFeatureEnabled
@@ -206,7 +206,7 @@ export function ReplayCostControl(): JSX.Element {
             <LemonBanner className="mb-4" type={'info'}>
                 Requires posthog-js version 1.88.2 or greater
             </LemonBanner>
-            {(featureFlag[FEATURE_FLAGS.SESSION_RECORDING_SAMPLING] || samplingControlFeatureEnabled) && (
+            {(featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SAMPLING] || samplingControlFeatureEnabled) && (
                 <>
                     <div className={'flex flex-row justify-between'}>
                         <LemonLabel className="text-base">Sampling</LemonLabel>
@@ -315,7 +315,7 @@ export function ReplayCostControl(): JSX.Element {
                     </p>
                 </>
             )}
-            {(featureFlag[FEATURE_FLAGS.SESSION_RECORDING_SAMPLING] || recordingDurationMinimumFeatureEnabled) && (
+            {(featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SAMPLING] || recordingDurationMinimumFeatureEnabled) && (
                 <>
                     <div className={'flex flex-row justify-between'}>
                         <LemonLabel className="text-base">Minimum session duration (seconds)</LemonLabel>
@@ -334,7 +334,7 @@ export function ReplayCostControl(): JSX.Element {
                     </p>
                 </>
             )}
-            {(featureFlag[FEATURE_FLAGS.SESSION_RECORDING_SAMPLING] || featureFlagRecordingFeatureEnabled) && (
+            {(featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SAMPLING] || featureFlagRecordingFeatureEnabled) && (
                 <>
                     <div className={'flex flex-col space-y-2'}>
                         <LemonLabel className="text-base">Enable recordings using feature flag</LemonLabel>
