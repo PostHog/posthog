@@ -10,7 +10,6 @@ import { BatchExportConfiguration, PluginConfigTypeNew } from '~/types'
 
 import { pipelineTransformationsLogic } from '../transformationsLogic'
 import { RenderApp } from '../utils'
-import type { exportsUnsubscribeModalLogicType } from './exportsUnsubscribeModalLogicType'
 
 export interface ItemToDisable {
     plugin_config_id: number | undefined // exactly one of plugin_config_id or batch_export_id is set
@@ -22,8 +21,8 @@ export interface ItemToDisable {
     disabled: boolean
 }
 
-export const exportsUnsubscribeModalLogic = kea<exportsUnsubscribeModalLogicType>([
-    path(['scenes', 'pipeline', 'exportsUnsubscribeModalLogic']),
+export const exportsUnsubscribeTableLogic = kea([
+    path(['scenes', 'pipeline', 'ExportsUnsubscribeTableLogic']),
     connect({
         values: [pluginsLogic, ['plugins'], pipelineTransformationsLogic, ['canConfigurePlugins'], userLogic, ['user']],
     }),
@@ -135,10 +134,10 @@ export const exportsUnsubscribeModalLogic = kea<exportsUnsubscribeModalLogicType
     }),
     listeners(({ actions, values }) => ({
         // Usage guide:
-        // const { startUnsubscribe } = useActions(exportsUnsubscribeModalLogic)
-        // const { loading } = useValues(exportsUnsubscribeModalLogic)
+        // const { startUnsubscribe } = useActions(ExportsUnsubscribeTableLogic)
+        // const { loading } = useValues(ExportsUnsubscribeTableLogic)
         // return (<>
-        //   <ExportsUnsubscribeModal />
+        //   <ExportsUnsubscribeTable />
         //   <LemonButton loading={loading} onClick={startUnsubscribe}>Unsubscribe from data pipelines</LemonButton>
         // </>)
         startUnsubscribe() {

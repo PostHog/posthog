@@ -1,12 +1,17 @@
 import { LemonBanner, LemonButton, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { ExportsUnsubscribeTable } from 'scenes/pipeline/ExportsUnsubscribeTable'
 
-import { BillingProductV2Type } from '~/types'
+import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 
-export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
+export const UnsubscribeSurveyModal = ({
+    product,
+}: {
+    product: BillingProductV2Type | BillingProductV2AddonType
+}): JSX.Element | null => {
     const { surveyID, surveyResponse } = useValues(billingProductLogic({ product }))
     const { setSurveyResponse, reportSurveySent, reportSurveyDismissed } = useActions(billingProductLogic({ product }))
     const { deactivateProduct } = useActions(billingLogic)
@@ -20,6 +25,7 @@ export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2T
             width={'max(40vw)'}
         >
             <div>
+                {product.type === 'group_analytics' ? <ExportsUnsubscribeTable /> : <></>}
                 <h3 className="mt-2 mb-4">{`Why are you unsubscribing from ${product.name}?`}</h3>
                 <div className="flex flex-col gap-3.5">
                     <LemonTextArea
