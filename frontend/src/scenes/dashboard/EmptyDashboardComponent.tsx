@@ -12,7 +12,7 @@ import { dashboardLogic } from './dashboardLogic'
 
 function SkeletonCard({ children, active }: { children: React.ReactNode; active: boolean }): JSX.Element {
     return (
-        <div className={`border rounded-md p-10 h-full space-y-4 flex-1 flex flex-col justify-between`}>
+        <div className="border rounded-md p-10 h-full space-y-4 flex-1 flex flex-col justify-between">
             <div className="space-y-4">
                 <LemonSkeleton className="w-1/3 h-4" active={active} />
                 <LemonSkeleton className="w-1/2 h-4" active={active} />

@@ -79,6 +79,7 @@ export const personsLogic = kea<personsLogicType>([
                             ...(values.listFilters.properties || []),
                             ...values.hiddenListProperties,
                         ]
+                        newFilters.include_total = true // The total count is slow, but needed for infinite loading
                         if (props.cohort) {
                             result = {
                                 ...(await api.get(`api/cohort/${props.cohort}/persons/?${toParams(newFilters)}`)),
