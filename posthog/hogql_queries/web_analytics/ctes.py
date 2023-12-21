@@ -7,7 +7,7 @@ SELECT
     events.properties.`$prev_pageview_pathname` AS pathname,
     avg(CASE
         WHEN toFloat(JSONExtractRaw(events.properties, '$prev_pageview_max_content_percentage')) IS NULL THEN NULL
-        WHEN toFloat(JSONExtractRaw(events.properties, '$prev_pageview_max_content_percentage')) > 0.8 THEN 100
+        WHEN toFloat(JSONExtractRaw(events.properties, '$prev_pageview_max_content_percentage')) > 0.8 THEN 1
         ELSE 0
     END) AS scroll_gt80_percentage,
     avg(toFloat(JSONExtractRaw(events.properties, '$prev_pageview_max_scroll_percentage'))) as average_scroll_percentage

@@ -96,6 +96,7 @@ export enum GeographyTab {
 export interface WebAnalyticsStatusCheck {
     isSendingPageViews: boolean
     isSendingPageLeaves: boolean
+    isSendingPageLeavesScroll: boolean
 }
 
 export const GEOIP_PLUGIN_URLS = [
@@ -299,6 +300,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.pathTab,
                 s.geographyTab,
                 s.dateFilter,
+                () => values.statusCheck,
                 () => values.isGreaterThanMd,
                 () => values.shouldShowGeographyTile,
             ],
@@ -310,6 +312,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 pathTab,
                 geographyTab,
                 { dateFrom, dateTo, interval },
+                statusCheck,
                 isGreaterThanMd: boolean,
                 shouldShowGeographyTile
             ): WebDashboardTile[] => {
@@ -452,7 +455,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         properties: webAnalyticsFilters,
                                         breakdownBy: WebStatsBreakdown.Page,
                                         dateRange,
-                                        includeScrollDepth: true,
+                                        includeScrollDepth: statusCheck?.isSendingPageLeavesScroll,
                                     },
                                     embedded: false,
                                 },
@@ -469,7 +472,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         properties: webAnalyticsFilters,
                                         breakdownBy: WebStatsBreakdown.InitialPage,
                                         dateRange,
-                                        includeScrollDepth: true,
+                                        includeScrollDepth: statusCheck?.isSendingPageLeavesScroll,
                                     },
                                     embedded: false,
                                 },
@@ -818,7 +821,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         statusCheck: {
             __default: null as WebAnalyticsStatusCheck | null,
             loadStatusCheck: async (): Promise<WebAnalyticsStatusCheck> => {
-                const [pageviewResult, pageleaveResult] = await Promise.allSettled([
+                const [pageviewResult, pageleaveResult, pageleaveScroll] = await Promise.allSettled([
                     api.eventDefinitions.list({
                         event_type: EventDefinitionType.Event,
                         search: '$pageview',
@@ -826,6 +829,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     api.eventDefinitions.list({
                         event_type: EventDefinitionType.Event,
                         search: '$pageleave',
+                    }),
+                    api.propertyDefinitions.list({
+                        event_names: ['$pageleave'],
+                        properties: ['$prev_pageview_max_content_percentage'],
                     }),
                 ])
 
@@ -841,12 +848,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         ? pageleaveResult.value.results.find((r) => r.name === '$pageleave')
                         : undefined
 
+                const pageleaveScrollEntry =
+                    pageleaveScroll.status === 'fulfilled'
+                        ? pageleaveScroll.value.results.find((r) => r.name === '$prev_pageview_max_content_percentage')
+                        : undefined
+
                 const isSendingPageViews = !!pageviewEntry && !isDefinitionStale(pageviewEntry)
                 const isSendingPageLeaves = !!pageleaveEntry && !isDefinitionStale(pageleaveEntry)
+                const isSendingPageLeavesScroll = !!pageleaveScrollEntry && !isDefinitionStale(pageleaveScrollEntry)
 
                 return {
                     isSendingPageViews,
                     isSendingPageLeaves,
+                    isSendingPageLeavesScroll,
                 }
             },
         },
