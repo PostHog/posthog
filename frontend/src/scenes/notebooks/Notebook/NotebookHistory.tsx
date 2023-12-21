@@ -51,9 +51,11 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
                         const buttonContent = (
                             <span className="flex flex-1 gap-2 items-center p-2">
                                 <ProfilePicture
-                                    name={logItem.is_system ? name : undefined}
+                                    user={{
+                                        first_name: name,
+                                        email: logItem.user?.email ?? undefined,
+                                    }}
                                     type={logItem.is_system ? 'system' : 'person'}
-                                    email={logItem.user?.email ?? undefined}
                                     size={'md'}
                                 />
                                 <span className="flex-1">

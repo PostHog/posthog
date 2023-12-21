@@ -73,9 +73,11 @@ export const ActivityLogRow = ({
         <div className={clsx('ActivityLogRow', logItem.unread && 'ActivityLogRow--unread')}>
             <ProfilePicture
                 showName={false}
-                name={logItem.isSystem ? logItem.name : undefined}
+                user={{
+                    first_name: logItem.isSystem ? logItem.name : undefined,
+                    email: logItem.email ?? undefined,
+                }}
                 type={logItem.isSystem ? 'system' : 'person'}
-                email={logItem.email ?? undefined}
                 size={'xl'}
             />
             <div className="ActivityLogRow__details">
