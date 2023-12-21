@@ -202,12 +202,18 @@ def property_to_expr(
                 left=field,
                 right=ast.Constant(value=f"%{value}%"),
             )
+        # we follow re2 regex syntax and so does ClickHouse **except**
+        # For example, the string a\nb shouldn't match the pattern a.b, but it does in CH
+        # this is because According to the re2 docs, the s flag is false by default,
+        # but in CH it seems to be true by default.
+        # prepending (?-s) to the regex string will make it work as expected
+        # see https://github.com/ClickHouse/ClickHouse/issues/34603
         elif operator == PropertyOperator.regex:
-            return ast.Call(name="match", args=[field, ast.Constant(value=value)])
+            return ast.Call(name="match", args=[field, ast.Constant(value=f"(?-s){value}")])
         elif operator == PropertyOperator.not_regex:
             return ast.Call(
                 name="not",
-                args=[ast.Call(name="match", args=[field, ast.Constant(value=value)])],
+                args=[ast.Call(name="match", args=[field, ast.Constant(value=f"(?-s){value}")])],
             )
         elif operator == PropertyOperator.exact or operator == PropertyOperator.is_date_exact:
             op = ast.CompareOperationOp.Eq
