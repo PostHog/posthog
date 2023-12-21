@@ -1,10 +1,10 @@
 from datetime import datetime, timedelta, timezone
 from posthog.models import ScheduledChange, FeatureFlag
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from posthog.tasks.process_scheduled_changes import process_scheduled_changes
 
 
-class TestProcessScheduledChanges(APIBaseTest):
+class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
     def test_schedule_feature_flag_set_active(self) -> None:
         feature_flag = FeatureFlag.objects.create(
             name="Flag 1",
@@ -90,6 +90,7 @@ class TestProcessScheduledChanges(APIBaseTest):
         updated_scheduled_change = ScheduledChange.objects.get(id=scheduled_change.id)
         self.assertEqual(updated_scheduled_change.failure_reason, "Invalid payload")
 
+    @snapshot_postgres_queries
     def test_schedule_feature_flag_multiple_changes(self) -> None:
         feature_flag = FeatureFlag.objects.create(
             name="Flag",
