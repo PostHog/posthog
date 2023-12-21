@@ -107,7 +107,7 @@ export function Navbar(): JSX.Element {
                                 className="min-w-70"
                             >
                                 <NavbarButton
-                                    icon={<ProfilePicture name={user?.first_name} email={user?.email} size="md" />}
+                                    icon={<ProfilePicture user={user} size="md" />}
                                     identifier="me"
                                     title={`Hi${user?.first_name ? `, ${user?.first_name}` : ''}!`}
                                     shortTitle={user?.first_name || user?.email}

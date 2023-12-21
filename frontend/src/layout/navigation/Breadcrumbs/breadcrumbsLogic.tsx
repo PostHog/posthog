@@ -114,7 +114,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                     breadcrumbs.push({
                         key: 'me',
                         name: user.first_name,
-                        symbol: <ProfilePicture name={user.first_name} email={user.email} size="md" />,
+                        symbol: <ProfilePicture user={user} size="md" />,
                     })
                 }
                 // Instance
