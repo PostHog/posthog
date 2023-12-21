@@ -107,7 +107,7 @@ export function MemberSelect({
                 </div>
             }
         >
-            <LemonButton {...buttonProps}>
+            <LemonButton status="stealth" {...buttonProps}>
                 {typeof selectedMember === 'string' ? (
                     selectedMember
                 ) : selectedMember ? (

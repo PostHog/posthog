@@ -3,7 +3,6 @@ import { actions, connect, events, kea, listeners, path, props, reducers, select
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -25,12 +24,8 @@ export enum FeatureFlagsTab {
 
 export interface FeatureFlagsFilters {
     active: string
-    created_by: string
+    created_by: number
     type: string
-}
-
-interface FeatureFlagCreators {
-    [id: string]: string
 }
 
 export interface FlagLogicProps {
@@ -137,7 +132,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     searchedFlags = searchedFlags.filter((flag) => (active === 'true' ? flag.active : !flag.active))
                 }
                 if (created_by) {
-                    searchedFlags = searchedFlags.filter((flag) => flag.created_by?.id === parseInt(created_by))
+                    searchedFlags = searchedFlags.filter((flag) => flag.created_by?.id === created_by)
                 }
                 if (type === 'boolean') {
                     searchedFlags = searchedFlags.filter(
@@ -163,24 +158,6 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     path: urls.featureFlags(),
                 },
             ],
-        ],
-        uniqueCreators: [
-            (selectors) => [selectors.featureFlags],
-            (featureFlags) => {
-                const creators: FeatureFlagCreators = {}
-                for (const flag of featureFlags) {
-                    if (flag.created_by) {
-                        if (!creators[flag.created_by.id]) {
-                            creators[flag.created_by.id] = flag.created_by.first_name
-                        }
-                    }
-                }
-                const response: LemonSelectOption<string>[] = [
-                    { label: 'Any user', value: 'any' },
-                    ...Object.entries(creators).map(([id, first_name]) => ({ label: first_name, value: id })),
-                ]
-                return response
-            },
         ],
         shouldShowEmptyState: [
             (s) => [s.featureFlagsLoading, s.featureFlags],
