@@ -1,7 +1,7 @@
 import { actions, BindLogic, connect, events, kea, path, reducers, selectors, useMountedLogic, useValues } from 'kea'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { use3000Body } from 'lib/hooks/use3000Body'
-import { ToastCloseButton } from 'lib/lemon-ui/lemonToast'
+import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'

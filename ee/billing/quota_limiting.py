@@ -147,12 +147,12 @@ def set_org_usage_summary(
     new_usage = copy.deepcopy(new_usage)
 
     for field in ["events", "recordings", "rows_synced"]:
-        resource_usage = new_usage[field]  # type: ignore
+        resource_usage = new_usage.get(field, {"limit": None, "usage": 0, "todays_usage": 0})
         if not resource_usage:
             continue
 
         if todays_usage:
-            resource_usage["todays_usage"] = todays_usage[field]  # type: ignore
+            resource_usage["todays_usage"] = todays_usage.get(field, 0)
         else:
             # TRICKY: If we are not explictly setting todays_usage, we want to reset it to 0 IF the incoming new_usage is different
             if (organization.usage or {}).get(field, {}).get("usage") != resource_usage.get("usage"):

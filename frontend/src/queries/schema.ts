@@ -259,6 +259,10 @@ export interface EventsQueryResponse {
     hogql: string
     hasMore?: boolean
     timings?: QueryTiming[]
+    /** @asType integer */
+    limit: number
+    /** @asType integer */
+    offset: number
 }
 export interface EventsQueryPersonColumn {
     uuid: string
@@ -464,7 +468,10 @@ export interface InsightsQueryBase extends Node {
     filterTestAccounts?: boolean
     /** Property filters for all series */
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
-    /** Groups aggregation */
+    /**
+     * Groups aggregation
+     * @asType integer
+     **/
     aggregation_group_type_index?: number
     /** Sampling rate */
     samplingFactor?: number | null
@@ -631,6 +638,12 @@ export interface PersonsQueryResponse {
     hogql: string
     timings?: QueryTiming[]
     hasMore?: boolean
+    /** @asType integer */
+    limit: number
+    /** @asType integer */
+    offset: number
+    /** @asType integer */
+    missing_actors_count?: number
 }
 
 export interface PersonsQuery extends DataNode {
@@ -641,7 +654,9 @@ export interface PersonsQuery extends DataNode {
     properties?: AnyPropertyFilter[]
     fixedProperties?: AnyPropertyFilter[]
     orderBy?: string[]
+    /** @asType integer */
     limit?: number
+    /** @asType integer */
     offset?: number
     response?: PersonsQueryResponse
 }
@@ -729,6 +744,7 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebStatsTableQuery
     breakdownBy: WebStatsBreakdown
     response?: WebStatsTableQueryResponse
+    includeScrollDepth?: boolean
 }
 export interface WebStatsTableQueryResponse extends QueryResponse {
     results: unknown[]
@@ -765,6 +781,11 @@ export interface InsightPersonsQuery {
     source: InsightQueryNode
     day?: string
     status?: string
+    /**
+     * An interval selected out of available intervals in source query
+     * @asType integer
+     */
+    interval?: number
     // TODO: add breakdowns
     // TODO: add fields for other insights (funnels dropdown, compare_previous choice, etc)
     response?: PersonsQueryResponse
@@ -851,6 +872,7 @@ export interface BreakdownFilter {
     breakdowns?: Breakdown[]
     breakdown_group_type_index?: number | null
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
+    breakdown_hide_other_aggregation?: boolean | null // hides the "other" field for trends
 }
 
 export interface DashboardFilter {

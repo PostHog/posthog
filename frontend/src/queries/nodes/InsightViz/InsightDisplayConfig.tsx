@@ -159,7 +159,7 @@ export function InsightDisplayConfig(): JSX.Element {
                 {advancedOptions.length > 0 && (
                     <LemonMenu items={advancedOptions} closeOnClickInside={false}>
                         <LemonButton size="small" status="stealth">
-                            <span className="font-medium whitespace-nowrap">
+                            <span className="font-medium whitespace-nowrap ligatures-none">
                                 Options{advancedOptionsCount ? ` (${advancedOptionsCount})` : null}
                             </span>
                         </LemonButton>

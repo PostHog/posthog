@@ -233,6 +233,9 @@
                 "breakdown_group_type_index": {
                     "type": ["number", "null"]
                 },
+                "breakdown_hide_other_aggregation": {
+                    "type": ["boolean", "null"]
+                },
                 "breakdown_histogram_bin_count": {
                     "type": "number"
                 },
@@ -1044,6 +1047,12 @@
                 "hogql": {
                     "type": "string"
                 },
+                "limit": {
+                    "type": "integer"
+                },
+                "offset": {
+                    "type": "integer"
+                },
                 "results": {
                     "items": {
                         "items": {},
@@ -1064,7 +1073,7 @@
                     "type": "array"
                 }
             },
-            "required": ["columns", "types", "results", "hogql"],
+            "required": ["columns", "types", "results", "hogql", "limit", "offset"],
             "type": "object"
         },
         "FeaturePropertyFilter": {
@@ -1112,6 +1121,9 @@
                 },
                 "breakdown_group_type_index": {
                     "type": ["number", "null"]
+                },
+                "breakdown_hide_other_aggregation": {
+                    "type": ["boolean", "null"]
                 },
                 "breakdown_normalize_url": {
                     "type": "boolean"
@@ -1304,7 +1316,7 @@
             "properties": {
                 "aggregation_group_type_index": {
                     "description": "Groups aggregation",
-                    "type": "number"
+                    "type": "integer"
                 },
                 "breakdown": {
                     "$ref": "#/definitions/BreakdownFilter",
@@ -1710,6 +1722,10 @@
                 "day": {
                     "type": "string"
                 },
+                "interval": {
+                    "description": "An interval selected out of available intervals in source query",
+                    "type": "integer"
+                },
                 "kind": {
                     "const": "InsightPersonsQuery",
                     "type": "string"
@@ -1814,7 +1830,7 @@
             "properties": {
                 "aggregation_group_type_index": {
                     "description": "Groups aggregation",
-                    "type": "number"
+                    "type": "integer"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
@@ -2104,7 +2120,7 @@
             "properties": {
                 "aggregation_group_type_index": {
                     "description": "Groups aggregation",
-                    "type": "number"
+                    "type": "integer"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
@@ -2227,10 +2243,10 @@
                     "type": "string"
                 },
                 "limit": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "offset": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "orderBy": {
                     "items": {
@@ -2284,6 +2300,15 @@
                 "hogql": {
                     "type": "string"
                 },
+                "limit": {
+                    "type": "integer"
+                },
+                "missing_actors_count": {
+                    "type": "integer"
+                },
+                "offset": {
+                    "type": "integer"
+                },
                 "results": {
                     "items": {
                         "items": {},
@@ -2304,7 +2329,7 @@
                     "type": "array"
                 }
             },
-            "required": ["results", "columns", "types", "hogql"],
+            "required": ["results", "columns", "types", "hogql", "limit", "offset"],
             "type": "object"
         },
         "PropertyFilterType": {
@@ -2628,7 +2653,7 @@
             "properties": {
                 "aggregation_group_type_index": {
                     "description": "Groups aggregation",
-                    "type": "number"
+                    "type": "integer"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
@@ -3206,7 +3231,7 @@
             "properties": {
                 "aggregation_group_type_index": {
                     "description": "Groups aggregation",
-                    "type": "number"
+                    "type": "integer"
                 },
                 "breakdown": {
                     "$ref": "#/definitions/BreakdownFilter",
@@ -3470,6 +3495,9 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "includeScrollDepth": {
+                    "type": "boolean"
                 },
                 "kind": {
                     "const": "WebStatsTableQuery",

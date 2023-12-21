@@ -212,7 +212,7 @@ def get_breakdown_prop_values(
             **entity_format_params,
         )
 
-    return insight_sync_execute(
+    response = insight_sync_execute(
         elements_query,
         {
             "key": filter.breakdown,
@@ -233,7 +233,12 @@ def get_breakdown_prop_values(
         query_type="get_breakdown_prop_values",
         filter=filter,
         team_id=team.pk,
-    )[0][0]
+    )
+
+    if filter.using_histogram:
+        return response[0][0]
+    else:
+        return [row[0] for row in response]
 
 
 def _to_value_expression(

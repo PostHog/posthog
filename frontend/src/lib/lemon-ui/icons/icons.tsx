@@ -9,6 +9,7 @@ interface IconWithCountProps {
     count: number
     showZero?: boolean
     status?: LemonBadgeProps['status']
+    className?: string
 }
 
 export function IconWithCount({
@@ -16,9 +17,10 @@ export function IconWithCount({
     children,
     showZero,
     status = 'primary',
+    className,
 }: PropsWithChildren<IconWithCountProps>): JSX.Element {
     return (
-        <span className="relative inline-flex">
+        <span className={clsx('relative inline-flex', className)}>
             {children}
             <LemonBadge.Number count={count} size="small" position="top-right" showZero={showZero} status={status} />
         </span>

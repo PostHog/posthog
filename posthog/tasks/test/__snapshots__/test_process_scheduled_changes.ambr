@@ -1,0 +1,291 @@
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes
+  '
+  SELECT "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."name",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."created_by_id",
+         "posthog_featureflag"."created_at",
+         "posthog_featureflag"."deleted",
+         "posthog_featureflag"."active",
+         "posthog_featureflag"."rollback_conditions",
+         "posthog_featureflag"."performed_rollback",
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics"
+  FROM "posthog_featureflag"
+  WHERE ("posthog_featureflag"."active"
+         AND NOT "posthog_featureflag"."deleted"
+         AND "posthog_featureflag"."team_id" = 2)
+  '
+---
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.1
+  '
+  SELECT "posthog_scheduledchange"."id",
+         "posthog_scheduledchange"."record_id",
+         "posthog_scheduledchange"."model_name",
+         "posthog_scheduledchange"."payload",
+         "posthog_scheduledchange"."scheduled_at",
+         "posthog_scheduledchange"."executed_at",
+         "posthog_scheduledchange"."failure_reason",
+         "posthog_scheduledchange"."team_id",
+         "posthog_scheduledchange"."created_at",
+         "posthog_scheduledchange"."created_by_id",
+         "posthog_scheduledchange"."updated_at"
+  FROM "posthog_scheduledchange"
+  WHERE ("posthog_scheduledchange"."executed_at" IS NULL
+         AND "posthog_scheduledchange"."scheduled_at" <= '2023-12-21T09:00:00+00:00'::timestamptz)
+  ORDER BY "posthog_scheduledchange"."scheduled_at" ASC
+  LIMIT 10000
+  FOR
+  UPDATE NOWAIT
+  '
+---
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.10
+  '
+  SELECT "posthog_scheduledchange"."id",
+         "posthog_scheduledchange"."record_id",
+         "posthog_scheduledchange"."model_name",
+         "posthog_scheduledchange"."payload",
+         "posthog_scheduledchange"."scheduled_at",
+         "posthog_scheduledchange"."executed_at",
+         "posthog_scheduledchange"."failure_reason",
+         "posthog_scheduledchange"."team_id",
+         "posthog_scheduledchange"."created_at",
+         "posthog_scheduledchange"."created_by_id",
+         "posthog_scheduledchange"."updated_at"
+  FROM "posthog_scheduledchange"
+  WHERE "posthog_scheduledchange"."id" = 2
+  LIMIT 21
+  '
+---
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.11
+  '
+  SELECT "posthog_scheduledchange"."id",
+         "posthog_scheduledchange"."record_id",
+         "posthog_scheduledchange"."model_name",
+         "posthog_scheduledchange"."payload",
+         "posthog_scheduledchange"."scheduled_at",
+         "posthog_scheduledchange"."executed_at",
+         "posthog_scheduledchange"."failure_reason",
+         "posthog_scheduledchange"."team_id",
+         "posthog_scheduledchange"."created_at",
+         "posthog_scheduledchange"."created_by_id",
+         "posthog_scheduledchange"."updated_at"
+  FROM "posthog_scheduledchange"
+  WHERE "posthog_scheduledchange"."id" = 2
+  LIMIT 21
+  '
+---
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.12
+  '
+  SELECT "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."name",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."created_by_id",
+         "posthog_featureflag"."created_at",
+         "posthog_featureflag"."deleted",
+         "posthog_featureflag"."active",
+         "posthog_featureflag"."rollback_conditions",
+         "posthog_featureflag"."performed_rollback",
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics"
+  FROM "posthog_featureflag"
+  WHERE "posthog_featureflag"."key" = 'flag-1'
+  LIMIT 21
+  '
+---
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.2
+  '
+  SELECT "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."name",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."created_by_id",
+         "posthog_featureflag"."created_at",
+         "posthog_featureflag"."deleted",
+         "posthog_featureflag"."active",
+         "posthog_featureflag"."rollback_conditions",
+         "posthog_featureflag"."performed_rollback",
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics"
+  FROM "posthog_featureflag"
+  WHERE "posthog_featureflag"."id" = 2
+  LIMIT 21
+  '
+---
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.3
+  '
+  SELECT "posthog_user"."id",
+         "posthog_user"."password",
+         "posthog_user"."last_login",
+         "posthog_user"."first_name",
+         "posthog_user"."last_name",
+         "posthog_user"."is_staff",
+         "posthog_user"."is_active",
+         "posthog_user"."date_joined",
+         "posthog_user"."uuid",
+         "posthog_user"."current_organization_id",
+         "posthog_user"."current_team_id",
+         "posthog_user"."email",
+         "posthog_user"."pending_email",
+         "posthog_user"."temporary_token",
+         "posthog_user"."distinct_id",
+         "posthog_user"."is_email_verified",
+         "posthog_user"."requested_password_reset_at",
+         "posthog_user"."has_seen_product_intro_for",
+         "posthog_user"."email_opt_in",
+         "posthog_user"."theme_mode",
+         "posthog_user"."partial_notification_settings",
+         "posthog_user"."anonymize_data",
+         "posthog_user"."toolbar_mode",
+         "posthog_user"."events_column_config"
+  FROM "posthog_user"
+  WHERE "posthog_user"."id" = 2
+  LIMIT 21
+  '
+---
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.4
+  '
+  SELECT "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."name",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."created_by_id",
+         "posthog_featureflag"."created_at",
+         "posthog_featureflag"."deleted",
+         "posthog_featureflag"."active",
+         "posthog_featureflag"."rollback_conditions",
+         "posthog_featureflag"."performed_rollback",
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics"
+  FROM "posthog_featureflag"
+  WHERE ("posthog_featureflag"."active"
+         AND NOT "posthog_featureflag"."deleted"
+         AND "posthog_featureflag"."team_id" = 2)
+  '
+---
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.5
+  '
+  SELECT "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."name",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."created_by_id",
+         "posthog_featureflag"."created_at",
+         "posthog_featureflag"."deleted",
+         "posthog_featureflag"."active",
+         "posthog_featureflag"."rollback_conditions",
+         "posthog_featureflag"."performed_rollback",
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics"
+  FROM "posthog_featureflag"
+  WHERE "posthog_featureflag"."id" = 2
+  LIMIT 21
+  '
+---
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.6
+  '
+  SELECT "posthog_user"."id",
+         "posthog_user"."password",
+         "posthog_user"."last_login",
+         "posthog_user"."first_name",
+         "posthog_user"."last_name",
+         "posthog_user"."is_staff",
+         "posthog_user"."is_active",
+         "posthog_user"."date_joined",
+         "posthog_user"."uuid",
+         "posthog_user"."current_organization_id",
+         "posthog_user"."current_team_id",
+         "posthog_user"."email",
+         "posthog_user"."pending_email",
+         "posthog_user"."temporary_token",
+         "posthog_user"."distinct_id",
+         "posthog_user"."is_email_verified",
+         "posthog_user"."requested_password_reset_at",
+         "posthog_user"."has_seen_product_intro_for",
+         "posthog_user"."email_opt_in",
+         "posthog_user"."theme_mode",
+         "posthog_user"."partial_notification_settings",
+         "posthog_user"."anonymize_data",
+         "posthog_user"."toolbar_mode",
+         "posthog_user"."events_column_config"
+  FROM "posthog_user"
+  WHERE "posthog_user"."id" = 2
+  LIMIT 21
+  '
+---
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.7
+  '
+  SELECT "posthog_featureflag"."id",
+         "posthog_featureflag"."key",
+         "posthog_featureflag"."name",
+         "posthog_featureflag"."filters",
+         "posthog_featureflag"."rollout_percentage",
+         "posthog_featureflag"."team_id",
+         "posthog_featureflag"."created_by_id",
+         "posthog_featureflag"."created_at",
+         "posthog_featureflag"."deleted",
+         "posthog_featureflag"."active",
+         "posthog_featureflag"."rollback_conditions",
+         "posthog_featureflag"."performed_rollback",
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id",
+         "posthog_featureflag"."has_enriched_analytics"
+  FROM "posthog_featureflag"
+  WHERE ("posthog_featureflag"."active"
+         AND NOT "posthog_featureflag"."deleted"
+         AND "posthog_featureflag"."team_id" = 2)
+  '
+---
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.8
+  '
+  SELECT "posthog_scheduledchange"."id",
+         "posthog_scheduledchange"."record_id",
+         "posthog_scheduledchange"."model_name",
+         "posthog_scheduledchange"."payload",
+         "posthog_scheduledchange"."scheduled_at",
+         "posthog_scheduledchange"."executed_at",
+         "posthog_scheduledchange"."failure_reason",
+         "posthog_scheduledchange"."team_id",
+         "posthog_scheduledchange"."created_at",
+         "posthog_scheduledchange"."created_by_id",
+         "posthog_scheduledchange"."updated_at"
+  FROM "posthog_scheduledchange"
+  WHERE "posthog_scheduledchange"."id" = 2
+  LIMIT 21
+  '
+---
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.9
+  '
+  SELECT "posthog_scheduledchange"."id",
+         "posthog_scheduledchange"."record_id",
+         "posthog_scheduledchange"."model_name",
+         "posthog_scheduledchange"."payload",
+         "posthog_scheduledchange"."scheduled_at",
+         "posthog_scheduledchange"."executed_at",
+         "posthog_scheduledchange"."failure_reason",
+         "posthog_scheduledchange"."team_id",
+         "posthog_scheduledchange"."created_at",
+         "posthog_scheduledchange"."created_by_id",
+         "posthog_scheduledchange"."updated_at"
+  FROM "posthog_scheduledchange"
+  WHERE "posthog_scheduledchange"."id" = 2
+  LIMIT 21
+  '
+---

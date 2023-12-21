@@ -164,6 +164,11 @@
 
 .LemonButtonWithSideAction {
     position: relative;
+    width: fit-content;
+
+    &--full-width {
+        width: 100%;
+    }
 }
 
 .LemonButtonWithSideAction__spacer {

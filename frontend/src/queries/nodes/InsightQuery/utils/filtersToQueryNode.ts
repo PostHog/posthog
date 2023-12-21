@@ -234,7 +234,10 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             breakdowns: filters.breakdowns,
             breakdown_group_type_index: filters.breakdown_group_type_index,
             ...(isTrendsFilter(filters)
-                ? { breakdown_histogram_bin_count: filters.breakdown_histogram_bin_count }
+                ? {
+                      breakdown_histogram_bin_count: filters.breakdown_histogram_bin_count,
+                      breakdown_hide_other_aggregation: filters.breakdown_hide_other_aggregation,
+                  }
                 : {}),
         })
     }

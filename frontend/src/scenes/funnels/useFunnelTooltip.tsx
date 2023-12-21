@@ -112,9 +112,6 @@ export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTM
         const svgRect = vizRef.current?.getBoundingClientRect()
         const [tooltipRoot, tooltipEl] = ensureTooltip()
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
-        if (isTooltipShown) {
-            tooltipEl.style.display = 'initial'
-        }
         const tooltipRect = tooltipEl.getBoundingClientRect()
         if (tooltipOrigin) {
             tooltipRoot.render(

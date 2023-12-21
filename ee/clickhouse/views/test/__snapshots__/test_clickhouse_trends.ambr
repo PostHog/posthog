@@ -216,19 +216,17 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.10
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
-            count(*) as count
-     FROM events e
-     WHERE team_id = 2
-       AND event = '$pageview'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event = '$pageview'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 25
+  OFFSET 0
   '
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.11
@@ -266,7 +264,7 @@
                      min(timestamp) as timestamp,
                      breakdown_value
               FROM
-                (SELECT pdi.person_id as person_id, timestamp, transform(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), (['val', 'notval']), (['val', 'notval']), '$$_posthog_breakdown_other_$$') as breakdown_value
+                (SELECT pdi.person_id as person_id, timestamp, transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['val', 'notval']), (['val', 'notval']), '$$_posthog_breakdown_other_$$') as breakdown_value
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
@@ -391,19 +389,17 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.4
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
-            count(*) as count
-     FROM events e
-     WHERE team_id = 2
-       AND event = '$pageview'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event = '$pageview'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 25
+  OFFSET 0
   '
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.5
@@ -435,7 +431,7 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            transform(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), (['val', 'notval']), (['val', 'notval']), '$$_posthog_breakdown_other_$$') as breakdown_value
+                            transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['val', 'notval']), (['val', 'notval']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
@@ -485,40 +481,38 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.7
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
-            count(DISTINCT pdi.person_id) as count
-     FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 2
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     INNER JOIN
-       (SELECT id
-        FROM person
-        WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2
-               AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')))
-                    AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')))) )
-        GROUP BY id
-        HAVING max(is_deleted) = 0
-        AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))
-             AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
+         count(DISTINCT pdi.person_id) as count
+  FROM events e
+  INNER JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
      WHERE team_id = 2
-       AND event = '$pageview'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+  INNER JOIN
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+       AND id IN
+         (SELECT id
+          FROM person
+          WHERE team_id = 2
+            AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')))
+                 AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')))) )
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))
+          AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
+  WHERE team_id = 2
+    AND event = '$pageview'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 25
+  OFFSET 0
   '
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.8
@@ -565,7 +559,7 @@
               CROSS JOIN
                 (SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS timestamp,
                         pdi.person_id AS person_id,
-                        transform(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), (['val', 'notval']), (['val', 'notval']), '$$_posthog_breakdown_other_$$') AS breakdown_value
+                        transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['val', 'notval']), (['val', 'notval']), '$$_posthog_breakdown_other_$$') AS breakdown_value
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,

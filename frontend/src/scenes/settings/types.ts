@@ -32,7 +32,7 @@ export type SettingSectionId =
     | 'organization-danger-zone'
     | 'user-profile'
     | 'user-api-keys'
-    | 'user-notifications'
+    | 'user-customization'
 
 export type SettingId =
     | 'display-name'
@@ -72,6 +72,7 @@ export type SettingId =
     | 'personal-api-keys'
     | 'notifications'
     | 'optout'
+    | 'theme'
 
 export type Setting = {
     id: SettingId

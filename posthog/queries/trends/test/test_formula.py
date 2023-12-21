@@ -449,20 +449,21 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 400.0, 1400.0, 0.0])
         self.assertEqual(response[0]["label"], "London")
-        self.assertEqual(response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 500.0, 0.0, 0.0])
-        self.assertEqual(response[1]["label"], "Paris")
+        self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 400.0, 1400.0, 0.0])
 
-        # regression test for empty string values
-        self.assertEqual(response[2]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 400.0, 0.0])
-        self.assertEqual(response[2]["label"], "")
+        self.assertEqual(response[1]["label"], "Paris")
+        self.assertEqual(response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 500.0, 0.0, 0.0])
 
         # Regression test to ensure we actually get data for "Belo Horizonte" below
         # We previously had a bug where if series B,C,D, etc. had a value not present
         # in series A, we'd just default to an empty string
-        self.assertEqual(response[3]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 500.0, 0.0])
-        self.assertEqual(response[3]["label"], "Belo Horizonte")
+        self.assertEqual(response[2]["label"], "Belo Horizonte")
+        self.assertEqual(response[2]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 500.0, 0.0])
+
+        # empty string values are considered "None"
+        self.assertEqual(response[3]["label"], "$$_posthog_breakdown_null_$$")
+        self.assertEqual(response[3]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 400.0, 0.0])
 
     def test_breakdown_counts_of_different_events_one_without_events(self):
         with freeze_time("2020-01-04T13:01:01Z"):
