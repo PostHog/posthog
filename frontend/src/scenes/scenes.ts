@@ -495,7 +495,3 @@ export const routes: Record<string, Scene> = {
     [urls.canvas()]: Scene.Canvas,
     [urls.settings(':section' as any)]: Scene.Settings,
 }
-
-export const routesAsRegexes: Record<any, Scene> = Object.fromEntries(
-    Object.entries(routes).map(([route, scene]) => [new RegExp(`^${route.replace(/:\w+/g, '[^/]+')}$`), scene])
-)
