@@ -15,10 +15,10 @@ def process_scheduled_changes() -> None:
                     executed_at__isnull=True,
                     scheduled_at__lt=timezone.now(),
                 )
-                .order_by("scheduled_at")
+                .order_by("scheduled_at")[:10000]
             )
 
-            for scheduled_change in scheduled_changes.iterator(chunk_size=10000):
+            for scheduled_change in scheduled_changes:
                 try:
                     # Execute the change on the model instance
                     model = models[scheduled_change.model_name]
