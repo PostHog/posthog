@@ -185,7 +185,7 @@ function Owner({ user }: { user?: UserBasicType | null }): JSX.Element {
         <>
             {user?.uuid ? (
                 <div className="flex items-center flex-row">
-                    <ProfilePicture name={user.first_name} email={user.email} size="sm" />
+                    <ProfilePicture user={user} size="sm" />
                     <span className="pl-2 inline-flex font-semibold pl-1 whitespace-nowrap">{user.first_name}</span>
                 </div>
             ) : (

@@ -23,7 +23,7 @@ export function StaffUsersTab(): JSX.Element {
         {
             key: 'profile_picture',
             render: function ProfilePictureRender(_, user) {
-                return <ProfilePicture name={user.first_name} email={user.email} />
+                return <ProfilePicture user={user} />
             },
             width: 32,
         },
