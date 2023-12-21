@@ -5,7 +5,7 @@ import api, { CountedPaginatedResponse } from 'lib/api'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { convertPropertyGroupToProperties, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -79,7 +79,7 @@ export const personsLogic = kea<personsLogicType>([
                             ...(values.listFilters.properties || []),
                             ...values.hiddenListProperties,
                         ]
-                        if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
+                        if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test') {
                             newFilters.include_total = true // The total count is slow, but needed for infinite loading
                         }
                         if (props.cohort) {

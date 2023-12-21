@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { UnexpectedNeverError } from 'lib/utils'
 import { useCallback, useMemo } from 'react'
 import { countryCodeToFlag, countryCodeToName } from 'scenes/insights/views/WorldMap'
@@ -7,8 +8,7 @@ import { DeviceTab, GeographyTab, webAnalyticsLogic } from 'scenes/web-analytics
 import { Query } from '~/queries/Query/Query'
 import { DataTableNode, InsightVizNode, NodeKind, WebStatsBreakdown } from '~/queries/schema'
 import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
-import { GraphPointPayload, PropertyFilterType } from '~/types'
-import { ChartDisplayType } from '~/types'
+import { ChartDisplayType, GraphPointPayload, PropertyFilterType } from '~/types'
 
 const PercentageCell: QueryContextColumnComponent = ({ value }) => {
     if (typeof value === 'number') {
@@ -34,6 +34,8 @@ const BreakdownValueTitle: QueryContextColumnTitleComponent = (props) => {
             return <>Path</>
         case WebStatsBreakdown.InitialPage:
             return <>Initial Path</>
+        case WebStatsBreakdown.InitialChannelType:
+            return <>Initial Channel Type</>
         case WebStatsBreakdown.InitialReferringDomain:
             return <>Referring Domain</>
         case WebStatsBreakdown.InitialUTMSource:
@@ -114,12 +116,14 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
 
 export const webStatsBreakdownToPropertyName = (
     breakdownBy: WebStatsBreakdown
-): { key: string; type: PropertyFilterType.Person | PropertyFilterType.Event } => {
+): { key: string; type: PropertyFilterType.Person | PropertyFilterType.Event } | undefined => {
     switch (breakdownBy) {
         case WebStatsBreakdown.Page:
             return { key: '$pathname', type: PropertyFilterType.Event }
         case WebStatsBreakdown.InitialPage:
             return { key: '$initial_pathname', type: PropertyFilterType.Person }
+        case WebStatsBreakdown.InitialChannelType:
+            return undefined
         case WebStatsBreakdown.InitialReferringDomain:
             return { key: '$initial_referring_domain', type: PropertyFilterType.Person }
         case WebStatsBreakdown.InitialUTMSource:
@@ -170,23 +174,46 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             render: NumericCell,
             align: 'right',
         },
+        average_scroll_percentage: {
+            title: 'Average Scroll',
+            render: PercentageCell,
+            align: 'right',
+        },
+        scroll_gt80_percentage: {
+            title: 'Deep Scroll Rate',
+            render: PercentageCell,
+            align: 'right',
+        },
     },
 }
 
-export const WebStatsTrendTile = ({ query }: { query: InsightVizNode }): JSX.Element => {
-    const { togglePropertyFilter, setGeographyTab, setDeviceTab } = useActions(webAnalyticsLogic)
-    const { hasCountryFilter, deviceTab, hasDeviceTypeFilter, hasBrowserFilter, hasOSFilter } =
-        useValues(webAnalyticsLogic)
-    const { key: worldMapPropertyName } = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)
-    const { key: deviceTypePropertyName } = webStatsBreakdownToPropertyName(WebStatsBreakdown.DeviceType)
+export const WebStatsTrendTile = ({
+    query,
+    showIntervalTile,
+}: {
+    query: InsightVizNode
+    showIntervalTile?: boolean
+}): JSX.Element => {
+    const { togglePropertyFilter, setInterval } = useActions(webAnalyticsLogic)
+    const {
+        hasCountryFilter,
+        deviceTab,
+        hasDeviceTypeFilter,
+        hasBrowserFilter,
+        hasOSFilter,
+        dateFilter: { interval },
+    } = useValues(webAnalyticsLogic)
+    const worldMapPropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.Country)?.key
+    const deviceTypePropertyName = webStatsBreakdownToPropertyName(WebStatsBreakdown.DeviceType)?.key
 
     const onWorldMapClick = useCallback(
         (breakdownValue: string) => {
-            togglePropertyFilter(PropertyFilterType.Event, worldMapPropertyName, breakdownValue)
-            if (!hasCountryFilter) {
-                // if we just added a country filter, switch to the region tab, as the world map will not be useful
-                setGeographyTab(GeographyTab.REGIONS)
+            if (!worldMapPropertyName) {
+                return
             }
+            togglePropertyFilter(PropertyFilterType.Event, worldMapPropertyName, breakdownValue, {
+                geographyTab: hasCountryFilter ? undefined : GeographyTab.REGIONS,
+            })
         },
         [togglePropertyFilter, worldMapPropertyName]
     )
@@ -204,16 +231,23 @@ export const WebStatsTrendTile = ({ query }: { query: InsightVizNode }): JSX.Ele
             if (!breakdownValue) {
                 return
             }
-            togglePropertyFilter(PropertyFilterType.Event, deviceTypePropertyName, breakdownValue)
+            if (!deviceTypePropertyName) {
+                return
+            }
 
             // switch to a different tab if we can, try them in this order: DeviceType Browser OS
+            let newTab: DeviceTab | undefined = undefined
             if (deviceTab !== DeviceTab.DEVICE_TYPE && !hasDeviceTypeFilter) {
-                setDeviceTab(DeviceTab.DEVICE_TYPE)
+                newTab = DeviceTab.DEVICE_TYPE
             } else if (deviceTab !== DeviceTab.BROWSER && !hasBrowserFilter) {
-                setDeviceTab(DeviceTab.BROWSER)
+                newTab = DeviceTab.BROWSER
             } else if (deviceTab !== DeviceTab.OS && !hasOSFilter) {
-                setDeviceTab(DeviceTab.OS)
+                newTab = DeviceTab.OS
             }
+
+            togglePropertyFilter(PropertyFilterType.Event, deviceTypePropertyName, breakdownValue, {
+                deviceTab: newTab,
+            })
         },
         [togglePropertyFilter, deviceTypePropertyName, deviceTab, hasDeviceTypeFilter, hasBrowserFilter, hasOSFilter]
     )
@@ -239,7 +273,28 @@ export const WebStatsTrendTile = ({ query }: { query: InsightVizNode }): JSX.Ele
         }
     }, [onWorldMapClick])
 
-    return <Query query={query} readOnly={true} context={context} />
+    return (
+        <div className="border rounded bg-bg-light">
+            {showIntervalTile && (
+                <div className="flex flex-row items-center justify-end m-2 mr-4">
+                    <div className="flex flex-row items-center">
+                        <span className="mr-2">Group by</span>
+                        <IntervalFilterStandalone
+                            interval={interval}
+                            onIntervalChange={setInterval}
+                            options={[
+                                { value: 'hour', label: 'Hour' },
+                                { value: 'day', label: 'Day' },
+                                { value: 'week', label: 'Week' },
+                                { value: 'month', label: 'Month' },
+                            ]}
+                        />
+                    </div>
+                </div>
+            )}
+            <Query query={query} readOnly={true} context={context} />
+        </div>
+    )
 }
 
 export const WebStatsTableTile = ({
@@ -250,10 +305,13 @@ export const WebStatsTableTile = ({
     breakdownBy: WebStatsBreakdown
 }): JSX.Element => {
     const { togglePropertyFilter } = useActions(webAnalyticsLogic)
-    const { key, type } = webStatsBreakdownToPropertyName(breakdownBy)
+    const { key, type } = webStatsBreakdownToPropertyName(breakdownBy) || {}
 
     const onClick = useCallback(
         (breakdownValue: string) => {
+            if (!key || !type) {
+                return
+            }
             togglePropertyFilter(type, key, breakdownValue)
         },
         [togglePropertyFilter, type, key]
@@ -266,7 +324,7 @@ export const WebStatsTableTile = ({
                 return {}
             }
             return {
-                onClick: () => onClick(breakdownValue),
+                onClick: key && type ? () => onClick(breakdownValue) : undefined,
             }
         }
         return {

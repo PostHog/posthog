@@ -11,7 +11,6 @@ import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
-import { getShadowRootPopoverContainer } from '~/toolbar/utils'
 
 export const HeatmapToolbarMenu = (): JSX.Element => {
     const { wildcardHref } = useValues(currentPageLogic)
@@ -33,7 +32,6 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                             dateFrom={heatmapFilter.date_from ?? '-7d'}
                             dateTo={heatmapFilter.date_to}
                             onChange={(date_from, date_to) => setHeatmapFilter({ date_from, date_to })}
-                            getPopupContainer={getShadowRootPopoverContainer}
                         />
 
                         <LemonButton
@@ -45,7 +43,6 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                             disabledReason={
                                 canLoadMoreElementStats ? undefined : 'Loaded all elements in this data range.'
                             }
-                            getTooltipPopupContainer={getShadowRootPopoverContainer}
                         >
                             Load more
                         </LemonButton>
@@ -60,7 +57,6 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                         title={
                             'Matching links by their target URL can exclude clicks from the heatmap if the URL is too unique.'
                         }
-                        getPopupContainer={getShadowRootPopoverContainer}
                     >
                         <div>
                             <LemonSwitch

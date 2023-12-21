@@ -32,20 +32,14 @@ module.exports = {
         'plugin:eslint-comments/recommended',
         'plugin:storybook/recommended',
         'plugin:compat/recommended',
-        'prettier',
+        'prettier', // Disables any formatting rules to let prettier do its job
     ],
     globals,
     parser: '@typescript-eslint/parser',
     parserOptions: {
-        ecmaFeatures: {
-            jsx: true,
-        },
-        ecmaVersion: 2018,
-        sourceType: 'module',
         project: 'tsconfig.json',
     },
     plugins: [
-        'prettier',
         'react',
         'cypress',
         '@typescript-eslint',
@@ -54,6 +48,7 @@ module.exports = {
         'compat',
         'posthog',
         'simple-import-sort',
+        'import',
     ],
     rules: {
         'no-console': ['error', { allow: ['warn', 'error'] }],
@@ -80,8 +75,6 @@ module.exports = {
             },
         ],
         '@typescript-eslint/prefer-ts-expect-error': 'error',
-        '@typescript-eslint/explicit-function-return-type': 'off',
-        '@typescript-eslint/explicit-module-boundary-types': 'off',
         '@typescript-eslint/no-empty-function': 'off',
         '@typescript-eslint/no-inferrable-types': 'off',
         '@typescript-eslint/ban-ts-comment': 'off',
@@ -133,7 +126,7 @@ module.exports = {
             },
         ],
         'react/forbid-dom-props': [
-            'warn',
+            'error',
             {
                 forbid: [
                     {
@@ -188,10 +181,6 @@ module.exports = {
                     {
                         element: 'LemonButtonWithDropdown',
                         message: 'use <LemonMenu> with a <LemonButton> child instead',
-                    },
-                    {
-                        element: 'Tag',
-                        message: 'use <LemonTag> instead',
                     },
                 ],
             },
@@ -249,6 +238,8 @@ module.exports = {
                         message: 'use <Link> instead',
                     },
                     {
+                        element: 'Tag',
+                        message: 'use <LemonTag> instead',
                         element: 'Alert',
                         message: 'use <LemonBanner> instead',
                     },
@@ -263,6 +254,19 @@ module.exports = {
         'no-constant-condition': 'off',
         'no-prototype-builtins': 'off',
         'no-irregular-whitespace': 'off',
+        'import/no-restricted-paths': [
+            'error',
+            {
+                zones: [
+                    {
+                        target: './frontend/**',
+                        from: './ee/frontend/**',
+                        message:
+                            "EE licensed TypeScript should only be accessed via the posthogEE objects. Use `import posthogEE from '@posthog/ee/exports'`",
+                    },
+                ],
+            },
+        ],
     },
     overrides: [
         {
@@ -304,6 +308,17 @@ module.exports = {
                 '@typescript-eslint/explicit-function-return-type': 'off',
                 '@typescript-eslint/explicit-module-boundary-types': 'off',
             },
+        },
+        {
+            files: ['*.mjs'],
+            rules: {
+                '@typescript-eslint/no-var-requires': 'off',
+                '@typescript-eslint/explicit-function-return-type': 'off',
+                '@typescript-eslint/explicit-module-boundary-types': 'off',
+                '@typescript-eslint/no-misused-promises': 'off',
+                'no-console': 'off',
+            },
+            globals: { ...globals, process: 'readonly' },
         },
         {
             files: 'eslint-rules/**/*',

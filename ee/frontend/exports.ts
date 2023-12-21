@@ -1,13 +1,12 @@
 import { PostHogEE } from '@posthog/ee/types'
 
-const myTestCode = (): void => {
-    // eslint-disable-next-line no-console
-    console.log('it works!')
-}
+import { transformEventToWeb, transformToWeb } from './mobile-replay'
 
-const postHogEE: PostHogEE = {
-    enabled: true,
-    myTestCode,
-}
-
-export default postHogEE
+export default async (): Promise<PostHogEE> =>
+    Promise.resolve({
+        enabled: true,
+        mobileReplay: {
+            transformEventToWeb,
+            transformToWeb,
+        },
+    })

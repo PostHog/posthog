@@ -1,6 +1,7 @@
 import './FeatureFlag.scss'
 
-import { Card, Popconfirm, Radio, Skeleton } from 'antd'
+import { LemonSegmentedButton } from '@posthog/lemon-ui'
+import { Card, Popconfirm, Skeleton } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
@@ -26,7 +27,6 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import { PostHogFeature } from 'posthog-js/react'
@@ -68,6 +68,7 @@ import { featureFlagLogic } from './featureFlagLogic'
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
+import FeatureFlagSchedule from './FeatureFlagSchedule'
 import { featureFlagsLogic, FeatureFlagsTab } from './featureFlagsLogic'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 
@@ -221,6 +222,14 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         })
     }
 
+    if (featureFlags[FEATURE_FLAGS.SCHEDULED_CHANGES_FEATURE_FLAGS]) {
+        tabs.push({
+            label: 'Schedule',
+            key: FeatureFlagsTab.SCHEDULE,
+            content: <FeatureFlagSchedule />,
+        })
+    }
+
     return (
         <>
             <div className="feature-flag">
@@ -264,7 +273,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </div>
                             }
                         />
-                        <LemonDivider />
+                        <LemonDivider className="my-2 non-3000" />
                         {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
                             <LemonBanner type="warning">
                                 This feature flag is linked to an experiment. Edit settings here only for advanced
@@ -314,9 +323,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 autoCorrect="off"
                                                 spellCheck={false}
                                             />
-                                            <span style={{ fontSize: 13 }} className="text-muted">
-                                                Feature flag keys must be unique
-                                            </span>
+                                            <span className="text-muted text-sm">Feature flag keys must be unique</span>
                                         </>
                                     )}
                                 </Field>
@@ -494,17 +501,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             </div>
                                         </div>
                                     }
-                                    description={
-                                        <>
-                                            {featureFlag.name ? (
-                                                <span style={{ fontStyle: 'normal' }}>{featureFlag.name}</span>
-                                            ) : (
-                                                'There is no description for this feature flag.'
-                                            )}
-                                        </>
-                                    }
                                     caption={
                                         <>
+                                            <span>{featureFlag.name || <i>Description (optional)</i>}</span>
                                             {featureFlag?.tags && (
                                                 <>
                                                     {featureFlag.can_edit ? (
@@ -829,54 +828,41 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             okText="OK"
                             cancelText="Cancel"
                         >
-                            <Radio.Group
+                            <LemonSegmentedButton
+                                size="small"
                                 options={[
                                     {
                                         label: 'Release toggle (boolean)',
-                                        value: false,
-                                        disabled: !!(
+                                        value: 'boolean',
+                                        disabledReason:
                                             featureFlag.experiment_set && featureFlag.experiment_set?.length > 0
-                                        ),
+                                                ? 'This feature flag is associated with an experiment.'
+                                                : undefined,
                                     },
                                     {
-                                        label: (
-                                            <Tooltip
-                                                title={
-                                                    hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS)
-                                                        ? ''
-                                                        : 'This feature is not available on your current plan.'
-                                                }
-                                            >
-                                                <div>
-                                                    {!hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS) && (
-                                                        <Link to={upgradeLink} target="_blank">
-                                                            <IconLock
-                                                                style={{
-                                                                    marginRight: 4,
-                                                                    color: 'var(--warning)',
-                                                                }}
-                                                            />
-                                                        </Link>
-                                                    )}
-                                                    Multiple variants with rollout percentages (A/B test)
-                                                </div>
-                                            </Tooltip>
+                                        label: !hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS) ? (
+                                            <Link to={upgradeLink} target="_blank">
+                                                <IconLock className="mr-1 text-warning" />
+                                                Multiple variants with rollout percentages (A/B test)
+                                            </Link>
+                                        ) : (
+                                            <span>Multiple variants with rollout percentages (A/B test)</span>
                                         ),
-                                        value: true,
-                                        disabled: !hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS),
+                                        value: 'multivariate',
+                                        disabledReason: !hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS)
+                                            ? 'This feature is not available on your current plan.'
+                                            : undefined,
                                     },
                                 ]}
-                                onChange={(e) => {
-                                    const { value } = e.target
-                                    if (value === false && nonEmptyVariants.length) {
+                                onChange={(value) => {
+                                    if (value === 'boolean' && nonEmptyVariants.length) {
                                         setShowVariantDiscardWarning(true)
                                     } else {
-                                        setMultivariateEnabled(value)
+                                        setMultivariateEnabled(value === 'multivariate')
                                         focusVariantKeyField(0)
                                     }
                                 }}
-                                value={multivariateEnabled}
-                                optionType="button"
+                                value={multivariateEnabled ? 'multivariate' : 'boolean'}
                             />
                         </Popconfirm>
                     </div>
@@ -1016,7 +1002,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     />
                                                     {filterGroups.filter((group) => group.variant === variant.key)
                                                         .length > 0 && (
-                                                        <span style={{ fontSize: 11 }} className="text-muted">
+                                                        <span className="text-muted text-xs">
                                                             Overridden by{' '}
                                                             <strong>
                                                                 {variantConcatWithPunctuation(

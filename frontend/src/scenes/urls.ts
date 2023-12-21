@@ -15,6 +15,7 @@ import {
     ReplayTabs,
 } from '~/types'
 
+import { OnboardingStepKey } from './onboarding/onboardingLogic'
 import { PluginTab } from './plugins/types'
 import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 
@@ -63,6 +64,7 @@ export const urls = {
         `/batch_exports/${id}` + (params ? `?${toParams(params)}` : ''),
     batchExportEdit: (id: string): string => `/batch_exports/${id}/edit`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
+    insights: (): string => '/insights',
     insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null, query?: string): string =>
         combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
             ...(filters ? { filters } : {}),
@@ -160,7 +162,8 @@ export const urls = {
         `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
     inviteSignup: (id: string): string => `/signup/${id}`,
     products: (): string => '/products',
-    onboarding: (productKey: string): string => `/onboarding/${productKey}`,
+    onboarding: (productKey: string, stepKey?: OnboardingStepKey): string =>
+        `/onboarding/${productKey}${stepKey ? '?step=' + stepKey : ''}`,
     // Cloud only
     organizationBilling: (): string => '/organization/billing',
     // Self-hosted only

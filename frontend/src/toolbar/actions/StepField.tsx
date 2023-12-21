@@ -18,6 +18,27 @@ interface StepFieldProps {
     caption?: string | JSX.Element
 }
 
+function hrefSelector(step: ActionStepForm): string | null {
+    if (!step.href) {
+        return null
+    }
+    // see https://developer.mozilla.org/en-US/docs/Web/CSS/Attribute_selectors#links
+    const matchOperator = {
+        // Link whose value is exactly step.href.
+        [StringMatching.Exact]: '=',
+        // Links with step.href anywhere in the URL
+        [StringMatching.Contains]: '*=',
+        // CSS selector can't match on regex
+        [StringMatching.Regex]: null,
+    }[step.href_matching || StringMatching.Exact]
+
+    if (!matchOperator) {
+        return null
+    }
+
+    return `a[href${matchOperator}"${cssEscape(step.href)}"]`
+}
+
 export function StepField({ step, item, label, caption }: StepFieldProps): JSX.Element {
     const selected = step && step[`${item}_selected`]
 
@@ -25,7 +46,7 @@ export function StepField({ step, item, label, caption }: StepFieldProps): JSX.E
         <>
             <div className={clsx('action-field my-1', selected && 'action-field-selected')}>
                 <div>
-                    {item === 'href' && step?.href && <SelectorCount selector={`a[href="${cssEscape(step.href)}"]`} />}
+                    {item === 'href' && step?.href && <SelectorCount selector={hrefSelector(step)} />}
                     {item === 'selector' && step?.selector && <SelectorCount selector={step.selector} />}
                     <Field name={`${item}_selected`} noStyle>
                         {({ onChange, value }) => <LemonCheckbox label={label} onChange={onChange} checked={value} />}

@@ -235,7 +235,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
     def test_reading_notifications_marks_them_unread(self):
         self.client.force_login(self.user)
 
-        changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
+        changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes?unread=true")
         assert changes.status_code == status.HTTP_200_OK
         assert len(changes.json()["results"]) == 10
         assert changes.json()["last_read"] is None
@@ -262,7 +262,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         )
         assert bookmark_response.status_code == status.HTTP_204_NO_CONTENT
 
-        changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
+        changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes?unread=true")
         assert changes.status_code == status.HTTP_200_OK
         assert changes.json()["last_read"] == "2023-08-17T04:24:25Z"
         assert [c["unread"] for c in changes.json()["results"]] == [True, True]

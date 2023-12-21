@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import api, { ApiConfig } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getPropertyLabel } from 'lib/taxonomy'
 import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -104,7 +104,9 @@ export const teamLogic = kea<teamLogicType>([
                         eventUsageLogic.findMounted()?.actions?.reportTeamSettingChange(property, payload[property])
                     })
 
-                    lemonToast.success(message)
+                    if (!window.location.pathname.match(/\/(onboarding|products)/)) {
+                        lemonToast.success(message)
+                    }
 
                     return patchedTeam
                 },

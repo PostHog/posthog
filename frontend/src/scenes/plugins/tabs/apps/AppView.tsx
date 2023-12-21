@@ -158,7 +158,7 @@ export function AppView({
                     </>
                 )}
 
-                <LemonMenu items={menuItems} placement="left">
+                <LemonMenu items={menuItems} placement="bottom-end">
                     <LemonButton size="small" icon={<IconEllipsis />} />
                 </LemonMenu>
             </div>

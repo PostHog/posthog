@@ -10,10 +10,8 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 
 interface PageHeaderProps {
     title: string | JSX.Element
-    description?: string | JSX.Element
     caption?: string | JSX.Element | null | false
     buttons?: JSX.Element | false
-    style?: React.CSSProperties
     tabbedPage?: boolean // Whether the page has tabs for secondary navigation
     delimited?: boolean
     notebookProps?: Pick<DraggableToNotebookProps, 'href' | 'node' | 'properties'>
@@ -22,20 +20,18 @@ interface PageHeaderProps {
 export function PageHeader({
     title,
     caption,
-    description,
     buttons,
-    style,
     tabbedPage,
     delimited,
     notebookProps,
 }: PageHeaderProps): JSX.Element | null {
-    const is3000 = useFeatureFlag('POSTHOG_3000')
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
     const { actionsContainer } = useValues(breadcrumbsLogic)
 
     return (
         <>
-            {(!is3000 || description) && (
-                <div className="page-title-row flex justify-between" style={style}>
+            {!is3000 && (
+                <div className="page-title-row flex justify-between">
                     <div className="min-w-0">
                         {!is3000 &&
                             (notebookProps ? (
@@ -45,7 +41,6 @@ export function PageHeader({
                             ) : (
                                 <h1 className="page-title">{title}</h1>
                             ))}
-                        {description && <span className="page-description">{description}</span>}
                     </div>
                     {!is3000 && <div className="page-buttons">{buttons}</div>}
                 </div>

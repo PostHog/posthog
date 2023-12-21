@@ -2,7 +2,7 @@ import { decompressSync, strFromU8 } from 'fflate'
 import { encodeParams } from 'kea-router'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { toParams } from 'lib/utils'
+import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
@@ -29,14 +29,18 @@ import {
     EventType,
     Experiment,
     ExportedAssetType,
+    ExternalDataSourceSchema,
     ExternalDataStripeSource,
     ExternalDataStripeSourceCreatePayload,
     FeatureFlagAssociatedRoleType,
     FeatureFlagType,
+    Group,
+    GroupListParams,
     InsightModel,
     IntegrationType,
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
+    NotebookListItemType,
     NotebookNodeResource,
     NotebookType,
     OrganizationFeatureFlags,
@@ -52,6 +56,9 @@ import {
     RoleMemberType,
     RolesListParams,
     RoleType,
+    ScheduledChangeType,
+    SearchListParams,
+    SearchResponse,
     SessionRecordingPlaylistType,
     SessionRecordingSnapshotResponse,
     SessionRecordingsResponse,
@@ -98,6 +105,7 @@ export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
 
 export interface ApiMethodOptions {
     signal?: AbortSignal
+    headers?: Record<string, any>
 }
 
 const CSRF_COOKIE_NAME = 'posthog_csrftoken'
@@ -461,6 +469,16 @@ class ApiRequest {
         return this.persons().addPathComponent('activity')
     }
 
+    // # Groups
+    public groups(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('groups')
+    }
+
+    // # Search
+    public search(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('search')
+    }
+
     // # Annotations
     public annotations(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('annotations')
@@ -494,6 +512,30 @@ class ApiRequest {
             return this.featureFlag(id, teamId).addPathComponent('activity')
         }
         return this.featureFlags(teamId).addPathComponent('activity')
+    }
+
+    public featureFlagScheduledChanges(teamId: TeamType['id'], featureFlagId: FeatureFlagType['id']): ApiRequest {
+        return this.projectsDetail(teamId)
+            .addPathComponent('scheduled_changes')
+            .withQueryString(
+                toParams({
+                    model_name: 'FeatureFlag',
+                    record_id: featureFlagId,
+                })
+            )
+    }
+
+    public featureFlagCreateScheduledChange(teamId: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('scheduled_changes')
+    }
+
+    public featureFlagDeleteScheduledChange(
+        teamId: TeamType['id'],
+        scheduledChangeId: ScheduledChangeType['id']
+    ): ApiRequest {
+        return this.projectsDetail(teamId)
+            .addPathComponent('scheduled_changes')
+            .addPathComponent(`${scheduledChangeId}`)
     }
 
     // # Features
@@ -641,6 +683,14 @@ class ApiRequest {
         return this.externalDataSources(teamId).addPathComponent(sourceId)
     }
 
+    public externalDataSchemas(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('external_data_schemas')
+    }
+
+    public externalDataSourceSchema(schemaId: ExternalDataSourceSchema['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.externalDataSchemas(teamId).addPathComponent(schemaId)
+    }
+
     // Request finalization
     public async get(options?: ApiMethodOptions): Promise<any> {
         return await api.get(this.assembleFullUrl(), options)
@@ -738,6 +788,24 @@ const api = {
         },
         async createStaticCohort(id: FeatureFlagType['id']): Promise<{ cohort: CohortType }> {
             return await new ApiRequest().featureFlagCreateStaticCohort(id).create()
+        },
+        async getScheduledChanges(
+            teamId: TeamType['id'],
+            featureFlagId: FeatureFlagType['id']
+        ): Promise<CountedPaginatedResponse<ScheduledChangeType>> {
+            return await new ApiRequest().featureFlagScheduledChanges(teamId, featureFlagId).get()
+        },
+        async createScheduledChange(
+            teamId: TeamType['id'],
+            data: any
+        ): Promise<{ scheduled_change: ScheduledChangeType }> {
+            return await new ApiRequest().featureFlagCreateScheduledChange(teamId).create({ data })
+        },
+        async deleteScheduledChange(
+            teamId: TeamType['id'],
+            scheduledChangeId: ScheduledChangeType['id']
+        ): Promise<{ scheduled_change: ScheduledChangeType }> {
+            return await new ApiRequest().featureFlagDeleteScheduledChange(teamId, scheduledChangeId).delete()
         },
     },
 
@@ -1226,6 +1294,18 @@ const api = {
         },
     },
 
+    groups: {
+        async list(params: GroupListParams): Promise<CountedPaginatedResponse<Group>> {
+            return await new ApiRequest().groups().withQueryString(toParams(params, true)).get()
+        },
+    },
+
+    search: {
+        async list(params: SearchListParams): Promise<SearchResponse> {
+            return await new ApiRequest().search().withQueryString(toParams(params, true)).get()
+        },
+    },
+
     sharing: {
         async get({
             dashboardId,
@@ -1493,8 +1573,14 @@ const api = {
     },
 
     notebooks: {
-        async get(notebookId: NotebookType['short_id']): Promise<NotebookType> {
-            return await new ApiRequest().notebook(notebookId).get()
+        async get(
+            notebookId: NotebookType['short_id'],
+            params: Record<string, any> = {},
+            headers: Record<string, any> = {}
+        ): Promise<NotebookType> {
+            return await new ApiRequest().notebook(notebookId).withQueryString(toParams(params)).get({
+                headers,
+            })
         },
         async update(
             notebookId: NotebookType['short_id'],
@@ -1503,13 +1589,19 @@ const api = {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
         async list(
-            contains?: NotebookNodeResource[],
-            createdBy?: UserBasicType['uuid'],
-            search?: string
-        ): Promise<PaginatedResponse<NotebookType>> {
+            params: {
+                contains?: NotebookNodeResource[]
+                created_by?: UserBasicType['uuid']
+                search?: string
+                order?: string
+                offset?: number
+                limit?: number
+            } = {}
+        ): Promise<CountedPaginatedResponse<NotebookListItemType>> {
             // TODO attrs could be a union of types like NotebookNodeRecordingAttributes
             const apiRequest = new ApiRequest().notebooks()
-            let q = {}
+            const { contains, ...queryParams } = objectClean(params)
+
             if (contains?.length) {
                 const containsString =
                     contains
@@ -1519,15 +1611,11 @@ const api = {
                             return `${target}${match}`
                         })
                         .join(',') || undefined
-                q = { ...q, contains: containsString, created_by: createdBy }
+
+                queryParams['contains'] = containsString
             }
-            if (createdBy) {
-                q = { ...q, created_by: createdBy }
-            }
-            if (search) {
-                q = { ...q, search: search }
-            }
-            return await apiRequest.withQueryString(q).get()
+
+            return await apiRequest.withQueryString(queryParams).get()
         },
         async create(data?: Pick<NotebookType, 'content' | 'text_content' | 'title'>): Promise<NotebookType> {
             return await new ApiRequest().notebooks().create({ data })
@@ -1681,6 +1769,15 @@ const api = {
         },
     },
 
+    externalDataSchemas: {
+        async update(
+            schemaId: ExternalDataSourceSchema['id'],
+            data: Partial<ExternalDataSourceSchema>
+        ): Promise<ExternalDataSourceSchema> {
+            return await new ApiRequest().externalDataSourceSchema(schemaId).update({ data })
+        },
+    },
+
     dataWarehouseViewLinks: {
         async list(): Promise<PaginatedResponse<DataWarehouseViewLink>> {
             return await new ApiRequest().dataWarehouseViewLinks().get()
@@ -1816,6 +1913,7 @@ const api = {
             response = await fetch(url, {
                 signal: options?.signal,
                 headers: {
+                    ...objectClean(options?.headers ?? {}),
                     ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
                 },
             })
@@ -1839,6 +1937,7 @@ const api = {
         const response = await fetch(url, {
             method: 'PATCH',
             headers: {
+                ...objectClean(options?.headers ?? {}),
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                 ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
@@ -1871,6 +1970,7 @@ const api = {
         const response = await fetch(url, {
             method: 'POST',
             headers: {
+                ...objectClean(options?.headers ?? {}),
                 ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                 'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                 ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),

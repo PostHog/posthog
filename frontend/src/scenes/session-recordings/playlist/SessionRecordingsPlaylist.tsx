@@ -5,7 +5,9 @@ import clsx from 'clsx'
 import { range } from 'd3'
 import { BindLogic, useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconFilter, IconSettings, IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -54,6 +56,19 @@ function UnusableEventsWarning(props: { unusableEventsInFilter: string[] }): JSX
                 <Link to={'https://posthog.com/docs/libraries/js'} target={'_blank'}>
                     the Web SDK
                 </Link>
+                <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_MOBILE} match={true}>
+                    ,{' '}
+                    <Link to={'https://posthog.com/docs/libraries/android'} target={'_blank'}>
+                        the Android SDK
+                    </Link>
+                </FlaggedFeature>
+                <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_IOS} match={true}>
+                    and{' '}
+                    <Link to={'https://posthog.com/docs/libraries/ios'} target={'_blank'}>
+                        the iOS SDK
+                    </Link>
+                    .
+                </FlaggedFeature>
             </p>
         </LemonBanner>
     )
@@ -75,6 +90,8 @@ function RecordingsLists(): JSX.Element {
         showAdvancedFilters,
         hasAdvancedFilters,
         logicProps,
+        showOtherRecordings,
+        recordingsCount,
     } = useValues(sessionRecordingsPlaylistLogic)
     const {
         setSelectedRecordingId,
@@ -84,6 +101,7 @@ function RecordingsLists(): JSX.Element {
         setShowSettings,
         resetFilters,
         setShowAdvancedFilters,
+        toggleShowOtherRecordings,
     } = useActions(sessionRecordingsPlaylistLogic)
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
@@ -139,7 +157,7 @@ function RecordingsLists(): JSX.Element {
                                 placement="bottom"
                                 title={
                                     <>
-                                        Showing {otherRecordings.length + pinnedRecordings.length} results.
+                                        Showing {recordingsCount} results.
                                         <br />
                                         Scrolling to the bottom or the top of the list will load older or newer
                                         recordings respectively.
@@ -147,9 +165,7 @@ function RecordingsLists(): JSX.Element {
                                 }
                             >
                                 <span>
-                                    <CounterBadge>
-                                        {Math.min(999, otherRecordings.length + pinnedRecordings.length)}+
-                                    </CounterBadge>
+                                    <CounterBadge>{Math.min(999, recordingsCount)}+</CounterBadge>
                                 </span>
                             </Tooltip>
                         </span>
@@ -219,37 +235,46 @@ function RecordingsLists(): JSX.Element {
                             </div>
                         ))}
 
-                        {pinnedRecordings.length && otherRecordings.length ? (
-                            <div className="px-3 py-2 text-muted-alt border-b uppercase font-semibold text-xs">
+                        {pinnedRecordings.length ? (
+                            <div className="flex justify-between items-center pl-3 pr-1 py-2 text-muted-alt border-b uppercase font-semibold text-xs">
                                 Other recordings
+                                <LemonButton size="xsmall" onClick={() => toggleShowOtherRecordings()}>
+                                    {showOtherRecordings ? 'Hide' : 'Show'}
+                                </LemonButton>
                             </div>
                         ) : null}
 
-                        {otherRecordings.map((rec) => (
-                            <div key={rec.id} className="border-b">
-                                <SessionRecordingPreview
-                                    recording={rec}
-                                    onClick={() => onRecordingClick(rec)}
-                                    onPropertyClick={onPropertyClick}
-                                    isActive={activeSessionRecordingId === rec.id}
-                                    pinned={false}
-                                />
-                            </div>
-                        ))}
+                        <>
+                            {showOtherRecordings
+                                ? otherRecordings.map((rec) => (
+                                      <div key={rec.id} className="border-b">
+                                          <SessionRecordingPreview
+                                              recording={rec}
+                                              onClick={() => onRecordingClick(rec)}
+                                              onPropertyClick={onPropertyClick}
+                                              isActive={activeSessionRecordingId === rec.id}
+                                              pinned={false}
+                                          />
+                                      </div>
+                                  ))
+                                : null}
 
-                        <div className="m-4 h-10 flex items-center justify-center gap-2 text-muted-alt">
-                            {sessionRecordingsResponseLoading ? (
-                                <>
-                                    <Spinner textColored /> Loading older recordings
-                                </>
-                            ) : hasNext ? (
-                                <LemonButton status="primary" onClick={() => maybeLoadSessionRecordings('older')}>
-                                    Load more
-                                </LemonButton>
-                            ) : (
-                                'No more results'
-                            )}
-                        </div>
+                            <div className="m-4 h-10 flex items-center justify-center gap-2 text-muted-alt">
+                                {!showOtherRecordings && totalFiltersCount ? (
+                                    <>Filters do not apply to pinned recordings</>
+                                ) : sessionRecordingsResponseLoading ? (
+                                    <>
+                                        <Spinner textColored /> Loading older recordings
+                                    </>
+                                ) : hasNext ? (
+                                    <LemonButton status="primary" onClick={() => maybeLoadSessionRecordings('older')}>
+                                        Load more
+                                    </LemonButton>
+                                ) : (
+                                    'No more results'
+                                )}
+                            </div>
+                        </>
                     </ul>
                 ) : sessionRecordingsResponseLoading ? (
                     <>
@@ -325,7 +350,7 @@ export function SessionRecordingsPlaylist(props: SessionRecordingPlaylistLogicPr
                     <div className="SessionRecordingsPlaylist__player">
                         {activeSessionRecordingId ? (
                             <SessionRecordingPlayer
-                                playerKey="playlist"
+                                playerKey={props.logicKey ?? 'playlist'}
                                 sessionRecordingId={activeSessionRecordingId}
                                 matchingEventsMatchType={matchingEventsMatchType}
                                 playlistLogic={logic}

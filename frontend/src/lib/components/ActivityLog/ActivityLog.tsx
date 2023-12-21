@@ -39,7 +39,7 @@ const Empty = ({ scope }: { scope: string }): JSX.Element => {
 
 const SkeletonLog = (): JSX.Element => {
     return (
-        <div className="activity-log-row items-start">
+        <div className="ActivityLogRow items-start">
             <LemonSkeleton.Circle />
             <div className="details space-y-4 mt-2">
                 <LemonSkeleton className="w-1/2 h-4" />
@@ -70,7 +70,7 @@ export const ActivityLogRow = ({
     renderSideAction?: ActivityLogProps['renderSideAction']
 }): JSX.Element => {
     return (
-        <div className={clsx('activity-log-row', logItem.unread && 'unread')}>
+        <div className={clsx('ActivityLogRow', logItem.unread && 'ActivityLogRow--unread')}>
             <ProfilePicture
                 showName={false}
                 name={logItem.isSystem ? logItem.name : undefined}
@@ -78,10 +78,10 @@ export const ActivityLogRow = ({
                 email={logItem.email ?? undefined}
                 size={'xl'}
             />
-            <div className="details">
-                <div className="activity-description">{logItem.description}</div>
+            <div className="ActivityLogRow__details">
+                <div className="ActivityLogRow__description">{logItem.description}</div>
                 {showExtendedDescription && logItem.extendedDescription && (
-                    <div className="activity-description-extended">{logItem.extendedDescription}</div>
+                    <div className="ActivityLogRow__description__extended">{logItem.extendedDescription}</div>
                 )}
                 <div className={'text-muted'}>
                     <TZLabel time={logItem.created_at} />
@@ -105,7 +105,7 @@ export const ActivityLog = ({
     const paginationState = usePagination(humanizedActivity || [], pagination)
 
     return (
-        <div className="activity-log">
+        <div className="ActivityLog">
             {caption && <div className="page-caption">{caption}</div>}
             {activityLoading && humanizedActivity.length === 0 ? (
                 <Loading />
@@ -113,14 +113,16 @@ export const ActivityLog = ({
                 <Empty scope={scope} />
             ) : (
                 <>
-                    {humanizedActivity.map((logItem, index) => (
-                        <ActivityLogRow
-                            key={index}
-                            logItem={logItem}
-                            showExtendedDescription={true}
-                            renderSideAction={renderSideAction}
-                        />
-                    ))}
+                    <div className="space-y-2">
+                        {humanizedActivity.map((logItem, index) => (
+                            <ActivityLogRow
+                                key={index}
+                                logItem={logItem}
+                                showExtendedDescription={true}
+                                renderSideAction={renderSideAction}
+                            />
+                        ))}
+                    </div>
                     <LemonDivider />
                     <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
                 </>

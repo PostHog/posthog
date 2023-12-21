@@ -167,7 +167,7 @@ describe('filtersToQueryNode', () => {
             const query: InsightQueryNode = {
                 kind: NodeKind.RetentionQuery,
                 filterTestAccounts: true,
-            }
+            } as InsightQueryNode
             expect(result).toEqual(query)
         })
 
@@ -212,7 +212,7 @@ describe('filtersToQueryNode', () => {
                         },
                     ],
                 },
-            }
+            } as InsightQueryNode
             expect(result).toEqual(query)
         })
 
@@ -231,7 +231,7 @@ describe('filtersToQueryNode', () => {
                     date_to: '2021-12-08',
                     date_from: '2021-12-08',
                 },
-            }
+            } as InsightQueryNode
             expect(result).toEqual(query)
         })
     })
@@ -303,6 +303,7 @@ describe('filtersToQueryNode', () => {
                 aggregation_axis_format: 'numeric',
                 aggregation_axis_prefix: '£',
                 aggregation_axis_postfix: '%',
+                decimal_places: 8,
                 breakdown_histogram_bin_count: 1,
                 formula: 'A+B',
                 shown_as: ShownAsValue.VOLUME,
@@ -321,6 +322,7 @@ describe('filtersToQueryNode', () => {
                     aggregation_axis_format: 'numeric',
                     aggregation_axis_prefix: '£',
                     aggregation_axis_postfix: '%',
+                    decimal_places: 8,
                     formula: 'A+B',
                     display: ChartDisplayType.ActionsAreaGraph,
                 },
@@ -401,8 +403,8 @@ describe('filtersToQueryNode', () => {
                 retention_type: 'retention_first_time',
                 retention_reference: 'total',
                 total_intervals: 2,
-                returning_entity: [{ a: 1 }],
-                target_entity: [{ b: 1 }],
+                returning_entity: { id: '1' },
+                target_entity: { id: '1' },
                 period: RetentionPeriod.Day,
             }
 
@@ -414,8 +416,8 @@ describe('filtersToQueryNode', () => {
                     retention_type: 'retention_first_time',
                     retention_reference: 'total',
                     total_intervals: 2,
-                    returning_entity: [{ a: 1 }],
-                    target_entity: [{ b: 1 }],
+                    returning_entity: { id: '1' },
+                    target_entity: { id: '1' },
                     period: RetentionPeriod.Day,
                 },
             }
@@ -512,6 +514,55 @@ describe('filtersToQueryNode', () => {
                 kind: NodeKind.LifecycleQuery,
                 lifecycleFilter: {
                     toggledLifecycles: ['new', 'dormant'],
+                },
+                series: [],
+            }
+            expect(result).toEqual(query)
+        })
+    })
+
+    describe('malformed properties', () => {
+        it('converts properties', () => {
+            const properties: any = {
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                key: 'event',
+                                type: PropertyFilterType.Event,
+                                value: 'value',
+                            },
+                        ],
+                    },
+                ],
+            }
+
+            const filters: Partial<FilterType> = {
+                insight: InsightType.TRENDS,
+                properties,
+            }
+
+            const result = filtersToQueryNode(filters)
+
+            const query: InsightQueryNode = {
+                kind: NodeKind.TrendsQuery,
+                properties: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    key: 'event',
+                                    type: PropertyFilterType.Event,
+                                    value: 'value',
+                                    operator: PropertyOperator.Exact,
+                                },
+                            ],
+                        },
+                    ],
                 },
                 series: [],
             }

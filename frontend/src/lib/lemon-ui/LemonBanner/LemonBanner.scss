@@ -10,6 +10,11 @@
     border: solid 1px var(--border-3000);
     border-radius: var(--radius);
 
+    &.LemonBanner--compact {
+        flex-direction: column;
+        padding: 0.5rem;
+    }
+
     &.LemonBanner--info {
         background-color: var(--primary-alt-highlight);
     }
@@ -29,13 +34,13 @@
         background-color: var(--success-highlight);
     }
 
-    p {
-        margin-bottom: 0.25em;
-    }
-
-    > .LemonIcon {
+    .LemonBanner__icon {
         flex-shrink: 0;
         font-size: 1.5rem;
         line-height: 0;
+    }
+
+    p {
+        margin-bottom: 0.25em;
     }
 }

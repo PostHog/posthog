@@ -1,5 +1,3 @@
-import './Dashboard.scss'
-
 import { IconCalendar } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
@@ -172,9 +170,8 @@ function DashboardScene(): JSX.Element {
                             </div>
                         )}
                     </div>
-                    {placement !== DashboardPlacement.Export && !featureFlags[FEATURE_FLAGS.POSTHOG_3000] && (
-                        <LemonDivider className="my-4" />
-                    )}
+                    {placement !== DashboardPlacement.Export &&
+                        featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'control' && <LemonDivider className="my-4" />}
                     <DashboardItems />
                 </div>
             )}

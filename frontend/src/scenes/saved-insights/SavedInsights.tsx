@@ -33,7 +33,7 @@ import {
     IconSelectEvents,
     IconTableChart,
 } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonButtonWithSideAction, LemonButtonWithSideActionProps } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonWithSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -141,7 +141,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
     [NodeKind.RetentionQuery]: {
         name: 'Retention',
-        description: 'See how many users return on subsequent days after an intial action',
+        description: 'See how many users return on subsequent days after an initial action',
         icon: IconRetention,
         inMenu: true,
     },
@@ -204,6 +204,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         description: 'Slice and dice your data in a table',
         icon: IconTableChart,
         inMenu: true,
+    },
+    [NodeKind.DataVisualizationNode]: {
+        name: 'Data visualization',
+        description: 'Slice and dice your data in a table or chart',
+        icon: IconTableChart,
+        inMenu: false,
     },
     [NodeKind.SavedInsightNode]: {
         name: 'Insight visualization by short id',
@@ -314,15 +320,16 @@ export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element
 export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const overrides3000: Partial<LemonButtonWithSideActionProps> = featureFlags[FEATURE_FLAGS.POSTHOG_3000]
-        ? {
-              size: 'small',
-              icon: <IconPlusMini />,
-          }
-        : {}
+    const overrides3000: Partial<LemonButtonWithSideActionProps> =
+        featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test'
+            ? {
+                  size: 'small',
+                  icon: <IconPlusMini />,
+              }
+            : {}
 
     return (
-        <LemonButtonWithSideAction
+        <LemonButton
             type="primary"
             to={urls.insightNew()}
             sideAction={{
@@ -338,7 +345,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
             {...overrides3000}
         >
             New insight
-        </LemonButtonWithSideAction>
+        </LemonButton>
     )
 }
 
@@ -548,7 +555,7 @@ export function SavedInsights(): JSX.Element {
                 <>
                     <SavedInsightsFilters />
                     <LemonDivider className="my-4" />
-                    <div className="flex justify-between mb-4 mt-2 items-center">
+                    <div className="flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center">
                         <span className="text-muted-alt">
                             {count
                                 ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${

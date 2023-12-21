@@ -11,12 +11,7 @@ import temporalio.testing
 import temporalio.worker
 from django.conf import settings
 
-from posthog.temporal.tests.utils.models import (
-    acreate_batch_export,
-    adelete_batch_export,
-    afetch_batch_export_backfills,
-)
-from posthog.temporal.workflows.backfill_batch_export import (
+from posthog.temporal.batch_exports.backfill_batch_export import (
     BackfillBatchExportInputs,
     BackfillBatchExportWorkflow,
     BackfillScheduleInputs,
@@ -24,6 +19,11 @@ from posthog.temporal.workflows.backfill_batch_export import (
     backfill_schedule,
     get_schedule_frequency,
     wait_for_schedule_backfill_in_range,
+)
+from posthog.temporal.tests.utils.models import (
+    acreate_batch_export,
+    adelete_batch_export,
+    afetch_batch_export_backfills,
 )
 
 pytestmark = [pytest.mark.asyncio]
@@ -261,7 +261,7 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted_after_
     """
     start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
     end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.timezone.utc)
-    now = dt.datetime.utcnow()
+    now = dt.datetime.now(dt.timezone.utc)
 
     desc = await temporal_schedule.describe()
 

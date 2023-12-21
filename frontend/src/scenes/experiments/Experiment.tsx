@@ -527,7 +527,6 @@ export function Experiment(): JSX.Element {
                 <div className="view-experiment">
                     <div className="draft-header">
                         <PageHeader
-                            style={{ paddingRight: 8 }}
                             title={
                                 <div className="flex items-center gap-2">
                                     <span>{experiment?.name}</span>
@@ -626,7 +625,21 @@ export function Experiment(): JSX.Element {
                             }
                         />
                         <div className="w-full pb-4">
-                            <span className="exp-description">
+                            <div>
+                                {experiment.feature_flag && (
+                                    <>
+                                        <div className="exp-flag-copy-label">Feature flag</div>
+                                        <CopyToClipboardInline
+                                            iconStyle={{ color: 'var(--lemon-button-icon-opacity)' }}
+                                            className="font-normal text-sm"
+                                            description="feature flag key"
+                                        >
+                                            {experiment.feature_flag.key}
+                                        </CopyToClipboardInline>
+                                    </>
+                                )}
+                            </div>
+                            <div className="mt-4 exp-description">
                                 {isExperimentRunning ? (
                                     <EditableField
                                         multiline
@@ -642,7 +655,7 @@ export function Experiment(): JSX.Element {
                                 ) : (
                                     <>{experiment.description || 'There is no description for this experiment.'}</>
                                 )}
-                            </span>
+                            </div>
                         </div>
                     </div>
                     <div className="mb-4">

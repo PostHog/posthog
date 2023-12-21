@@ -8,6 +8,7 @@ import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/S
 import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { SceneDashboardChoiceRequired } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceRequired'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -21,6 +22,7 @@ import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { YearInHogButton } from '~/layout/navigation/TopBar/YearInHogButton'
 import { DashboardPlacement } from '~/types'
 
 import { RecentInsights } from './RecentInsights'
@@ -37,10 +39,13 @@ export function ProjectHomepage(): JSX.Element {
     )
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const has3000 = featureFlags[FEATURE_FLAGS.POSTHOG_3000]
+    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     const headerButtons = (
         <>
+            {is3000 && !!featureFlags[FEATURE_FLAGS.YEAR_IN_HOG] && window.POSTHOG_APP_CONTEXT?.year_in_hog_url && (
+                <YearInHogButton url={`${window.location.origin}${window.POSTHOG_APP_CONTEXT.year_in_hog_url}`} />
+            )}
             <LemonButton
                 data-attr="project-home-invite-team-members"
                 onClick={() => {
@@ -50,7 +55,7 @@ export function ProjectHomepage(): JSX.Element {
             >
                 Invite members
             </LemonButton>
-            {!has3000 && <NewInsightButton dataAttr="project-home-new-insight" />}
+            {!is3000 && <NewInsightButton dataAttr="project-home-new-insight" />}
         </>
     )
 
@@ -82,7 +87,7 @@ export function ProjectHomepage(): JSX.Element {
                         <div className="flex items-center gap-2">
                             <LemonButton
                                 type="secondary"
-                                size={has3000 ? 'small' : undefined}
+                                size={is3000 ? 'small' : undefined}
                                 data-attr="project-home-change-dashboard"
                                 onClick={showSceneDashboardChoiceModal}
                             >
@@ -90,7 +95,7 @@ export function ProjectHomepage(): JSX.Element {
                             </LemonButton>
                         </div>
                     </div>
-                    <LemonDivider className={has3000 ? 'mt-3 mb-4' : 'my-4'} />
+                    <LemonDivider className={is3000 ? 'mt-3 mb-4' : 'my-4'} />
                     <Dashboard
                         id={currentTeam.primary_dashboard.toString()}
                         placement={DashboardPlacement.ProjectHomepage}

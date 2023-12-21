@@ -1,3 +1,5 @@
+import { Counter } from 'prom-client'
+
 import { Hub, PluginConfig, PluginLogEntryType } from '../../../types'
 
 type JobRunner = {
@@ -37,6 +39,12 @@ export function durationToMs(duration: number, unit: string): number {
     return durations[unit] * duration
 }
 
+const pluginJobEnqueueCounter = new Counter({
+    name: 'plugin_job_enqueue_total',
+    help: 'Count of plugin jobs enqueued',
+    labelNames: ['plugin_id'],
+})
+
 export function createJobs(server: Hub, pluginConfig: PluginConfig): Jobs {
     /**
      * Helper function to enqueue jobs to be executed by the jobs pool.
@@ -53,8 +61,7 @@ export function createJobs(server: Hub, pluginConfig: PluginConfig): Jobs {
                 pluginConfigId: pluginConfig.id,
                 pluginConfigTeam: pluginConfig.team_id,
             }
-            // TODO: port to Prometheus, once we have multi-process metrics collection (running in piscina worker here)
-            server.statsd?.increment('job_enqueue_attempt')
+            pluginJobEnqueueCounter.labels(String(pluginConfig.plugin?.id)).inc()
             await server.enqueuePluginJob(job)
         } catch (e) {
             await pluginConfig.vm?.createLogEntry(

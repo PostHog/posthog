@@ -6,6 +6,7 @@ import { IconAutocapture, IconKeyboard, IconPinFilled, IconSchedule } from 'lib/
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { colonDelimitedDuration } from 'lib/utils'
+import { Fragment } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
@@ -55,74 +56,118 @@ function RecordingDuration({
     )
 }
 
-function ActivityIndicators({
-    recording,
+interface GatheredProperty {
+    property: string
+    value: string | undefined
+    label: string | undefined
+    tooltipValue: string
+}
+
+const browserIconPropertyKeys = ['$geoip_country_code', '$browser', '$device_type', '$os']
+const mobileIconPropertyKeys = ['$geoip_country_code', '$device_type', '$os_name']
+
+export function gatherIconProperties(
+    recordingProperties: Record<string, any> | undefined,
+    recording?: SessionRecordingType
+): GatheredProperty[] {
+    const iconProperties =
+        recordingProperties && Object.keys(recordingProperties).length > 0
+            ? recordingProperties
+            : recording?.person?.properties || {}
+
+    const deviceType = iconProperties['$device_type'] || iconProperties['$initial_device_type']
+    const iconPropertyKeys = deviceType === 'Mobile' ? mobileIconPropertyKeys : browserIconPropertyKeys
+
+    return iconPropertyKeys.flatMap((property) => {
+        let value = iconProperties?.[property]
+        let label = value
+        if (property === '$device_type') {
+            value = iconProperties?.['$device_type'] || iconProperties?.['$initial_device_type']
+        }
+
+        let tooltipValue = value
+        if (property === '$geoip_country_code') {
+            tooltipValue = `${iconProperties?.['$geoip_country_name']} (${value})`
+            label = [iconProperties?.['$geoip_city_name'], iconProperties?.['$geoip_subdivision_1_code']]
+                .filter(Boolean)
+                .join(', ')
+        }
+        return { property, value, tooltipValue, label }
+    })
+}
+
+export interface PropertyIconsProps {
+    recordingProperties: GatheredProperty[]
+    loading?: boolean
+    onPropertyClick?: (property: string, value?: string) => void
+    iconClassnames?: string
+    showTooltip?: boolean
+    showLabel?: (key: string) => boolean
+}
+
+export function PropertyIcons({
+    recordingProperties,
+    loading,
     onPropertyClick,
     iconClassnames,
+    showTooltip = true,
+    showLabel = undefined,
+}: PropertyIconsProps): JSX.Element {
+    return (
+        <div className="flex flex-row flex-nowrap shrink-0 gap-1 h-6 ph-no-capture items-center">
+            {loading ? (
+                <LemonSkeleton className="w-18 h-4 my-1" />
+            ) : (
+                recordingProperties.map(({ property, value, tooltipValue, label }) => {
+                    return (
+                        <Fragment key={property}>
+                            <PropertyIcon
+                                onClick={(e) => {
+                                    if (e.altKey) {
+                                        e.stopPropagation()
+                                        onPropertyClick?.(property, value)
+                                    }
+                                }}
+                                className={iconClassnames}
+                                property={property}
+                                value={value}
+                                noTooltip={!showTooltip}
+                                tooltipTitle={() => (
+                                    <div className="text-center">
+                                        <code>Alt + Click</code> to filter for
+                                        <br />
+                                        <span className="font-medium">{tooltipValue ?? 'N/A'}</span>
+                                    </div>
+                                )}
+                            />
+                            {showLabel?.(property) && <span className="text-xs text-muted-alt">{label || value}</span>}
+                        </Fragment>
+                    )
+                })
+            )}
+        </div>
+    )
+}
+
+function ActivityIndicators({
+    recording,
+    ...props
 }: {
     recording: SessionRecordingType
     onPropertyClick?: (property: string, value?: string) => void
     iconClassnames: string
 }): JSX.Element {
     const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
-
     const recordingProperties = recordingPropertiesById[recording.id]
     const loading = !recordingProperties && recordingPropertiesLoading
-
-    const iconPropertyKeys = ['$geoip_country_code', '$browser', '$device_type', '$os']
-    const iconProperties =
-        recordingProperties && Object.keys(recordingProperties).length > 0
-            ? recordingProperties
-            : recording.person?.properties || {}
-
-    const propertyIcons = (
-        <div className="flex flex-row flex-nowrap shrink-0 gap-1 h-6 ph-no-capture">
-            {!loading ? (
-                iconPropertyKeys.map((property) => {
-                    let value = iconProperties?.[property]
-                    if (property === '$device_type') {
-                        value = iconProperties?.['$device_type'] || iconProperties?.['$initial_device_type']
-                    }
-
-                    let tooltipValue = value
-                    if (property === '$geoip_country_code') {
-                        tooltipValue = `${iconProperties?.['$geoip_country_name']} (${value})`
-                    }
-
-                    return (
-                        <PropertyIcon
-                            key={property}
-                            onClick={(e) => {
-                                if (e.altKey) {
-                                    e.stopPropagation()
-                                    onPropertyClick?.(property, value)
-                                }
-                            }}
-                            className={iconClassnames}
-                            property={property}
-                            value={value}
-                            tooltipTitle={() => (
-                                <div className="text-center">
-                                    <code>Alt + Click</code> to filter for
-                                    <br />
-                                    <span className="font-medium">{tooltipValue ?? 'N/A'}</span>
-                                </div>
-                            )}
-                        />
-                    )
-                })
-            ) : (
-                <LemonSkeleton className="w-18 h-4 my-1" />
-            )}
-        </div>
-    )
+    const iconProperties = gatherIconProperties(recordingProperties, recording)
 
     return (
         <div className="flex iems-center gap-2 text-xs text-muted-alt">
-            {propertyIcons}
+            <PropertyIcons recordingProperties={iconProperties} loading={loading} {...props} />
 
             <span
-                title={`Click count: ${recording.click_count}`}
+                title={`Mouse clicks: ${recording.click_count}`}
                 className="flex items-center gap-1  overflow-hidden shrink-0"
             >
                 <IconAutocapture />

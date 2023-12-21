@@ -1,8 +1,6 @@
-from posthog.test.base import (
-    APIBaseTest,
-)
-from posthog.warehouse.models import DataWarehouseViewLink, DataWarehouseSavedQuery
 from posthog.api.services.query import process_query
+from posthog.test.base import APIBaseTest
+from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseViewLink
 
 
 class TestViewLinkQuery(APIBaseTest):
@@ -218,8 +216,8 @@ class TestViewLinkQuery(APIBaseTest):
         self.assertEqual(
             query_response["types"],
             [
-                ("events__event_view.fake", "String"),
-                ("events__person_view.p_distinct_id", "String"),
+                ("fake", "String"),
+                ("p_distinct_id", "String"),
             ],
         )
 

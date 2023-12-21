@@ -1,6 +1,5 @@
 import {
     LemonButton,
-    LemonButtonWithSideAction,
     LemonDivider,
     LemonInput,
     LemonSelect,
@@ -12,6 +11,7 @@ import {
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
@@ -54,7 +54,6 @@ export function Surveys(): JSX.Element {
         surveysResponsesCountLoading,
         searchTerm,
         filters,
-        uniqueCreators,
         showSurveysDisabledBanner,
     } = useValues(surveysLogic)
 
@@ -71,7 +70,7 @@ export function Surveys(): JSX.Element {
                 title="Surveys"
                 buttons={
                     <>
-                        <LemonButtonWithSideAction
+                        <LemonButton
                             to={urls.surveyTemplates()}
                             type="primary"
                             data-attr="new-survey"
@@ -89,7 +88,7 @@ export function Surveys(): JSX.Element {
                             }}
                         >
                             New survey
-                        </LemonButtonWithSideAction>
+                        </LemonButton>
                     </>
                 }
                 caption={
@@ -106,6 +105,7 @@ export function Surveys(): JSX.Element {
                         to learn more.
                     </>
                 }
+                tabbedPage
             />
             <LemonTabs
                 activeKey={tab}
@@ -154,7 +154,7 @@ export function Surveys(): JSX.Element {
                 {!shouldShowEmptyState && (
                     <>
                         <div>
-                            <div className="flex justify-between mb-4">
+                            <div className="flex justify-between mb-4 gap-2 flex-wrap">
                                 <LemonInput
                                     type="search"
                                     placeholder="Search for surveys"
@@ -170,6 +170,7 @@ export function Surveys(): JSX.Element {
                                         onChange={(status) => {
                                             setSurveysFilters({ status })
                                         }}
+                                        size="small"
                                         options={[
                                             { label: 'Any', value: 'any' },
                                             { label: 'Draft', value: 'draft' },
@@ -181,12 +182,12 @@ export function Surveys(): JSX.Element {
                                     <span className="ml-1">
                                         <b>Created by</b>
                                     </span>
-                                    <LemonSelect
-                                        onChange={(user) => {
-                                            setSurveysFilters({ created_by: user })
-                                        }}
-                                        options={uniqueCreators}
-                                        value={filters.created_by}
+                                    <MemberSelect
+                                        size="small"
+                                        type="secondary"
+                                        defaultLabel="Any user"
+                                        value={filters.created_by ?? null}
+                                        onChange={(user) => setSurveysFilters({ created_by: user?.id })}
                                     />
                                 </div>
                             </div>

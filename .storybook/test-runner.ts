@@ -125,6 +125,7 @@ async function expectStoryToMatchSnapshot(
         document.body.classList.add('storybook-test-runner')
     })
     if (waitForLoadersToDisappear) {
+        // The timeout is reduced so that we never allow toasts – they usually signify something wrong
         await page.waitForSelector(LOADER_SELECTORS.join(','), { state: 'detached', timeout: 1000 })
     }
     if (waitForSelector) {

@@ -214,6 +214,20 @@ export function formatAggregationValue(
     return Array.isArray(formattedValue) ? formattedValue[0] : formattedValue
 }
 
+// NB! Sync this with breakdown.py
+export const BREAKDOWN_OTHER_STRING_LABEL = '$$_posthog_breakdown_other_$$'
+export const BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991 // pow(2, 53) - 1
+export const BREAKDOWN_NULL_STRING_LABEL = '$$_posthog_breakdown_null_$$'
+export const BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990 // pow(2, 53) - 2
+
+export function isOtherBreakdown(breakdown_value: string | number | null | undefined): boolean {
+    return breakdown_value === BREAKDOWN_OTHER_STRING_LABEL || breakdown_value === BREAKDOWN_OTHER_NUMERIC_LABEL
+}
+
+export function isNullBreakdown(breakdown_value: string | number | null | undefined): boolean {
+    return breakdown_value === BREAKDOWN_NULL_STRING_LABEL || breakdown_value === BREAKDOWN_NULL_NUMERIC_LABEL
+}
+
 export function formatBreakdownLabel(
     cohorts: CohortType[] | undefined,
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined,
@@ -249,11 +263,19 @@ export function formatBreakdownLabel(
         }
         return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name ?? (breakdown_value || '').toString()
     } else if (typeof breakdown_value == 'number') {
-        return formatPropertyValueForDisplay
+        return isOtherBreakdown(breakdown_value)
+            ? 'Other'
+            : isNullBreakdown(breakdown_value)
+            ? 'None'
+            : formatPropertyValueForDisplay
             ? formatPropertyValueForDisplay(breakdown, breakdown_value)?.toString() ?? 'None'
-            : breakdown_value.toString()
+            : String(breakdown_value)
     } else if (typeof breakdown_value == 'string') {
-        return breakdown_value === 'nan' ? 'Other' : breakdown_value === '' ? 'None' : breakdown_value
+        return isOtherBreakdown(breakdown_value) || breakdown_value === 'nan'
+            ? 'Other'
+            : isNullBreakdown(breakdown_value) || breakdown_value === ''
+            ? 'None'
+            : breakdown_value
     } else if (Array.isArray(breakdown_value)) {
         return breakdown_value.join('::')
     } else {
@@ -278,7 +300,7 @@ export function getResponseBytes(apiResponse: Response): number {
     return parseInt(apiResponse.headers.get('Content-Length') ?? '0')
 }
 
-export const insightTypeURL: Record<InsightType, string> = {
+export const insightTypeURL = (bi_viz_flag: boolean): Record<InsightType, string> => ({
     TRENDS: urls.insightNew({ insight: InsightType.TRENDS }),
     STICKINESS: urls.insightNew({ insight: InsightType.STICKINESS }),
     LIFECYCLE: urls.insightNew({ insight: InsightType.LIFECYCLE }),
@@ -286,8 +308,12 @@ export const insightTypeURL: Record<InsightType, string> = {
     RETENTION: urls.insightNew({ insight: InsightType.RETENTION }),
     PATHS: urls.insightNew({ insight: InsightType.PATHS }),
     JSON: urls.insightNew(undefined, undefined, JSON.stringify(examples.EventsTableFull)),
-    SQL: urls.insightNew(undefined, undefined, JSON.stringify(examples.HogQLTable)),
-}
+    SQL: urls.insightNew(
+        undefined,
+        undefined,
+        JSON.stringify(bi_viz_flag ? examples.DataVisualization : examples.HogQLTable)
+    ),
+})
 
 /** Combines a list of words, separating with the correct punctuation. For example: [a, b, c, d] -> "a, b, c, and d"  */
 export function concatWithPunctuation(phrases: string[]): string {

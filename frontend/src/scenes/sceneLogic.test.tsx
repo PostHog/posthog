@@ -54,7 +54,7 @@ describe('sceneLogic', () => {
 
     it('persists the loaded scenes', async () => {
         const expectedAnnotation = partial({
-            name: Scene.DataManagement,
+            id: Scene.DataManagement,
             component: expect.any(Function),
             logic: expect.any(Function),
             sceneParams: { hashParams: {}, params: {}, searchParams: {} },
@@ -62,7 +62,7 @@ describe('sceneLogic', () => {
         })
 
         const expectedSettings = partial({
-            name: Scene.Settings,
+            id: Scene.Settings,
             component: expect.any(Function),
             sceneParams: {
                 hashParams: {},

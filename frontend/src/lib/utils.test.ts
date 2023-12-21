@@ -4,6 +4,7 @@ import tk from 'timekeeper'
 import { ElementType, EventType, PropertyType, TimeUnitType } from '~/types'
 
 import {
+    areDatesValidForInterval,
     areObjectValuesEmpty,
     average,
     booleanOperatorMap,
@@ -23,6 +24,7 @@ import {
     eventToDescription,
     floorMsToClosestSecond,
     genericOperatorMap,
+    getDefaultInterval,
     getFormattedLastWeekDate,
     hexToRGBA,
     humanFriendlyDuration,
@@ -379,6 +381,72 @@ describe('dateStringToDayJs', () => {
 
         expect(dateStringToDayJs('0yStart')?.utc(true).toISOString()).toEqual('2012-01-01T00:00:00.000Z')
         expect(dateStringToDayJs('0yEnd')?.utc(true).toISOString()).toEqual('2012-12-31T23:59:59.999Z')
+    })
+})
+
+describe('getDefaultInterval', () => {
+    it('should return days for last 7 days', () => {
+        expect(getDefaultInterval('-7d', null)).toEqual('day')
+    })
+
+    it('should return hours for last 24 hours', () => {
+        expect(getDefaultInterval('-24h', null)).toEqual('hour')
+    })
+
+    it('should return days for month to date', () => {
+        expect(getDefaultInterval('mStart', null)).toEqual('day')
+    })
+
+    it('should return month for year to date', () => {
+        expect(getDefaultInterval('yStart', null)).toEqual('month')
+    })
+
+    it('should return month for all time', () => {
+        expect(getDefaultInterval('all', null)).toEqual('month')
+    })
+
+    it('should handle explicit dates 6 months apart', () => {
+        expect(getDefaultInterval('2023-10-01', '2023-04-01')).toEqual('month')
+    })
+    it('should handle explicit dates a month apart', () => {
+        expect(getDefaultInterval('2023-10-01', '2023-09-01')).toEqual('week')
+    })
+    it('should handle explicit dates a week apart', () => {
+        expect(getDefaultInterval('2023-10-01', '2023-09-25')).toEqual('day')
+    })
+    it('should handle explicit dates a day apart', () => {
+        expect(getDefaultInterval('2023-10-02', '2023-10-01')).toEqual('hour')
+    })
+    it('should handle explicit dates 12 hours apart', () => {
+        expect(getDefaultInterval('2023-10-01T18:00:00', '2023-10-01T6:00:00')).toEqual('hour')
+    })
+})
+
+describe('areDatesValidForInterval', () => {
+    it('should require interval to be month for all time', () => {
+        expect(areDatesValidForInterval('month', 'all', null)).toEqual(true)
+        expect(areDatesValidForInterval('week', 'all', null)).toEqual(false)
+        expect(areDatesValidForInterval('day', 'all', null)).toEqual(false)
+        expect(areDatesValidForInterval('hour', 'all', null)).toEqual(false)
+    })
+    it('should return false if the dates are one interval apart', () => {
+        expect(areDatesValidForInterval('day', '-24h', null)).toEqual(false)
+        expect(areDatesValidForInterval('week', '-7d', null)).toEqual(false)
+        expect(areDatesValidForInterval('day', '-1d', null)).toEqual(false)
+    })
+    it('should return true if the dates are two intervals apart', () => {
+        expect(areDatesValidForInterval('day', '-48h', null)).toEqual(true)
+        expect(areDatesValidForInterval('week', '-14d', null)).toEqual(true)
+        expect(areDatesValidForInterval('day', '-2d', null)).toEqual(true)
+    })
+    it('should return false for hourly if over 2 weeks', () => {
+        expect(areDatesValidForInterval('hour', '-15d', null)).toEqual(false)
+    })
+    it('should support explicit dates', () => {
+        expect(areDatesValidForInterval('month', '2023-08-01', '2023-11-01')).toEqual(true)
+        expect(areDatesValidForInterval('week', '2023-10-01', '2023-11-01')).toEqual(true)
+        expect(areDatesValidForInterval('day', '2023-10-16', '2023-11-01')).toEqual(true)
+        expect(areDatesValidForInterval('hour', '2023-11-01T12', '2023-11-01T18')).toEqual(true)
     })
 })
 

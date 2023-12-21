@@ -15,19 +15,18 @@ import {
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { humanFriendlyDetailedTime } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { urls } from 'scenes/urls'
 
-import { PipelineAppTabs, PipelineTabs, PluginConfigTypeNew, PluginType, ProductKey } from '~/types'
+import { PipelineAppTabs, PipelineTabs, PluginConfigTypeNew, ProductKey } from '~/types'
 
 import { NewButton } from './NewButton'
 import { pipelineTransformationsLogic } from './transformationsLogic'
+import { RenderApp } from './utils'
 
 export function Transformations(): JSX.Element {
     const {
@@ -131,11 +130,6 @@ export function Transformations(): JSX.Element {
                             {
                                 title: 'Status',
                                 render: function RenderStatus(_, pluginConfig) {
-                                    // We're not very good at cleaning up the errors, so let's not show it if more than 7 days have passed
-                                    const days_since_error = pluginConfig.error
-                                        ? dayjs().diff(dayjs(pluginConfig.error.time), 'day')
-                                        : null
-                                    const show_error: boolean = !(days_since_error && days_since_error < 7)
                                     return (
                                         <>
                                             {pluginConfig.enabled ? (
@@ -146,30 +140,6 @@ export function Transformations(): JSX.Element {
                                                 <LemonTag type="default" className="uppercase">
                                                     Disabled
                                                 </LemonTag>
-                                            )}
-                                            {pluginConfig.error && show_error && (
-                                                <>
-                                                    <br />
-                                                    <Tooltip
-                                                        title={
-                                                            <>
-                                                                Click to see logs.
-                                                                <br />
-                                                                {humanFriendlyDetailedTime(
-                                                                    pluginConfig.error.time
-                                                                )}: {pluginConfig.error.message}
-                                                            </>
-                                                        }
-                                                    >
-                                                        <Link
-                                                            to={urls.pipelineApp(pluginConfig.id, PipelineAppTabs.Logs)}
-                                                        >
-                                                            <LemonTag type="danger" className="uppercase">
-                                                                Error
-                                                            </LemonTag>
-                                                        </Link>
-                                                    </Tooltip>
-                                                </>
                                             )}
                                         </>
                                     )
@@ -290,32 +260,6 @@ export function Transformations(): JSX.Element {
     )
 }
 
-type RenderAppProps = {
-    plugin: PluginType
-}
-
-function RenderApp({ plugin }: RenderAppProps): JSX.Element {
-    return (
-        <div className="flex items-center gap-4">
-            <Tooltip
-                title={
-                    <>
-                        {plugin.name}
-                        <br />
-                        {plugin.description}
-                        <br />
-                        Click to view app source code
-                    </>
-                }
-            >
-                <Link to={plugin.url} target="_blank">
-                    <PluginImage plugin={plugin} />
-                </Link>
-            </Tooltip>
-        </div>
-    )
-}
-
 function ReorderModal(): JSX.Element {
     const { reorderModalOpen, sortedEnabledPluginConfigs, temporaryOrder, pluginConfigsLoading } =
         useValues(pipelineTransformationsLogic)
@@ -390,6 +334,7 @@ const MinimalAppView = ({ pluginConfig, order }: { pluginConfig: PluginConfigTyp
         <div
             ref={setNodeRef}
             className="flex gap-2 cursor-move border rounded p-2 items-center bg-bg-light"
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
                 position: 'relative',
                 transform: CSS.Transform.toString(transform),

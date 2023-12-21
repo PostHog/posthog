@@ -869,6 +869,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 "result": people,
                 "next": next_url,
                 "missing_persons": raw_count - len(people),
+                "filters": filter.to_dict(),
             }
         )
 

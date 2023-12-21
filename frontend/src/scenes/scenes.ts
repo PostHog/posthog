@@ -1,6 +1,6 @@
 import { combineUrl } from 'kea-router'
 import { dayjs } from 'lib/dayjs'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getDefaultEventsSceneQuery } from 'scenes/events/defaults'
 import { LoadedScene, Params, Scene, SceneConfig } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -15,23 +15,33 @@ export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
 export const preloadedScenes: Record<string, LoadedScene> = {
     [Scene.Error404]: {
-        name: Scene.Error404,
+        id: Scene.Error404,
         component: Error404Component,
         sceneParams: emptySceneParams,
     },
     [Scene.ErrorNetwork]: {
-        name: Scene.ErrorNetwork,
+        id: Scene.ErrorNetwork,
         component: ErrorNetworkComponent,
         sceneParams: emptySceneParams,
     },
     [Scene.ErrorProjectUnavailable]: {
-        name: Scene.ErrorProjectUnavailable,
+        id: Scene.ErrorProjectUnavailable,
         component: ErrorProjectUnavailableComponent,
         sceneParams: emptySceneParams,
     },
 }
 
-export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
+export const sceneConfigurations: Record<Scene, SceneConfig> = {
+    [Scene.Error404]: {
+        name: 'Not found',
+        projectBased: true,
+    },
+    [Scene.ErrorNetwork]: {
+        name: 'Network error',
+    },
+    [Scene.ErrorProjectUnavailable]: {
+        name: 'Project unavailable',
+    },
     // Project-based routes
     [Scene.Dashboards]: {
         projectBased: true,
@@ -282,6 +292,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.Notebook]: {
         projectBased: true,
+        hideProjectNotice: true, // Currently doesn't render well...
         name: 'Notebook',
         layout: 'app-raw',
     },

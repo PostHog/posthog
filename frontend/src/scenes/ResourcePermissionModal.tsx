@@ -183,7 +183,7 @@ export function ResourcePermission({
                 <>
                     <h5 className="mt-4">Roles</h5>
                     {roles.length > 0 ? (
-                        <div className="pb-2 rounded overflow-y-auto" style={{ maxHeight: 300 }}>
+                        <div className="pb-2 rounded overflow-y-auto max-h-80">
                             {roles.map((role) => {
                                 return (
                                     <RoleRow

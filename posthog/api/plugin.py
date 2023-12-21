@@ -852,3 +852,24 @@ class PipelineTransformationsConfigsViewSet(PluginConfigViewSet):
         return queryset.filter(
             Q(plugin__capabilities__has_key="methods") & Q(plugin__capabilities__methods__contains=["processEvent"])
         )
+
+
+class PipelineDestinationsViewSet(PluginViewSet):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.filter(
+            Q(capabilities__has_key="methods")
+            & (Q(capabilities__methods__contains=["onEvent"]) | Q(capabilities__methods__contains=["composeWebhook"]))
+        )
+
+
+class PipelineDestinationsConfigsViewSet(PluginConfigViewSet):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.filter(
+            Q(plugin__capabilities__has_key="methods")
+            & (
+                Q(plugin__capabilities__methods__contains=["onEvent"])
+                | Q(plugin__capabilities__methods__contains=["composeWebhook"])
+            )
+        )

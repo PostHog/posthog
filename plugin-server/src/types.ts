@@ -2,7 +2,6 @@ import { ReaderModel } from '@maxmind/geoip2-node'
 import ClickHouse from '@posthog/clickhouse'
 import {
     Element,
-    Meta,
     PluginAttachment,
     PluginConfigSchema,
     PluginEvent,
@@ -13,7 +12,6 @@ import {
     Webhook,
 } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
-import { StatsD } from 'hot-shots'
 import { Redis } from 'ioredis'
 import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
@@ -32,7 +30,6 @@ import { TeamManager } from './worker/ingestion/team-manager'
 import { PluginsApiKeyManager } from './worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './worker/vm/extensions/helpers/root-acess-manager'
 import { LazyPluginVM } from './worker/vm/lazy'
-import { PromiseManager } from './worker/vm/promise-manager'
 
 export { Element } from '@posthog/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
 
@@ -79,6 +76,7 @@ export enum PluginServerMode {
     scheduler = 'scheduler',
     analytics_ingestion = 'analytics-ingestion',
     recordings_blob_ingestion = 'recordings-blob-ingestion',
+    person_overrides = 'person-overrides',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -153,9 +151,6 @@ export interface PluginsServerConfig {
     SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: number // Rate of tracing in plugin server (between 0 and 1)
     SENTRY_PLUGIN_SERVER_PROFILING_SAMPLE_RATE: number // Rate of profiling in plugin server (between 0 and 1)
     HTTP_SERVER_PORT: number
-    STATSD_HOST: string | null
-    STATSD_PORT: number
-    STATSD_PREFIX: string
     SCHEDULE_LOCK_TTL: number // how many seconds to hold the lock for the schedule
     DISABLE_MMDB: boolean // whether to disable fetching MaxMind database for IP location
     DISTINCT_ID_LRU_SIZE: number
@@ -193,10 +188,6 @@ export interface PluginsServerConfig {
     PLUGIN_SERVER_MODE: PluginServerMode | null
     PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
-    HISTORICAL_EXPORTS_ENABLED: boolean // enables historical exports for export apps
-    HISTORICAL_EXPORTS_MAX_RETRY_COUNT: number
-    HISTORICAL_EXPORTS_INITIAL_FETCH_TIME_WINDOW: number
-    HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER: number
     APP_METRICS_GATHERED_FOR_ALL: boolean // whether to gather app metrics for all teams
     MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
     USE_KAFKA_FOR_SCHEDULED_TASKS: boolean // distribute scheduled tasks across the scheduler workers
@@ -208,7 +199,11 @@ export interface PluginsServerConfig {
     DROP_EVENTS_BY_TOKEN_DISTINCT_ID: string
     DROP_EVENTS_BY_TOKEN: string
     POE_EMBRACE_JOIN_FOR_TEAMS: string
+    POE_DEFERRED_WRITES_ENABLED: boolean
+    POE_DEFERRED_WRITES_USE_FLAT_OVERRIDES: boolean
     RELOAD_PLUGIN_JITTER_MAX_MS: number
+    RUSTY_HOOK_FOR_TEAMS: string
+    RUSTY_HOOK_URL: string
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
 
     // dump profiles to disk, covering the first N seconds of runtime
@@ -229,6 +224,9 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_PARTITION_REVOKE_OPTIMIZATION: boolean
     SESSION_RECORDING_PARALLEL_CONSUMPTION: boolean
     SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: boolean
+    // a single partition which will output many more log messages to the console
+    // useful when that partition is lagging unexpectedly
+    SESSION_RECORDING_DEBUG_PARTITION: string | undefined
 
     // Dedicated infra values
     SESSION_RECORDING_KAFKA_HOSTS: string | undefined
@@ -244,7 +242,7 @@ export interface Hub extends PluginsServerConfig {
     instanceId: UUID
     // what tasks this server will tackle - e.g. ingestion, scheduled plugins or others.
     capabilities: PluginServerCapabilities
-    // active connections to Postgres, Redis, ClickHouse, Kafka, StatsD
+    // active connections to Postgres, Redis, ClickHouse, Kafka
     db: DB
     postgres: PostgresRouter
     redisPool: GenericPool<Redis>
@@ -253,7 +251,6 @@ export interface Hub extends PluginsServerConfig {
     kafkaProducer: KafkaProducerWrapper
     objectStorage: ObjectStorage
     // metrics
-    statsd?: StatsD
     pluginMetricsJob: Job | undefined
     // currently enabled plugin status
     plugins: Map<PluginId, Plugin>
@@ -268,7 +265,6 @@ export interface Hub extends PluginsServerConfig {
     organizationManager: OrganizationManager
     pluginsApiKeyManager: PluginsApiKeyManager
     rootAccessManager: RootAccessManager
-    promiseManager: PromiseManager
     eventsProcessor: EventsProcessor
     appMetrics: AppMetrics
     // geoip database, setup in workers
@@ -283,6 +279,7 @@ export interface Hub extends PluginsServerConfig {
     // ValueMatchers used for various opt-in/out features
     pluginConfigsToSkipElementsParsing: ValueMatcher<number>
     poeEmbraceJoinForTeams: ValueMatcher<number>
+    rustyHookForTeams: ValueMatcher<number>
     // lookups
     eventsToDropByToken: Map<string, string[]>
 }
@@ -298,6 +295,7 @@ export interface PluginServerCapabilities {
     processAsyncOnEventHandlers?: boolean
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
+    personOverrides?: boolean
     transpileFrontendApps?: boolean // TODO: move this away from pod startup, into a graphile job
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     http?: boolean
@@ -490,7 +488,6 @@ export type VMMethods = {
     teardownPlugin?: () => Promise<void>
     getSettings?: () => PluginSettings
     onEvent?: (event: ProcessedPluginEvent) => Promise<void>
-    exportEvents?: (events: PluginEvent[]) => Promise<void>
     composeWebhook?: (event: PostHogEvent) => Webhook | null
     processEvent?: (event: PluginEvent) => Promise<PluginEvent>
 }
@@ -523,12 +520,7 @@ export interface PluginConfigVMResponse {
     methods: VMMethods
     tasks: Record<PluginTaskType, Record<string, PluginTask>>
     vmResponseVariable: string
-}
-
-export interface PluginConfigVMInternalResponse<M extends Meta = Meta> {
-    methods: VMMethods
-    tasks: Record<PluginTaskType, Record<string, PluginTask>>
-    meta: M
+    usedImports: Set<string>
 }
 
 export interface EventUsage {

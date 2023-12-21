@@ -2,16 +2,20 @@ import './Navigation.scss'
 
 import clsx from 'clsx'
 import { useMountedLogic, useValues } from 'kea'
+import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
 import { CommandPalette } from 'lib/components/CommandPalette/CommandPalette'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import posthog from 'posthog-js'
 import { ReactNode, useEffect } from 'react'
 import { SceneConfig } from 'scenes/sceneTypes'
 
-import { Breadcrumbs } from './components/Breadcrumbs'
+import { navigationLogic } from '../navigation/navigationLogic'
+import { ProjectNotice } from '../navigation/ProjectNotice'
 import { MinimalNavigation } from './components/MinimalNavigation'
 import { Navbar } from './components/Navbar'
 import { Sidebar } from './components/Sidebar'
+import { TopBar } from './components/TopBar'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
 import { themeLogic } from './themeLogic'
@@ -24,11 +28,14 @@ export function Navigation({
     sceneConfig: SceneConfig | null
 }): JSX.Element {
     useMountedLogic(themeLogic)
+    const { mobileLayout } = useValues(navigationLogic)
     const { activeNavbarItem, mode } = useValues(navigation3000Logic)
 
     useEffect(() => {
         // FIXME: Include debug notice in a non-obstructing way
         document.getElementById('bottom-notice')?.remove()
+        // TODO: Unflag Notebooks once the 3000 experiment is over
+        posthog.updateEarlyAccessFeatureEnrollment(FEATURE_FLAGS.NOTEBOOKS, true)
     }, [])
 
     if (mode !== 'full') {
@@ -41,13 +48,14 @@ export function Navigation({
     }
 
     return (
-        <div className="Navigation3000">
+        <div className={clsx('Navigation3000', mobileLayout && 'Navigation3000--mobile')}>
             <Navbar />
             <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000_NAV}>
                 {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
             </FlaggedFeature>
             <main>
-                <Breadcrumbs />
+                <TopBar />
+
                 <div
                     className={clsx(
                         'Navigation3000__scene',
@@ -55,10 +63,12 @@ export function Navigation({
                         sceneConfig?.layout === 'app-raw' && 'Navigation3000__scene--raw'
                     )}
                 >
+                    <BillingAlertsV2 />
+                    {!sceneConfig?.hideProjectNotice && <ProjectNotice />}
                     {children}
                 </div>
             </main>
-            <SidePanel />
+            {!mobileLayout && <SidePanel />}
             <CommandPalette />
         </div>
     )

@@ -4,7 +4,7 @@ import { actions, connect, kea, listeners, path, props, reducers, selectors } fr
 import { forms } from 'kea-forms'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
 import posthog from 'posthog-js'
@@ -62,13 +62,14 @@ export const TARGET_AREA_TO_NAME = {
     data_management: 'Data Management',
     data_warehouse: 'Data Warehouse',
     ingestion: 'Event Ingestion',
-    experiments: 'Experiments',
+    experiments: 'A/B Testing',
     feature_flags: 'Feature Flags',
     analytics: 'Product Analytics (Insights, Dashboards, Annotations)',
     session_replay: 'Session Replay (Recordings)',
-    toolbar: 'Toolbar & heatmaps',
+    toolbar: 'Toolbar & Heatmaps',
     surveys: 'Surveys',
     web_analytics: 'Web Analytics',
+    'posthog-3000': 'PostHog 3000',
 }
 
 export const SUPPORT_KIND_TO_SUBJECT = {
@@ -135,9 +136,10 @@ export const supportLogic = kea<supportLogicType>([
         actions: [sidePanelStateLogic, ['openSidePanel', 'setSidePanelOptions']],
     })),
     actions(() => ({
-        closeSupportForm: () => true,
+        closeSupportForm: true,
         openSupportForm: (values: Partial<SupportFormFields>) => values,
         submitZendeskTicket: (form: SupportFormFields) => form,
+        updateUrlParams: true,
     })),
     reducers(() => ({
         isSupportFormOpen: [
@@ -185,6 +187,16 @@ export const supportLogic = kea<supportLogicType>([
         ],
     }),
     listeners(({ actions, props, values }) => ({
+        updateUrlParams: async () => {
+            const panelOptions = [
+                values.sendSupportRequest.kind ?? '',
+                values.sendSupportRequest.target_area ?? '',
+            ].join(':')
+
+            if (panelOptions !== ':') {
+                actions.setSidePanelOptions(panelOptions)
+            }
+        },
         openSupportForm: async ({ name, email, kind, target_area, message }) => {
             const area = target_area ?? getURLPathToTargetArea(window.location.pathname)
             kind = kind ?? 'support'
@@ -202,6 +214,8 @@ export const supportLogic = kea<supportLogicType>([
             } else {
                 openSupportModal()
             }
+
+            actions.updateUrlParams()
         },
         submitZendeskTicket: async ({ name, email, kind, target_area, message }) => {
             const zendesk_ticket_uuid = uuid()
@@ -285,6 +299,10 @@ export const supportLogic = kea<supportLogicType>([
         closeSupportForm: () => {
             props.onClose?.()
         },
+
+        setSendSupportRequestValue: () => {
+            actions.updateUrlParams()
+        },
     })),
 
     urlToAction(({ actions, values }) => ({
@@ -316,31 +334,10 @@ export const supportLogic = kea<supportLogicType>([
             }
         },
     })),
-    actionToUrl(({ values, actions }) => {
-        const updateUrl = (): any => {
-            const hashParams = router.values.hashParams
-            const panelOptions = [
-                values.sendSupportRequest.kind ?? '',
-                values.sendSupportRequest.target_area ?? '',
-            ].join(':')
-
-            if (panelOptions !== ':') {
-                if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
-                    actions.setSidePanelOptions(panelOptions)
-                    return
-                } else {
-                    // Legacy values
-                    hashParams['supportModal'] = `support:${panelOptions}`
-                }
-            }
-
-            return [router.values.location.pathname, router.values.searchParams, hashParams]
-        }
+    actionToUrl(({ values }) => {
         return {
-            openSupportForm: () => updateUrl(),
-            setSendSupportRequestValue: () => updateUrl(),
             closeSupportForm: () => {
-                if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000]) {
+                if (values.featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test') {
                     return
                 }
 

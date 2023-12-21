@@ -1,5 +1,7 @@
 from django.contrib.auth.models import AbstractBaseUser
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
+from rest_framework import exceptions
+from sentry_sdk import capture_exception
 
 from posthog.models.user import User
 from posthog.tasks.email import send_email_verification
@@ -20,7 +22,13 @@ class EmailVerifier:
     @staticmethod
     def create_token_and_send_email_verification(user: User) -> None:
         token = email_verification_token_generator.make_token(user)
-        send_email_verification.delay(user.pk, token)
+        try:
+            send_email_verification(user.pk, token)
+        except Exception as e:
+            capture_exception(Exception(f"Verification email failed: {e}"))
+            raise exceptions.APIException(
+                detail="Could not send email verification email. Please try again by logging in with your email and password."
+            )
 
     @staticmethod
     def check_token(user: User, token: str) -> bool:

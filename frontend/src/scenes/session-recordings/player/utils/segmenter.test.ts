@@ -1,10 +1,12 @@
 import { dayjs } from 'lib/dayjs'
 import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
-import { sortedRecordingSnapshots } from 'scenes/session-recordings/__mocks__/recording_snapshots'
+import {
+    convertSnapshotsResponse,
+    sortedRecordingSnapshots,
+} from 'scenes/session-recordings/__mocks__/recording_snapshots'
 
 import { RecordingSnapshot } from '~/types'
 
-import { convertSnapshotsResponse } from '../sessionRecordingDataLogic'
 import { createSegments } from './segmenter'
 
 describe('segmenter', () => {

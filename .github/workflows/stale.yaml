@@ -23,5 +23,6 @@ jobs:
                   close-pr-message: "This PR was closed due to lack of activity. Feel free to reopen if it's still relevant."
                   stale-pr-label: stale
                   remove-pr-stale-when-updated: true
+                  exempt-pr-labels: 'waiting'
                   operations-per-run: 250
                   repo-token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}

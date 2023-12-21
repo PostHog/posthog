@@ -3,7 +3,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import posthog from 'posthog-js'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
@@ -11,18 +11,12 @@ import { getConfigSchemaArray, getConfigSchemaObject, getPluginConfigFormData } 
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { PersonalAPIKeyType, PluginConfigType, PluginType } from '~/types'
+import { PersonalAPIKeyType, PluginConfigType, PluginInstallationType, PluginType } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import { canGloballyManagePlugins, canInstallPlugins } from './access'
 import type { pluginsLogicType } from './pluginsLogicType'
-import {
-    PluginInstallationType,
-    PluginRepositoryEntry,
-    PluginTab,
-    PluginTypeWithConfig,
-    PluginUpdateStatusType,
-} from './types'
+import { PluginRepositoryEntry, PluginTab, PluginTypeWithConfig, PluginUpdateStatusType } from './types'
 
 export type PluginForm = FormInstance
 

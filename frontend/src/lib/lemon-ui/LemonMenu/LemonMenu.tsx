@@ -78,7 +78,6 @@ export interface LemonMenuProps
             | 'closeParentPopoverOnClickInside'
             | 'className'
             | 'onClickOutside'
-            | 'getPopupContainer'
         >,
         LemonMenuOverlayProps {
     /** Must support `ref` and `onKeyDown` for keyboard navigation. */
@@ -131,7 +130,7 @@ export function LemonMenuOverlay({ items, tooltipPlacement, itemsRef }: LemonMen
     const { featureFlags } = useValues(featureFlagLogic)
     const sectionsOrItems = useMemo(() => normalizeItems(items), [items])
 
-    const buttonSize = featureFlags[FEATURE_FLAGS.POSTHOG_3000] ? 'small' : 'medium'
+    const buttonSize = featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test' ? 'small' : 'medium'
 
     return sectionsOrItems.length > 0 && isLemonMenuSection(sectionsOrItems[0]) ? (
         <LemonMenuSectionList

@@ -1,5 +1,3 @@
-import './LemonSelect.scss'
-
 import clsx from 'clsx'
 import React, { useMemo } from 'react'
 
@@ -63,6 +61,7 @@ export interface LemonSelectPropsBase<T>
         | 'aria-label'
         | 'onClick'
         | 'tabIndex'
+        | 'type'
     > {
     options: LemonSelectOptions<T>
     /** Callback fired when a value is selected, even if it already is set. */
@@ -73,7 +72,7 @@ export interface LemonSelectPropsBase<T>
     dropdownPlacement?: PopoverProps['placement']
     className?: string
     placeholder?: string
-    size?: 'small' | 'medium'
+    size?: LemonButtonProps['size']
     menu?: Pick<LemonMenuProps, 'className' | 'closeParentPopoverOnClickInside'>
 }
 
@@ -83,6 +82,7 @@ export interface LemonSelectPropsClearable<T> extends LemonSelectPropsBase<T> {
     value?: T | null
     /** Callback fired when a value different from the one currently set is selected. */
     onChange?: (newValue: T | null) => void
+    renderButtonContent?: (leaf: LemonSelectOptionLeaf<T | null> | undefined) => string | JSX.Element
 }
 
 export interface LemonSelectPropsNonClearable<T> extends LemonSelectPropsBase<T> {
@@ -91,6 +91,7 @@ export interface LemonSelectPropsNonClearable<T> extends LemonSelectPropsBase<T>
     value?: T
     /** Callback fired when a value different from the one currently set is selected. */
     onChange?: (newValue: T) => void
+    renderButtonContent?: (leaf: LemonSelectOptionLeaf<T | null> | undefined) => string | JSX.Element
 }
 
 export type LemonSelectProps<T> = LemonSelectPropsClearable<T> | LemonSelectPropsNonClearable<T>
@@ -108,6 +109,7 @@ export function LemonSelect<T extends string | number | boolean | null>({
     allowClear = false,
     className,
     menu,
+    renderButtonContent,
     ...buttonProps
 }: LemonSelectProps<T>): JSX.Element {
     const [items, allLeafOptions] = useMemo(
@@ -139,30 +141,30 @@ export function LemonSelect<T extends string | number | boolean | null>({
             closeParentPopoverOnClickInside={menu?.closeParentPopoverOnClickInside}
         >
             <LemonButton
-                className={clsx(className, isClearButtonShown && 'LemonSelect--clearable')}
+                className={clsx(className, 'LemonSelect')}
                 icon={activeLeaf?.icon}
-                // so that the pop-up isn't shown along with the close button
-                sideIcon={isClearButtonShown ? <></> : undefined}
                 type="secondary"
                 status="stealth"
+                sideAction={
+                    isClearButtonShown
+                        ? {
+                              icon: <IconClose />,
+                              divider: false,
+                              onClick: () => {
+                                  onChange?.(null as T)
+                              },
+                          }
+                        : null
+                }
                 {...buttonProps}
             >
-                <span>
-                    {activeLeaf ? activeLeaf.label : value ?? <span className="text-muted">{placeholder}</span>}
+                <span className="flex flex-1">
+                    {renderButtonContent
+                        ? renderButtonContent(activeLeaf)
+                        : activeLeaf
+                        ? activeLeaf.label
+                        : value ?? <span className="text-muted">{placeholder}</span>}
                 </span>
-                {isClearButtonShown && (
-                    <LemonButton
-                        className="LemonSelect--button--clearable"
-                        type="tertiary"
-                        status="stealth"
-                        noPadding
-                        icon={<IconClose />}
-                        tooltip="Clear selection"
-                        onClick={() => {
-                            onChange?.(null as T)
-                        }}
-                    />
-                )}
             </LemonButton>
         </LemonMenu>
     )

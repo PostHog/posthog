@@ -9,6 +9,7 @@ interface IconWithCountProps {
     count: number
     showZero?: boolean
     status?: LemonBadgeProps['status']
+    className?: string
 }
 
 export function IconWithCount({
@@ -16,9 +17,10 @@ export function IconWithCount({
     children,
     showZero,
     status = 'primary',
+    className,
 }: PropsWithChildren<IconWithCountProps>): JSX.Element {
     return (
-        <span className="relative inline-flex">
+        <span className={clsx('relative inline-flex', className)}>
             {children}
             <LemonBadge.Number count={count} size="small" position="top-right" showZero={showZero} status={status} />
         </span>
@@ -936,15 +938,6 @@ export function IconRecording(props: LemonIconProps): JSX.Element {
                 d="m10 8v8l5-4zm9-5h-14c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-14c0-1.1-.9-2-2-2zm0 16h-14v-14h14z"
                 fill="currentColor"
             />
-        </LemonIconBase>
-    )
-}
-
-/** Material Design Arrow Drop Down icon. */
-export function IconArrowDropDown(props: LemonIconProps): JSX.Element {
-    return (
-        <LemonIconBase {...props}>
-            <path d="m7 10 5 5 5-5z" fill="currentColor" />
         </LemonIconBase>
     )
 }

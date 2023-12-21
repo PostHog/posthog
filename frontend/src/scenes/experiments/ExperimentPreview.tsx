@@ -123,8 +123,8 @@ export function ExperimentPreview({
                                     value={minimumDetectableChange}
                                     min={1}
                                     max={sliderMaxValue}
-                                    trackStyle={{ background: 'var(--primary)' }}
-                                    handleStyle={{ background: 'var(--primary)' }}
+                                    trackStyle={{ background: 'var(--primary-3000)' }}
+                                    handleStyle={{ background: 'var(--primary-3000)' }}
                                     onChange={(value) => {
                                         setExperiment({
                                             parameters: {
@@ -463,9 +463,11 @@ export function MetricDisplay({ filters }: { filters?: FilterType }): JSX.Elemen
                                 />
                             </b>
                         </div>
-                        {event.properties?.map((prop: AnyPropertyFilter) => (
-                            <PropertyFilterButton key={prop.key} item={prop} />
-                        ))}
+                        <div className="space-y-1">
+                            {event.properties?.map((prop: AnyPropertyFilter) => (
+                                <PropertyFilterButton key={prop.key} item={prop} />
+                            ))}
+                        </div>
                     </div>
                 ))}
         </>

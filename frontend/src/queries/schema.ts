@@ -51,6 +51,7 @@ export enum NodeKind {
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
+    DataVisualizationNode = 'DataVisualizationNode',
     SavedInsightNode = 'SavedInsightNode',
     InsightVizNode = 'InsightVizNode',
 
@@ -98,6 +99,7 @@ export type QuerySchema =
     | AnyDataNode
 
     // Interface nodes
+    | DataVisualizationNode
     | DataTableNode
     | SavedInsightNode
     | InsightVizNode
@@ -257,6 +259,10 @@ export interface EventsQueryResponse {
     hogql: string
     hasMore?: boolean
     timings?: QueryTiming[]
+    /** @asType integer */
+    limit: number
+    /** @asType integer */
+    offset: number
 }
 export interface EventsQueryPersonColumn {
     uuid: string
@@ -341,6 +347,28 @@ export interface DataTableNode extends Node, DataTableNodeViewProps {
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
     hiddenColumns?: HogQLExpression[]
+}
+
+export interface GoalLine {
+    label: string
+    value: number
+}
+
+export interface ChartAxis {
+    column: string
+}
+
+interface ChartSettings {
+    xAxis?: ChartAxis
+    yAxis?: ChartAxis[]
+    goalLines?: GoalLine[]
+}
+
+export interface DataVisualizationNode extends Node {
+    kind: NodeKind.DataVisualizationNode
+    source: HogQLQuery
+    display?: ChartDisplayType
+    chartSettings?: ChartSettings
 }
 
 interface DataTableNodeViewProps {
@@ -440,7 +468,10 @@ export interface InsightsQueryBase extends Node {
     filterTestAccounts?: boolean
     /** Property filters for all series */
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
-    /** Groups aggregation */
+    /**
+     * Groups aggregation
+     * @asType integer
+     **/
     aggregation_group_type_index?: number
     /** Sampling rate */
     samplingFactor?: number | null
@@ -498,10 +529,27 @@ export interface FunnelsQuery extends InsightsQueryBase {
 
 /** `RetentionFilterType` minus everything inherited from `FilterType` */
 export type RetentionFilter = Omit<RetentionFilterType, keyof FilterType>
+
+export interface RetentionValue {
+    /** @asType integer */
+    count: number
+}
+
+export interface RetentionResult {
+    values: RetentionValue[]
+    label: string
+    /** @format date-time */
+    date: string
+}
+
+export interface RetentionQueryResponse extends QueryResponse {
+    results: RetentionResult[]
+}
 export interface RetentionQuery extends InsightsQueryBase {
     kind: NodeKind.RetentionQuery
+    response?: RetentionQueryResponse
     /** Properties specific to the retention insight */
-    retentionFilter?: RetentionFilter
+    retentionFilter: RetentionFilter
 }
 
 /** `PathsFilterType` minus everything inherited from `FilterType` and persons modal related params */
@@ -590,6 +638,12 @@ export interface PersonsQueryResponse {
     hogql: string
     timings?: QueryTiming[]
     hasMore?: boolean
+    /** @asType integer */
+    limit: number
+    /** @asType integer */
+    offset: number
+    /** @asType integer */
+    missing_actors_count?: number
 }
 
 export interface PersonsQuery extends DataNode {
@@ -600,7 +654,9 @@ export interface PersonsQuery extends DataNode {
     properties?: AnyPropertyFilter[]
     fixedProperties?: AnyPropertyFilter[]
     orderBy?: string[]
+    /** @asType integer */
     limit?: number
+    /** @asType integer */
     offset?: number
     response?: PersonsQueryResponse
 }
@@ -670,6 +726,7 @@ export enum WebStatsBreakdown {
     Page = 'Page',
     InitialPage = 'InitialPage',
     // ExitPage = 'ExitPage'
+    InitialChannelType = 'InitialChannelType',
     InitialReferringDomain = 'InitialReferringDomain',
     InitialUTMSource = 'InitialUTMSource',
     InitialUTMCampaign = 'InitialUTMCampaign',
@@ -687,6 +744,7 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebStatsTableQuery
     breakdownBy: WebStatsBreakdown
     response?: WebStatsTableQueryResponse
+    includeScrollDepth?: boolean
 }
 export interface WebStatsTableQueryResponse extends QueryResponse {
     results: unknown[]
@@ -723,6 +781,11 @@ export interface InsightPersonsQuery {
     source: InsightQueryNode
     day?: string
     status?: string
+    /**
+     * An interval selected out of available intervals in source query
+     * @asType integer
+     */
+    interval?: number
     // TODO: add breakdowns
     // TODO: add fields for other insights (funnels dropdown, compare_previous choice, etc)
     response?: PersonsQueryResponse
@@ -803,11 +866,13 @@ export interface DateRange {
 export interface BreakdownFilter {
     // TODO: unclutter
     breakdown_type?: BreakdownType | null
+    breakdown_limit?: number
     breakdown?: BreakdownKeyType
     breakdown_normalize_url?: boolean
     breakdowns?: Breakdown[]
     breakdown_group_type_index?: number | null
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
+    breakdown_hide_other_aggregation?: boolean | null // hides the "other" field for trends
 }
 
 export interface DashboardFilter {

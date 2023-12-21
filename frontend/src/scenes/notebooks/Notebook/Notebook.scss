@@ -4,6 +4,12 @@
     flex-direction: column;
     width: 100%;
 
+    // overriding ::selection is necessary here because
+    // antd makes it invisible otherwise
+    span::selection {
+        color: var(--primary-3000);
+    }
+
     .NotebookEditor {
         position: relative;
         flex: 1;
@@ -41,10 +47,18 @@
 
             > ol {
                 list-style-type: decimal;
+
+                ol {
+                    list-style-type: lower-alpha;
+                }
             }
 
             > ul {
                 list-style-type: disc;
+
+                ul {
+                    list-style-type: circle;
+                }
             }
 
             > ul[data-type='taskList'] {
@@ -79,6 +93,11 @@
             > ol {
                 padding-left: 1rem;
 
+                ul,
+                ol {
+                    padding-left: 1rem;
+                }
+
                 li {
                     p {
                         margin-bottom: 0.2rem;
@@ -104,7 +123,7 @@
 
         .Backlink {
             padding: 0.125rem 0.25rem;
-            background-color: var(--white);
+            background-color: var(--bg-light);
             border: 1px solid var(--border);
             border-radius: var(--radius);
 
@@ -113,12 +132,11 @@
             }
 
             & svg {
-                color: var(--muted-dark);
+                color: var(--text-3000);
             }
 
             &.Backlink--selected {
-                outline-style: solid;
-                outline-color: var(--primary-bg-active);
+                border-color: var(--primary-3000);
             }
 
             &.Backlink--active {
@@ -128,6 +146,10 @@
 
                 & .Backlink__label,
                 & svg {
+                    color: var(--white);
+                }
+
+                span::selection {
                     color: var(--white);
                 }
             }
@@ -262,12 +284,6 @@
     .NotebookMention {
         display: inline-flex;
         max-height: 22px;
-    }
-
-    // overriding ::selection is necessary here because
-    // antd makes it invisible otherwise
-    span::selection {
-        color: var(--primary-3000);
     }
 
     // Overrides for insight controls

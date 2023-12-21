@@ -236,39 +236,28 @@ class _Printer(Visitor):
             next_join = next_join.next_join
 
         if node.select:
-            # Only for ClickHouse: Gather all visible aliases, and/or the last hidden alias for
-            # each unique alias name. Then make the last hidden aliases visible.
             if self.dialect == "clickhouse":
-                visible_aliases = {}
+                # Gather all visible aliases, and/or the last hidden alias for each unique alias name.
+                found_aliases = {}
                 for alias in reversed(node.select):
                     if isinstance(alias, ast.Alias):
-                        if not visible_aliases.get(alias.alias, None) or not alias.hidden:
-                            visible_aliases[alias.alias] = alias
+                        if not found_aliases.get(alias.alias, None) or not alias.hidden:
+                            found_aliases[alias.alias] = alias
 
                 columns = []
                 for column in node.select:
                     if isinstance(column, ast.Alias):
-                        # It's either a visible alias, or the last hidden alias for this name.
-                        if visible_aliases.get(column.alias) == column:
+                        # It's either a visible alias, or the last hidden alias with this name.
+                        if found_aliases.get(column.alias) == column:
                             if column.hidden:
-                                if (
-                                    isinstance(column.expr, ast.Field)
-                                    and isinstance(column.expr.type, ast.FieldType)
-                                    and column.expr.type.name == column.alias
-                                ):
-                                    # Hide the hidden alias only if it's a simple field,
-                                    # and we're using the same name for the field and the alias
-                                    # E.g. events.event AS event --> events.evnet.
-                                    column = column.expr
-                                else:
-                                    # Make the hidden alias visible
-                                    column = cast(ast.Alias, clone_expr(column))
-                                    column.hidden = False
+                                # Make the hidden alias visible
+                                column = cast(ast.Alias, clone_expr(column))
+                                column.hidden = False
                             else:
                                 # Always print visible aliases.
                                 pass
                         else:
-                            # This is not the alias for this unique alias name. Skip it.
+                            # Non-unique hidden alias. Skip.
                             column = column.expr
                     columns.append(self.visit(column))
             else:
@@ -838,6 +827,29 @@ class _Printer(Visitor):
             else:
                 return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
         elif node.name in HOGQL_POSTHOG_FUNCTIONS:
+            func_meta = HOGQL_POSTHOG_FUNCTIONS[node.name]
+            validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
+            args = [self.visit(arg) for arg in node.args]
+
+            if self.dialect in ("hogql", "clickhouse"):
+                if node.name == "hogql_lookupDomainType":
+                    return f"dictGetOrNull('channel_definition_dict', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source'))"
+                elif node.name == "hogql_lookupPaidDomainType":
+                    return f"dictGetOrNull('channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source'))"
+                elif node.name == "hogql_lookupPaidSourceType":
+                    return (
+                        f"dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce({args[0]}, ''), 'source'))"
+                    )
+                elif node.name == "hogql_lookupPaidMediumType":
+                    return (
+                        f"dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce({args[0]}, ''), 'medium'))"
+                    )
+                elif node.name == "hogql_lookupOrganicDomainType":
+                    return f"dictGetOrNull('channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source'))"
+                elif node.name == "hogql_lookupOrganicSourceType":
+                    return f"dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'source'))"
+                elif node.name == "hogql_lookupOrganicMediumType":
+                    return f"dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
             raise HogQLException(f"Unexpected unresolved HogQL function '{node.name}(...)'")
         else:
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)

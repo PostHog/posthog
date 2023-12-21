@@ -75,6 +75,18 @@ export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicPr
     matchingEventsMatchType?: MatchingEventsMatchType
 }
 
+const PostHogMobileEvents = [
+    'Deep Link Opened',
+    'Application Opened',
+    'Application Backgrounded',
+    'Application Updated',
+    'Application Installed',
+]
+
+function isPostHogEvent(item: InspectorListItemEvent): boolean {
+    return item.data.event.startsWith('$') || PostHogMobileEvents.includes(item.data.event)
+}
+
 export const playerInspectorLogic = kea<playerInspectorLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playerInspectorLogic', key]),
     props({} as PlayerInspectorLogicProps),
@@ -201,8 +213,13 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             }
                             seenCache.add(cacheKey)
 
-                            if (logs[logs.length - 1]?.content === content) {
-                                logs[logs.length - 1].count += 1
+                            const lastLogLine = logs[logs.length - 1]
+                            if (lastLogLine?.content === content) {
+                                if (lastLogLine.count === undefined) {
+                                    lastLogLine.count = 1
+                                } else {
+                                    lastLogLine.count += 1
+                                }
                                 return
                             }
 
@@ -240,7 +257,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
                 // and then do the filtering of what items are shown, elsewhere
                 // ALSO: We could move the individual filtering logic into the MiniFilters themselves
+                // WARNING: Be careful of dayjs functions - they can be slow due to the size of the loop.
                 const items: InspectorListItem[] = []
+
+                const startMs = start?.valueOf() ?? 0
 
                 // PERFORMANCE EVENTS
                 const performanceEventsArr = performanceEvents || []
@@ -270,7 +290,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     items.push({
                         type: SessionRecordingPlayerTab.NETWORK,
                         timestamp,
-                        timeInRecording: timestamp.diff(start, 'ms'),
+                        timeInRecording: timestamp.valueOf() - startMs,
                         search: event.name || '',
                         data: event,
                         highlightColor: responseStatus >= 400 ? 'danger' : undefined,
@@ -284,7 +304,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     items.push({
                         type: SessionRecordingPlayerTab.CONSOLE,
                         timestamp,
-                        timeInRecording: timestamp.diff(start, 'ms'),
+                        timeInRecording: timestamp.valueOf() - startMs,
                         search: event.content,
                         data: event,
                         highlightColor:
@@ -310,7 +330,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     items.push({
                         type: SessionRecordingPlayerTab.EVENTS,
                         timestamp,
-                        timeInRecording: timestamp.diff(start, 'ms'),
+                        timeInRecording: timestamp.valueOf() - startMs,
                         search: search,
                         data: event,
                         highlightColor: isMatchingEvent
@@ -323,7 +343,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 }
 
                 // NOTE: Native JS sorting is relatively slow here - be careful changing this
-                items.sort((a, b) => (a.timestamp.isAfter(b.timestamp) ? 1 : -1))
+                items.sort((a, b) => (a.timestamp.valueOf() > b.timestamp.valueOf() ? 1 : -1))
 
                 return items
             },
@@ -360,20 +380,20 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         if (miniFiltersByKey['events-all']?.enabled || miniFiltersByKey['all-everything']?.enabled) {
                             include = true
                         }
-                        if (miniFiltersByKey['events-posthog']?.enabled && item.data.event.startsWith('$')) {
+                        if (miniFiltersByKey['events-posthog']?.enabled && isPostHogEvent(item)) {
                             include = true
                         }
                         if (
                             (miniFiltersByKey['events-custom']?.enabled ||
                                 miniFiltersByKey['all-automatic']?.enabled) &&
-                            !item.data.event.startsWith('$')
+                            !isPostHogEvent(item)
                         ) {
                             include = true
                         }
                         if (
                             (miniFiltersByKey['events-pageview']?.enabled ||
                                 miniFiltersByKey['all-automatic']?.enabled) &&
-                            ['$pageview', 'screen'].includes(item.data.event)
+                            ['$pageview', '$screen'].includes(item.data.event)
                         ) {
                             include = true
                         }

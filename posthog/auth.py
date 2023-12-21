@@ -14,7 +14,10 @@ from rest_framework.request import Request
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.jwt import PosthogJwtAudience, decode_jwt
-from posthog.models.personal_api_key import hash_key_value
+from posthog.models.personal_api_key import (
+    hash_key_value,
+    PERSONAL_API_KEY_ITERATIONS_TO_TRY,
+)
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from django.contrib.auth.models import AnonymousUser
@@ -65,22 +68,36 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         return key_with_source[0] if key_with_source is not None else None
 
     @classmethod
-    def authenticate(cls, request: Union[HttpRequest, Request]) -> Optional[Tuple[Any, None]]:
+    def validate_key(cls, personal_api_key_with_source):
         from posthog.models import PersonalAPIKey
 
+        personal_api_key, source = personal_api_key_with_source
+        personal_api_key_object = None
+
+        for iterations in PERSONAL_API_KEY_ITERATIONS_TO_TRY:
+            secure_value = hash_key_value(personal_api_key, iterations=iterations)
+            try:
+                personal_api_key_object = (
+                    PersonalAPIKey.objects.select_related("user")
+                    .filter(user__is_active=True)
+                    .get(secure_value=secure_value)
+                )
+                break
+            except PersonalAPIKey.DoesNotExist:
+                pass
+
+        if not personal_api_key_object:
+            raise AuthenticationFailed(detail=f"Personal API key found in request {source} is invalid.")
+
+        return personal_api_key_object
+
+    @classmethod
+    def authenticate(cls, request: Union[HttpRequest, Request]) -> Optional[Tuple[Any, None]]:
         personal_api_key_with_source = cls.find_key_with_source(request)
         if not personal_api_key_with_source:
             return None
-        personal_api_key, source = personal_api_key_with_source
-        secure_value = hash_key_value(personal_api_key)
-        try:
-            personal_api_key_object = (
-                PersonalAPIKey.objects.select_related("user")
-                .filter(user__is_active=True)
-                .get(secure_value=secure_value)
-            )
-        except PersonalAPIKey.DoesNotExist:
-            raise AuthenticationFailed(detail=f"Personal API key found in request {source} is invalid.")
+
+        personal_api_key_object = cls.validate_key(personal_api_key_with_source)
 
         now = timezone.now()
         key_last_used_at = personal_api_key_object.last_used_at
