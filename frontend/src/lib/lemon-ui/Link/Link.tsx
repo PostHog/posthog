@@ -85,7 +85,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         })
 
         // NOTE: Temporarily disabled - owner @corywatilo
-        // const { openDocsPage } = useActions(sidePanelDocsLogic)
+        // const { openSidePanel } = useActions(sidePanelStateLogic)
 
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
             if (event.metaKey || event.ctrlKey) {
@@ -103,7 +103,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             // NOTE: Temporarily disabled - owner @corywatilo
             // if (typeof to === 'string' && isPostHogComDocs(to)) {
             //     event.preventDefault()
-            //     openDocsPage(to)
+            //     openSidePanel(SidePanelTab.Docs, to)
             //     return
             // }
 
