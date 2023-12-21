@@ -489,7 +489,13 @@ def prop_filter_json_extract(
 
         params = {
             "k{}_{}".format(prepend, idx): prop.key,
-            "v{}_{}".format(prepend, idx): prop.value,
+            # we follow re2 regex syntax and so does ClickHouse **except**
+            # For example, the string a\nb shouldn't match the pattern a.b, but it does in CH
+            # this is because According to the re2 docs, the s flag is false by default,
+            # but in CH it seems to be true by default.
+            # prepending (?-s) to the regex string will make it work as expected
+            # see https://github.com/ClickHouse/ClickHouse/issues/34603
+            "v{}_{}".format(prepend, idx): f"(?-s){prop.value}",
         }
 
         return (
