@@ -44,7 +44,7 @@ async function startDownload(query: DataTableNode, onlySelectedColumns: boolean)
             )
         } else if (isPersonsNode(query.source)) {
             exportContext['columns'] = exportContext['columns'].map((c: string) =>
-                removeExpressionComment(c) === 'person' ? 'properties.email' : c
+                removeExpressionComment(c) === 'person' ? 'email' : c
             )
         }
     }
