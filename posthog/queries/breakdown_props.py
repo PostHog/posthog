@@ -50,7 +50,7 @@ def get_breakdown_prop_values(
     column_optimizer: Optional[ColumnOptimizer] = None,
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
     use_all_funnel_entities: bool = False,
-) -> Tuple[List[str], bool]:
+) -> Tuple[List[Any], bool]:
     """
     Returns the top N breakdown prop values for event/person breakdown
 
