@@ -1,5 +1,5 @@
 import { Link } from '@posthog/lemon-ui'
-import { Button, Progress } from 'antd'
+import { Progress } from 'antd'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { IconPlayCircle, IconRefresh, IconReplay } from 'lib/lemon-ui/icons'
@@ -151,13 +151,13 @@ export function AsyncMigrations(): JSX.Element {
                 <div>
                     {status === AsyncMigrationStatus.NotStarted || status === AsyncMigrationStatus.FailedAtStartup ? (
                         <Tooltip title="Start">
-                            <Button
-                                type="link"
+                            <LemonButton
+                                size="small"
                                 icon={<IconPlayCircle />}
                                 onClick={() => triggerMigration(asyncMigration)}
                             >
                                 Run
-                            </Button>
+                            </LemonButton>
                         </Tooltip>
                     ) : status === AsyncMigrationStatus.Starting || status === AsyncMigrationStatus.Running ? (
                         <More
