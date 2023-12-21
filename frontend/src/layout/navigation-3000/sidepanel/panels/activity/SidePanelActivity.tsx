@@ -11,6 +11,7 @@ import {
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLog'
+import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
@@ -84,14 +85,17 @@ export const SidePanelActivity = (): JSX.Element => {
         { value: null, label: 'All activity' },
         ...Object.values(ActivityScope).map((x) => ({
             value: x,
-            label: x as string,
+            label: humanizeScope(x),
         })),
     ]
 
     const activeScopeMenuOption = filters?.scope ? filters.scope + `${filters.item_id ?? ''}` : null
 
     if (filters?.item_id && activeScopeMenuOption) {
-        scopeMenuOptions.unshift({ value: activeScopeMenuOption as any, label: `This ${filters.scope}` })
+        scopeMenuOptions.unshift({
+            value: activeScopeMenuOption as any,
+            label: `This ${humanizeScope(filters.scope, true)}`,
+        })
     }
     return (
         <div className="flex flex-col overflow-hidden flex-1">

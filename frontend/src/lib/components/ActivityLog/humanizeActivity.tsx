@@ -116,3 +116,19 @@ export function userNameForLogItem(logItem: ActivityLogItem): string {
     }
     return logItem.user?.first_name ?? 'A user'
 }
+
+const NO_PLURAL_SCOPES: ActivityScope[] = [
+    ActivityScope.DATA_MANAGEMENT,
+    ActivityScope.EVENT_DEFINITION,
+    ActivityScope.PROPERTY_DEFINITION,
+]
+
+export function humanizeScope(scope: ActivityScope, singular = false): string {
+    let output = scope.split(/(?=[A-Z])/).join(' ')
+
+    if (!singular && !NO_PLURAL_SCOPES.includes(scope)) {
+        output += 's'
+    }
+
+    return output
+}

@@ -1,5 +1,6 @@
 import { LemonButton, LemonTextAreaMarkdown } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { useEffect } from 'react'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -13,11 +14,7 @@ export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
 
     const placeholder = replyingCommentId
         ? 'Reply...'
-        : props.scope !== 'Misc'
-        ? `Comment on ${props.item_id ? 'this ' : ''}${props.scope}`
-        : props.item_id
-        ? `Comment on ${props.item_id}`
-        : `Comment`
+        : `Comment on ${props.item_id ? 'this ' : ''}${humanizeScope(props.scope, !!props.item_id)}`
 
     useEffect(() => {
         // Whenever the discussion context changes or we fully unmount we clear the item context

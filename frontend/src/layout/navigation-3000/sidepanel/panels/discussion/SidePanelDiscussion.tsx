@@ -1,5 +1,6 @@
 import { IconChat } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { WarningHog } from 'lib/components/hedgehogs'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { useEffect } from 'react'
@@ -57,7 +58,7 @@ export const SidePanelDiscussion = (): JSX.Element => {
                         Discussion{' '}
                         {commentsLogicProps ? (
                             <span className="font-normal text-muted-alt">
-                                about {item_id ? 'this' : ''} {scope}
+                                about {item_id ? 'this' : ''} {humanizeScope(scope, !!item_id)}
                             </span>
                         ) : null}
                     </>
