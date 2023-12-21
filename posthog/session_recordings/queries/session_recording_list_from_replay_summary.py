@@ -118,7 +118,7 @@ class LogQuery:
 
     @staticmethod
     def _get_console_log_clause(
-        console_logs_filter: List[Literal["error", "warn", "log"]]
+        console_logs_filter: List[Literal["error", "warn", "log"]],
     ) -> Tuple[str, Dict[str, Any]]:
         return (
             (
@@ -425,6 +425,7 @@ class SessionIdEventsQuery(EventQuery):
                 ],
             ),
             person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
+            allow_denormalized_props=False,
         )
 
         (
