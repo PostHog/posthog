@@ -440,7 +440,7 @@ class TrendsBreakdown:
         return params, breakdown_filter, breakdown_filter_params, "value"
 
     def _breakdown_prop_params(self, aggregate_operation: str, math_params: Dict):
-        values_arr = get_breakdown_prop_values(
+        values_arr, has_more_values = get_breakdown_prop_values(
             self.filter,
             self.entity,
             aggregate_operation,
@@ -490,7 +490,7 @@ class TrendsBreakdown:
 
         return (
             {
-                "values": values_arr,
+                "values": [*values_arr, breakdown_other_value] if has_more_values else values_arr,
                 "breakdown_other_value": breakdown_other_value,
                 "breakdown_null_value": breakdown_null_value,
             },
