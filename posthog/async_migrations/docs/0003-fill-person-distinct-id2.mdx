@@ -1,0 +1,24 @@
+---
+title: Migration guide - 0003_fill_person_distinct_id2
+---
+
+
+[`0002_fill_distinct_id2`](https://github.com/PostHog/posthog/blob/master/posthog/async_migrations/migrations/0003_fill_person_distinct_id2.py) is an async migration added to migrate the data from the old `person_distinct_id` table to the new `person_distinct_id2` table.
+
+This is needed for faster `person_distinct_id` queries as the old schema worked off of (`distinct_id`, `person_id`) pairs, making it expensive for our analytics queries, which need to map from `distinct_id` to the latest `person_id`. 
+
+The new schema works off of `distinct_id` columns, leveraging `ReplacingMergeTrees` with a version column we store in postgres.
+
+We migrate teams one-by-one to avoid running out of memory.
+
+The migration strategy:
+    1. Write any new updates to both tables
+    2. Insert all non-deleted (`team_id`, `distinct_id`, `person_id`) rows from `person_distinct_id` into `person_distinct_id2` (this migration)
+    3. Once migration has run, we only read/write from/to pdi2.
+
+## FAQ
+
+### Is it dangerous for this migration to be in an errored state?
+
+No, the migration copies data to the new table, but that new table is not used until the migration has successfully completed.
+
