@@ -4,7 +4,7 @@ use axum::{
     body::Body, extract::MatchedPath, http::Request, middleware::Next, response::IntoResponse,
     routing::get, Router,
 };
-use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
+use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 
 /// Bind a TcpListener on the provided bind address to serve metrics on it.
 pub async fn serve_metrics(bind: &str) -> Result<(), std::io::Error> {
