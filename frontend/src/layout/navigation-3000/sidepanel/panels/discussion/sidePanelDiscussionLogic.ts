@@ -6,7 +6,6 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CommentsLogicProps } from 'scenes/comments/commentsLogic'
-import { routesAsRegexes } from 'scenes/scenes'
 
 import { ActivityScope } from '~/types'
 
@@ -16,9 +15,7 @@ import type { sidePanelDiscussionLogicType } from './sidePanelDiscussionLogicTyp
 // If there is no item_id, we should (maybe) base it on the URL instead, with the downside of that being that URLs can change...
 // Alternatively we can only allow discussion on items that have an item_id, but that's not great either...
 
-const urlToCommentsLogicProps = (path: string, searchParams: Record<string, any>): CommentsLogicProps => {
-    console.log(routesAsRegexes, path, searchParams)
-
+const urlToCommentsLogicProps = (path: string): CommentsLogicProps => {
     return {
         scope: ActivityScope.MISC,
         item_id: path,
@@ -59,7 +56,7 @@ export const sidePanelDiscussionLogic = kea<sidePanelDiscussionLogicType>([
         commentsLogicProps: [
             () => [router.selectors.currentLocation],
             (location): CommentsLogicProps => {
-                return urlToCommentsLogicProps(location.pathname, location.searchParams)
+                return urlToCommentsLogicProps(location.pathname)
             },
         ],
     }),
