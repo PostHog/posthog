@@ -263,7 +263,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
         sceneConfig: (sceneConfig) => {
             // TODO: Parse sceneConfig into scope and item_id
             const filters = activityFiltersForScene(sceneConfig)
-            if (sceneConfig?.activityScope) {
+            if (filters) {
                 actions.setFilters({ ...values.filters, ...filters })
             }
         },
@@ -274,12 +274,8 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
 
         const sceneConfig = values.sceneConfig
         const filters = activityFiltersForScene(sceneConfig)
-        if (sceneConfig?.activityScope) {
+        if (filters) {
             actions.setFilters({ ...values.filters, ...filters })
-        }
-
-        if (values.sceneConfig?.activityScope) {
-            actions.setFilters({ ...values.filters, scope: values.sceneConfig.activityScope })
         }
     }),
 
