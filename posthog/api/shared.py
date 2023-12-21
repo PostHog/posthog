@@ -20,13 +20,11 @@ class UserBasicSerializer(serializers.ModelSerializer):
             "uuid",
             "distinct_id",
             "first_name",
+            "last_name",
             "name",
             "email",
             "is_email_verified",
         ]
-
-    def get_name(self, instance: User) -> bool:
-        return instance.first_name if not instance.last_name else f"{instance.first_name} {instance.last_name}"
 
 
 class TeamBasicSerializer(serializers.ModelSerializer):

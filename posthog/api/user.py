@@ -90,6 +90,7 @@ class UserSerializer(serializers.ModelSerializer):
             "uuid",
             "distinct_id",
             "first_name",
+            "last_name",
             "name",
             "email",
             "pending_email",
@@ -123,9 +124,6 @@ class UserSerializer(serializers.ModelSerializer):
 
     def get_has_password(self, instance: User) -> bool:
         return instance.has_usable_password()
-
-    def get_name(self, instance: User) -> bool:
-        return instance.first_name if not instance.last_name else f"{instance.first_name} {instance.last_name}"
 
     def get_is_impersonated(self, _) -> Optional[bool]:
         if "request" not in self.context:
