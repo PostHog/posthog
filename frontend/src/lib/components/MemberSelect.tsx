@@ -1,5 +1,6 @@
 import { LemonButton, LemonButtonProps, LemonDropdown, LemonInput, ProfilePicture } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { fullName } from 'lib/utils'
 import { useMemo, useState } from 'react'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
@@ -79,17 +80,11 @@ export function MemberSelect({
                                     fullWidth
                                     role="menuitem"
                                     size="small"
-                                    icon={
-                                        <ProfilePicture
-                                            size="md"
-                                            name={member.user.first_name}
-                                            email={member.user.email}
-                                        />
-                                    }
+                                    icon={<ProfilePicture size="md" user={member.user} />}
                                     onClick={() => _onChange(member.user)}
                                 >
                                     <span className="flex items-center justify-between gap-2 flex-1">
-                                        <span>{member.user.first_name}</span>
+                                        <span>{fullName(member.user)}</span>
                                         <span className="text-muted-alt">
                                             {meFirstMembers[0] === member && `(you)`}
                                         </span>
@@ -112,7 +107,7 @@ export function MemberSelect({
                     selectedMember
                 ) : selectedMember ? (
                     <span>
-                        {selectedMember.first_name}
+                        {fullName(selectedMember)}
                         {meFirstMembers[0].user.uuid === selectedMember.uuid ? ` (you)` : ''}
                     </span>
                 ) : (
