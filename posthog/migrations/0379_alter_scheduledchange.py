@@ -24,7 +24,7 @@ class Migration(migrations.Migration):
             name="scheduled_at",
             field=models.DateTimeField(db_index=True),
         ),
-        migrations.AddIndex(
+        migrations.AddIndexConcurrently(
             model_name="scheduledchange",
             index=models.Index(fields=["scheduled_at", "executed_at"], name="posthog_sch_schedul_c3687e_idx"),
         ),
