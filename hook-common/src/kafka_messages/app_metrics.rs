@@ -155,8 +155,8 @@ where
                         &s,
                         &[
                             "Connection Error",
-                            "Timeout",
-                            "HTTP Status: <status>",
+                            "Timeout Error",
+                            "Bad HTTP Status: <status>",
                             "Parse Error",
                         ],
                     ))
