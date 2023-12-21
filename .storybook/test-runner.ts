@@ -167,7 +167,7 @@ async function expectStoryToMatchSceneSnapshot(
     browser: SupportedBrowserName,
     theme: SnapshotTheme
 ): Promise<void> {
-    await expectLocatorToMatchStorySnapshot(page.locator('.Navigation3000__scene'), context, browser, theme)
+    await expectLocatorToMatchStorySnapshot(page.locator('main'), context, browser, theme)
 }
 
 async function expectStoryToMatchComponentSnapshot(

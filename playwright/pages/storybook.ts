@@ -24,7 +24,7 @@ export class StorybookStoryPage {
 
     constructor(page: Page) {
         this.page = page
-        this.mainAppContent = page.locator('.Navigation3000__scene')
+        this.mainAppContent = page.locator('main')
         this.storyRoot = page.locator('#storybook-root')
     }
 
