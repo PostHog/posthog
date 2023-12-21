@@ -57,8 +57,7 @@ function NotebooksChoiceList(props: {
                             sideIcon={
                                 notebook.created_by ? (
                                     <ProfilePicture
-                                        name={notebook.created_by?.first_name}
-                                        email={notebook.created_by?.email}
+                                        user={notebook.created_by}
                                         size="md"
                                         title={`Created by ${notebook.created_by?.first_name} <${notebook.created_by?.email}>`}
                                     />

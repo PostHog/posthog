@@ -144,7 +144,7 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
                         className="border rounded-lg border-dashed flex items-center gap-2 px-2 py-1"
                         data-attr="top-navigation-whoami"
                     >
-                        <ProfilePicture name={user.first_name} email={user.email} />
+                        <ProfilePicture user={user} />
                         <div className="">
                             <div className="font-bold">{user.first_name}</div>
                             <div>{user.organization?.name}</div>
