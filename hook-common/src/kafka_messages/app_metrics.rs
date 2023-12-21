@@ -144,9 +144,9 @@ where
         Some(s) => {
             let error_type = match &s[..] {
                 "Connection Error" => ErrorType::ConnectionError,
-                "Timeout" => ErrorType::TimeoutError,
-                _ if s.starts_with("HTTP Status:") => {
-                    let status = &s["HTTP Status:".len()..];
+                "Timeout Error" => ErrorType::TimeoutError,
+                _ if s.starts_with("Bad HTTP Status:") => {
+                    let status = &s["Bad HTTP Status:".len()..];
                     ErrorType::BadHttpStatus(status.parse().map_err(serde::de::Error::custom)?)
                 }
                 "Parse Error" => ErrorType::ParseError,
