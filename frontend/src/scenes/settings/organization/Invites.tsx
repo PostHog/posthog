@@ -62,7 +62,7 @@ export function Invites(): JSX.Element {
         {
             key: 'user_profile_picture',
             render: function ProfilePictureRender(_, invite) {
-                return <ProfilePicture name={invite.first_name} email={invite.target_email} />
+                return <ProfilePicture user={{ first_name: invite.first_name, email: invite.target_email }} />
             },
             width: 32,
         },
