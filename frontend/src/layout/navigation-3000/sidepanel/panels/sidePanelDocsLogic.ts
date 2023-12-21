@@ -85,8 +85,6 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
     })),
 
     afterMount(({ actions, values }) => {
-        console.log('MOUNTING!', values.sceneConfig?.defaultDocsPath)
-
         if (values.sceneConfig?.defaultDocsPath) {
             actions.setInitialPath(values.sceneConfig?.defaultDocsPath)
         }

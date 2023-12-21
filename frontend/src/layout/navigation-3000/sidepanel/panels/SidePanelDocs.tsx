@@ -1,4 +1,4 @@
-import { IconExternal } from '@posthog/icons'
+import { IconExternal, IconHome } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -131,6 +131,21 @@ export const SidePanelDocs = (): JSX.Element => {
     return (
         <>
             <SidePanelPaneHeader>
+                <LemonButton
+                    size="small"
+                    sideIcon={<IconHome />}
+                    type="secondary"
+                    onClick={() => {
+                        ref.current?.contentWindow?.postMessage(
+                            {
+                                type: 'navigate',
+                                url: '/docs',
+                            },
+                            '*'
+                        )
+                    }}
+                />
+
                 {menu && <Menu menu={menu} activeMenuName={activeMenuName} onChange={handleMenuChange} />}
                 <LemonButton
                     size="small"
