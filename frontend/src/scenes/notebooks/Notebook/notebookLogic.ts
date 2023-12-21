@@ -72,11 +72,8 @@ export const notebookLogic = kea<notebookLogicType>([
             notebooksModel,
             ['scratchpadNotebook', 'notebookTemplates'],
             commentsLogic({
-                scope: ActivityScope.MISC,
-                item_id: urls.notebook(props.shortId),
-                // TODO: Change to below once the side panel is correct
-                // scope: ActivityScope.NOTEBOOK,
-                // item_id: props.shortId,
+                scope: ActivityScope.NOTEBOOK,
+                item_id: props.shortId,
             }),
             ['comments'],
         ],
@@ -86,11 +83,8 @@ export const notebookLogic = kea<notebookLogicType>([
             sidePanelStateLogic,
             ['openSidePanel'],
             commentsLogic({
-                scope: ActivityScope.MISC,
-                item_id: urls.notebook(props.shortId),
-                // TODO: Change to below once the side panel is correct
-                // scope: ActivityScope.NOTEBOOK,
-                // item_id: props.shortId,
+                scope: ActivityScope.NOTEBOOK,
+                item_id: props.shortId,
             }),
             ['setItemContext', 'sendComposedContentSuccess'],
         ],
