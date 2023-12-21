@@ -110,21 +110,18 @@ mod tests {
     };
     use hook_common::pgqueue::PgQueue;
     use hook_common::webhook::{HttpMethod, WebhookJobParameters};
-    use http_body_util::BodyExt; // for `collect`
+    use http_body_util::BodyExt;
+    use sqlx::PgPool; // for `collect`
     use std::collections;
     use tower::ServiceExt; // for `call`, `oneshot`, and `ready`
 
     use crate::handlers::app;
 
-    #[tokio::test]
-    async fn webhook_success() {
-        let pg_queue = PgQueue::new(
-            "test_index",
-            "job_queue",
-            "postgres://posthog:posthog@localhost:15432/test_database",
-        )
-        .await
-        .expect("failed to construct pg_queue");
+    #[sqlx::test(migrations = "../migrations")]
+    async fn webhook_success(db: PgPool) {
+        let pg_queue = PgQueue::new_from_pool("test_index", "job_queue", db)
+            .await
+            .expect("failed to construct pg_queue");
 
         let app = app(pg_queue, None);
 
@@ -145,9 +142,9 @@ mod tests {
                                 body: r#"{"a": "b"}"#.to_owned(),
                             },
                             metadata: WebhookJobMetadata {
-                                team_id: Some(1),
-                                plugin_id: Some(2),
-                                plugin_config_id: Some(3),
+                                team_id: 1,
+                                plugin_id: 2,
+                                plugin_config_id: 3,
                             },
                             max_attempts: 1,
                         })
@@ -164,15 +161,11 @@ mod tests {
         assert_eq!(&body[..], b"{}");
     }
 
-    #[tokio::test]
-    async fn webhook_bad_url() {
-        let pg_queue = PgQueue::new(
-            "test_index",
-            "job_queue",
-            "postgres://posthog:posthog@localhost:15432/test_database",
-        )
-        .await
-        .expect("failed to construct pg_queue");
+    #[sqlx::test(migrations = "../migrations")]
+    async fn webhook_bad_url(db: PgPool) {
+        let pg_queue = PgQueue::new_from_pool("test_index", "job_queue", db)
+            .await
+            .expect("failed to construct pg_queue");
 
         let app = app(pg_queue, None);
 
@@ -191,9 +184,9 @@ mod tests {
                                 body: r#"{"a": "b"}"#.to_owned(),
                             },
                             metadata: WebhookJobMetadata {
-                                team_id: Some(1),
-                                plugin_id: Some(2),
-                                plugin_config_id: Some(3),
+                                team_id: 1,
+                                plugin_id: 2,
+                                plugin_config_id: 3,
                             },
                             max_attempts: 1,
                         })
@@ -207,15 +200,11 @@ mod tests {
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
-    #[tokio::test]
-    async fn webhook_payload_missing_fields() {
-        let pg_queue = PgQueue::new(
-            "test_index",
-            "job_queue",
-            "postgres://posthog:posthog@localhost:15432/test_database",
-        )
-        .await
-        .expect("failed to construct pg_queue");
+    #[sqlx::test(migrations = "../migrations")]
+    async fn webhook_payload_missing_fields(db: PgPool) {
+        let pg_queue = PgQueue::new_from_pool("test_index", "job_queue", db)
+            .await
+            .expect("failed to construct pg_queue");
 
         let app = app(pg_queue, None);
 
@@ -234,15 +223,11 @@ mod tests {
         assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
     }
 
-    #[tokio::test]
-    async fn webhook_payload_not_json() {
-        let pg_queue = PgQueue::new(
-            "test_index",
-            "job_queue",
-            "postgres://posthog:posthog@localhost:15432/test_database",
-        )
-        .await
-        .expect("failed to construct pg_queue");
+    #[sqlx::test(migrations = "../migrations")]
+    async fn webhook_payload_not_json(db: PgPool) {
+        let pg_queue = PgQueue::new_from_pool("test_index", "job_queue", db)
+            .await
+            .expect("failed to construct pg_queue");
 
         let app = app(pg_queue, None);
 
@@ -261,15 +246,11 @@ mod tests {
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
-    #[tokio::test]
-    async fn webhook_payload_body_too_large() {
-        let pg_queue = PgQueue::new(
-            "test_index",
-            "job_queue",
-            "postgres://posthog:posthog@localhost:15432/test_database",
-        )
-        .await
-        .expect("failed to construct pg_queue");
+    #[sqlx::test(migrations = "../migrations")]
+    async fn webhook_payload_body_too_large(db: PgPool) {
+        let pg_queue = PgQueue::new_from_pool("test_index", "job_queue", db)
+            .await
+            .expect("failed to construct pg_queue");
 
         let app = app(pg_queue, None);
 
@@ -291,9 +272,9 @@ mod tests {
                                 body: long_string.to_string(),
                             },
                             metadata: WebhookJobMetadata {
-                                team_id: Some(1),
-                                plugin_id: Some(2),
-                                plugin_config_id: Some(3),
+                                team_id: 1,
+                                plugin_id: 2,
+                                plugin_config_id: 3,
                             },
                             max_attempts: 1,
                         })

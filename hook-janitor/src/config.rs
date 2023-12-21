@@ -20,9 +20,6 @@ pub struct Config {
     #[envconfig(default = "30")]
     pub cleanup_interval_secs: u64,
 
-    #[envconfig(default = "10000")]
-    pub cleanup_batch_size: u32,
-
     // The cleanup task needs to have special knowledge of the queue it's cleaning up. This is so it
     // can do things like flush the proper app_metrics or plugin_log_entries, and so it knows what
     // to expect in the job's payload JSONB column.

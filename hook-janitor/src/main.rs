@@ -57,10 +57,8 @@ async fn main() {
                     &config.queue_name,
                     &config.table_name,
                     &config.database_url,
-                    config.cleanup_batch_size,
                     kafka_producer,
                     config.kafka.app_metrics_topic.to_owned(),
-                    config.kafka.plugin_log_entries_topic.to_owned(),
                 )
                 .expect("unable to create webhook cleaner"),
             )

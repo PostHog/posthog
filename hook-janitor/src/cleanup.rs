@@ -5,8 +5,6 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum CleanerError {
-    #[error("pool creation failed with: {error}")]
-    PoolCreationError { error: sqlx::Error },
     #[error("invalid cleaner mode")]
     InvalidCleanerMode,
 }
