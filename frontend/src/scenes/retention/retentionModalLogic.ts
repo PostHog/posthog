@@ -46,7 +46,7 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
                 return aggregationLabel(aggregation_group_type_index)
             },
         ],
-        ActorsQuery: [
+        actorsQuery: [
             (s) => [s.querySource, s.selectedInterval],
             (querySource: RetentionQuery, selectedInterval): ActorsQuery | null => {
                 if (!querySource) {
@@ -56,20 +56,20 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
             },
         ],
         exploreUrl: [
-            (s) => [s.ActorsQuery],
-            (ActorsQuery): string | null => {
-                if (!ActorsQuery) {
+            (s) => [s.actorsQuery],
+            (actorsQuery): string | null => {
+                if (!actorsQuery) {
                     return null
                 }
                 const query: DataTableNode = {
                     kind: NodeKind.DataTableNode,
-                    source: ActorsQuery,
+                    source: actorsQuery,
                     full: true,
                 }
                 if (
-                    isInsightActorsQuery(ActorsQuery.source) &&
-                    isRetentionQuery(ActorsQuery.source.source) &&
-                    ActorsQuery.source.source.aggregation_group_type_index !== undefined
+                    isInsightActorsQuery(actorsQuery.source) &&
+                    isRetentionQuery(actorsQuery.source.source) &&
+                    actorsQuery.source.source.aggregation_group_type_index !== undefined
                 ) {
                     query.showPropertyFilter = false
                 }
