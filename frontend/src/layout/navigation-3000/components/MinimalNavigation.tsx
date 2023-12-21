@@ -51,7 +51,7 @@ export function MinimalNavigation(): JSX.Element {
                 <LemonButton
                     type="tertiary"
                     status="muted"
-                    icon={<ProfilePicture name={user?.first_name} email={user?.email} size="md" />}
+                    icon={<ProfilePicture user={user} size="md" />}
                     onClick={toggleSitePopover}
                 >
                     {user?.first_name || user?.email}
