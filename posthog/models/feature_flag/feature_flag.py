@@ -310,7 +310,7 @@ class FeatureFlag(models.Model):
         serializer_data = {}
 
         if payload["operation"] == "add_release_condition":
-            existing_groups = self.filters.get("groups", [])
+            existing_groups = self.get_filters().get("groups", [])
             new_groups = payload["value"].get("groups", [])
             serializer_data["filters"] = {"groups": existing_groups + new_groups}
         elif payload["operation"] == "update_status":

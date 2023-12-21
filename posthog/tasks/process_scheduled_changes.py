@@ -13,7 +13,7 @@ def process_scheduled_changes() -> None:
                 ScheduledChange.objects.select_for_update(nowait=True)
                 .filter(
                     executed_at__isnull=True,
-                    scheduled_at__lt=timezone.now(),
+                    scheduled_at__lte=timezone.now(),
                 )
                 .order_by("scheduled_at")[:10000]
             )

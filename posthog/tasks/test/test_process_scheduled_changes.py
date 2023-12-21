@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 from posthog.models import ScheduledChange, FeatureFlag
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from posthog.tasks.process_scheduled_changes import process_scheduled_changes
+from freezegun import freeze_time
 
 
 class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
@@ -91,6 +92,7 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         self.assertEqual(updated_scheduled_change.failure_reason, "Invalid payload")
 
     @snapshot_postgres_queries
+    @freeze_time("2023-12-21T09:00:00Z")
     def test_schedule_feature_flag_multiple_changes(self) -> None:
         feature_flag = FeatureFlag.objects.create(
             name="Flag",
