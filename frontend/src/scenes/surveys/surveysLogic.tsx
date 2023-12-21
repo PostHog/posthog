@@ -5,7 +5,6 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -27,12 +26,8 @@ export function getSurveyStatus(survey: Survey): ProgressStatus {
 
 export interface SurveysFilters {
     status: string
-    created_by: string
+    created_by: null | number
     archived: boolean
-}
-
-interface SurveysCreators {
-    [id: string]: string
 }
 
 export const surveysLogic = kea<surveysLogicType>([
@@ -84,7 +79,7 @@ export const surveysLogic = kea<surveysLogicType>([
             {
                 archived: false,
                 status: 'any',
-                created_by: 'any',
+                created_by: null,
             } as Partial<SurveysFilters>,
             {
                 setSurveysFilters: (state, { filters }) => {
@@ -133,10 +128,8 @@ export const surveysLogic = kea<surveysLogicType>([
                 if (status !== 'any') {
                     searchedSurveys = searchedSurveys.filter((survey) => getSurveyStatus(survey) === status)
                 }
-                if (created_by !== 'any') {
-                    searchedSurveys = searchedSurveys.filter(
-                        (survey) => survey.created_by?.id === (created_by ? parseInt(created_by) : '')
-                    )
+                if (created_by) {
+                    searchedSurveys = searchedSurveys.filter((survey) => survey.created_by?.id === created_by)
                 }
 
                 if (archived) {
@@ -157,24 +150,6 @@ export const surveysLogic = kea<surveysLogicType>([
                     path: urls.surveys(),
                 },
             ],
-        ],
-        uniqueCreators: [
-            (selectors) => [selectors.surveys],
-            (surveys) => {
-                const creators: SurveysCreators = {}
-                for (const survey of surveys) {
-                    if (survey.created_by) {
-                        if (!creators[survey.created_by.id]) {
-                            creators[survey.created_by.id] = survey.created_by.first_name
-                        }
-                    }
-                }
-                const response: LemonSelectOption<string>[] = [
-                    { label: 'Any user', value: 'any' },
-                    ...Object.entries(creators).map(([id, first_name]) => ({ label: first_name, value: id })),
-                ]
-                return response
-            },
         ],
         payGateFlagOn: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.SURVEYS_PAYGATES]],
         whitelabelAvailable: [

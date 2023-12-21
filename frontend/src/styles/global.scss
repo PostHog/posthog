@@ -467,6 +467,10 @@ input::-ms-clear {
     &.main-app-content--container {
         align-self: center;
         max-width: 72rem;
+
+        @include screen($xxl) {
+            max-width: 108rem;
+        }
     }
 
     @include screen($sm) {

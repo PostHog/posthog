@@ -11,12 +11,12 @@ export const WebAnalyticsHealthCheck = (): JSX.Element | null => {
         return null
     }
 
-    if (statusCheck.shouldWarnAboutNoPageviews) {
+    if (!statusCheck.isSendingPageViews) {
         return (
             <LemonBanner type={'warning'} className={'mt-2'}>
                 <p>
                     No <code>$pageview</code>{' '}
-                    {statusCheck.shouldWarnAboutNoPageleaves ? (
+                    {!statusCheck.isSendingPageLeaves ? (
                         <>
                             or <code>$pageleave</code>{' '}
                         </>
@@ -30,7 +30,7 @@ export const WebAnalyticsHealthCheck = (): JSX.Element | null => {
                 </p>
             </LemonBanner>
         )
-    } else if (statusCheck.shouldWarnAboutNoPageleaves) {
+    } else if (!statusCheck.isSendingPageLeaves) {
         return (
             <LemonBanner type={'warning'} className={'mt-2'}>
                 <p>

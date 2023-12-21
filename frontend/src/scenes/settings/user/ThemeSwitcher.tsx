@@ -7,17 +7,17 @@ export function ThemeSwitcher({
     onlyLabel,
     ...props
 }: Partial<LemonSelectProps<any>> & { onlyLabel?: boolean }): JSX.Element {
-    const { user } = useValues(userLogic)
+    const { themeMode } = useValues(userLogic)
     const { updateUser } = useActions(userLogic)
 
     return (
         <LemonSelect
             options={[
-                { icon: <IconLaptop />, value: null, label: `Sync with system` },
+                { icon: <IconLaptop />, value: 'system', label: `Sync with system` },
                 { icon: <IconDay />, value: 'light', label: 'Light mode' },
                 { icon: <IconNight />, value: 'dark', label: 'Dark mode' },
             ]}
-            value={user?.theme_mode}
+            value={themeMode}
             renderButtonContent={(leaf) => {
                 const labelText = leaf ? leaf.label : 'Sync with system'
                 return onlyLabel ? (

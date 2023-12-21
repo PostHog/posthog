@@ -886,7 +886,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                                 icon: IconLaptop,
                                 display: 'Sync with system preferences',
                                 executor: () => {
-                                    actions.updateUser({ theme_mode: null })
+                                    actions.updateUser({ theme_mode: 'system' })
                                 },
                             },
                         ],

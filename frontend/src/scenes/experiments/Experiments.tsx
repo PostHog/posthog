@@ -2,6 +2,7 @@ import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ExperimentsHog } from 'lib/components/hedgehogs'
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
@@ -38,8 +39,10 @@ export function Experiments(): JSX.Element {
         searchTerm,
         shouldShowEmptyState,
         shouldShowProductIntroduction,
+        searchStatus,
+        userFilter,
     } = useValues(experimentsLogic)
-    const { setExperimentsTab, deleteExperiment, archiveExperiment, setSearchStatus, setSearchTerm } =
+    const { setExperimentsTab, deleteExperiment, archiveExperiment, setSearchStatus, setSearchTerm, setUserFilter } =
         useActions(experimentsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
 
@@ -229,6 +232,7 @@ export function Experiments(): JSX.Element {
                                         <b>Status</b>
                                     </span>
                                     <LemonSelect
+                                        size="small"
                                         onChange={(status) => {
                                             if (status) {
                                                 setSearchStatus(status as ProgressStatus | 'all')
@@ -242,8 +246,19 @@ export function Experiments(): JSX.Element {
                                                 { label: 'Complete', value: ProgressStatus.Complete },
                                             ] as { label: string; value: string }[]
                                         }
-                                        value="all"
+                                        value={searchStatus ?? 'all'}
+                                        dropdownMatchSelectWidth={false}
                                         dropdownMaxContentWidth
+                                    />
+                                    <span className="ml-1">
+                                        <b>Created by</b>
+                                    </span>
+                                    <MemberSelect
+                                        size="small"
+                                        type="secondary"
+                                        defaultLabel="Any user"
+                                        value={userFilter ?? null}
+                                        onChange={(user) => setUserFilter(user?.uuid ?? null)}
                                     />
                                 </div>
                             </div>

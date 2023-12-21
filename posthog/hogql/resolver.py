@@ -141,6 +141,8 @@ class Resolver(CloningVisitor):
                 alias = new_expr.type.alias
             elif isinstance(new_expr.type, ast.FieldType):
                 alias = new_expr.type.name
+            elif isinstance(new_expr.type, ast.ExpressionFieldType):
+                alias = new_expr.type.name
             elif isinstance(new_expr, ast.Alias):
                 alias = new_expr.alias
             else:

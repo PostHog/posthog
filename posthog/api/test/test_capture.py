@@ -310,7 +310,7 @@ class TestCapture(BaseTest):
             capacity=1,
             storage=MemoryStorage(),
         )
-        start = datetime.utcnow()
+        start = datetime.now(timezone.utc)
 
         with patch("posthog.api.capture.LIMITER", new=limiter):
             with freeze_time(start):

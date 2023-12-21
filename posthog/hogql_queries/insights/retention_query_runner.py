@@ -47,6 +47,10 @@ class RetentionQueryRunner(QueryRunner):
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
 
+    @property
+    def group_type_index(self) -> int | None:
+        return self.query.aggregation_group_type_index
+
     def get_applicable_entity(self, event_query_type):
         default_entity = RetentionEntity(
             **{
@@ -71,8 +75,8 @@ class RetentionQueryRunner(QueryRunner):
             event_date_expr = start_of_interval_sql
 
         target_field = "person_id"
-        if self.query.aggregation_group_type_index is not None:
-            group_index = int(self.query.aggregation_group_type_index)
+        if self.group_type_index is not None:
+            group_index = int(self.group_type_index)
             if 0 <= group_index <= 4:
                 target_field = f"$group_{group_index}"
 
@@ -178,12 +182,12 @@ class RetentionQueryRunner(QueryRunner):
     def build_returning_event_query(self) -> ast.SelectQuery:
         return self.retention_events_query(event_query_type=RetentionQueryType.RETURNING)
 
-    def actor_query(self) -> ast.SelectQuery:
+    def actor_query(self, breakdown_values_filter: Optional[Any] = None) -> ast.SelectQuery:
         placeholders = {
             **self.query_date_range.to_placeholders(),
             "returning_event_query": self.build_returning_event_query(),
             "target_event_query": self.build_target_event_query(),
-            "breakdown_values_filter": ast.Constant(value=None),
+            "breakdown_values_filter": ast.Constant(value=breakdown_values_filter),
             "selected_interval": ast.Constant(value=None),
         }
         return parse_select(
@@ -324,3 +328,22 @@ class RetentionQueryRunner(QueryRunner):
         ]
 
         return RetentionQueryResponse(results=results, timings=response.timings, hogql=hogql)
+
+    def to_persons_query(self, interval: Optional[int] = None) -> ast.SelectQuery:
+        with self.timings.measure("retention_query"):
+            retention_query = parse_select(
+                """
+                    SELECT
+                        actor_id,
+                        arraySort(groupArray(actor_activity.intervals_from_base)) AS appearances
+
+                    FROM {actor_query} AS actor_activity
+
+                    GROUP BY actor_id
+                """,
+                placeholders={
+                    "actor_query": self.actor_query(breakdown_values_filter=[interval]),
+                },
+                timings=self.timings,
+            )
+        return retention_query

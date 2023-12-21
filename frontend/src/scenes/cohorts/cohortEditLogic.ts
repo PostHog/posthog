@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
 import api from 'lib/api'
 import { ENTITY_MATCH_TYPE, FEATURE_FLAGS } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
 import {

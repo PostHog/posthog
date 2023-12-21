@@ -1,13 +1,10 @@
 import './Link.scss'
 
 import clsx from 'clsx'
-import { useActions } from 'kea'
 import { router } from 'kea-router'
 import { isExternalLink } from 'lib/utils'
 import React from 'react'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-
-import { sidePanelDocsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelDocsLogic'
 
 import { IconOpenInNew } from '../icons'
 import { Tooltip } from '../Tooltip'
@@ -53,9 +50,10 @@ const isPostHogDomain = (url: string): boolean => {
     return /^https:\/\/((www|app|eu)\.)?posthog\.com/.test(url)
 }
 
-const isPostHogComDocs = (url: string): boolean => {
-    return /^https:\/\/(www\.)?posthog\.com\/docs/.test(url)
-}
+// NOTE: Temporarily disabled - owner @corywatilo
+// const isPostHogComDocs = (url: string): boolean => {
+//     return /^https:\/\/(www\.)?posthog\.com\/docs/.test(url)
+// }
 
 /**
  * Link
@@ -86,7 +84,8 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             href: typeof to === 'string' ? to : undefined,
         })
 
-        const { openDocsPage } = useActions(sidePanelDocsLogic)
+        // NOTE: Temporarily disabled - owner @corywatilo
+        // const { openDocsPage } = useActions(sidePanelDocsLogic)
 
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
             if (event.metaKey || event.ctrlKey) {
@@ -101,11 +100,12 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 return
             }
 
-            if (typeof to === 'string' && isPostHogComDocs(to)) {
-                event.preventDefault()
-                openDocsPage(to)
-                return
-            }
+            // NOTE: Temporarily disabled - owner @corywatilo
+            // if (typeof to === 'string' && isPostHogComDocs(to)) {
+            //     event.preventDefault()
+            //     openDocsPage(to)
+            //     return
+            // }
 
             if (!target && to && !isExternalLink(to) && !disableClientSideRouting && !shouldForcePageLoad(to)) {
                 event.preventDefault()

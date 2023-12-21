@@ -7,7 +7,7 @@ import type { themeLogicType } from './themeLogicType'
 export const themeLogic = kea<themeLogicType>([
     path(['layout', 'navigation-3000', 'themeLogic']),
     connect({
-        values: [userLogic, ['user']],
+        values: [userLogic, ['themeMode']],
     }),
     actions({
         syncDarkModePreference: (darkModePreference: boolean) => ({ darkModePreference }),
@@ -22,8 +22,8 @@ export const themeLogic = kea<themeLogicType>([
     }),
     selectors({
         isDarkModeOn: [
-            (s) => [s.user, s.darkModeSystemPreference, sceneLogic.selectors.sceneConfig],
-            (user, darkModeSystemPreference, sceneConfig) => {
+            (s) => [s.themeMode, s.darkModeSystemPreference, sceneLogic.selectors.sceneConfig],
+            (themeMode, darkModeSystemPreference, sceneConfig) => {
                 // NOTE: Unauthenticated users always get the light mode until we have full support across onboarding flows
                 if (
                     sceneConfig?.layout === 'plain' ||
@@ -33,8 +33,7 @@ export const themeLogic = kea<themeLogicType>([
                     return false
                 }
 
-                // User-saved preference is used when set, oterwise we fall back to the system value
-                return user?.theme_mode ? user.theme_mode === 'dark' : darkModeSystemPreference
+                return themeMode === 'system' ? darkModeSystemPreference : themeMode === 'dark'
             },
         ],
     }),

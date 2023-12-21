@@ -9,12 +9,10 @@ from temporalio.common import RetryPolicy
 
 # TODO: remove dependency
 from posthog.temporal.batch_exports.base import PostHogWorkflow
-from posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline import (
-    PIPELINE_TYPE_INPUTS_MAPPING,
-    PIPELINE_TYPE_RUN_MAPPING,
-    PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
-)
+
 from posthog.warehouse.data_load.validate_schema import validate_schema_and_update_table
+from posthog.temporal.data_imports.pipelines.schemas import PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING
+from posthog.temporal.data_imports.pipelines.pipeline import DataImportPipeline, PipelineInputs
 from posthog.warehouse.external_data_source.jobs import (
     create_external_data_job,
     get_external_data_job,
@@ -47,6 +45,8 @@ async def create_external_data_job_model(inputs: CreateExternalDataJobInputs) ->
     source = await sync_to_async(ExternalDataSource.objects.get)(  # type: ignore
         team_id=inputs.team_id, id=inputs.external_data_source_id
     )
+    source.status = "Running"
+    await sync_to_async(source.save)()  # type: ignore
 
     # Sync schemas if they have changed
     await sync_to_async(sync_old_schemas_with_new_schemas)(  # type: ignore
@@ -133,19 +133,29 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
         team_id=inputs.team_id,
         run_id=inputs.run_id,
     )
+    logger = await bind_temporal_worker_logger(team_id=inputs.team_id)
 
-    job_inputs = PIPELINE_TYPE_INPUTS_MAPPING[model.pipeline.source_type](
+    job_inputs = PipelineInputs(
         source_id=inputs.source_id,
         schemas=inputs.schemas,
         run_id=inputs.run_id,
         team_id=inputs.team_id,
         job_type=model.pipeline.source_type,
         dataset_name=model.folder_path,
-        **model.pipeline.job_inputs,
     )
-    job_fn = PIPELINE_TYPE_RUN_MAPPING[model.pipeline.source_type]
 
-    await job_fn(job_inputs)
+    source = None
+    if model.pipeline.source_type == ExternalDataSource.Type.STRIPE:
+        from posthog.temporal.data_imports.pipelines.stripe.helpers import stripe_source
+
+        stripe_secret_key = model.pipeline.job_inputs.get("stripe_secret_key", None)
+        if not stripe_secret_key:
+            raise ValueError(f"Stripe secret key not found for job {model.id}")
+        source = stripe_source(api_key=stripe_secret_key, endpoints=tuple(inputs.schemas))
+    else:
+        raise ValueError(f"Source type {model.pipeline.source_type} not supported")
+
+    await DataImportPipeline(job_inputs, source, logger).run()
 
 
 # TODO: update retry policies

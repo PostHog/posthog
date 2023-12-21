@@ -29,9 +29,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2022-12-14 00:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2022-12-27 12:00:00'
+          AND timestamp <= '2023-01-04 12:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2022-12-27 12:00:00'
-            AND timestamp <= '2023-01-04 12:00:00'
             AND (((event = 'custom-event'
                    AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))
                         AND has(['test_action_filter-session-one'], "$session_id")
@@ -77,9 +77,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2022-12-14 00:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2022-12-27 12:00:00'
+          AND timestamp <= '2023-01-04 12:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2022-12-27 12:00:00'
-            AND timestamp <= '2023-01-04 12:00:00'
             AND (((event = 'custom-event'
                    AND (has(['test_action_filter-session-one'], "$session_id")
                         AND has(['test_action_filter-window-id'], "$window_id")))))
@@ -124,9 +124,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2022-12-14 00:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2022-12-27 12:00:00'
+          AND timestamp <= '2023-01-04 12:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2022-12-27 12:00:00'
-            AND timestamp <= '2023-01-04 12:00:00'
             AND (((event = 'custom-event'
                    AND (has(['test_action_filter-session-one'], "$session_id")
                         AND has(['test_action_filter-window-id'], "$window_id"))))
@@ -172,9 +172,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2022-12-14 00:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2022-12-27 12:00:00'
+          AND timestamp <= '2023-01-04 12:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2022-12-27 12:00:00'
-            AND timestamp <= '2023-01-04 12:00:00'
             AND (((event = 'custom-event'
                    AND (has(['test_action_filter-session-one'], "$session_id")
                         AND has(['test_action_filter-window-id'], "$window_id"))))
@@ -230,9 +230,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-21 12:00:00'
+          AND timestamp <= '2021-01-05 11:59:59'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-21 12:00:00'
-            AND timestamp <= '2021-01-05 11:59:59'
             AND ((event = '$pageview')
                  OR ((event = 'custom-event')))
             AND e.distinct_id in
@@ -286,9 +286,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (1 = 1)
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
@@ -329,9 +329,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (1 = 1
                  AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
           GROUP BY `$session_id`
@@ -373,9 +373,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (1 = 1
                  AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
           GROUP BY `$session_id`
@@ -417,9 +417,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (1 = 1)
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
@@ -460,9 +460,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (1 = 1
                  AND (has(['Chrome'], "mat_$browser")))
           GROUP BY `$session_id`
@@ -504,9 +504,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (1 = 1
                  AND (has(['Firefox'], "mat_$browser")))
           GROUP BY `$session_id`
@@ -1034,9 +1034,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -1079,9 +1079,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$autocapture')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -1124,9 +1124,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -1199,9 +1199,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -1245,9 +1245,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -1298,9 +1298,9 @@
              GROUP BY group_key) groups_1 ON "$group_1" == groups_1.group_key PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview'
                  AND (has(['org one'], replaceRegexpAll(JSONExtractRaw(group_properties_1, 'name'), '^"|"$', ''))))
           GROUP BY `$session_id`
@@ -1344,9 +1344,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -1407,9 +1407,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
             AND e.distinct_id in
               (select distinct_id
@@ -1487,9 +1487,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0))
             AND e.distinct_id in
               (select distinct_id
@@ -1549,9 +1549,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -1611,9 +1611,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
             AND e.distinct_id in
               (select distinct_id
@@ -1689,9 +1689,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (ifNull(equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Chrome'), 0))
             AND e.distinct_id in
               (select distinct_id
@@ -1782,9 +1782,9 @@
              HAVING argMax(is_deleted, version) = 0) as pdi on pdi.distinct_id = e.distinct_id PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview'
                  AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'email'), ''), 'null'), '^"|"$', ''), 'bla'), 0)))
           GROUP BY `$session_id`
@@ -1860,9 +1860,9 @@
              HAVING argMax(is_deleted, version) = 0) as pdi on pdi.distinct_id = e.distinct_id PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview'
                  AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_props, 'email'), ''), 'null'), '^"|"$', ''), 'something else'), 0)))
           GROUP BY `$session_id`
@@ -1906,9 +1906,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview'
                  AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0)))
           GROUP BY `$session_id`
@@ -1952,9 +1952,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview'
                  AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Firefox'), 0)))
           GROUP BY `$session_id`
@@ -1998,9 +1998,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview'
                  AND (ifNull(equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Chrome'), 0)))
           GROUP BY `$session_id`
@@ -2044,9 +2044,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview'
                  AND (ifNull(equals(nullIf(nullIf(events.`mat_$browser`, ''), 'null'), 'Firefox'), 0)))
           GROUP BY `$session_id`
@@ -2090,9 +2090,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -2135,9 +2135,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$autocapture')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -2231,9 +2231,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview'
                  AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
           GROUP BY `$session_id`
@@ -2277,9 +2277,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview'
                  AND (has(['Firefox'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))
           GROUP BY `$session_id`
@@ -2323,9 +2323,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview'
                  AND (has(['Chrome'], "mat_$browser")))
           GROUP BY `$session_id`
@@ -2369,9 +2369,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND (event = '$pageview'
                  AND (has(['Firefox'], "mat_$browser")))
           GROUP BY `$session_id`
@@ -2436,9 +2436,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
             AND (has(['false'], replaceRegexpAll(JSONExtractRaw(e.properties, 'is_internal_user'), '^"|"$', ''))
                  AND ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0))
@@ -2504,9 +2504,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -2570,9 +2570,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
             AND (has(['false'], "mat_is_internal_user")
                  AND ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0))
@@ -2638,9 +2638,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -2683,9 +2683,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND ((event = '$pageview')
                  OR event = '$pageleave')
           GROUP BY `$session_id`
@@ -2898,131 +2898,6 @@
        WHERE 1=1
          AND level in ['log']
          AND positionCaseInsensitive(message, 'message 5') > 0 ) as log_text_matching
-  GROUP BY session_id
-  HAVING 1=1
-  AND (console_log_count > 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '
----
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_by_console_text.5
-  '
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
-    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
-    AND "session_id" in ['with-warns-session']
-  GROUP BY session_id
-  HAVING 1=1
-  AND (console_warn_count > 0
-       OR console_error_count > 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '
----
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_by_console_text.6
-  '
-  
-  SELECT distinct log_source_id as session_id
-  FROM log_entries PREWHERE team_id = 2
-  AND timestamp >= '2020-12-31 20:00:00'
-  AND timestamp <= now()
-  AND timestamp >= '2021-01-13 12:00:00'
-  AND timestamp <= '2021-01-22 08:00:00'
-  WHERE 1=1
-    AND level in ['log']
-    AND positionCaseInsensitive(message, 'message 5') > 0
-  '
----
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_by_console_text.7
-  '
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
-    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
-    AND "session_id" in []
-  GROUP BY session_id
-  HAVING 1=1
-  AND (console_log_count > 0)
-  ORDER BY start_time DESC
-  LIMIT 51
-  OFFSET 0
-  '
----
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_by_console_text.8
-  '
-  
-  SELECT distinct log_source_id as session_id
-  FROM log_entries PREWHERE team_id = 2
-  AND timestamp >= '2020-12-31 20:00:00'
-  AND timestamp <= now()
-  AND timestamp >= '2021-01-13 12:00:00'
-  AND timestamp <= '2021-01-22 08:00:00'
-  WHERE 1=1
-    AND level in ['log']
-    AND positionCaseInsensitive(message, 'message 5') > 0
-  '
----
-# name: TestClickhouseSessionRecordingsListFromSessionReplay.test_filter_for_recordings_by_console_text.9
-  '
-  
-  SELECT s.session_id,
-         any(s.team_id),
-         any(s.distinct_id),
-         min(s.min_first_timestamp) as start_time,
-         max(s.max_last_timestamp) as end_time,
-         dateDiff('SECOND', start_time, end_time) as duration,
-         argMinMerge(s.first_url) as first_url,
-         sum(s.click_count),
-         sum(s.keypress_count),
-         sum(s.mouse_activity_count),
-         sum(s.active_milliseconds)/1000 as active_seconds,
-         duration-active_seconds as inactive_seconds,
-         sum(s.console_log_count) as console_log_count,
-         sum(s.console_warn_count) as console_warn_count,
-         sum(s.console_error_count) as console_error_count
-  FROM session_replay_events s
-  WHERE s.team_id = 2
-    AND s.min_first_timestamp >= '2020-12-31 20:00:00'
-    AND s.min_first_timestamp >= '2021-01-14 00:00:00'
-    AND s.max_last_timestamp <= '2021-01-21 20:00:00'
-    AND "session_id" in []
   GROUP BY session_id
   HAVING 1=1
   AND (console_log_count > 0)
@@ -3547,9 +3422,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2021-07-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-08-13 12:00:00'
+          AND timestamp <= '2021-08-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-08-13 12:00:00'
-            AND timestamp <= '2021-08-22 08:00:00'
             AND (event = '$pageview')
             AND e.distinct_id in
               (select distinct_id
@@ -3634,9 +3509,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2021-07-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-08-13 12:00:00'
+          AND timestamp <= '2021-08-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-08-13 12:00:00'
-            AND timestamp <= '2021-08-22 08:00:00'
             AND (event = 'custom_event')
             AND e.distinct_id in
               (select distinct_id
@@ -3700,9 +3575,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND ((event = '$pageview')
                  OR event = 'new-event')
           GROUP BY `$session_id`
@@ -3746,9 +3621,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-11 13:46:23'
           AND e.timestamp <= now()
+          AND timestamp >= '2020-12-24 12:00:00'
+          AND timestamp <= '2021-01-02 01:46:23'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2020-12-24 12:00:00'
-            AND timestamp <= '2021-01-02 01:46:23'
             AND ((event = '$pageview')
                  OR event = 'new-event2')
           GROUP BY `$session_id`
@@ -3832,9 +3707,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -3876,9 +3751,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (has(['false'], replaceRegexpAll(JSONExtractRaw(e.properties, 'is_internal_user'), '^"|"$', '')))
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
@@ -3920,9 +3795,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -3964,9 +3839,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (has(['false'], "mat_is_internal_user"))
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
@@ -4008,9 +3883,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -4052,9 +3927,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'is_internal_user'), ''), 'null'), '^"|"$', ''), 'true'), 0))
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
@@ -4096,9 +3971,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -4140,9 +4015,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (ifNull(equals(nullIf(nullIf(events.mat_is_internal_user, ''), 'null'), 'true'), 0))
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
@@ -4184,9 +4059,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -4277,9 +4152,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -4369,9 +4244,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1
@@ -4465,9 +4340,9 @@
           FROM events e PREWHERE team_id = 2
           AND e.timestamp >= '2020-12-31 20:00:00'
           AND e.timestamp <= now()
+          AND timestamp >= '2021-01-13 12:00:00'
+          AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND timestamp >= '2021-01-13 12:00:00'
-            AND timestamp <= '2021-01-22 08:00:00'
             AND (event = '$pageview')
           GROUP BY `$session_id`
           HAVING 1=1

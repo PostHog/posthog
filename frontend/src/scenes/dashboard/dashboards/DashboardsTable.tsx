@@ -1,6 +1,7 @@
 import { IconPin, IconPinFilled, IconShare } from '@posthog/icons'
-import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { IconCottage, IconLock } from 'lib/lemon-ui/icons'
@@ -18,7 +19,6 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardsFilters, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -56,7 +56,6 @@ export function DashboardsTable({
     const { currentTeam } = useValues(teamLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
-    const { meFirstMembers } = useValues(membersLogic)
 
     const columns: LemonTableColumns<DashboardType> = [
         {
@@ -246,20 +245,11 @@ export function DashboardsTable({
                     </div>
                     <div className="flex items-center gap-2">
                         <span>Created by:</span>
-                        <LemonSelect
-                            options={[
-                                { value: 'All users' as string, label: 'All Users' },
-                                ...meFirstMembers.map((x) => ({
-                                    value: x.user.uuid,
-                                    label: x.user.first_name,
-                                })),
-                            ]}
+                        <MemberSelect
                             size="small"
-                            value={filters.createdBy}
-                            onChange={(v: any): void => {
-                                setFilters({ createdBy: v })
-                            }}
-                            dropdownMatchSelectWidth={false}
+                            type="secondary"
+                            value={filters.createdBy === 'All users' ? null : filters.createdBy}
+                            onChange={(user) => setFilters({ createdBy: user?.uuid || 'All users' })}
                         />
                     </div>
                     {extraActions}
