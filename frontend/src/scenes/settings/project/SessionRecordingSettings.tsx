@@ -7,6 +7,7 @@ import { FlagSelector } from 'lib/components/FlagSelector'
 import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -180,10 +181,15 @@ export function ReplayCostControl(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
+    const { featureFlag } = useValues(featureFlagLogic)
+    const samplingControlFeatureEnabled = hasAvailableFeature(AvailableFeature.SESSION_REPLAY_SAMPLING)
+    const recordingDurationMinimumFeatureEnabled = hasAvailableFeature(AvailableFeature.RECORDING_DURATION_MINIMUM)
+    const featureFlagRecordingFeatureEnabled = hasAvailableFeature(AvailableFeature.FEATURE_FLAG_BASED_RECORDING)
     const costControlFeaturesEnabled =
-        hasAvailableFeature(AvailableFeature.SESSION_REPLAY_SAMPLING) &&
-        hasAvailableFeature(AvailableFeature.RECORDING_DURATION_MINIMUM) &&
-        hasAvailableFeature(AvailableFeature.FEATURE_FLAG_BASED_RECORDING)
+        featureFlag[FEATURE_FLAGS.SESSION_RECORDING_SAMPLING] ||
+        samplingControlFeatureEnabled ||
+        recordingDurationMinimumFeatureEnabled ||
+        featureFlagRecordingFeatureEnabled
 
     return costControlFeaturesEnabled ? (
         <>
@@ -200,151 +206,163 @@ export function ReplayCostControl(): JSX.Element {
             <LemonBanner className="mb-4" type={'info'}>
                 Requires posthog-js version 1.88.2 or greater
             </LemonBanner>
-            <div className={'flex flex-row justify-between'}>
-                <LemonLabel className="text-base">Sampling</LemonLabel>
-                <LemonSelect
-                    onChange={(v) => {
-                        updateCurrentTeam({ session_recording_sample_rate: v })
-                    }}
-                    dropdownMatchSelectWidth={false}
-                    options={[
-                        {
-                            label: '100% (no sampling)',
-                            value: '1.00',
-                        },
-                        {
-                            label: '95%',
-                            value: '0.95',
-                        },
-                        {
-                            label: '90%',
-                            value: '0.90',
-                        },
-                        {
-                            label: '85%',
-                            value: '0.85',
-                        },
-                        {
-                            label: '80%',
-                            value: '0.80',
-                        },
-                        {
-                            label: '75%',
-                            value: '0.75',
-                        },
-                        {
-                            label: '70%',
-                            value: '0.70',
-                        },
-                        {
-                            label: '65%',
-                            value: '0.65',
-                        },
-                        {
-                            label: '60%',
-                            value: '0.60',
-                        },
-                        {
-                            label: '55%',
-                            value: '0.55',
-                        },
-                        {
-                            label: '50%',
-                            value: '0.50',
-                        },
-                        {
-                            label: '45%',
-                            value: '0.45',
-                        },
-                        {
-                            label: '40%',
-                            value: '0.40',
-                        },
-                        {
-                            label: '35%',
-                            value: '0.35',
-                        },
-                        {
-                            label: '30%',
-                            value: '0.30',
-                        },
-                        {
-                            label: '25%',
-                            value: '0.25',
-                        },
-                        {
-                            label: '20%',
-                            value: '0.20',
-                        },
-                        {
-                            label: '15%',
-                            value: '0.15',
-                        },
-                        {
-                            label: '10%',
-                            value: '0.10',
-                        },
-                        {
-                            label: '5%',
-                            value: '0.05',
-                        },
-                        {
-                            label: '0% (replay disabled)',
-                            value: '0.00',
-                        },
-                    ]}
-                    value={
-                        typeof currentTeam?.session_recording_sample_rate === 'string'
-                            ? currentTeam?.session_recording_sample_rate
-                            : '1.00'
-                    }
-                />
-            </div>
-            <p>
-                Use this setting to restrict the percentage of sessions that will be recorded. This is useful if you
-                want to reduce the amount of data you collect. 100% means all sessions will be collected. 50% means
-                roughly half of sessions will be collected.
-            </p>
-            <div className={'flex flex-row justify-between'}>
-                <LemonLabel className="text-base">Minimum session duration (seconds)</LemonLabel>
-                <LemonSelect
-                    dropdownMatchSelectWidth={false}
-                    onChange={(v) => {
-                        updateCurrentTeam({ session_recording_minimum_duration_milliseconds: v })
-                    }}
-                    options={SESSION_REPLAY_MINIMUM_DURATION_OPTIONS}
-                    value={currentTeam?.session_recording_minimum_duration_milliseconds}
-                />
-            </div>
-            <p>
-                Setting a minimum session duration will ensure that only sessions that last longer than that value are
-                collected. This helps you avoid collecting sessions that are too short to be useful.
-            </p>
-            <div className={'flex flex-col space-y-2'}>
-                <LemonLabel className="text-base">Enable recordings using feature flag</LemonLabel>
-                <div className={'flex flex-row justify-start space-x-2'}>
-                    <FlagSelector
-                        value={currentTeam?.session_recording_linked_flag?.id ?? undefined}
-                        onChange={(id, key) => {
-                            updateCurrentTeam({ session_recording_linked_flag: { id, key } })
-                        }}
-                    />
-                    {currentTeam?.session_recording_linked_flag && (
-                        <LemonButton
-                            className="ml-2"
-                            icon={<IconCancel />}
-                            size="small"
-                            status="stealth"
-                            onClick={() => updateCurrentTeam({ session_recording_linked_flag: null })}
-                            title="Clear selected flag"
+            {(featureFlag[FEATURE_FLAGS.SESSION_RECORDING_SAMPLING] || samplingControlFeatureEnabled) && (
+                <>
+                    <div className={'flex flex-row justify-between'}>
+                        <LemonLabel className="text-base">Sampling</LemonLabel>
+                        <LemonSelect
+                            onChange={(v) => {
+                                updateCurrentTeam({ session_recording_sample_rate: v })
+                            }}
+                            dropdownMatchSelectWidth={false}
+                            options={[
+                                {
+                                    label: '100% (no sampling)',
+                                    value: '1.00',
+                                },
+                                {
+                                    label: '95%',
+                                    value: '0.95',
+                                },
+                                {
+                                    label: '90%',
+                                    value: '0.90',
+                                },
+                                {
+                                    label: '85%',
+                                    value: '0.85',
+                                },
+                                {
+                                    label: '80%',
+                                    value: '0.80',
+                                },
+                                {
+                                    label: '75%',
+                                    value: '0.75',
+                                },
+                                {
+                                    label: '70%',
+                                    value: '0.70',
+                                },
+                                {
+                                    label: '65%',
+                                    value: '0.65',
+                                },
+                                {
+                                    label: '60%',
+                                    value: '0.60',
+                                },
+                                {
+                                    label: '55%',
+                                    value: '0.55',
+                                },
+                                {
+                                    label: '50%',
+                                    value: '0.50',
+                                },
+                                {
+                                    label: '45%',
+                                    value: '0.45',
+                                },
+                                {
+                                    label: '40%',
+                                    value: '0.40',
+                                },
+                                {
+                                    label: '35%',
+                                    value: '0.35',
+                                },
+                                {
+                                    label: '30%',
+                                    value: '0.30',
+                                },
+                                {
+                                    label: '25%',
+                                    value: '0.25',
+                                },
+                                {
+                                    label: '20%',
+                                    value: '0.20',
+                                },
+                                {
+                                    label: '15%',
+                                    value: '0.15',
+                                },
+                                {
+                                    label: '10%',
+                                    value: '0.10',
+                                },
+                                {
+                                    label: '5%',
+                                    value: '0.05',
+                                },
+                                {
+                                    label: '0% (replay disabled)',
+                                    value: '0.00',
+                                },
+                            ]}
+                            value={
+                                typeof currentTeam?.session_recording_sample_rate === 'string'
+                                    ? currentTeam?.session_recording_sample_rate
+                                    : '1.00'
+                            }
                         />
-                    )}
-                </div>
-            </div>
-            <p>
-                Linking a flag means that recordings will only be collected for users who have the flag enabled. Only
-                supports release toggles (boolean flags).
-            </p>
+                    </div>
+                    <p>
+                        Use this setting to restrict the percentage of sessions that will be recorded. This is useful if
+                        you want to reduce the amount of data you collect. 100% means all sessions will be collected.
+                        50% means roughly half of sessions will be collected.
+                    </p>
+                </>
+            )}
+            {(featureFlag[FEATURE_FLAGS.SESSION_RECORDING_SAMPLING] || recordingDurationMinimumFeatureEnabled) && (
+                <>
+                    <div className={'flex flex-row justify-between'}>
+                        <LemonLabel className="text-base">Minimum session duration (seconds)</LemonLabel>
+                        <LemonSelect
+                            dropdownMatchSelectWidth={false}
+                            onChange={(v) => {
+                                updateCurrentTeam({ session_recording_minimum_duration_milliseconds: v })
+                            }}
+                            options={SESSION_REPLAY_MINIMUM_DURATION_OPTIONS}
+                            value={currentTeam?.session_recording_minimum_duration_milliseconds}
+                        />
+                    </div>
+                    <p>
+                        Setting a minimum session duration will ensure that only sessions that last longer than that
+                        value are collected. This helps you avoid collecting sessions that are too short to be useful.
+                    </p>
+                </>
+            )}
+            {(featureFlag[FEATURE_FLAGS.SESSION_RECORDING_SAMPLING] || featureFlagRecordingFeatureEnabled) && (
+                <>
+                    <div className={'flex flex-col space-y-2'}>
+                        <LemonLabel className="text-base">Enable recordings using feature flag</LemonLabel>
+                        <div className={'flex flex-row justify-start space-x-2'}>
+                            <FlagSelector
+                                value={currentTeam?.session_recording_linked_flag?.id ?? undefined}
+                                onChange={(id, key) => {
+                                    updateCurrentTeam({ session_recording_linked_flag: { id, key } })
+                                }}
+                            />
+                            {currentTeam?.session_recording_linked_flag && (
+                                <LemonButton
+                                    className="ml-2"
+                                    icon={<IconCancel />}
+                                    size="small"
+                                    status="stealth"
+                                    onClick={() => updateCurrentTeam({ session_recording_linked_flag: null })}
+                                    title="Clear selected flag"
+                                />
+                            )}
+                        </div>
+                    </div>
+                    <p>
+                        Linking a flag means that recordings will only be collected for users who have the flag enabled.
+                        Only supports release toggles (boolean flags).
+                    </p>
+                </>
+            )}
         </>
     ) : (
         <></>

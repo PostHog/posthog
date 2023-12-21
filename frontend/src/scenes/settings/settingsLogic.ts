@@ -80,7 +80,7 @@ export const settingsLogic = kea<settingsLogicType>([
 
                 return settings
                     .filter((x) => (x.flag ? featureFlags[FEATURE_FLAGS[x.flag]] : true))
-                    .filter((x) => (x.features ? x.features.every((feat) => hasAvailableFeature(feat)) : true))
+                    .filter((x) => (x.features ? x.features.some((feat) => hasAvailableFeature(feat)) : true))
             },
         ],
     }),
