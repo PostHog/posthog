@@ -1,7 +1,7 @@
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { ExpandableConfig } from 'lib/lemon-ui/LemonTable'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from 'react'
 import { urls } from 'scenes/urls'
 

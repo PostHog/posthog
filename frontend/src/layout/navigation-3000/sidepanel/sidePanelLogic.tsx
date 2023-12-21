@@ -87,10 +87,10 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.Support)
                 }
                 tabs.push(SidePanelTab.Settings)
+                tabs.push(SidePanelTab.Activity)
                 if (isReady && !hasCompletedAllTasks) {
                     tabs.push(SidePanelTab.Activation)
                 }
-                tabs.push(SidePanelTab.Activity)
                 tabs.push(SidePanelTab.FeaturePreviews)
                 tabs.push(SidePanelTab.Welcome)
 
@@ -99,10 +99,14 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         ],
 
         visibleTabs: [
-            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.isReady, s.hasCompletedAllTasks],
-            (enabledTabs, selectedTab, sidePanelOpen): SidePanelTab[] => {
-                return enabledTabs.filter((tab: any) => {
+            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.unreadCount],
+            (enabledTabs, selectedTab, sidePanelOpen, unreadCount): SidePanelTab[] => {
+                return enabledTabs.filter((tab) => {
                     if (tab === selectedTab && sidePanelOpen) {
+                        return true
+                    }
+
+                    if (tab === SidePanelTab.Activity && unreadCount) {
                         return true
                     }
 

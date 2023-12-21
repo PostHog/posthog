@@ -64,22 +64,24 @@ function AccountInfo(): JSX.Element {
 
     return (
         <div className="AccountInfo">
-            <ProfilePicture name={user?.first_name} email={user?.email} size="xl" />
-            <div className="AccountInfo__identification SitePopover__main-info">
-                <strong>{user?.first_name}</strong>
-                <div className="supplement" title={user?.email}>
-                    {user?.email}
+            <LemonButton
+                to={urls.settings('user')}
+                onClick={closeSitePopover}
+                data-attr="top-menu-item-me"
+                status="stealth"
+                fullWidth
+                tooltip="Account settings"
+                tooltipPlacement="left"
+                sideIcon={<IconSettings className="text-2xl" />}
+            >
+                <ProfilePicture name={user?.first_name} email={user?.email} size="xl" />
+                <div className="AccountInfo__identification SitePopover__main-info font-sans font-normal">
+                    <div className="font-semibold mb-1">{user?.first_name}</div>
+                    <div className="supplement" title={user?.email}>
+                        {user?.email}
+                    </div>
                 </div>
-            </div>
-            <Tooltip title="Account settings" placement="left">
-                <LemonButton
-                    to={urls.settings('user')}
-                    onClick={closeSitePopover}
-                    data-attr="top-menu-item-me"
-                    status="stealth"
-                    icon={<IconSettings className="text-2xl" />}
-                />
-            </Tooltip>
+            </LemonButton>
         </div>
     )
 }
@@ -99,7 +101,7 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
                 onClick={closeSitePopover}
             >
                 <div className="SitePopover__main-info SitePopover__organization">
-                    <strong>{organization.name}</strong>
+                    <span className="font-medium">{organization.name}</span>
                     <AccessLevelIndicator organization={organization} />
                 </div>
             </LemonButton>

@@ -1,4 +1,4 @@
-import React, { MouseEventHandler, useContext, useEffect, useRef, useState } from 'react'
+import React, { MouseEventHandler, useContext, useRef, useState } from 'react'
 
 import { Popover, PopoverOverlayContext, PopoverProps } from '../Popover'
 
@@ -38,6 +38,8 @@ export const LemonDropdown: React.FunctionComponent<LemonDropdownProps & React.R
             },
             ref
         ) => {
+            const isControlled = visible !== undefined
+
             const [, parentPopoverLevel] = useContext(PopoverOverlayContext)
             const [localVisible, setLocalVisible] = useState(visible ?? false)
 
@@ -46,9 +48,12 @@ export const LemonDropdown: React.FunctionComponent<LemonDropdownProps & React.R
 
             const effectiveVisible = visible ?? localVisible
 
-            useEffect(() => {
-                onVisibilityChange?.(localVisible)
-            }, [localVisible, onVisibilityChange])
+            const setVisible = (value: boolean): void => {
+                if (!isControlled) {
+                    setLocalVisible(value)
+                }
+                onVisibilityChange?.(value)
+            }
 
             return (
                 <Popover
@@ -57,18 +62,18 @@ export const LemonDropdown: React.FunctionComponent<LemonDropdownProps & React.R
                     referenceRef={referenceRef}
                     onClickOutside={(e) => {
                         if (trigger === 'click') {
-                            setLocalVisible(false)
+                            setVisible(false)
                         }
                         onClickOutside?.(e)
                     }}
                     onClickInside={(e) => {
                         e.stopPropagation()
-                        closeOnClickInside && setLocalVisible(false)
+                        closeOnClickInside && setVisible(false)
                         onClickInside?.(e)
                     }}
                     onMouseLeaveInside={(e) => {
                         if (trigger === 'hover' && !referenceRef.current?.contains(e.relatedTarget as Node)) {
-                            setLocalVisible(false)
+                            setVisible(false)
                         }
                         onMouseLeaveInside?.(e)
                     }}
@@ -77,7 +82,7 @@ export const LemonDropdown: React.FunctionComponent<LemonDropdownProps & React.R
                 >
                     {React.cloneElement(children, {
                         onClick: (e: React.MouseEvent): void => {
-                            setLocalVisible((state) => !state)
+                            setVisible(!effectiveVisible)
                             children.props.onClick?.(e)
                             if (parentPopoverLevel > -1) {
                                 // If this button is inside another popover, let's not propagate this event so that
@@ -87,12 +92,12 @@ export const LemonDropdown: React.FunctionComponent<LemonDropdownProps & React.R
                         },
                         onMouseEnter: (): void => {
                             if (trigger === 'hover') {
-                                setLocalVisible(true)
+                                setVisible(true)
                             }
                         },
                         onMouseLeave: (e: React.MouseEvent): void => {
                             if (trigger === 'hover' && !floatingRef.current?.contains(e.relatedTarget as Node)) {
-                                setLocalVisible(false)
+                                setVisible(false)
                             }
                         },
                         'aria-haspopup': 'true',

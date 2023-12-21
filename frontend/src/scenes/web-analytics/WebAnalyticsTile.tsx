@@ -174,6 +174,16 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
             render: NumericCell,
             align: 'right',
         },
+        average_scroll_percentage: {
+            title: 'Average Scroll',
+            render: PercentageCell,
+            align: 'right',
+        },
+        scroll_gt80_percentage: {
+            title: 'Deep Scroll Rate',
+            render: PercentageCell,
+            align: 'right',
+        },
     },
 }
 

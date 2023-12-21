@@ -246,7 +246,12 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 const SideComponent = sideDropdown ? LemonButtonWithDropdown : LemonButton
 
                 workingButton = (
-                    <div className="LemonButtonWithSideAction">
+                    <div
+                        className={clsx(
+                            'LemonButtonWithSideAction',
+                            fullWidth && 'LemonButtonWithSideAction--full-width'
+                        )}
+                    >
                         {workingButton}
                         <div className="LemonButtonWithSideAction__side-button">
                             <SideComponent

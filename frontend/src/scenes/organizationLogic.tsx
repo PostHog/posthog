@@ -2,7 +2,7 @@ import { actions, afterMount, kea, listeners, path, reducers, selectors } from '
 import { loaders } from 'kea-loaders'
 import api, { ApiConfig } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isUserLoggedIn } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 

@@ -1,23 +1,52 @@
 from datetime import timedelta
-from typing import List, cast, Literal, Dict, Any
-from django.db.models.query import Prefetch
-
+from typing import List, Generator, Sequence, Iterator, Optional
 from posthog.hogql import ast
 from posthog.hogql.constants import get_max_limit_for_context, get_default_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_order_expr
-from posthog.hogql.property import property_to_expr, has_aggregation
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.property import has_aggregation
+from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy, GroupStrategy
+from posthog.hogql_queries.insights.insight_persons_query_runner import InsightPersonsQueryRunner
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
 from posthog.schema import PersonsQuery, PersonsQueryResponse
-from posthog.models.person import Person
 
 
 class PersonsQueryRunner(QueryRunner):
     query: PersonsQuery
     query_type = PersonsQuery
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.paginator = HogQLHasMorePaginator(limit=self.query_limit(), offset=self.query.offset or 0)
+        self.source_query_runner: Optional[QueryRunner] = None
+
+        if self.query.source:
+            self.source_query_runner = get_query_runner(self.query.source, self.team, self.timings, self.limit_context)
+
+        self.strategy = self.determine_strategy()
+
+    @property
+    def group_type_index(self) -> int | None:
+        if not self.source_query_runner or not isinstance(self.source_query_runner, InsightPersonsQueryRunner):
+            return None
+
+        return self.source_query_runner.group_type_index
+
+    def determine_strategy(self) -> ActorStrategy:
+        if self.group_type_index is not None:
+            return GroupStrategy(self.group_type_index, team=self.team, query=self.query, paginator=self.paginator)
+        return PersonStrategy(team=self.team, query=self.query, paginator=self.paginator)
+
+    def enrich_with_actors(self, results, actor_column_index, actors_lookup) -> Generator[List, None, None]:
+        for result in results:
+            new_row = list(result)
+            actor_id = str(result[actor_column_index])
+            actor = actors_lookup.get(actor_id)
+            new_row[actor_column_index] = actor if actor else {"id": actor_id}
+            yield new_row
+
     def calculate(self) -> PersonsQueryResponse:
-        response = execute_hogql_query(
+        response = self.paginator.execute_hogql_query(
             query_type="PersonsQuery",
             query=self.to_query(),
             team=self.team,
@@ -25,99 +54,65 @@ class PersonsQueryRunner(QueryRunner):
             modifiers=self.modifiers,
         )
         input_columns = self.input_columns()
-        if "person" in input_columns:
-            person_column_index = input_columns.index("person")
-            person_ids = [str(result[person_column_index]) for result in response.results]
-            pg_persons = {
-                str(p.uuid): p
-                for p in Person.objects.filter(team_id=self.team.pk, persondistinctid__team_id=self.team.pk)
-                .filter(uuid__in=person_ids)
-                .prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
-            }
+        missing_actors_count = None
+        results: Sequence[List] | Iterator[List] = self.paginator.results
 
-            for index, result in enumerate(response.results):
-                response.results[index] = list(result)
-                person_id = str(result[person_column_index])
-                new_result: Dict[str, Any] = {"id": person_id}
-                person = pg_persons.get(person_id)
-                if person:
-                    new_result["distinct_ids"] = person.distinct_ids
-                    new_result["properties"] = person.properties
-                    new_result["created_at"] = person.created_at
-                    new_result["is_identified"] = person.is_identified
-                response.results[index][person_column_index] = new_result
+        enrich_columns = filter(lambda column: column in ("person", "group"), input_columns)
+        for column_name in enrich_columns:
+            actor_ids = (row[input_columns.index(column_name)] for row in self.paginator.results)
+            actors_lookup = self.strategy.get_actors(actor_ids)
+            missing_actors_count = len(self.paginator.results) - len(actors_lookup)
+            results = self.enrich_with_actors(results, input_columns.index(column_name), actors_lookup)
 
-        has_more = len(response.results) > self.query_limit()
         return PersonsQueryResponse(
-            # we added +1 before for pagination, remove the last element if there's more
-            results=response.results[:-1] if has_more else response.results,
+            results=results,
             timings=response.timings,
-            types=[type for _, type in response.types],
-            columns=self.input_columns(),
+            types=[t for _, t in response.types] if response.types else None,
+            columns=input_columns,
             hogql=response.hogql,
-            hasMore=has_more,
+            missing_actors_count=missing_actors_count,
+            **self.paginator.response_params(),
         )
 
-    def filter_conditions(self) -> List[ast.Expr]:
-        where_exprs: List[ast.Expr] = []
-
-        if self.query.source:
-            source = self.query.source
-            try:
-                source_query_runner = get_query_runner(source, self.team, self.timings)
-                source_query = source_query_runner.to_persons_query()
-                where_exprs.append(
-                    ast.CompareOperation(
-                        left=ast.Field(chain=["id"]),
-                        op=ast.CompareOperationOp.In,
-                        right=source_query,
-                    )
-                )
-            except NotImplementedError:
-                raise ValueError(f"Queries of type '{source.kind}' are not implemented as a PersonsQuery sources.")
-
-        if self.query.properties:
-            where_exprs.append(property_to_expr(self.query.properties, self.team, scope="person"))
-
-        if self.query.fixedProperties:
-            where_exprs.append(property_to_expr(self.query.fixedProperties, self.team, scope="person"))
-
-        if self.query.search is not None and self.query.search != "":
-            where_exprs.append(
-                ast.Or(
-                    exprs=[
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.ILike,
-                            left=ast.Field(chain=["properties", "email"]),
-                            right=ast.Constant(value=f"%{self.query.search}%"),
-                        ),
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.ILike,
-                            left=ast.Field(chain=["properties", "name"]),
-                            right=ast.Constant(value=f"%{self.query.search}%"),
-                        ),
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.ILike,
-                            left=ast.Call(name="toString", args=[ast.Field(chain=["id"])]),
-                            right=ast.Constant(value=f"%{self.query.search}%"),
-                        ),
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.ILike,
-                            left=ast.Field(chain=["pdi", "distinct_id"]),
-                            right=ast.Constant(value=f"%{self.query.search}%"),
-                        ),
-                    ]
-                )
-            )
-        return where_exprs
-
     def input_columns(self) -> List[str]:
-        return self.query.select or ["person", "id", "created_at", "person.$delete"]
+        if self.query.select:
+            return self.query.select
+
+        return self.strategy.input_columns()
 
     def query_limit(self) -> int:
         max_rows = get_max_limit_for_context(self.limit_context)
         default_rows = get_default_limit_for_context(self.limit_context)
         return min(max_rows, default_rows if self.query.limit is None else self.query.limit)
+
+    def source_id_column(self, source_query: ast.SelectQuery) -> List[str]:
+        # Figure out the id column of the source query, first column that has id in the name
+        for column in source_query.select:
+            if isinstance(column, ast.Field) and any("id" in part.lower() for part in column.chain):
+                return column.chain
+        raise ValueError("Source query must have an id column")
+
+    def source_table_join(self) -> ast.JoinExpr:
+        assert self.source_query_runner is not None  # For type checking
+        source_query = self.source_query_runner.to_persons_query()
+        source_id_chain = self.source_id_column(source_query)
+        source_alias = "source"
+
+        return ast.JoinExpr(
+            table=ast.Field(chain=[self.strategy.origin]),
+            next_join=ast.JoinExpr(
+                table=source_query,
+                join_type="INNER JOIN",
+                alias=source_alias,
+                constraint=ast.JoinConstraint(
+                    expr=ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=[self.strategy.origin, self.strategy.origin_id]),
+                        right=ast.Field(chain=[source_alias, *source_id_chain]),
+                    )
+                ),
+            ),
+        )
 
     def to_query(self) -> ast.SelectQuery:
         with self.timings.measure("columns"):
@@ -127,8 +122,8 @@ class PersonsQueryRunner(QueryRunner):
             for expr in self.input_columns():
                 if expr == "person.$delete":
                     column = ast.Constant(value=1)
-                elif expr == "person":
-                    column = ast.Field(chain=["id"])
+                elif expr == self.strategy.field:
+                    column = ast.Field(chain=[self.strategy.origin_id])
                 else:
                     column = parse_expr(expr)
                 columns.append(column)
@@ -139,7 +134,7 @@ class PersonsQueryRunner(QueryRunner):
             has_any_aggregation = len(aggregations) > 0
 
         with self.timings.measure("filters"):
-            filter_conditions = self.filter_conditions()
+            filter_conditions = self.strategy.filter_conditions()
             where_list = [expr for expr in filter_conditions if not has_aggregation(expr)]
             if len(where_list) == 0:
                 where = None
@@ -158,21 +153,9 @@ class PersonsQueryRunner(QueryRunner):
 
         with self.timings.measure("order"):
             if self.query.orderBy is not None:
-                if self.query.orderBy in [["person"], ["person DESC"], ["person ASC"]]:
-                    order_property = (
-                        "email"
-                        if self.team.person_display_name_properties is None
-                        else self.team.person_display_name_properties[0]
-                    )
-                    order_by = [
-                        ast.OrderExpr(
-                            expr=ast.Field(chain=["properties", order_property]),
-                            order=cast(
-                                Literal["ASC", "DESC"],
-                                "DESC" if self.query.orderBy[0] == "person DESC" else "ASC",
-                            ),
-                        )
-                    ]
+                strategy_order_by = self.strategy.order_by()
+                if strategy_order_by is not None:
+                    order_by = strategy_order_by
                 else:
                     order_by = [parse_order_expr(column, timings=self.timings) for column in self.query.orderBy]
             elif "count()" in self.input_columns():
@@ -186,21 +169,19 @@ class PersonsQueryRunner(QueryRunner):
             else:
                 order_by = []
 
-        with self.timings.measure("limit"):
-            # adding +1 to the limit to check if there's a "next page" after the requested results
-            limit = self.query_limit() + 1
-            offset = 0 if self.query.offset is None else self.query.offset
-
         with self.timings.measure("select"):
+            if self.query.source:
+                join_expr = self.source_table_join()
+            else:
+                join_expr = ast.JoinExpr(table=ast.Field(chain=[self.strategy.origin]))
+
             stmt = ast.SelectQuery(
                 select=columns,
-                select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+                select_from=join_expr,
                 where=where,
                 having=having,
                 group_by=group_by if has_any_aggregation else None,
                 order_by=order_by,
-                limit=ast.Constant(value=limit),
-                offset=ast.Constant(value=offset),
             )
 
         return stmt
