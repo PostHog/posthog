@@ -2,7 +2,6 @@ use std::collections;
 use std::sync::Arc;
 use std::time;
 
-use async_std::task;
 use hook_common::{
     pgqueue::{PgJob, PgJobError, PgQueue, PgQueueError, PgQueueJob, PgTransactionJob},
     retry::RetryPolicy,
@@ -118,11 +117,13 @@ impl<'p> WebhookConsumer<'p> {
     async fn wait_for_job<'a>(
         &self,
     ) -> Result<PgJob<WebhookJobParameters, WebhookJobMetadata>, ConsumerError> {
+        let mut interval = tokio::time::interval(self.poll_interval);
+
         loop {
+            interval.tick().await;
+
             if let Some(job) = self.queue.dequeue(&self.name).await? {
                 return Ok(job);
-            } else {
-                task::sleep(self.poll_interval).await;
             }
         }
     }
@@ -131,11 +132,13 @@ impl<'p> WebhookConsumer<'p> {
     async fn wait_for_job_tx<'a>(
         &self,
     ) -> Result<PgTransactionJob<'a, WebhookJobParameters, WebhookJobMetadata>, ConsumerError> {
+        let mut interval = tokio::time::interval(self.poll_interval);
+
         loop {
+            interval.tick().await;
+
             if let Some(job) = self.queue.dequeue_tx(&self.name).await? {
                 return Ok(job);
-            } else {
-                task::sleep(self.poll_interval).await;
             }
         }
     }
