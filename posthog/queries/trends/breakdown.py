@@ -490,7 +490,9 @@ class TrendsBreakdown:
 
         return (
             {
-                "values": [*values_arr, breakdown_other_value] if has_more_values else values_arr,
+                "values": [*values_arr, breakdown_other_value]
+                if has_more_values and not self.filter.breakdown_hide_other_aggregation
+                else values_arr,
                 "breakdown_other_value": breakdown_other_value,
                 "breakdown_null_value": breakdown_null_value,
             },
