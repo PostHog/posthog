@@ -2,7 +2,11 @@ from django.conf import settings
 import datetime
 from posthog.models import Team
 from posthog.warehouse.external_data_source.client import send_request
-from posthog.warehouse.data_load.service import cancel_external_data_workflow, pause_external_data_schedule
+from posthog.warehouse.data_load.service import (
+    cancel_external_data_workflow,
+    pause_external_data_schedule,
+    unpause_external_data_schedule,
+)
 from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable, ExternalDataSource, ExternalDataJob
 from posthog.warehouse.external_data_source.connection import retrieve_sync
 from urllib.parse import urlencode
@@ -200,5 +204,15 @@ def check_synced_row_limits_of_team(team_id: int) -> None:
             job.status = ExternalDataJob.Status.CANCELLED
             job.save()
 
-            job.pipeline.status = ExternalDataJob.Status.CANCELLED
+            job.pipeline.status = ExternalDataSource.Status.PAUSED
             job.pipeline.save()
+    else:
+        all_sources = ExternalDataSource.objects.filter(team_id=team_id)
+        for source in all_sources:
+            try:
+                unpause_external_data_schedule(source)
+            except Exception as e:
+                logger.exception("Could not unpause external data schedule", exc_info=e)
+
+            source.status = ExternalDataSource.Status.COMPLETED
+            source.save()

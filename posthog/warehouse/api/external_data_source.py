@@ -18,6 +18,7 @@ from posthog.warehouse.data_load.service import (
     delete_external_data_schedule,
     cancel_external_data_workflow,
     delete_data_import_folder,
+    is_any_external_data_job_paused,
 )
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, ExternalDataJob
 from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer
@@ -118,6 +119,12 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             elif self.prefix_exists(source_type, prefix):
                 return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
 
+        if is_any_external_data_job_paused(self.team_id):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Monthly sync limit reached. Please contact PostHog support to increase your limit."},
+            )
+
         # TODO: remove dummy vars
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -185,6 +192,13 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["POST"], detail=True)
     def reload(self, request: Request, *args: Any, **kwargs: Any):
         instance = self.get_object()
+
+        if is_any_external_data_job_paused(self.team_id):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Monthly sync limit reached. Please contact PostHog support to increase your limit."},
+            )
+
         trigger_external_data_workflow(instance)
 
         instance.status = "Running"

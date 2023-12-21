@@ -19,6 +19,7 @@ from posthog.temporal.common.schedule import (
     trigger_schedule,
     update_schedule,
     delete_schedule,
+    unpause_schedule,
 )
 from posthog.temporal.data_imports.external_data_job import (
     ExternalDataWorkflowInputs,
@@ -78,6 +79,11 @@ def pause_external_data_schedule(external_data_source: ExternalDataSource):
     pause_schedule(temporal, schedule_id=str(external_data_source.id))
 
 
+def unpause_external_data_schedule(external_data_source: ExternalDataSource):
+    temporal = sync_connect()
+    unpause_schedule(temporal, schedule_id=str(external_data_source.id))
+
+
 def delete_external_data_schedule(external_data_source: ExternalDataSource):
     temporal = sync_connect()
     try:
@@ -107,3 +113,7 @@ def delete_data_import_folder(folder_path: str):
     )
     bucket_name = settings.BUCKET_URL
     s3.delete(f"{bucket_name}/{folder_path}", recursive=True)
+
+
+def is_any_external_data_job_paused(team_id: int) -> bool:
+    return ExternalDataSource.objects.filter(team_id=team_id, status=ExternalDataSource.Status.PAUSED).exists()

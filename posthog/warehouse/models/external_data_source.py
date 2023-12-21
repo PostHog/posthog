@@ -9,6 +9,13 @@ class ExternalDataSource(CreatedMetaFields, UUIDModel):
     class Type(models.TextChoices):
         STRIPE = "Stripe", "Stripe"
 
+    class Status(models.TextChoices):
+        RUNNING = "running", "Running"
+        PAUSED = "paused", "Paused"
+        ERROR = "error", "Error"
+        COMPLETED = "completed", "Completed"
+        CANCELLED = "cancelled", "Cancelled"
+
     source_id: models.CharField = models.CharField(max_length=400)
     connection_id: models.CharField = models.CharField(max_length=400)
     destination_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
