@@ -115,7 +115,10 @@ export const SidePanelActivity = (): JSX.Element => {
                         </>
                     ) : activeTab === SidePanelActivityTab.All ? (
                         <div className="flex items-center justify-between gap-2">
-                            <div>{allActivityResponseLoading ? <Spinner textColored /> : null}</div>
+                            <div className="flex items-center gap-2">
+                                {filters?.item_id ? <span className="text-muted-alt">Showing</span> : null}
+                                {allActivityResponseLoading ? <Spinner textColored /> : null}
+                            </div>
 
                             <div className="flex ites-center gap-2">
                                 <LemonSelect

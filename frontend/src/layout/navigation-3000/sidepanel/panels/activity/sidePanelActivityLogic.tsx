@@ -9,6 +9,7 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { SceneConfig } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ActivityScope, UserBasicType } from '~/types'
@@ -37,6 +38,13 @@ export type ActivityFilters = {
     scope?: ActivityScope
     item_id?: ActivityLogItem['item_id']
     user?: UserBasicType['id']
+}
+
+const activityFiltersForScene = (sceneConfig: SceneConfig | null): ActivityFilters | null => {
+    if (sceneConfig?.activityScope) {
+        return { scope: sceneConfig.activityScope }
+    }
+    return null
 }
 
 export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
@@ -251,11 +259,12 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
         hasUnread: [(s) => [s.unreadCount], (unreadCount) => unreadCount > 0],
     }),
 
-    subscriptions(({ actions }) => ({
+    subscriptions(({ actions, values }) => ({
         sceneConfig: (sceneConfig) => {
             // TODO: Parse sceneConfig into scope and item_id
+            const filters = activityFiltersForScene(sceneConfig)
             if (sceneConfig?.activityScope) {
-                actions.setFilters({ scope: sceneConfig.activityScope })
+                actions.setFilters({ ...values.filters, ...filters })
             }
         },
     })),
@@ -263,8 +272,14 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     afterMount(({ actions, values }) => {
         actions.loadImportantChanges()
 
+        const sceneConfig = values.sceneConfig
+        const filters = activityFiltersForScene(sceneConfig)
+        if (sceneConfig?.activityScope) {
+            actions.setFilters({ ...values.filters, ...filters })
+        }
+
         if (values.sceneConfig?.activityScope) {
-            actions.setFilters({ scope: values.sceneConfig.activityScope })
+            actions.setFilters({ ...values.filters, scope: values.sceneConfig.activityScope })
         }
     }),
 
