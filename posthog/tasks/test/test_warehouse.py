@@ -189,7 +189,7 @@ class TestWarehouse(APIBaseTest):
         check_synced_row_limits_of_team(self.team.pk)
 
         source.refresh_from_db()
-        self.assertEqual(source.status, ExternalDataJob.Status.CANCELLED)
+        self.assertEqual(source.status, ExternalDataSource.Status.PAUSED)
 
         job.refresh_from_db()
         self.assertEqual(job.status, ExternalDataJob.Status.CANCELLED)
