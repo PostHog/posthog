@@ -13,7 +13,7 @@ export type MemberSelectProps = Pick<LemonButtonProps, 'size' | 'type'> & {
 }
 
 export function MemberSelect({
-    defaultLabel = 'All users',
+    defaultLabel = 'Any user',
     value,
     onChange,
     ...buttonProps

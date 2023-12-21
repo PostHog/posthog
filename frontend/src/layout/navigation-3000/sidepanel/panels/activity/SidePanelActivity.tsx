@@ -120,23 +120,30 @@ export const SidePanelActivity = (): JSX.Element => {
                                 {allActivityResponseLoading ? <Spinner textColored /> : null}
                             </div>
 
-                            <div className="flex ites-center gap-2">
+                            <div className="flex items-center gap-2">
+                                <span>Filter for activity on:</span>
                                 <LemonSelect
                                     size="small"
-                                    options={Object.values(ActivityScope).map((x) => ({
-                                        value: x,
-                                        label: x,
-                                    }))}
-                                    placeholder="All Activity"
+                                    options={[
+                                        { value: undefined, label: 'All activity' },
+                                        ...Object.values(ActivityScope).map((x) => ({
+                                            value: x,
+                                            label: x,
+                                        })),
+                                    ]}
+                                    placeholder="All activity"
                                     value={filters?.scope ?? null}
-                                    onChange={(value) => ({
-                                        ...filters,
-                                        scope: value ?? undefined,
-                                        item_id: undefined,
-                                    })}
+                                    onChange={(value) =>
+                                        setFilters({
+                                            ...filters,
+                                            scope: value ?? undefined,
+                                            item_id: undefined,
+                                        })
+                                    }
                                     dropdownMatchSelectWidth={false}
                                 />
 
+                                <span>by</span>
                                 <MemberSelect
                                     size="small"
                                     type="secondary"
