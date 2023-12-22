@@ -193,13 +193,8 @@ async fn spawn_webhook_job_processing_task<W: WebhookJob + 'static>(
     metrics::increment_counter!("webhook_jobs_total", &labels);
 
     tokio::spawn(async move {
-        let now = tokio::time::Instant::now();
         let result = process_webhook_job(client, webhook_job, &retry_policy).await;
         drop(permit);
-
-        let elapsed = now.elapsed().as_secs_f64();
-        metrics::histogram!("webhook_jobs_processing_duration_seconds", elapsed, &labels);
-
         result
     })
 }
@@ -229,15 +224,20 @@ async fn process_webhook_job<W: WebhookJob>(
         ("target", webhook_job.target()),
     ];
 
-    match send_webhook(
+    let now = tokio::time::Instant::now();
+
+    let send_result = send_webhook(
         client,
         &parameters.method,
         &parameters.url,
         &parameters.headers,
         parameters.body.clone(),
     )
-    .await
-    {
+    .await;
+
+    let elapsed = now.elapsed().as_secs_f64();
+
+    match send_result {
         Ok(_) => {
             webhook_job
                 .complete()
@@ -245,6 +245,7 @@ async fn process_webhook_job<W: WebhookJob>(
                 .map_err(|error| ConsumerError::PgJobError(error.to_string()))?;
 
             metrics::increment_counter!("webhook_jobs_completed", &labels);
+            metrics::histogram!("webhook_jobs_processing_duration_seconds", elapsed, &labels);
 
             Ok(())
         }
