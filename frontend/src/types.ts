@@ -3251,6 +3251,8 @@ export enum ActivityScope {
     DASHBOARD = 'Dashboard',
     REPLAY = 'Replay',
     EXPERIMENT = 'Experiment',
+    SURVEY = 'Survey',
+    EARLY_ACCESS_FEATURE = 'EarlyAccessFeature',
 }
 
 export type CommentType = {

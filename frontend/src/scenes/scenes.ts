@@ -162,11 +162,13 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'A/B testing',
         defaultDocsPath: '/docs/experiments',
+        activityScope: ActivityScope.EXPERIMENT,
     },
     [Scene.Experiment]: {
         projectBased: true,
         name: 'Experiment',
         defaultDocsPath: '/docs/experiments/creating-an-experiment',
+        activityScope: ActivityScope.EXPERIMENT,
     },
     [Scene.FeatureFlags]: {
         projectBased: true,
@@ -182,11 +184,13 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         name: 'Surveys',
         defaultDocsPath: '/docs/feature-flags/creating-feature-flags',
+        activityScope: ActivityScope.SURVEY,
     },
     [Scene.Survey]: {
         projectBased: true,
         name: 'Survey',
         defaultDocsPath: '/docs/surveys',
+        activityScope: ActivityScope.SURVEY,
     },
     [Scene.SurveyTemplates]: {
         projectBased: true,
@@ -225,11 +229,13 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
     [Scene.EarlyAccessFeatures]: {
         projectBased: true,
-        defaultDocsPath: '/docs/data-warehouse',
+        defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
+        activityScope: ActivityScope.EARLY_ACCESS_FEATURE,
     },
     [Scene.EarlyAccessFeature]: {
         projectBased: true,
         defaultDocsPath: '/docs/feature-flags/early-access-feature-management',
+        activityScope: ActivityScope.EARLY_ACCESS_FEATURE,
     },
     [Scene.Apps]: {
         projectBased: true,

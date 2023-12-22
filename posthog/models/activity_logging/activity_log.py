@@ -21,11 +21,15 @@ ActivityScope = Literal[
     "Insight",
     "Plugin",
     "PluginConfig",
-    "SessionRecordingPlaylist",
+    "DataManagement",
     "EventDefinition",
     "PropertyDefinition",
     "Notebook",
-    "Comment",
+    "Dashboard",
+    "Replay",
+    "Experiment",
+    "Survey",
+    "EarlyAccessFeature",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
