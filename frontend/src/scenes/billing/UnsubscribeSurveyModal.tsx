@@ -1,6 +1,6 @@
 import { LemonBanner, LemonButton, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { ExportsUnsubscribeTable } from 'scenes/pipeline/ExportsUnsubscribeTable'
+import { ExportsUnsubscribeTable, exportsUnsubscribeTableLogic } from 'scenes/pipeline/ExportsUnsubscribeTable'
 
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
@@ -15,8 +15,15 @@ export const UnsubscribeSurveyModal = ({
     const { surveyID, surveyResponse } = useValues(billingProductLogic({ product }))
     const { setSurveyResponse, reportSurveySent, reportSurveyDismissed } = useActions(billingProductLogic({ product }))
     const { deactivateProduct } = useActions(billingLogic)
+    const { unsubscribeDisabledReason, itemsToDisable } = useValues(exportsUnsubscribeTableLogic)
 
     const textAreaNotEmpty = surveyResponse['$survey_response']?.length > 0
+    const includesExportsAddon =
+        product.type == 'group_analytics' ||
+        (product.type == 'product_analytics' &&
+            (product as BillingProductV2Type)?.addons?.filter((addon) => addon.type === 'group_analytics')[0]
+                ?.subscribed)
+
     return (
         <LemonModal
             onClose={() => {
@@ -25,7 +32,20 @@ export const UnsubscribeSurveyModal = ({
             width={'max(40vw)'}
         >
             <div>
-                {product.type === 'group_analytics' ? <ExportsUnsubscribeTable /> : <></>}
+                {includesExportsAddon && itemsToDisable.length > 0 ? (
+                    <div className="mb-6">
+                        <div className="mb-4">
+                            <h3 className="mt-2 mb-2">{`Important: Disable remaining export apps`}</h3>
+                            <p>
+                                To avoid unexpected impact on your data, you must explicitly disable the following apps
+                                and exports before unsubscribing:
+                            </p>
+                        </div>
+                        <ExportsUnsubscribeTable />
+                    </div>
+                ) : (
+                    <></>
+                )}
                 <h3 className="mt-2 mb-4">{`Why are you unsubscribing from ${product.name}?`}</h3>
                 <div className="flex flex-col gap-3.5">
                     <LemonTextArea
@@ -87,6 +107,7 @@ export const UnsubscribeSurveyModal = ({
                         </LemonButton>
                         <LemonButton
                             type={textAreaNotEmpty ? 'primary' : 'tertiary'}
+                            disabledReason={includesExportsAddon && unsubscribeDisabledReason}
                             onClick={() => {
                                 textAreaNotEmpty
                                     ? reportSurveySent(surveyID, surveyResponse)

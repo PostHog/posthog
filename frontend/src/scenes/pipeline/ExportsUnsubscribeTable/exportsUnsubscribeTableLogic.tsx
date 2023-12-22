@@ -11,6 +11,8 @@ import { BatchExportConfiguration, PluginConfigTypeNew } from '~/types'
 import { pipelineTransformationsLogic } from '../transformationsLogic'
 import { RenderApp } from '../utils'
 
+import type { exportsUnsubscribeTableLogicType } from './exportsUnsubscribeTableLogicType'
+
 export interface ItemToDisable {
     plugin_config_id: number | undefined // exactly one of plugin_config_id or batch_export_id is set
     batch_export_id: string | undefined
@@ -21,7 +23,7 @@ export interface ItemToDisable {
     disabled: boolean
 }
 
-export const exportsUnsubscribeTableLogic = kea([
+export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType>([
     path(['scenes', 'pipeline', 'ExportsUnsubscribeTableLogic']),
     connect({
         values: [pluginsLogic, ['plugins'], pipelineTransformationsLogic, ['canConfigurePlugins'], userLogic, ['user']],
