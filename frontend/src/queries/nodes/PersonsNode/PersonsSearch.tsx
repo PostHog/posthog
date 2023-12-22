@@ -3,13 +3,13 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { useDebouncedQuery } from '~/queries/hooks/useDebouncedQuery'
-import { PersonsNode, PersonsQuery } from '~/queries/schema'
+import { ActorsQuery, PersonsNode } from '~/queries/schema'
 import { isQueryForGroup } from '~/queries/utils'
 
 type ActorType = 'person' | 'group'
 interface PersonSearchProps {
-    query: PersonsNode | PersonsQuery
-    setQuery?: (query: PersonsNode | PersonsQuery) => void
+    query: PersonsNode | ActorsQuery
+    setQuery?: (query: PersonsNode | ActorsQuery) => void
 }
 
 interface LabelType {
@@ -31,7 +31,7 @@ const labels: Record<ActorType, LabelType> = {
 }
 
 export function PersonsSearch({ query, setQuery }: PersonSearchProps): JSX.Element {
-    const { value, onChange } = useDebouncedQuery<PersonsNode | PersonsQuery, string>(
+    const { value, onChange } = useDebouncedQuery<PersonsNode | ActorsQuery, string>(
         query,
         setQuery,
         (query) => query.search || '',

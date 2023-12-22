@@ -1,3 +1,4 @@
+// eslint-disable-next-line no-restricted-imports
 import { Tooltip as AntdTooltip } from 'antd'
 import { TooltipProps as AntdTooltipProps } from 'antd/lib/tooltip'
 import { useFloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
