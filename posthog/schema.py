@@ -81,7 +81,7 @@ class CohortPropertyFilter(BaseModel):
     key: Literal["id"] = "id"
     label: Optional[str] = None
     type: Literal["cohort"] = "cohort"
-    value: float
+    value: int
 
 
 class CountPerActorMathType(str, Enum):
@@ -505,7 +505,7 @@ class RetentionEntity(BaseModel):
     id: Optional[Union[str, float]] = None
     kind: Optional[Kind] = None
     name: Optional[str] = None
-    order: Optional[float] = None
+    order: Optional[int] = None
     type: Optional[EntityType] = None
     uuid: Optional[str] = None
 

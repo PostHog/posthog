@@ -73,7 +73,7 @@ class TestPrinter(BaseTest):
 
     def test_to_printed_hogql(self):
         expr = parse_select("select 1 + 2, 3 from events")
-        repsponse = to_printed_hogql(expr, self.team.pk)
+        repsponse = to_printed_hogql(expr, self.team)
         self.assertEqual(repsponse, "SELECT\n    plus(1, 2),\n    3\nFROM\n    events\nLIMIT 10000")
 
     def test_literals(self):
