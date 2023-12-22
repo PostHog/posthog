@@ -77,9 +77,6 @@ const meta: Meta<typeof PropertyFilterButton> = {
     title: 'Filters/Property Filter Button',
     component: PropertyFilterButton,
     tags: ['autodocs'],
-    parameters: {
-        testOptions: { include3000: true },
-    },
 }
 export default meta
 
