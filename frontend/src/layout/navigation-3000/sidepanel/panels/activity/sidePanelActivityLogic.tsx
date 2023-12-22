@@ -1,20 +1,16 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogItem, humanize, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { objectsEqual, toParams } from 'lib/utils'
+import { toParams } from 'lib/utils'
 import posthog from 'posthog-js'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { SceneConfig } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ActivityScope, UserBasicType } from '~/types'
-
+import { ActivityFilters, activityForSceneLogic } from './activityForSceneLogic'
 import type { sidePanelActivityLogicType } from './sidePanelActivityLogicType'
 
 const POLL_TIMEOUT = 5 * 60 * 1000
@@ -35,31 +31,10 @@ export enum SidePanelActivityTab {
     All = 'all',
 }
 
-export type ActivityFilters = {
-    scope?: ActivityScope
-    item_id?: ActivityLogItem['item_id']
-    user?: UserBasicType['id']
-}
-
-export const activityFiltersForScene = (sceneConfig: SceneConfig | null): ActivityFilters | null => {
-    if (sceneConfig?.activityScope) {
-        // NOTE: - HACKY, we are just parsing the item_id from the url optimistically...
-        const pathParts = router.values.currentLocation.pathname.split('/')
-        const item_id = pathParts[2]
-
-        // TODO: Check that it looks like an actual id?
-
-        // TODO: Implement custom interceptor for things like "replays/recent?session_id=1234"
-
-        return { scope: sceneConfig.activityScope, item_id }
-    }
-    return null
-}
-
 export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelActivityLogic']),
     connect({
-        values: [sceneLogic, ['sceneConfig', 'activeScene']],
+        values: [activityForSceneLogic, ['sceneActivityFilters']],
     }),
     actions({
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
@@ -268,36 +243,9 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
         ],
         unreadCount: [(s) => [s.unread], (unread) => (unread || []).length],
         hasUnread: [(s) => [s.unreadCount], (unreadCount) => unreadCount > 0],
-
-        sceneActivityFilters: [
-            (s) => [
-                // Similar to "breadcrumbs"
-                (state, props) => {
-                    const activeSceneLogic = sceneLogic.selectors.activeSceneLogic(state, props)
-                    // const activeScene = s.activeScene(state, props)
-                    const sceneConfig = s.sceneConfig(state, props)
-                    if (activeSceneLogic && 'activityFilters' in activeSceneLogic.selectors) {
-                        const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, props)
-                        return activeSceneLogic.selectors.activityFilters(
-                            state,
-                            activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
-                        )
-                    } else {
-                        return activityFiltersForScene(sceneConfig)
-                    }
-                },
-            ],
-            (filters): ActivityFilters | null => filters,
-            { equalityCheck: objectsEqual },
-        ],
     }),
 
     subscriptions(({ actions, values }) => ({
-        sceneConfig: (sceneConfig) => {
-            const filters = activityFiltersForScene(sceneConfig)
-            actions.setFiltersForCurrentPage(filters ? { ...values.filters, ...filters } : null)
-        },
-
         sceneActivityFilters: (activityFilters) => {
             actions.setFiltersForCurrentPage(activityFilters ? { ...values.filters, ...activityFilters } : null)
         },
@@ -311,11 +259,8 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     afterMount(({ actions, values }) => {
         actions.loadImportantChanges()
 
-        const sceneConfig = values.sceneConfig
-        const filters = activityFiltersForScene(sceneConfig)
-        if (filters) {
-            actions.setFiltersForCurrentPage({ ...values.filters, ...filters })
-        }
+        const activityFilters = values.sceneActivityFilters
+        actions.setFiltersForCurrentPage(activityFilters ? { ...values.filters, ...activityFilters } : null)
     }),
 
     beforeUnmount(({ cache }) => {
