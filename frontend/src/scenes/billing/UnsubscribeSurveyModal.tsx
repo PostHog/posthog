@@ -1,11 +1,11 @@
 import { LemonBanner, LemonButton, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { ExportsUnsubscribeTable, exportsUnsubscribeTableLogic } from 'scenes/pipeline/ExportsUnsubscribeTable'
 
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
+import { ExportsUnsubscribeTable, exportsUnsubscribeTableLogic } from './ExportsUnsubscribeTable'
 
 export const UnsubscribeSurveyModal = ({
     product,
