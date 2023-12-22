@@ -368,7 +368,7 @@ export function ReactNativeSnippet({ flagKey, multivariant, payload }: FeatureFl
     if (payload) {
         return (
             <CodeSnippet language={Language.JSX} wrap>
-                {`${clientSuffix}getFeatureFlagPayload('${flagKey}'`}
+                {`${clientSuffix}getFeatureFlagPayload('${flagKey}')`}
             </CodeSnippet>
         )
     }
