@@ -13,7 +13,7 @@ class Command(BaseCommand):
         from posthog.hogql_queries.query_runner import get_query_runner
 
         insights = (
-            Insight.objects.filter(filters__contains={"insight": "LIFECYCLE"}, saved=True, deleted=False, team_id=2)
+            Insight.objects.filter(filters__contains={"insight": "LIFECYCLE"}, saved=True, deleted=False)
             .order_by("id")
             .all()
         )
