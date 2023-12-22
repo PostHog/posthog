@@ -2,6 +2,7 @@ import './FunnelCorrelationTable.scss'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
+// eslint-disable-next-line no-restricted-imports
 import { Col, ConfigProvider, Empty, Row, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
