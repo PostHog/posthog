@@ -430,7 +430,7 @@
                     "type": "string"
                 },
                 "value": {
-                    "type": "number"
+                    "type": "integer"
                 }
             },
             "required": ["key", "type", "value"],
@@ -2607,7 +2607,7 @@
                     "type": "string"
                 },
                 "order": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "type": {
                     "$ref": "#/definitions/EntityType"
