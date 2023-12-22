@@ -260,9 +260,9 @@ export interface EventsQueryResponse {
     hasMore?: boolean
     timings?: QueryTiming[]
     /** @asType integer */
-    limit: number
+    limit?: number
     /** @asType integer */
-    offset: number
+    offset?: number
 }
 export interface EventsQueryPersonColumn {
     uuid: string

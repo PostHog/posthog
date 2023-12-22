@@ -1176,7 +1176,7 @@
                     "type": "array"
                 }
             },
-            "required": ["columns", "types", "results", "hogql", "limit", "offset"],
+            "required": ["columns", "types", "results", "hogql"],
             "type": "object"
         },
         "FeaturePropertyFilter": {
