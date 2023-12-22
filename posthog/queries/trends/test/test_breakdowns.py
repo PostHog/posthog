@@ -507,7 +507,7 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
             [
                 (BREAKDOWN_NULL_NUMERIC_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
                 (19, 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-                (BREAKDOWN_OTHER_NUMERIC_LABEL, 1.0, [1.0]),
+                (BREAKDOWN_OTHER_NUMERIC_LABEL, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
             ],
         )
 
@@ -559,7 +559,7 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
             [
                 (BREAKDOWN_NULL_STRING_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
                 ("https://example.com", 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-                (BREAKDOWN_OTHER_STRING_LABEL, 1.0, [1.0]),
+                (BREAKDOWN_OTHER_STRING_LABEL, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
             ],
         )
 

@@ -186,13 +186,13 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPerson,
         inMenu: true,
     },
-    [NodeKind.PersonsQuery]: {
+    [NodeKind.ActorsQuery]: {
         name: 'Persons',
         description: 'List of persons matching specified conditions',
         icon: IconPerson,
         inMenu: false,
     },
-    [NodeKind.InsightPersonsQuery]: {
+    [NodeKind.InsightActorsQuery]: {
         name: 'Persons',
         description: 'List of persons matching specified conditions, derived from an insight',
         icon: IconPerson,

@@ -154,7 +154,7 @@ function MemberRow({
 
     return (
         <div className="flex items-center justify-between mt-2 h-8">
-            <ProfilePicture email={user.email} name={user.first_name} size="md" showName />
+            <ProfilePicture user={user} size="md" showName />
             {isAdminOrOwner && deleteMember && (
                 <LemonButton
                     icon={<IconDelete />}

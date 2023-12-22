@@ -22,7 +22,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
             <Tooltip
                 title={
                     <div className="p-2 flex items-center gap-2">
-                        <ProfilePicture name={member?.user.first_name} email={member?.user.email} size="xl" />
+                        <ProfilePicture user={member?.user} size="xl" />
                         <div>
                             <div className="font-bold">{member?.user.first_name}</div>
                             <div className="text-sm">{member?.user.email}</div>

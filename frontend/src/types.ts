@@ -147,6 +147,7 @@ interface UserBaseType {
     uuid: string
     distinct_id: string
     first_name: string
+    last_name?: string
     email: string
 }
 
@@ -591,6 +592,7 @@ export interface SessionPropertyFilter extends BasePropertyFilter {
 export interface CohortPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Cohort
     key: 'id'
+    /**  @asType integer */
     value: number
 }
 
@@ -1872,7 +1874,7 @@ export interface RetentionEntity {
     kind?: NodeKind.ActionsNode | NodeKind.EventsNode
     name?: string
     type?: EntityType
-    // @asType integer
+    /**  @asType integer */
     order?: number
     uuid?: string
     custom_name?: string
