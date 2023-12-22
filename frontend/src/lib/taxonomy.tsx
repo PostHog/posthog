@@ -818,7 +818,7 @@ export const KEY_MAPPING: KeyMappingInterface = {
         },
         'Application Updated': {
             label: 'Application Updated',
-            description: 'When a user upgrades the mobile app.',
+            description: 'When a user upgrades the app.',
         },
         'Application Installed': {
             label: 'Application Installed',
@@ -830,7 +830,7 @@ export const KEY_MAPPING: KeyMappingInterface = {
         },
         'Deep Link Opened': {
             label: 'Deep Link Opened',
-            description: 'When a user opens the via via a deep link.',
+            description: 'When a user opens the app via a deep link.',
         },
     },
     element: {
