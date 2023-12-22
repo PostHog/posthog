@@ -110,7 +110,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                         title={
                             failure_reason
                                 ? `Failed: ${failure_reason}`
-                                : `Completed: ${dayjs(executed_at).format('MMMM D, YYYY h:mm A')}`
+                                : executed_at && `Completed: ${dayjs(executed_at).format('MMMM D, YYYY h:mm A')}`
                         }
                     >
                         <LemonTag type={type}>
