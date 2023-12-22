@@ -48,11 +48,13 @@ class Trigger:
 
 @dataclasses.dataclass(frozen=True)
 class Detail:
-    changes: Optional[List[Change]] = None
-    trigger: Optional[Trigger] = None
+    # The display name of the item in question
     name: Optional[str] = None
+    # The short_id if it has one
     short_id: Optional[str] = None
     type: Optional[str] = None
+    changes: Optional[List[Change]] = None
+    trigger: Optional[Trigger] = None
 
 
 class ActivityDetailEncoder(json.JSONEncoder):

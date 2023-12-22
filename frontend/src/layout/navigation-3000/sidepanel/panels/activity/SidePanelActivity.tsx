@@ -50,6 +50,7 @@ export const SidePanelActivity = (): JSX.Element => {
         importantChangesLoading,
         hasUnread,
         filters,
+        filtersForCurrentPage,
     } = useValues(sidePanelActivityLogic)
     const { togglePolling, setActiveTab, maybeLoadOlderActivity, markAllAsRead, loadImportantChanges, setFilters } =
         useActions(sidePanelActivityLogic)
@@ -91,10 +92,11 @@ export const SidePanelActivity = (): JSX.Element => {
 
     const activeScopeMenuOption = filters?.scope ? filters.scope + `${filters.item_id ?? ''}` : null
 
-    if (filters?.scope && filters?.item_id && activeScopeMenuOption) {
+    // Add a special option for the current page context if we have one
+    if (filtersForCurrentPage?.scope && filtersForCurrentPage?.item_id) {
         scopeMenuOptions.unshift({
-            value: activeScopeMenuOption as any,
-            label: `This ${humanizeScope(filters.scope, true)}`,
+            value: `${filtersForCurrentPage.scope}${filtersForCurrentPage.item_id ?? ''}` as any,
+            label: `This ${humanizeScope(filtersForCurrentPage.scope, true)}`,
         })
     }
     return (

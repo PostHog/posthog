@@ -70,6 +70,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
         maybeLoadOlderActivity: true,
         loadImportantChanges: (onlyUnread = true) => ({ onlyUnread }),
         setFilters: (filters: ActivityFilters | null) => ({ filters }),
+        setFiltersForCurrentPage: (filters: ActivityFilters | null) => ({ filters }),
     }),
     reducers({
         activeTab: [
@@ -89,6 +90,13 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
             null as ActivityFilters | null,
             {
                 setFilters: (_, { filters }) => filters,
+                setFiltersForCurrentPage: (_, { filters }) => filters,
+            },
+        ],
+        filtersForCurrentPage: [
+            null as ActivityFilters | null,
+            {
+                setFiltersForCurrentPage: (_, { filters }) => filters,
             },
         ],
     }),
@@ -268,11 +276,8 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
 
     subscriptions(({ actions, values }) => ({
         sceneConfig: (sceneConfig) => {
-            // TODO: Parse sceneConfig into scope and item_id
             const filters = activityFiltersForScene(sceneConfig)
-            if (filters) {
-                actions.setFilters({ ...values.filters, ...filters })
-            }
+            actions.setFiltersForCurrentPage(filters ? { ...values.filters, ...filters } : null)
         },
     })),
 
@@ -282,7 +287,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
         const sceneConfig = values.sceneConfig
         const filters = activityFiltersForScene(sceneConfig)
         if (filters) {
-            actions.setFilters({ ...values.filters, ...filters })
+            actions.setFiltersForCurrentPage({ ...values.filters, ...filters })
         }
     }),
 
