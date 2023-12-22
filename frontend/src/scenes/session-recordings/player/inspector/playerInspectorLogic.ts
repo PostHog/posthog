@@ -81,6 +81,7 @@ const PostHogMobileEvents = [
     'Application Backgrounded',
     'Application Updated',
     'Application Installed',
+    'Application Became Active',
 ]
 
 function isPostHogEvent(item: InspectorListItemEvent): boolean {
