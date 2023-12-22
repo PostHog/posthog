@@ -64,9 +64,9 @@ export const insight = {
     },
     editName: (insightName: string): void => {
         if (insightName) {
-            cy.get('[data-attr="insight-name"] [data-attr="edit-prop-name"]').click()
-            cy.get('[data-attr="insight-name"] input').type(insightName)
-            cy.get('[data-attr="insight-name"] [title="Save"]').click()
+            cy.get('[data-attr="top-bar-name"] button').click()
+            cy.get('[data-attr="top-bar-name"] input').clear().type(insightName)
+            cy.get('[data-attr="top-bar-name"] [title="Save"]').click()
         }
     },
     save: (): void => {
