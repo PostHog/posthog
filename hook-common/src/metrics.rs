@@ -2,8 +2,28 @@ use std::time::Instant;
 
 use axum::{
     body::Body, extract::MatchedPath, http::Request, middleware::Next, response::IntoResponse,
+    routing::get, Router,
 };
-use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
+use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
+
+/// Bind a `TcpListener` on the provided bind address to serve a `Router` on it.
+/// This function is intended to take a Router as returned by `setup_metrics_router`, potentially with more routes added by the caller.
+pub async fn serve(router: Router, bind: &str) -> Result<(), std::io::Error> {
+    let listener = tokio::net::TcpListener::bind(bind).await?;
+
+    axum::serve(listener, router).await?;
+
+    Ok(())
+}
+
+/// Build a Router for a metrics endpoint.
+pub fn setup_metrics_router() -> Router {
+    let recorder_handle = setup_metrics_recorder();
+
+    Router::new()
+        .route("/metrics", get(recorder_handle.render()))
+        .layer(axum::middleware::from_fn(track_metrics))
+}
 
 pub fn setup_metrics_recorder() -> PrometheusHandle {
     const EXPONENTIAL_SECONDS: &[f64] = &[
@@ -11,10 +31,7 @@ pub fn setup_metrics_recorder() -> PrometheusHandle {
     ];
 
     PrometheusBuilder::new()
-        .set_buckets_for_metric(
-            Matcher::Full("http_requests_duration_seconds".to_string()),
-            EXPONENTIAL_SECONDS,
-        )
+        .set_buckets(EXPONENTIAL_SECONDS)
         .unwrap()
         .install_recorder()
         .unwrap()

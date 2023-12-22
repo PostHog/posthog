@@ -5,6 +5,12 @@ use envconfig::Envconfig;
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
+    #[envconfig(from = "BIND_HOST", default = "0.0.0.0")]
+    pub host: String,
+
+    #[envconfig(from = "BIND_PORT", default = "8001")]
+    pub port: u16,
+
     #[envconfig(default = "postgres://posthog:posthog@localhost:15432/test_database")]
     pub database_url: String,
 
@@ -31,6 +37,13 @@ pub struct Config {
 
     #[envconfig(default = "job_queue")]
     pub table_name: String,
+}
+
+impl Config {
+    /// Produce a host:port address for binding a TcpListener.
+    pub fn bind(&self) -> String {
+        format!("{}:{}", self.host, self.port)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -4,12 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-async-std = { version = "1.12" }
 chrono = { workspace = true }
 envconfig = { workspace = true }
 futures = "0.3"
 hook-common = { path = "../hook-common" }
 http = { version = "0.2" }
+metrics = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_derive = { workspace = true }
