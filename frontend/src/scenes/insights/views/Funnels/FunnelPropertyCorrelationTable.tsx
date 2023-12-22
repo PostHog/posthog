@@ -142,7 +142,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                     </div>
                     <div className="table-options">
                         <div className="flex">
-                            <p className="title">PROPERTIES </p>
+                            <p className="title">PROPERTIES</p>
                             <Popover
                                 visible={isPropertiesOpen}
                                 onClickOutside={() => setIsPropertiesOpen(false)}
