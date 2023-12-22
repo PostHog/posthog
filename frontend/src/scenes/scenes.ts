@@ -53,11 +53,6 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         activityScope: ActivityScope.DASHBOARD,
         defaultDocsPath: '/docs/product-analytics/dashboards',
     },
-    [Scene.Dashboard]: {
-        projectBased: true,
-        defaultDocsPath: '/docs/product-analytics/dashboards',
-    },
-
     [Scene.Insight]: {
         projectBased: true,
         name: 'Insights',
@@ -181,10 +176,6 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     [Scene.FeatureFlag]: {
         projectBased: true,
         activityScope: ActivityScope.FEATURE_FLAG,
-        defaultDocsPath: '/docs/feature-flags',
-    },
-    [Scene.FeatureFlag]: {
-        projectBased: true,
         defaultDocsPath: '/docs/feature-flags/creating-feature-flags',
     },
     [Scene.Surveys]: {
