@@ -70,7 +70,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     }),
 
     selectors({
-        usePersonsQuery: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.PERSONS_HOGQL_QUERY]],
+        useActorsQuery: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.PERSONS_HOGQL_QUERY]],
     }),
 
     reducers(({ props, selectors }) => ({
@@ -167,11 +167,11 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         ],
         query: [
             ((state: Record<string, any>) =>
-                selectors.usePersonsQuery(state)
+                selectors.useActorsQuery(state)
                     ? {
                           kind: NodeKind.DataTableNode,
                           source: {
-                              kind: NodeKind.PersonsQuery,
+                              kind: NodeKind.ActorsQuery,
                               fixedProperties: [
                                   { type: PropertyFilterType.Cohort, key: 'id', value: parseInt(String(props.id)) },
                               ],

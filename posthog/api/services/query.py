@@ -30,7 +30,7 @@ QUERY_WITH_RUNNER = [
 QUERY_WITH_RUNNER_NO_CACHE = [
     "HogQLQuery",
     "EventsQuery",
-    "PersonsQuery",
+    "ActorsQuery",
     "SessionsTimelineQuery",
 ]
 
