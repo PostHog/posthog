@@ -6,7 +6,6 @@ import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
 import { CommandPalette } from 'lib/components/CommandPalette/CommandPalette'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
-import posthog from 'posthog-js'
 import { ReactNode, useEffect } from 'react'
 import { SceneConfig } from 'scenes/sceneTypes'
 
@@ -34,8 +33,6 @@ export function Navigation({
     useEffect(() => {
         // FIXME: Include debug notice in a non-obstructing way
         document.getElementById('bottom-notice')?.remove()
-        // TODO: Unflag Notebooks once the 3000 experiment is over
-        posthog.updateEarlyAccessFeatureEnrollment(FEATURE_FLAGS.NOTEBOOKS, true)
     }, [])
 
     if (mode !== 'full') {

@@ -34,8 +34,6 @@ export function TopBar(): JSX.Element {
     const { isProjectSwitcherShown } = useValues(topBarLogic)
     const { toggleProjectSwitcher, hideProjectSwitcher } = useActions(topBarLogic)
 
-    const hasNotebooks = !!featureFlags[FEATURE_FLAGS.NOTEBOOKS]
-
     const groupTypes = [
         TaxonomicFilterGroupType.Events,
         TaxonomicFilterGroupType.Persons,
@@ -46,12 +44,9 @@ export function TopBar(): JSX.Element {
         TaxonomicFilterGroupType.Plugins,
         TaxonomicFilterGroupType.Experiments,
         TaxonomicFilterGroupType.Dashboards,
+        TaxonomicFilterGroupType.Notebooks,
         ...groupNamesTaxonomicTypes,
     ]
-
-    if (hasNotebooks) {
-        groupTypes.push(TaxonomicFilterGroupType.Notebooks)
-    }
 
     return (
         <>
