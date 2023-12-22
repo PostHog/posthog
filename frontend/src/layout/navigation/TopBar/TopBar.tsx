@@ -85,7 +85,7 @@ export function TopBar(): JSX.Element {
                                         url={`${window.location.origin}${window.POSTHOG_APP_CONTEXT.year_in_hog_url}`}
                                     />
                                 )}
-                            {hasNotebooks && <NotebookButton />}
+                            <NotebookButton />
                             <NotificationBell />
                         </>
                     ) : (

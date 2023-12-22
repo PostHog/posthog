@@ -150,20 +150,18 @@ function Pages(): JSX.Element {
                             },
                         }}
                     />
-                    <FlaggedFeature flag="notebooks">
-                        <PageButton
-                            icon={<IconNotebook />}
-                            identifier={Scene.Notebooks}
-                            to={urls.notebooks()}
-                            sideAction={{
-                                icon: <IconPlus />,
-                                to: urls.notebook('new'),
-                                tooltip: 'New notebook',
-                                identifier: Scene.Notebook,
-                                onClick: hideSideBarMobile,
-                            }}
-                        />
-                    </FlaggedFeature>
+                    <PageButton
+                        icon={<IconNotebook />}
+                        identifier={Scene.Notebooks}
+                        to={urls.notebooks()}
+                        sideAction={{
+                            icon: <IconPlus />,
+                            to: urls.notebook('new'),
+                            tooltip: 'New notebook',
+                            identifier: Scene.Notebook,
+                            onClick: hideSideBarMobile,
+                        }}
+                    />
                     <PageButton
                         icon={<IconBarChart />}
                         identifier={Scene.SavedInsights}
