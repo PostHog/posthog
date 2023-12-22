@@ -79,7 +79,7 @@ from posthog.queries.stickiness import StickinessActors
 from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.trends.lifecycle_actors import LifecycleActors
 from posthog.queries.util import get_earliest_timestamp
-from posthog.schema import PersonsQuery
+from posthog.schema import ActorsQuery
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_from_list,
     insert_cohort_from_feature_flag,
@@ -180,9 +180,9 @@ class CohortSerializer(serializers.ModelSerializer):
             return None
         if not isinstance(query, dict):
             raise ValidationError("Query must be a dictionary.")
-        if query.get("kind") != "PersonsQuery":
-            raise ValidationError(f"Query must be a PersonsQuery. Got: {query.get('kind')}")
-        PersonsQuery.model_validate(query)
+        if query.get("kind") != "ActorsQuery":
+            raise ValidationError(f"Query must be a ActorsQuery. Got: {query.get('kind')}")
+        ActorsQuery.model_validate(query)
         return query
 
     def validate_filters(self, request_filters: Dict):

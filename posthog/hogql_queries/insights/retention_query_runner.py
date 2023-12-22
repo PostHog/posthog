@@ -329,7 +329,7 @@ class RetentionQueryRunner(QueryRunner):
 
         return RetentionQueryResponse(results=results, timings=response.timings, hogql=hogql)
 
-    def to_persons_query(self, interval: Optional[int] = None) -> ast.SelectQuery:
+    def to_actors_query(self, interval: Optional[int] = None) -> ast.SelectQuery:
         with self.timings.measure("retention_query"):
             retention_query = parse_select(
                 """

@@ -23,11 +23,11 @@ from posthog.schema import (
     LifecycleQuery,
     WebTopClicksQuery,
     WebOverviewQuery,
-    PersonsQuery,
+    ActorsQuery,
     EventsQuery,
     WebStatsTableQuery,
     HogQLQuery,
-    InsightPersonsQuery,
+    InsightActorsQuery,
     DashboardFilter,
     HogQLQueryModifiers,
     RetentionQuery,
@@ -78,9 +78,9 @@ RunnableQueryNode = Union[
     HogQLQuery,
     TrendsQuery,
     LifecycleQuery,
-    InsightPersonsQuery,
+    InsightActorsQuery,
     EventsQuery,
-    PersonsQuery,
+    ActorsQuery,
     RetentionQuery,
     SessionsTimelineQuery,
     WebOverviewQuery,
@@ -144,21 +144,21 @@ def get_query_runner(
             limit_context=limit_context,
             modifiers=modifiers,
         )
-    if kind == "PersonsQuery":
-        from .persons_query_runner import PersonsQueryRunner
+    if kind == "ActorsQuery":
+        from .actors_query_runner import ActorsQueryRunner
 
-        return PersonsQueryRunner(
-            query=cast(PersonsQuery | Dict[str, Any], query),
+        return ActorsQueryRunner(
+            query=cast(ActorsQuery | Dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
         )
-    if kind == "InsightPersonsQuery":
-        from .insights.insight_persons_query_runner import InsightPersonsQueryRunner
+    if kind == "InsightActorsQuery":
+        from .insights.insight_actors_query_runner import InsightActorsQueryRunner
 
-        return InsightPersonsQueryRunner(
-            query=cast(InsightPersonsQuery | Dict[str, Any], query),
+        return InsightActorsQueryRunner(
+            query=cast(InsightActorsQuery | Dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -263,7 +263,7 @@ class QueryRunner(ABC):
     def to_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
 
-    def to_persons_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         # TODO: add support for selecting and filtering by breakdowns
         raise NotImplementedError()
 
