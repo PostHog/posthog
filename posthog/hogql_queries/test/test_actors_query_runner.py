@@ -1,9 +1,9 @@
 from posthog.hogql import ast
 from posthog.hogql.visitor import clear_locations
-from posthog.hogql_queries.persons_query_runner import PersonsQueryRunner
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.models.utils import UUIDT
 from posthog.schema import (
-    PersonsQuery,
+    ActorsQuery,
     PersonPropertyFilter,
     HogQLPropertyFilter,
     PropertyOperator,
@@ -12,7 +12,7 @@ from posthog.schema import (
     DateRange,
     EventsNode,
     IntervalType,
-    InsightPersonsQuery,
+    InsightActorsQuery,
 )
 from posthog.test.base import (
     APIBaseTest,
@@ -25,7 +25,7 @@ from freezegun import freeze_time
 from django.test import override_settings
 
 
-class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
+class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
     random_uuid: str
 
@@ -52,15 +52,15 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
         return random_uuid
 
-    def _create_runner(self, query: PersonsQuery) -> PersonsQueryRunner:
-        return PersonsQueryRunner(team=self.team, query=query)
+    def _create_runner(self, query: ActorsQuery) -> ActorsQueryRunner:
+        return ActorsQueryRunner(team=self.team, query=query)
 
     def setUp(self):
         super().setUp()
 
     def test_default_persons_query(self):
         self.random_uuid = self._create_random_persons()
-        runner = self._create_runner(PersonsQuery())
+        runner = self._create_runner(ActorsQuery())
 
         query = runner.to_query()
         query = clear_locations(query)
@@ -86,7 +86,7 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_persons_query_properties(self):
         self.random_uuid = self._create_random_persons()
         runner = self._create_runner(
-            PersonsQuery(
+            ActorsQuery(
                 properties=[
                     PersonPropertyFilter(
                         key="random_uuid",
@@ -102,7 +102,7 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_persons_query_fixed_properties(self):
         self.random_uuid = self._create_random_persons()
         runner = self._create_runner(
-            PersonsQuery(
+            ActorsQuery(
                 fixedProperties=[
                     PersonPropertyFilter(
                         key="random_uuid",
@@ -118,55 +118,55 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_persons_query_search_email(self):
         self.random_uuid = self._create_random_persons()
         self._create_random_persons()
-        runner = self._create_runner(PersonsQuery(search=f"jacob4@{self.random_uuid}.posthog"))
+        runner = self._create_runner(ActorsQuery(search=f"jacob4@{self.random_uuid}.posthog"))
         self.assertEqual(len(runner.calculate().results), 1)
-        runner = self._create_runner(PersonsQuery(search=f"JACOB4@{self.random_uuid}.posthog"))
+        runner = self._create_runner(ActorsQuery(search=f"JACOB4@{self.random_uuid}.posthog"))
         self.assertEqual(len(runner.calculate().results), 1)
 
     def test_persons_query_search_name(self):
         self.random_uuid = self._create_random_persons()
-        runner = self._create_runner(PersonsQuery(search=f"Mr Jacob {self.random_uuid}"))
+        runner = self._create_runner(ActorsQuery(search=f"Mr Jacob {self.random_uuid}"))
         self.assertEqual(len(runner.calculate().results), 10)
-        runner = self._create_runner(PersonsQuery(search=f"MR JACOB {self.random_uuid}"))
+        runner = self._create_runner(ActorsQuery(search=f"MR JACOB {self.random_uuid}"))
         self.assertEqual(len(runner.calculate().results), 10)
 
     def test_persons_query_search_distinct_id(self):
         self.random_uuid = self._create_random_persons()
-        runner = self._create_runner(PersonsQuery(search=f"id-{self.random_uuid}-9"))
+        runner = self._create_runner(ActorsQuery(search=f"id-{self.random_uuid}-9"))
         self.assertEqual(len(runner.calculate().results), 1)
-        runner = self._create_runner(PersonsQuery(search=f"id-{self.random_uuid}-9"))
+        runner = self._create_runner(ActorsQuery(search=f"id-{self.random_uuid}-9"))
         self.assertEqual(len(runner.calculate().results), 1)
 
     def test_persons_query_aggregation_select_having(self):
         self.random_uuid = self._create_random_persons()
-        runner = self._create_runner(PersonsQuery(select=["properties.name", "count()"]))
+        runner = self._create_runner(ActorsQuery(select=["properties.name", "count()"]))
         results = runner.calculate().results
         self.assertEqual(results, [[f"Mr Jacob {self.random_uuid}", 10]])
 
     def test_persons_query_order_by(self):
         self.random_uuid = self._create_random_persons()
-        runner = self._create_runner(PersonsQuery(select=["properties.email"], orderBy=["properties.email DESC"]))
+        runner = self._create_runner(ActorsQuery(select=["properties.email"], orderBy=["properties.email DESC"]))
         results = runner.calculate().results
         self.assertEqual(results[0], [f"jacob9@{self.random_uuid}.posthog.com"])
 
     def test_persons_query_order_by_with_aliases(self):
         # We use the first column by default as an order key. It used to cause "error redefining alias" errors.
         self.random_uuid = self._create_random_persons()
-        runner = self._create_runner(PersonsQuery(select=["properties.email as email"]))
+        runner = self._create_runner(ActorsQuery(select=["properties.email as email"]))
         results = runner.calculate().results
         self.assertEqual(results[0], [f"jacob0@{self.random_uuid}.posthog.com"])
 
     def test_persons_query_limit(self):
         self.random_uuid = self._create_random_persons()
         runner = self._create_runner(
-            PersonsQuery(select=["properties.email"], orderBy=["properties.email DESC"], limit=1)
+            ActorsQuery(select=["properties.email"], orderBy=["properties.email DESC"], limit=1)
         )
         response = runner.calculate()
         self.assertEqual(response.results, [[f"jacob9@{self.random_uuid}.posthog.com"]])
         self.assertEqual(response.hasMore, True)
 
         runner = self._create_runner(
-            PersonsQuery(
+            ActorsQuery(
                 select=["properties.email"],
                 orderBy=["properties.email DESC"],
                 limit=1,
@@ -181,7 +181,7 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_source_hogql_query_poe_on(self):
         self.random_uuid = self._create_random_persons()
         source_query = HogQLQuery(query="SELECT distinct person_id FROM events WHERE event='clicky-4'")
-        query = PersonsQuery(
+        query = ActorsQuery(
             select=["properties.email"],
             orderBy=["properties.email DESC"],
             source=source_query,
@@ -194,7 +194,7 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_source_hogql_query_poe_off(self):
         self.random_uuid = self._create_random_persons()
         source_query = HogQLQuery(query="SELECT distinct person_id FROM events WHERE event='clicky-4'")
-        query = PersonsQuery(
+        query = ActorsQuery(
             select=["properties.email"],
             orderBy=["properties.email DESC"],
             source=source_query,
@@ -219,10 +219,10 @@ class TestPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 interval=IntervalType.day,
                 dateRange=DateRange(date_from="-7d"),
             )
-            query = PersonsQuery(
+            query = ActorsQuery(
                 select=["properties.email"],
                 orderBy=["properties.email DESC"],
-                source=InsightPersonsQuery(source=source_query),
+                source=InsightActorsQuery(source=source_query),
             )
             runner = self._create_runner(query)
             response = runner.calculate()

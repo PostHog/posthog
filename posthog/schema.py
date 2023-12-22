@@ -351,7 +351,7 @@ class NodeKind(str, Enum):
     PersonsNode = "PersonsNode"
     HogQLQuery = "HogQLQuery"
     HogQLMetadata = "HogQLMetadata"
-    PersonsQuery = "PersonsQuery"
+    ActorsQuery = "ActorsQuery"
     SessionsTimelineQuery = "SessionsTimelineQuery"
     DataTableNode = "DataTableNode"
     DataVisualizationNode = "DataVisualizationNode"
@@ -363,7 +363,7 @@ class NodeKind(str, Enum):
     PathsQuery = "PathsQuery"
     StickinessQuery = "StickinessQuery"
     LifecycleQuery = "LifecycleQuery"
-    InsightPersonsQuery = "InsightPersonsQuery"
+    InsightActorsQuery = "InsightActorsQuery"
     WebOverviewQuery = "WebOverviewQuery"
     WebTopClicksQuery = "WebTopClicksQuery"
     WebStatsTableQuery = "WebStatsTableQuery"
@@ -733,6 +733,21 @@ class WebTopClicksQueryResponse(BaseModel):
     types: Optional[List] = None
 
 
+class ActorsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: List
+    hasMore: Optional[bool] = None
+    hogql: str
+    limit: int
+    missing_actors_count: Optional[int] = None
+    offset: int
+    results: List[List]
+    timings: Optional[List[QueryTiming]] = None
+    types: List[str]
+
+
 class AnyResponseTypeItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -810,8 +825,8 @@ class EventsQueryResponse(BaseModel):
     columns: List
     hasMore: Optional[bool] = None
     hogql: str
-    limit: int
-    offset: int
+    limit: Optional[int] = None
+    offset: Optional[int] = None
     results: List[List]
     timings: Optional[List[QueryTiming]] = None
     types: List[str]
@@ -941,21 +956,6 @@ class PersonPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["person"] = Field(default="person", description="Person properties")
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
-
-
-class PersonsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: List
-    hasMore: Optional[bool] = None
-    hogql: str
-    limit: int
-    missing_actors_count: Optional[int] = None
-    offset: int
-    results: List[List]
-    timings: Optional[List[QueryTiming]] = None
-    types: List[str]
 
 
 class QueryResponse(BaseModel):
@@ -1877,7 +1877,7 @@ class InsightVizNode(BaseModel):
     vizSpecificOptions: Optional[VizSpecificOptions] = None
 
 
-class InsightPersonsQuery(BaseModel):
+class InsightActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1885,13 +1885,13 @@ class InsightPersonsQuery(BaseModel):
     interval: Optional[int] = Field(
         default=None, description="An interval selected out of available intervals in source query"
     )
-    kind: Literal["InsightPersonsQuery"] = "InsightPersonsQuery"
-    response: Optional[PersonsQueryResponse] = None
+    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    response: Optional[ActorsQueryResponse] = None
     source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
     status: Optional[str] = None
 
 
-class PersonsQuery(BaseModel):
+class ActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1911,7 +1911,7 @@ class PersonsQuery(BaseModel):
             ]
         ]
     ] = None
-    kind: Literal["PersonsQuery"] = "PersonsQuery"
+    kind: Literal["ActorsQuery"] = "ActorsQuery"
     limit: Optional[int] = None
     offset: Optional[int] = None
     orderBy: Optional[List[str]] = None
@@ -1931,10 +1931,10 @@ class PersonsQuery(BaseModel):
             ]
         ]
     ] = None
-    response: Optional[PersonsQueryResponse] = Field(default=None, description="Cached query response")
+    response: Optional[ActorsQueryResponse] = Field(default=None, description="Cached query response")
     search: Optional[str] = None
     select: Optional[List[str]] = None
-    source: Optional[Union[InsightPersonsQuery, HogQLQuery]] = None
+    source: Optional[Union[InsightActorsQuery, HogQLQuery]] = None
 
 
 class DataTableNode(BaseModel):
@@ -1984,7 +1984,7 @@ class DataTableNode(BaseModel):
         EventsNode,
         EventsQuery,
         PersonsNode,
-        PersonsQuery,
+        ActorsQuery,
         HogQLQuery,
         TimeToSeeDataSessionsQuery,
         WebOverviewQuery,
@@ -2013,8 +2013,8 @@ class QuerySchema(RootModel):
             PersonsNode,
             TimeToSeeDataSessionsQuery,
             EventsQuery,
-            PersonsQuery,
-            InsightPersonsQuery,
+            ActorsQuery,
+            InsightActorsQuery,
             SessionsTimelineQuery,
             HogQLQuery,
             HogQLMetadata,

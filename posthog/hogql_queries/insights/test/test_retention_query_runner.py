@@ -11,7 +11,7 @@ from posthog.constants import (
     TREND_FILTER_TYPE_EVENTS,
 )
 from posthog.hogql_queries.insights.retention_query_runner import RetentionQueryRunner
-from posthog.hogql_queries.persons_query_runner import PersonsQueryRunner
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.models import Action, ActionStep
 from posthog.test.base import (
     APIBaseTest,
@@ -74,13 +74,13 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         query["kind"] = "RetentionQuery"
         if not query.get("retentionFilter"):
             query["retentionFilter"] = {}
-        runner = PersonsQueryRunner(
+        runner = ActorsQueryRunner(
             team=self.team,
             query={
                 "select": ["person", "appearances"],
                 "orderBy": ["length(appearances) DESC", "actor_id"],
                 "source": {
-                    "kind": "InsightPersonsQuery",
+                    "kind": "InsightActorsQuery",
                     "interval": interval,
                     "source": query,
                 },

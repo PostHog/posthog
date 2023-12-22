@@ -25,7 +25,7 @@ import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Noun } from '~/models/groupsModel'
-import { InsightPersonsQuery } from '~/queries/schema'
+import { InsightActorsQuery } from '~/queries/schema'
 import {
     ActorType,
     ExporterFormat,
@@ -39,7 +39,7 @@ import { SaveCohortModal } from './SaveCohortModal'
 
 export interface PersonsModalProps extends Pick<LemonModalProps, 'inline'> {
     onAfterClose?: () => void
-    query?: InsightPersonsQuery | null
+    query?: InsightActorsQuery | null
     url?: string | null
     urlsIndex?: number
     urls?: {
@@ -77,7 +77,7 @@ export function PersonsModal({
         missingActorsCount,
         propertiesTimelineFilterFromUrl,
         exploreUrl,
-        personsQuery,
+        ActorsQuery,
     } = useValues(logic)
     const { setSearchTerm, saveAsCohort, setIsCohortModalOpen, closeModal, loadNextActors } = useActions(logic)
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
@@ -191,7 +191,7 @@ export function PersonsModal({
                                     void triggerExport({
                                         export_format: ExporterFormat.CSV,
                                         export_context: query
-                                            ? { source: personsQuery as Record<string, any> }
+                                            ? { source: ActorsQuery as Record<string, any> }
                                             : { path: originalUrl },
                                     })
                                 }}

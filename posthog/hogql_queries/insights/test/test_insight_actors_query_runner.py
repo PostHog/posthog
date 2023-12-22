@@ -13,7 +13,7 @@ from posthog.test.base import (
 )
 
 
-class TestInsightPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
+class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def _create_events(self, data, event="$pageview"):
@@ -72,14 +72,14 @@ class TestInsightPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = self.select(
             """
             select * from (
-                <PersonsQuery select={['properties.name as n']}>
-                    <InsightPersonsQuery day='2020-01-12' status='returning'>
+                <ActorsQuery select={['properties.name as n']}>
+                    <InsightActorsQuery day='2020-01-12' status='returning'>
                         <LifecycleQuery
                             dateRange={<DateRange date_from={{date_from}} date_to={{date_to}} />}
                             series={[<EventsNode event='$pageview' math='total' />]}
                         />
-                    </InsightPersonsQuery>
-                </PersonsQuery>
+                    </InsightActorsQuery>
+                </ActorsQuery>
             )
             """,
             {"date_from": ast.Constant(value=date_from), "date_to": ast.Constant(value=date_to)},
@@ -99,15 +99,15 @@ class TestInsightPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = self.select(
             """
             select * from (
-                <PersonsQuery select={['properties.name as n']}>
-                    <InsightPersonsQuery day='2020-01-13' status='returning'>
+                <ActorsQuery select={['properties.name as n']}>
+                    <InsightActorsQuery day='2020-01-13' status='returning'>
                         <LifecycleQuery
                             interval='week'
                             dateRange={<DateRange date_from={{date_from}} date_to={{date_to}} />}
                             series={[<EventsNode event='$pageview' math='total' />]}
                         />
-                    </InsightPersonsQuery>
-                </PersonsQuery>
+                    </InsightActorsQuery>
+                </ActorsQuery>
             )
             """,
             {"date_from": ast.Constant(value=date_from), "date_to": ast.Constant(value=date_to)},
@@ -127,15 +127,15 @@ class TestInsightPersonsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = self.select(
             """
             select * from (
-                <PersonsQuery select={['properties.name as n']}>
-                    <InsightPersonsQuery day='2020-01-12' status='returning'>
+                <ActorsQuery select={['properties.name as n']}>
+                    <InsightActorsQuery day='2020-01-12' status='returning'>
                         <LifecycleQuery
                             interval='week'
                             dateRange={<DateRange date_from={{date_from}} date_to={{date_to}} />}
                             series={[<EventsNode event='$pageview' math='total' />]}
                         />
-                    </InsightPersonsQuery>
-                </PersonsQuery>
+                    </InsightActorsQuery>
+                </ActorsQuery>
             )
             """,
             {"date_from": ast.Constant(value=date_from), "date_to": ast.Constant(value=date_to)},
