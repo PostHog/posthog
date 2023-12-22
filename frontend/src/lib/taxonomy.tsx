@@ -810,7 +810,7 @@ export const KEY_MAPPING: KeyMappingInterface = {
         // Mobile SDK events
         'Application Opened': {
             label: 'Application Opened',
-            description: 'When a user opens the app either from the first time or from the foreground.',
+            description: 'When a user opens the app either for the first time or from the foreground.',
         },
         'Application Backgrounded': {
             label: 'Application Backgrounded',
