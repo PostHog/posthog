@@ -348,7 +348,7 @@ class RetentionQueryRunner(QueryRunner):
                 timings=self.timings,
             )
             # We want to expose each interval as a separate column
-            for i in range(self.query_date_range.total_intervals):
+            for i in range(self.query_date_range.total_intervals - interval):
                 retention_query.select.append(
                     ast.Alias(
                         alias=f"interval_{i}",
