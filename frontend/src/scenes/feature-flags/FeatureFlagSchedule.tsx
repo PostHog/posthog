@@ -192,7 +192,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                 <LemonDivider className="" />
             </div>
             <LemonTable
-                rowClassName={(record) => (record.executed_at ? 'opacity-50' : '')}
+                rowClassName={(record) => (record.executed_at ? 'opacity-75' : '')}
                 className="mt-8"
                 loading={false}
                 dataSource={scheduledChanges}
