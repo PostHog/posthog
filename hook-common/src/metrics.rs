@@ -6,19 +6,23 @@ use axum::{
 };
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 
-/// Bind a TcpListener on the provided bind address to serve metrics on it.
-pub async fn serve_metrics(bind: &str) -> Result<(), std::io::Error> {
-    let recorder_handle = setup_metrics_recorder();
-
-    let router = Router::new()
-        .route("/metrics", get(recorder_handle.render()))
-        .layer(axum::middleware::from_fn(track_metrics));
-
+/// Bind a `TcpListener` on the provided bind address to serve a `Router` on it.
+/// This function is intended to take a Router as returned by `setup_metrics_router`, potentially with more routes added by the caller.
+pub async fn serve(router: Router, bind: &str) -> Result<(), std::io::Error> {
     let listener = tokio::net::TcpListener::bind(bind).await?;
 
     axum::serve(listener, router).await?;
 
     Ok(())
+}
+
+/// Build a Router for a metrics endpoint.
+pub fn setup_metrics_router() -> Router {
+    let recorder_handle = setup_metrics_recorder();
+
+    Router::new()
+        .route("/metrics", get(recorder_handle.render()))
+        .layer(axum::middleware::from_fn(track_metrics))
 }
 
 pub fn setup_metrics_recorder() -> PrometheusHandle {

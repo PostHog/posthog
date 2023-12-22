@@ -1,6 +1,8 @@
 use envconfig::Envconfig;
 
-use hook_common::{metrics::serve_metrics, pgqueue::PgQueue, retry::RetryPolicy};
+use hook_common::{
+    metrics::serve, metrics::setup_metrics_router, pgqueue::PgQueue, retry::RetryPolicy,
+};
 use hook_consumer::config::Config;
 use hook_consumer::consumer::WebhookConsumer;
 use hook_consumer::error::ConsumerError;
@@ -29,7 +31,8 @@ async fn main() -> Result<(), ConsumerError> {
 
     let bind = config.bind();
     tokio::task::spawn(async move {
-        serve_metrics(&bind)
+        let router = setup_metrics_router();
+        serve(router, &bind)
             .await
             .expect("failed to start serving metrics");
     });
