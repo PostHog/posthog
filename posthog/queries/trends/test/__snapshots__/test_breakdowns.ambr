@@ -152,7 +152,7 @@
     AND (sessions.session_duration > 30.0)
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -233,7 +233,7 @@
     AND (NOT has(['https://test.com'], replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^"|"$', '')))
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -450,7 +450,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -666,7 +666,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 2
+  LIMIT 3
   OFFSET 0
   '
 ---
@@ -693,13 +693,13 @@
            CROSS JOIN
              (SELECT breakdown_value
               FROM
-                (SELECT [1, 2] as breakdown_value) ARRAY
+                (SELECT [9007199254740990, 19, 9007199254740991] as breakdown_value) ARRAY
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            transform(ifNull(length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')), 9007199254740990), ([9007199254740990, 19]), ([9007199254740990, 19]), 9007199254740991) as breakdown_value
+                            transform(ifNull(length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')), 9007199254740990), ([9007199254740990, 19, 9007199254740991]), ([9007199254740990, 19, 9007199254740991]), 9007199254740991) as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = 'watched movie'
@@ -727,7 +727,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 2
+  LIMIT 3
   OFFSET 0
   '
 ---
@@ -789,7 +789,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 3
+  LIMIT 4
   OFFSET 0
   '
 ---
@@ -851,7 +851,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 2
+  LIMIT 3
   OFFSET 0
   '
 ---
@@ -878,13 +878,13 @@
            CROSS JOIN
              (SELECT breakdown_value
               FROM
-                (SELECT ['$$_posthog_breakdown_null_$$', 'https://example.com'] as breakdown_value) ARRAY
+                (SELECT ['$$_posthog_breakdown_null_$$', 'https://example.com', '$$_posthog_breakdown_other_$$'] as breakdown_value) ARRAY
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            transform(ifNull(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'https://example.com']), (['$$_posthog_breakdown_null_$$', 'https://example.com']), '$$_posthog_breakdown_other_$$') as breakdown_value
+                            transform(ifNull(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'https://example.com', '$$_posthog_breakdown_other_$$']), (['$$_posthog_breakdown_null_$$', 'https://example.com', '$$_posthog_breakdown_other_$$']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = 'watched movie'
@@ -912,7 +912,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 2
+  LIMIT 3
   OFFSET 0
   '
 ---
@@ -974,7 +974,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 3
+  LIMIT 4
   OFFSET 0
   '
 ---
