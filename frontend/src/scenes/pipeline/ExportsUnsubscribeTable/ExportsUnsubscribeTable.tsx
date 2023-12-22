@@ -1,3 +1,4 @@
+import { IconCheckCircle } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -61,8 +62,9 @@ export function ExportsUnsubscribeTable(): JSX.Element {
                                     }
                                 }}
                                 disabledReason={item.disabled ? 'Already disabled' : null}
+                                icon={item.disabled ? <IconCheckCircle /> : undefined}
                             >
-                                Disable
+                                {item.disabled ? 'Disabled' : 'Disable'}
                             </LemonButton>
                         )
                     },
