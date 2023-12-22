@@ -11,8 +11,10 @@ import {
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DatePicker } from 'lib/components/DatePicker'
+import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useEffect } from 'react'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -91,21 +93,30 @@ export default function FeatureFlagSchedule(): JSX.Element {
             title: 'Status',
             dataIndex: 'executed_at',
             render: function Render(_, scheduledChange: ScheduledChangeType) {
+                const { executed_at, failure_reason } = scheduledChange
+
                 function getStatus(): { type: LemonTagType; text: string } {
-                    if (scheduledChange.failure_reason) {
+                    if (failure_reason) {
                         return { type: 'danger', text: 'Error' }
-                    } else if (scheduledChange.executed_at) {
+                    } else if (executed_at) {
                         return { type: 'completion', text: 'Complete' }
                     } else {
                         return { type: 'default', text: 'Scheduled' }
                     }
                 }
                 const { type, text } = getStatus()
-
                 return (
-                    <LemonTag type={type}>
-                        <b className="uppercase">{text}</b>
-                    </LemonTag>
+                    <Tooltip
+                        title={
+                            failure_reason
+                                ? `Failed: ${failure_reason}`
+                                : `Completed: ${dayjs(executed_at).format('MMMM D, YYYY h:mm A')}`
+                        }
+                    >
+                        <LemonTag type={type}>
+                            <b className="uppercase">{text}</b>
+                        </LemonTag>{' '}
+                    </Tooltip>
                 )
             },
         },
