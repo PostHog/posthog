@@ -5,18 +5,20 @@ import { useEffect, useState } from 'react'
 
 import { PluginType } from '~/types'
 
+export type PluginImageSize = 'medium' | 'large' | 'small'
+
 export function PluginImage({
     plugin,
     size = 'medium',
 }: {
     plugin: Partial<Pick<PluginType, 'plugin_type' | 'url' | 'icon'>>
-    size?: 'medium' | 'large' | 'small'
+    size?: PluginImageSize
 }): JSX.Element {
     const { plugin_type: pluginType, url, icon } = plugin
     const [state, setState] = useState({ image: imgPluginDefault })
     const pixelSize = {
-        medium: 60,
         large: 100,
+        medium: 60,
         small: 30,
     }[size]
 

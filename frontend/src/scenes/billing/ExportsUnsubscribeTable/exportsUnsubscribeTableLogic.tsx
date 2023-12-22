@@ -95,7 +95,7 @@ export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType
                         team_id: pluginConfig.team_id,
                         name: pluginConfig.name,
                         description: pluginConfig.description,
-                        icon: <RenderApp plugin={plugins[pluginConfig.plugin]} />,
+                        icon: <RenderApp plugin={plugins[pluginConfig.plugin]} imageSize="small" />,
                         disabled: !pluginConfig.enabled,
                     } as ItemToDisable
                 })
@@ -108,7 +108,7 @@ export const exportsUnsubscribeTableLogic = kea<exportsUnsubscribeTableLogicType
                         icon: (
                             <IconDatabase
                                 style={{
-                                    fontSize: 60,
+                                    fontSize: 30,
                                 }}
                             />
                         ),
