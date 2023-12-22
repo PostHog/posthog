@@ -18,10 +18,10 @@ export const UnsubscribeSurveyModal = ({
     const { unsubscribeDisabledReason, itemsToDisable } = useValues(exportsUnsubscribeTableLogic)
 
     const textAreaNotEmpty = surveyResponse['$survey_response']?.length > 0
-    const includesExportsAddon =
-        product.type == 'group_analytics' ||
+    const includesPipelinesAddon =
+        product.type == 'data_pipelines' ||
         (product.type == 'product_analytics' &&
-            (product as BillingProductV2Type)?.addons?.filter((addon) => addon.type === 'group_analytics')[0]
+            (product as BillingProductV2Type)?.addons?.filter((addon) => addon.type === 'data_pipelines')[0]
                 ?.subscribed)
 
     return (
@@ -32,7 +32,7 @@ export const UnsubscribeSurveyModal = ({
             width={'max(40vw)'}
         >
             <div>
-                {includesExportsAddon && itemsToDisable.length > 0 ? (
+                {includesPipelinesAddon && itemsToDisable.length > 0 ? (
                     <div className="mb-6">
                         <div className="mb-4">
                             <h3 className="mt-2 mb-2">{`Important: Disable remaining export apps`}</h3>
@@ -107,7 +107,7 @@ export const UnsubscribeSurveyModal = ({
                         </LemonButton>
                         <LemonButton
                             type={textAreaNotEmpty ? 'primary' : 'tertiary'}
-                            disabledReason={includesExportsAddon && unsubscribeDisabledReason}
+                            disabledReason={includesPipelinesAddon && unsubscribeDisabledReason}
                             onClick={() => {
                                 textAreaNotEmpty
                                     ? reportSurveySent(surveyID, surveyResponse)
