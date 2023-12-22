@@ -8,7 +8,7 @@ describe('Feature Flags', () => {
 
     it('Create feature flag', () => {
         // ensure unique names to avoid clashes
-        cy.get('h1').should('contain', 'Feature Flags')
+        cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
         cy.get('[data-attr=new-feature-flag]').click()
         cy.get('[data-attr=feature-flag-key]').click().type(`{moveToEnd}${name}`).should('have.value', name)
         cy.get('[data-attr=feature-flag-description]')
@@ -78,7 +78,7 @@ describe('Feature Flags', () => {
     })
 
     it('Delete feature flag', () => {
-        cy.get('h1').should('contain', 'Feature Flags')
+        cy.get('[data-attr=top-bar-name]').should('contain', 'Feature flags')
         cy.get('[data-attr=new-feature-flag]').click()
         cy.get('[data-attr=feature-flag-key]').focus().type(name).should('have.value', name)
         cy.get('[data-attr=save-feature-flag]').first().click()
