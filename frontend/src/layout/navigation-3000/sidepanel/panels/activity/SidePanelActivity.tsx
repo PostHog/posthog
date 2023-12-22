@@ -91,7 +91,7 @@ export const SidePanelActivity = (): JSX.Element => {
 
     const activeScopeMenuOption = filters?.scope ? filters.scope + `${filters.item_id ?? ''}` : null
 
-    if (filters?.item_id && activeScopeMenuOption) {
+    if (filters?.scope && filters?.item_id && activeScopeMenuOption) {
         scopeMenuOptions.unshift({
             value: activeScopeMenuOption as any,
             label: `This ${humanizeScope(filters.scope, true)}`,
@@ -151,7 +151,7 @@ export const SidePanelActivity = (): JSX.Element => {
                                     size="small"
                                     options={scopeMenuOptions}
                                     placeholder="All activity"
-                                    value={activeScopeMenuOption ?? undefined}
+                                    value={(activeScopeMenuOption as ActivityScope) ?? undefined}
                                     onChange={(value) =>
                                         setFilters({
                                             ...filters,

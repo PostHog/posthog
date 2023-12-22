@@ -2,6 +2,7 @@ import {
     ActivityChange,
     ActivityLogItem,
     ChangeMapping,
+    defaultDescriber,
     Description,
     detectBoolean,
     HumanizedChange,
@@ -150,5 +151,5 @@ export function dataManagementActivityDescriber(logItem: ActivityLogItem): Human
         }
     }
 
-    return { description: null }
+    return defaultDescriber(logItem, nameAndLink(logItem))
 }

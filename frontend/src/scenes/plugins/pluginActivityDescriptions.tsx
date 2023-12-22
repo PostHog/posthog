@@ -1,4 +1,9 @@
-import { ActivityLogItem, HumanizedChange, userNameForLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import {
+    ActivityLogItem,
+    defaultDescriber,
+    HumanizedChange,
+    userNameForLogItem,
+} from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { dayjs } from 'lib/dayjs'
 
@@ -215,5 +220,5 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChan
         }
     }
 
-    return { description: null }
+    return defaultDescriber(logItem)
 }

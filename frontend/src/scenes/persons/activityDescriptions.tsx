@@ -1,4 +1,9 @@
-import { ActivityLogItem, HumanizedChange, userNameForLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import {
+    ActivityLogItem,
+    defaultDescriber,
+    HumanizedChange,
+    userNameForLogItem,
+} from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { Link } from 'lib/lemon-ui/Link'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -77,5 +82,5 @@ export function personActivityDescriber(logItem: ActivityLogItem): HumanizedChan
         }
     }
 
-    return { description: null }
+    return defaultDescriber(logItem)
 }

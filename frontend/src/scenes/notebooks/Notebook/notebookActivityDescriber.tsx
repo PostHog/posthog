@@ -2,6 +2,7 @@ import {
     ActivityChange,
     ActivityLogItem,
     ChangeMapping,
+    defaultDescriber,
     Description,
     HumanizedChange,
     userNameForLogItem,
@@ -78,25 +79,5 @@ export function notebookActivityDescriber(logItem: ActivityLogItem): HumanizedCh
         }
     }
 
-    if (logItem.activity == 'created') {
-        return {
-            description: (
-                <>
-                    <strong>{userNameForLogItem(logItem)}</strong> created {nameAndLink(logItem)}
-                </>
-            ),
-        }
-    }
-
-    if (logItem.activity == 'deleted') {
-        return {
-            description: (
-                <>
-                    <strong>{userNameForLogItem(logItem)}</strong> deleted {nameAndLink(logItem)}
-                </>
-            ),
-        }
-    }
-
-    return { description: null }
+    return defaultDescriber(logItem, nameAndLink(logItem))
 }

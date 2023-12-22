@@ -3,7 +3,7 @@ import { dayjs } from 'lib/dayjs'
 import { ActivityScope, InsightShortId, PersonType } from '~/types'
 
 export interface ActivityChange {
-    type: 'FeatureFlag' | 'Person' | 'Insight' | 'Plugin' | 'PluginConfig' | 'Notebook'
+    type: ActivityScope
     action: 'changed' | 'created' | 'deleted' | 'exported' | 'split'
     field?: string
     before?: string | number | Record<string, any> | boolean | null
@@ -131,4 +131,30 @@ export function humanizeScope(scope: ActivityScope, singular = false): string {
     }
 
     return output
+}
+
+export function defaultDescriber(logItem: ActivityLogItem, resource?: string | JSX.Element): HumanizedChange {
+    resource = resource || logItem.detail.name || `a ${humanizeScope(logItem.scope)}`
+
+    if (logItem.activity == 'deleted') {
+        return {
+            description: (
+                <>
+                    <strong>{userNameForLogItem(logItem)}</strong> deleted <b>{resource}</b>
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'commented') {
+        return {
+            description: (
+                <>
+                    <strong>{userNameForLogItem(logItem)}</strong> commented on {resource}
+                </>
+            ),
+        }
+    }
+
+    return { description: null }
 }
