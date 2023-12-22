@@ -64,10 +64,17 @@ export default function FeatureFlagSchedule(): JSX.Element {
                     )
                 } else if (payload.operation === ScheduledChangeOperationType.AddReleaseCondition) {
                     const releaseText = groupFilters(payload.value, undefined, aggregationLabel)
-                    return typeof releaseText === 'string' && releaseText.startsWith('100% of') ? (
-                        <LemonTag type="highlight">{releaseText}</LemonTag>
-                    ) : (
-                        releaseText
+                    return (
+                        <div className="inline-flex leading-8">
+                            <span className="mr-2">
+                                <b>Add release condition:</b>
+                            </span>
+                            {typeof releaseText === 'string' && releaseText.startsWith('100% of') ? (
+                                <LemonTag type="highlight">{releaseText}</LemonTag>
+                            ) : (
+                                releaseText
+                            )}
+                        </div>
                     )
                 }
 
