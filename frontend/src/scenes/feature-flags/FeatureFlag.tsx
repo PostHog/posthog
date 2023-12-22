@@ -1,7 +1,7 @@
 import './FeatureFlag.scss'
 
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
-import { Card, Popconfirm, Skeleton } from 'antd'
+import { Popconfirm, Skeleton } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
@@ -421,23 +421,27 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <FeatureFlagAutoRollback />
                                         )}
                                         {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
-                                            <Card title="Permissions" className="mb-4">
-                                                <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-                                                    <ResourcePermission
-                                                        resourceType={Resource.FEATURE_FLAGS}
-                                                        onChange={(roleIds) => setRolesToAdd(roleIds)}
-                                                        rolesToAdd={rolesToAdd}
-                                                        addableRoles={addableRoles}
-                                                        addableRolesLoading={unfilteredAddableRolesLoading}
-                                                        onAdd={() => addAssociatedRoles()}
-                                                        roles={derivedRoles}
-                                                        deleteAssociatedRole={(id) =>
-                                                            deleteAssociatedRole({ roleId: id })
-                                                        }
-                                                        canEdit={featureFlag.can_edit}
-                                                    />
-                                                </PayGateMini>
-                                            </Card>
+                                            <div className="border rounded bg-bg-light">
+                                                <h3 className="p-2 mb-0">Permissions</h3>
+                                                <LemonDivider className="my-0" />
+                                                <div className="p-3">
+                                                    <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                                                        <ResourcePermission
+                                                            resourceType={Resource.FEATURE_FLAGS}
+                                                            onChange={(roleIds) => setRolesToAdd(roleIds)}
+                                                            rolesToAdd={rolesToAdd}
+                                                            addableRoles={addableRoles}
+                                                            addableRolesLoading={unfilteredAddableRolesLoading}
+                                                            onAdd={() => addAssociatedRoles()}
+                                                            roles={derivedRoles}
+                                                            deleteAssociatedRole={(id) =>
+                                                                deleteAssociatedRole({ roleId: id })
+                                                            }
+                                                            canEdit={featureFlag.can_edit}
+                                                        />
+                                                    </PayGateMini>
+                                                </div>
+                                            </div>
                                         )}
                                     </>
                                 )}

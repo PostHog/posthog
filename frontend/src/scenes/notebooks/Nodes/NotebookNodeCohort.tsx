@@ -53,7 +53,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttribute
                                       query: {
                                           kind: NodeKind.DataTableNode,
                                           source: {
-                                              kind: NodeKind.PersonsQuery,
+                                              kind: NodeKind.ActorsQuery,
                                               properties: [
                                                   {
                                                       type: PropertyFilterType.Cohort,

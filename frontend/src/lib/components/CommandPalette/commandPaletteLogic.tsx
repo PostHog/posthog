@@ -648,9 +648,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>([
                         },
                     },
                     {
-                        icon: () => (
-                            <ProfilePicture name={values.user?.first_name} email={values.user?.email} size="xs" />
-                        ),
+                        icon: () => <ProfilePicture user={values.user} size="xs" />,
                         display: 'Go to User settings',
                         synonyms: ['account', 'profile'],
                         executor: () => {

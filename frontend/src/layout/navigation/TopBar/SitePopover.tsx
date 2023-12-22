@@ -72,7 +72,7 @@ function AccountInfo(): JSX.Element {
                 tooltipPlacement="left"
                 sideIcon={<IconSettings className="text-2xl" />}
             >
-                <ProfilePicture name={user?.first_name} email={user?.email} size="xl" />
+                <ProfilePicture user={user} size="xl" />
                 <div className="AccountInfo__identification SitePopover__main-info font-sans font-normal">
                     <div className="font-semibold mb-1">{user?.first_name}</div>
                     <div className="supplement" title={user?.email}>
@@ -316,7 +316,7 @@ export function SitePopover(): JSX.Element {
         >
             <div className="SitePopover__crumb" onClick={toggleSitePopover} data-attr="top-menu-toggle">
                 <div className="SitePopover__profile-picture" title="Potential system issue">
-                    <ProfilePicture name={user?.first_name} email={user?.email} size="md" />
+                    <ProfilePicture user={user} size="md" />
                     {!systemStatusHealthy && <IconExclamation className="SitePopover__danger" />}
                 </div>
                 <IconChevronDown />

@@ -50,7 +50,7 @@ def get_breakdown_prop_values(
     column_optimizer: Optional[ColumnOptimizer] = None,
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
     use_all_funnel_entities: bool = False,
-):
+) -> Tuple[List[Any], bool]:
     """
     Returns the top N breakdown prop values for event/person breakdown
 
@@ -216,7 +216,7 @@ def get_breakdown_prop_values(
         elements_query,
         {
             "key": filter.breakdown,
-            "limit": filter.breakdown_limit_or_default,
+            "limit": filter.breakdown_limit_or_default + 1,
             "team_id": team.pk,
             "offset": filter.offset,
             "timezone": team.timezone,
@@ -236,9 +236,11 @@ def get_breakdown_prop_values(
     )
 
     if filter.using_histogram:
-        return response[0][0]
+        return response[0][0], False
     else:
-        return [row[0] for row in response]
+        return [row[0] for row in response[0 : filter.breakdown_limit_or_default]], len(
+            response
+        ) > filter.breakdown_limit_or_default
 
 
 def _to_value_expression(

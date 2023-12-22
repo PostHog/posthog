@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { query as performQuery } from '~/queries/query'
-import { DataTableNode, InsightPersonsQuery, NodeKind, PersonsQuery } from '~/queries/schema'
+import { ActorsQuery, DataTableNode, InsightActorsQuery, NodeKind } from '~/queries/schema'
 import {
     ActorType,
     BreakdownType,
@@ -26,7 +26,7 @@ import type { personsModalLogicType } from './personsModalLogicType'
 const RESULTS_PER_PAGE = 100
 
 export interface PersonModalLogicProps {
-    query?: InsightPersonsQuery | null
+    query?: InsightActorsQuery | null
     url?: string | null
 }
 
@@ -56,7 +56,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
             offset,
         }: {
             url?: string | null
-            query?: InsightPersonsQuery | null
+            query?: InsightActorsQuery | null
             clear?: boolean
             offset?: number
         }) => ({
@@ -92,10 +92,10 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         return res
                     } else if (query) {
                         const response = await performQuery({
-                            ...values.personsQuery,
+                            ...values.ActorsQuery,
                             limit: RESULTS_PER_PAGE + 1,
                             offset: offset || 0,
-                        } as PersonsQuery)
+                        } as ActorsQuery)
                         const newResponse: ListActorsResponse = {
                             results: [
                                 {
@@ -180,8 +180,8 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 is_static: true,
                 name: cohortName,
             }
-            if (values.personsQuery) {
-                const cohort = await api.create('api/cohort', { ...cohortParams, query: values.personsQuery })
+            if (values.ActorsQuery) {
+                const cohort = await api.create('api/cohort', { ...cohortParams, query: values.ActorsQuery })
                 cohortsModel.actions.cohortCreated(cohort)
                 lemonToast.success('Cohort saved', {
                     toastId: `cohort-saved-${cohort.id}`,
@@ -256,14 +256,14 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 return cleanFilters(filter)
             },
         ],
-        personsQuery: [
+        ActorsQuery: [
             (s) => [(_, p) => p.query, s.searchTerm],
-            (query, searchTerm): PersonsQuery | null => {
+            (query, searchTerm): ActorsQuery | null => {
                 if (!query) {
                     return null
                 }
                 return {
-                    kind: NodeKind.PersonsQuery,
+                    kind: NodeKind.ActorsQuery,
                     source: query,
                     select: ['person', 'created_at'],
                     orderBy: ['created_at DESC'],
@@ -272,12 +272,12 @@ export const personsModalLogic = kea<personsModalLogicType>([
             },
         ],
         exploreUrl: [
-            (s) => [s.personsQuery],
-            (personsQuery): string | null => {
-                if (!personsQuery) {
+            (s) => [s.ActorsQuery],
+            (ActorsQuery): string | null => {
+                if (!ActorsQuery) {
                     return null
                 }
-                const { select: _select, ...source } = personsQuery
+                const { select: _select, ...source } = ActorsQuery
                 const query: DataTableNode = {
                     kind: NodeKind.DataTableNode,
                     source,

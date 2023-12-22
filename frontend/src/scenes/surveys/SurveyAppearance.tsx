@@ -56,7 +56,7 @@ interface ButtonProps {
     children: React.ReactNode
 }
 
-const Button = ({
+const SurveyButton = ({
     link,
     type,
     onSubmit,
@@ -351,7 +351,7 @@ export function BaseAppearance({
 
                 <div className="bottom-section">
                     <div className="buttons">
-                        <Button
+                        <SurveyButton
                             {...(preview ? { tabIndex: -1 } : null)}
                             appearance={appearance}
                             link={question.type === SurveyQuestionType.Link ? question.link : null}
@@ -359,7 +359,7 @@ export function BaseAppearance({
                             type={question.type}
                         >
                             {question.buttonText || appearance.submitButtonText}
-                        </Button>
+                        </SurveyButton>
                     </div>
 
                     {!preview && !appearance.whiteLabel && (
@@ -572,13 +572,13 @@ export function SurveyRatingAppearance({
 
                     <div className="bottom-section">
                         <div className="buttons">
-                            <Button
+                            <SurveyButton
                                 {...(preview ? { tabIndex: -1 } : null)}
                                 appearance={appearance}
                                 onSubmit={onSubmit}
                             >
                                 {ratingSurveyQuestion.buttonText || appearance.submitButtonText}
-                            </Button>
+                            </SurveyButton>
                         </div>
 
                         {!preview && !appearance.whiteLabel && (
@@ -739,9 +739,13 @@ export function SurveyMultipleChoiceAppearance({
                 </div>
                 <div className="bottom-section">
                     <div className="buttons">
-                        <Button {...(preview ? { tabIndex: -1 } : null)} appearance={appearance} onSubmit={onSubmit}>
+                        <SurveyButton
+                            {...(preview ? { tabIndex: -1 } : null)}
+                            appearance={appearance}
+                            onSubmit={onSubmit}
+                        >
                             {multipleChoiceQuestion.buttonText || appearance.submitButtonText}
-                        </Button>
+                        </SurveyButton>
                     </div>
 
                     {!preview && !appearance.whiteLabel && (
@@ -797,9 +801,9 @@ export function SurveyThankYou({ appearance }: { appearance: SurveyAppearanceTyp
                     className="thank-you-message-body"
                     dangerouslySetInnerHTML={{ __html: sanitizeHTML(appearance?.thankYouMessageDescription || '') }}
                 />
-                <Button appearance={appearance} onSubmit={() => undefined}>
+                <SurveyButton appearance={appearance} onSubmit={() => undefined}>
                     Close
-                </Button>
+                </SurveyButton>
                 {!appearance.whiteLabel && (
                     <Link to="https://posthog.com" target="_blank" className="footer-branding">
                         Survey by {posthogLogoSVG}
