@@ -843,11 +843,16 @@ export const KEY_MAPPING: KeyMappingInterface = {
             description: 'Whether the app was opened for the first time or from the background.',
             examples: ['true', 'false'],
         },
-        // set by the Deep Link Opened event
+        // set by the Application Opened/Deep Link Opened event
         url: {
             label: 'URL',
             description: 'The deep link URL that the app was opened from.',
             examples: ['https://open.my.app'],
+        },
+        referring_application: {
+            label: 'Referrer Application',
+            description: 'The namespace of the app that made the request.',
+            examples: ['com.posthog.app'],
         },
         // set by the Application Installed/Application Updated/Application Opened events
         // similar to $app_version
