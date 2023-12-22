@@ -10,7 +10,7 @@ describe('Invite Signup', () => {
 
         cy.location('pathname').should('eq', '/settings/organization')
         cy.get('[id="invites"]').should('exist')
-        cy.get('h2').contains('Pending Invites').should('exist')
+        cy.contains('Pending Invites').should('exist')
 
         // Test invite creation flow
         cy.get('[data-attr=invite-teammate-button]').click()

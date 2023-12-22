@@ -5,7 +5,7 @@ describe('Annotations', () => {
     })
 
     it('Annotations loaded', () => {
-        cy.get('h2').should('contain', 'Create your first annotation')
+        cy.contains('Create your first annotation').should('exist')
         cy.get('[data-attr="product-introduction-docs-link"]').should('contain', 'Learn more')
     })
 
