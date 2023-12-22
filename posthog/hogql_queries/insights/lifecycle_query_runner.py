@@ -90,7 +90,7 @@ class LifecycleQueryRunner(QueryRunner):
             )
         return lifecycle_query
 
-    def to_persons_query(
+    def to_actors_query(
         self, day: Optional[str] = None, status: Optional[str] = None
     ) -> ast.SelectQuery | ast.SelectUnionQuery:
         with self.timings.measure("persons_query"):
