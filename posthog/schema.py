@@ -810,8 +810,8 @@ class EventsQueryResponse(BaseModel):
     columns: List
     hasMore: Optional[bool] = None
     hogql: str
-    limit: int
-    offset: int
+    limit: Optional[int] = None
+    offset: Optional[int] = None
     results: List[List]
     timings: Optional[List[QueryTiming]] = None
     types: List[str]
