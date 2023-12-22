@@ -18,10 +18,10 @@ import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButt
 import { DataTableNode, EventsQueryPersonColumn, HasPropertiesNode } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
 import {
+    isActorsQuery,
     isEventsQuery,
     isHogQLQuery,
     isPersonsNode,
-    isPersonsQuery,
     isTimeToSeeDataSessionsQuery,
     trimQuotes,
 } from '~/queries/utils'
@@ -221,7 +221,7 @@ export function renderColumn(
             displayProps.href = urls.personByDistinctId(personRecord.distinct_ids[0])
         }
 
-        if (isPersonsQuery(query.source) && value) {
+        if (isActorsQuery(query.source) && value) {
             displayProps.person = value
             displayProps.href = value.id
                 ? urls.personByUUID(value.id)
@@ -229,14 +229,14 @@ export function renderColumn(
         }
 
         return <PersonDisplay {...displayProps} />
-    } else if (key === 'person.$delete' && (isPersonsNode(query.source) || isPersonsQuery(query.source))) {
+    } else if (key === 'person.$delete' && (isPersonsNode(query.source) || isActorsQuery(query.source))) {
         const personRecord = record as PersonType
         return <DeletePersonButton person={personRecord} />
     } else if (key.startsWith('context.columns.')) {
         const columnName = trimQuotes(key.substring(16)) // 16 = "context.columns.".length
         const Component = context?.columns?.[columnName]?.render
         return Component ? <Component record={record} columnName={columnName} value={value} query={query} /> : ''
-    } else if (key === 'id' && (isPersonsNode(query.source) || isPersonsQuery(query.source))) {
+    } else if (key === 'id' && (isPersonsNode(query.source) || isActorsQuery(query.source))) {
         return (
             <CopyToClipboardInline
                 explicitValue={String(value)}

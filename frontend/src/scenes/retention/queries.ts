@@ -1,17 +1,17 @@
 import { RetentionTableAppearanceType, RetentionTablePeoplePayload } from 'scenes/retention/types'
 
 import { query } from '~/queries/query'
-import { NodeKind, PersonsQuery, RetentionQuery } from '~/queries/schema'
+import { ActorsQuery, NodeKind, RetentionQuery } from '~/queries/schema'
 
-export function retentionToActorsQuery(query: RetentionQuery, selectedInterval: number, offset = 0): PersonsQuery {
+export function retentionToActorsQuery(query: RetentionQuery, selectedInterval: number, offset = 0): ActorsQuery {
     const group = query.aggregation_group_type_index !== undefined
     const select = group ? 'group' : 'person'
     return {
-        kind: NodeKind.PersonsQuery,
+        kind: NodeKind.ActorsQuery,
         select: [select, 'appearances'],
         orderBy: ['length(appearances) DESC', 'actor_id'],
         source: {
-            kind: NodeKind.InsightPersonsQuery,
+            kind: NodeKind.InsightActorsQuery,
             interval: selectedInterval,
             source: {
                 ...query,

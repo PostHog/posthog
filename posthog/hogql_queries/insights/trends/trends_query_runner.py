@@ -98,7 +98,7 @@ class TrendsQueryRunner(QueryRunner):
 
         return queries
 
-    def to_persons_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         queries = []
         with self.timings.measure("trends_persons_query"):
             for series in self.series:

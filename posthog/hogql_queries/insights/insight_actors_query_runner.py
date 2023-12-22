@@ -8,12 +8,12 @@ from posthog.hogql_queries.insights.retention_query_runner import RetentionQuery
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.schema import InsightPersonsQuery, HogQLQueryResponse
+from posthog.schema import InsightActorsQuery, HogQLQueryResponse
 
 
-class InsightPersonsQueryRunner(QueryRunner):
-    query: InsightPersonsQuery
-    query_type = InsightPersonsQuery
+class InsightActorsQueryRunner(QueryRunner):
+    query: InsightActorsQuery
+    query_type = InsightActorsQuery
 
     @cached_property
     def source_runner(self) -> QueryRunner:
@@ -24,17 +24,17 @@ class InsightPersonsQueryRunner(QueryRunner):
             lifecycle_runner = cast(LifecycleQueryRunner, self.source_runner)
             day = self.query.day
             status = self.query.status
-            return lifecycle_runner.to_persons_query(day=day, status=status)
+            return lifecycle_runner.to_actors_query(day=day, status=status)
         elif isinstance(self.source_runner, TrendsQueryRunner):
             trends_runner = cast(TrendsQueryRunner, self.source_runner)
-            return trends_runner.to_persons_query()
+            return trends_runner.to_actors_query()
         elif isinstance(self.source_runner, RetentionQueryRunner):
             retention_runner = cast(RetentionQueryRunner, self.source_runner)
-            return retention_runner.to_persons_query(interval=self.query.interval)
+            return retention_runner.to_actors_query(interval=self.query.interval)
 
         raise ValueError(f"Cannot convert source query of type {self.query.source.kind} to persons query")
 
-    def to_persons_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         return self.to_query()
 
     @property
@@ -46,7 +46,7 @@ class InsightPersonsQueryRunner(QueryRunner):
 
     def calculate(self) -> HogQLQueryResponse:
         return execute_hogql_query(
-            query_type="InsightPersonsQuery",
+            query_type="InsightActorsQuery",
             query=self.to_query(),
             team=self.team,
             timings=self.timings,
