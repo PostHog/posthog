@@ -251,8 +251,6 @@ export function Editor(): JSX.Element {
                 chain: () => editor.chain().focus(),
                 destroy: () => editor.destroy(),
                 getMarks: (type: string) => getMarks(editor, type),
-                updateMark: (type, attrs) => editor.commands.updateAttributes(type, attrs),
-                removeMark: (type) => editor.commands.unsetMark(type),
                 findCommentPosition: (markId: string) => findCommentPosition(editor, markId),
                 removeComment: (pos: number) => removeCommentMark(editor, pos),
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),

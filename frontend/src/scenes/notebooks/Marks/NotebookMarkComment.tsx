@@ -6,9 +6,7 @@ import type { notebookLogicType } from '../Notebook/notebookLogicType'
 
 export const NotebookMarkComment = Mark.create({
     name: 'comment',
-    priority: 1001,
-    keepOnSplit: false,
-    inclusive: true,
+    spanning: false,
 
     addAttributes() {
         return {

@@ -132,7 +132,7 @@ export const notebookLogic = kea<notebookLogicType>([
         setTextSelection: (selection: number | EditorRange) => ({ selection }),
         setContainerSize: (containerSize: 'small' | 'medium') => ({ containerSize }),
         insertComment: (context: Record<string, any>) => ({ context }),
-        selectComment: (markId: string) => ({ markId }),
+        selectComment: (itemContextId: string) => ({ itemContextId }),
     }),
     reducers(({ props }) => ({
         localContent: [
@@ -637,8 +637,8 @@ export const notebookLogic = kea<notebookLogicType>([
                 router.actions.push(urls.notebook(values.shortId))
             }
         },
-        selectComment: ({ markId }) => {
-            const commentId = values.comments?.find((x) => x.item_context?.id === markId)?.id
+        selectComment: ({ itemContextId }) => {
+            const commentId = values.comments?.find((x) => x.item_context?.id === itemContextId)?.id
 
             actions.openSidePanel(SidePanelTab.Discussion, commentId)
 
