@@ -72,7 +72,7 @@ describe('Insights', () => {
 
         cy.url().should('match', /insights\/[\w\d]+\/edit/)
 
-        cy.get('.page-title').then(($pageTitle) => {
+        cy.get('[data-attr="top-bar-name"] .EditableField__display').then(($pageTitle) => {
             const pageTitle = $pageTitle.text()
 
             cy.get('[data-attr="add-action-event-button"]').click()
