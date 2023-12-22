@@ -1,4 +1,5 @@
 import { dayjs } from 'lib/dayjs'
+import { fullName } from 'lib/utils'
 
 import { InsightShortId, PersonType } from '~/types'
 
@@ -110,7 +111,7 @@ export function humanize(
         if (description !== null) {
             logLines.push({
                 email: logItem.user?.email,
-                name: logItem.user?.first_name,
+                name: logItem.user ? fullName(logItem.user) : undefined,
                 isSystem: logItem.is_system,
                 description,
                 extendedDescription,
@@ -126,5 +127,5 @@ export function userNameForLogItem(logItem: ActivityLogItem): string {
     if (logItem.is_system) {
         return 'PostHog'
     }
-    return logItem.user?.first_name ?? 'A user'
+    return logItem.user ? fullName(logItem.user) : 'A user'
 }

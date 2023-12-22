@@ -29,6 +29,8 @@ import { userLogic } from 'scenes/userLogic'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { query } from '~/queries/query'
 import {
+    ActorsQuery,
+    ActorsQueryResponse,
     AnyResponseType,
     DataNode,
     EventsQuery,
@@ -36,18 +38,16 @@ import {
     InsightVizNode,
     NodeKind,
     PersonsNode,
-    PersonsQuery,
-    PersonsQueryResponse,
     QueryResponse,
     QueryTiming,
 } from '~/queries/schema'
 import {
+    isActorsQuery,
     isEventsQuery,
-    isInsightPersonsQuery,
+    isInsightActorsQuery,
     isInsightQueryNode,
     isLifecycleQuery,
     isPersonsNode,
-    isPersonsQuery,
     isTrendsQuery,
 } from '~/queries/utils'
 
@@ -212,7 +212,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                     // TODO: unify when we use the same backend endpoint for both
                     const now = performance.now()
-                    if (isEventsQuery(props.query) || isPersonsQuery(props.query)) {
+                    if (isEventsQuery(props.query) || isActorsQuery(props.query)) {
                         const newResponse = (await query(values.nextQuery)) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         const queryResponse = values.response as QueryResponse
@@ -396,8 +396,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     return null
                 }
 
-                if ((isEventsQuery(query) || isPersonsQuery(query)) && !responseError && !dataLoading) {
-                    if ((response as EventsQueryResponse | PersonsQueryResponse)?.hasMore) {
+                if ((isEventsQuery(query) || isActorsQuery(query)) && !responseError && !dataLoading) {
+                    if ((response as EventsQueryResponse | ActorsQueryResponse)?.hasMore) {
                         const sortKey = query.orderBy?.[0] ?? 'timestamp DESC'
                         const typedResults = (response as QueryResponse)?.results
                         if (isEventsQuery(query) && sortKey === 'timestamp DESC') {
@@ -423,7 +423,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 ...query,
                                 offset: typedResults?.length || 0,
                                 limit: Math.max(100, Math.min(2 * (typedResults?.length || 100), LOAD_MORE_ROWS_LIMIT)),
-                            } as EventsQuery | PersonsQuery
+                            } as EventsQuery | ActorsQuery
                         }
                     }
                 }
@@ -446,7 +446,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         backToSourceQuery: [
             (s) => [s.query],
             (query): InsightVizNode | null => {
-                if (isPersonsQuery(query) && isInsightPersonsQuery(query.source) && !!query.source.source) {
+                if (isActorsQuery(query) && isInsightActorsQuery(query.source) && !!query.source.source) {
                     const insightQuery = query.source.source
                     const insightVizNode: InsightVizNode = {
                         kind: NodeKind.InsightVizNode,

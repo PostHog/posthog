@@ -24,6 +24,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             "distinct_id": user.distinct_id,
             "email": user.email,
             "first_name": "",
+            "last_name": "",
             "id": user.id,
             "uuid": str(user.uuid),
             "is_email_verified": None,

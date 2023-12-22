@@ -191,6 +191,10 @@ export function capitalizeFirstLetter(string: string): string {
     return string.charAt(0).toUpperCase() + string.slice(1)
 }
 
+export function fullName(props: { first_name?: string; last_name?: string }): string {
+    return `${props.first_name || ''} ${props.last_name || ''}`.trim()
+}
+
 export const genericOperatorMap: Record<string, string> = {
     exact: '= equals',
     is_not: "≠ doesn't equal",

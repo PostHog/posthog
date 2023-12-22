@@ -169,7 +169,7 @@
     AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -279,7 +279,7 @@
     AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -353,7 +353,7 @@
          AND (has(['Mac'], replaceRegexpAll(JSONExtractRaw(e.properties, '$os'), '^"|"$', ''))))
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -420,7 +420,7 @@
          AND (has(['Mac'], replaceRegexpAll(JSONExtractRaw(e.properties, '$os'), '^"|"$', ''))))
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -451,7 +451,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-11 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -497,7 +497,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-11 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -563,7 +563,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -682,7 +682,7 @@
     AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -780,7 +780,7 @@
     AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -857,7 +857,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -925,7 +925,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -1244,7 +1244,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -1356,7 +1356,7 @@
     AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -1494,7 +1494,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -1593,7 +1593,7 @@
     AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -2257,7 +2257,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -2459,7 +2459,7 @@
     AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -2661,7 +2661,7 @@
     AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -3297,7 +3297,7 @@
           OR (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', '')))))
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -3407,7 +3407,7 @@
     AND ((has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -3578,7 +3578,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -3737,7 +3737,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -3850,7 +3850,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -3933,7 +3933,7 @@
     AND notEmpty(e.person_id)
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -4019,7 +4019,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -4076,7 +4076,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -4308,7 +4308,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -4516,7 +4516,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -4735,7 +4735,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -4826,7 +4826,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---

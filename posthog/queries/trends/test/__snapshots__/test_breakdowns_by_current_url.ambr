@@ -12,7 +12,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---
@@ -77,7 +77,7 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
   GROUP BY value
   ORDER BY count DESC, value DESC
-  LIMIT 25
+  LIMIT 26
   OFFSET 0
   '
 ---

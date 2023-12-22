@@ -271,6 +271,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         name="recalculate cohorts",
     )
 
+    add_periodic_task_with_expiry(
+        sender,
+        120,
+        process_scheduled_changes.s(),
+        name="process scheduled changes",
+    )
+
     if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
         sender.add_periodic_task(
             clear_clickhouse_crontab,
@@ -869,6 +876,13 @@ def calculate_cohort():
     from posthog.tasks.calculate_cohort import calculate_cohorts
 
     calculate_cohorts()
+
+
+@app.task(ignore_result=True)
+def process_scheduled_changes():
+    from posthog.tasks.process_scheduled_changes import process_scheduled_changes
+
+    process_scheduled_changes()
 
 
 @app.task(ignore_result=True)

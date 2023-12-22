@@ -89,6 +89,7 @@ class UserSerializer(serializers.ModelSerializer):
             "uuid",
             "distinct_id",
             "first_name",
+            "last_name",
             "email",
             "pending_email",
             "email_opt_in",

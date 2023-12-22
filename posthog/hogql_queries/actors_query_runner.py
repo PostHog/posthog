@@ -4,15 +4,15 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import has_aggregation
 from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy, GroupStrategy
-from posthog.hogql_queries.insights.insight_persons_query_runner import InsightPersonsQueryRunner
+from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
-from posthog.schema import PersonsQuery, PersonsQueryResponse
+from posthog.schema import ActorsQuery, ActorsQueryResponse
 
 
-class PersonsQueryRunner(QueryRunner):
-    query: PersonsQuery
-    query_type = PersonsQuery
+class ActorsQueryRunner(QueryRunner):
+    query: ActorsQuery
+    query_type = ActorsQuery
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -28,7 +28,7 @@ class PersonsQueryRunner(QueryRunner):
 
     @property
     def group_type_index(self) -> int | None:
-        if not self.source_query_runner or not isinstance(self.source_query_runner, InsightPersonsQueryRunner):
+        if not self.source_query_runner or not isinstance(self.source_query_runner, InsightActorsQueryRunner):
             return None
 
         return self.source_query_runner.group_type_index
@@ -46,9 +46,9 @@ class PersonsQueryRunner(QueryRunner):
             new_row[actor_column_index] = actor if actor else {"id": actor_id}
             yield new_row
 
-    def calculate(self) -> PersonsQueryResponse:
+    def calculate(self) -> ActorsQueryResponse:
         response = self.paginator.execute_hogql_query(
-            query_type="PersonsQuery",
+            query_type="ActorsQuery",
             query=self.to_query(),
             team=self.team,
             timings=self.timings,
@@ -65,7 +65,7 @@ class PersonsQueryRunner(QueryRunner):
             missing_actors_count = len(self.paginator.results) - len(actors_lookup)
             results = self.enrich_with_actors(results, input_columns.index(column_name), actors_lookup)
 
-        return PersonsQueryResponse(
+        return ActorsQueryResponse(
             results=results,
             timings=response.timings,
             types=[t for _, t in response.types] if response.types else None,
@@ -90,7 +90,7 @@ class PersonsQueryRunner(QueryRunner):
 
     def source_table_join(self) -> ast.JoinExpr:
         assert self.source_query_runner is not None  # For type checking
-        source_query = self.source_query_runner.to_persons_query()
+        source_query = self.source_query_runner.to_actors_query()
         source_id_chain = self.source_id_column(source_query)
         source_alias = "source"
 
@@ -182,7 +182,7 @@ class PersonsQueryRunner(QueryRunner):
 
         return stmt
 
-    def to_persons_query(self) -> ast.SelectQuery:
+    def to_actors_query(self) -> ast.SelectQuery:
         return self.to_query()
 
     def _is_stale(self, cached_result_package):
