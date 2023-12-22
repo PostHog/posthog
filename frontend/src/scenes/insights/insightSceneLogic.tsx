@@ -12,9 +12,10 @@ import { teamLogic } from 'scenes/teamLogic'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 
+import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { Breadcrumb, FilterType, InsightShortId, InsightType, ItemMode } from '~/types'
+import { ActivityScope, Breadcrumb, FilterType, InsightShortId, InsightType, ItemMode } from '~/types'
 
 import { insightDataLogic } from './insightDataLogic'
 import { insightDataLogicType } from './insightDataLogicType'
@@ -121,6 +122,15 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     },
                 },
             ],
+        ],
+        activityFilters: [
+            (s) => [s.insight],
+            (insight): ActivityFilters | null => {
+                return insight ? {
+                    scope: ActivityScope.INSIGHT,
+                    item_id: `${insight.id}`
+                } : null
+            },
         ],
     })),
     sharedListeners(({ actions, values }) => ({

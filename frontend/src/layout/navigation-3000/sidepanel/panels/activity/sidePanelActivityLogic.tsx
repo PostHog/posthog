@@ -7,7 +7,7 @@ import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogItem, humanize, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { toParams } from 'lib/utils'
+import { objectsEqual, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
@@ -47,6 +47,8 @@ export const activityFiltersForScene = (sceneConfig: SceneConfig | null): Activi
         const pathParts = router.values.currentLocation.pathname.split('/')
         const item_id = pathParts[2]
 
+        // TODO: Check that it looks like an actual id?
+
         // TODO: Implement custom interceptor for things like "replays/recent?session_id=1234"
 
         return { scope: sceneConfig.activityScope, item_id }
@@ -57,7 +59,7 @@ export const activityFiltersForScene = (sceneConfig: SceneConfig | null): Activi
 export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelActivityLogic']),
     connect({
-        values: [sceneLogic, ['sceneConfig']],
+        values: [sceneLogic, ['sceneConfig', 'activeScene']],
     }),
     actions({
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
@@ -199,12 +201,6 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                 actions.loadOlderActivity()
             }
         },
-
-        setFilters: () => {
-            if (values.activeTab === SidePanelActivityTab.All) {
-                actions.loadAllActivity()
-            }
-        },
     })),
     selectors({
         allActivity: [
@@ -272,12 +268,43 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
         ],
         unreadCount: [(s) => [s.unread], (unread) => (unread || []).length],
         hasUnread: [(s) => [s.unreadCount], (unreadCount) => unreadCount > 0],
+
+        sceneActivityFilters: [
+            (s) => [
+                // Similar to "breadcrumbs"
+                (state, props) => {
+                    const activeSceneLogic = sceneLogic.selectors.activeSceneLogic(state, props)
+                    // const activeScene = s.activeScene(state, props)
+                    const sceneConfig = s.sceneConfig(state, props)
+                    if (activeSceneLogic && 'activityFilters' in activeSceneLogic.selectors) {
+                        const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, props)
+                        return activeSceneLogic.selectors.activityFilters(
+                            state,
+                            activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
+                        )
+                    } else {
+                        return activityFiltersForScene(sceneConfig)
+                    }
+                },
+            ],
+            (filters): ActivityFilters | null => filters,
+            { equalityCheck: objectsEqual },
+        ],
     }),
 
     subscriptions(({ actions, values }) => ({
         sceneConfig: (sceneConfig) => {
             const filters = activityFiltersForScene(sceneConfig)
             actions.setFiltersForCurrentPage(filters ? { ...values.filters, ...filters } : null)
+        },
+
+        sceneActivityFilters: (activityFilters) => {
+            actions.setFiltersForCurrentPage(activityFilters ? { ...values.filters, ...activityFilters } : null)
+        },
+        filters: () => {
+            if (values.activeTab === SidePanelActivityTab.All) {
+                actions.loadAllActivity()
+            }
         },
     })),
 

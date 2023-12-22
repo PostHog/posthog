@@ -58,7 +58,6 @@ def depluralize(string: str | None) -> str | None:
 
 def log_notebook_activity(
     activity: str,
-    notebook_id: str,
     notebook_short_id: str,
     notebook_name: str,
     organization_id: UUIDT,
@@ -70,7 +69,7 @@ def log_notebook_activity(
         organization_id=organization_id,
         team_id=team_id,
         user=user,
-        item_id=notebook_id,
+        item_id=notebook_short_id,
         scope="Notebook",
         activity=activity,
         detail=Detail(changes=changes, short_id=notebook_short_id, name=notebook_name),
@@ -135,7 +134,6 @@ class NotebookSerializer(NotebookMinimalSerializer):
 
         log_notebook_activity(
             activity="created",
-            notebook_id=notebook.id,
             notebook_short_id=str(notebook.short_id),
             notebook_name=notebook.title,
             organization_id=self.context["request"].user.current_organization_id,
@@ -171,7 +169,6 @@ class NotebookSerializer(NotebookMinimalSerializer):
 
         log_notebook_activity(
             activity="updated",
-            notebook_id=str(updated_notebook.id),
             notebook_short_id=str(updated_notebook.short_id),
             notebook_name=updated_notebook.title,
             organization_id=self.context["request"].user.current_organization_id,
