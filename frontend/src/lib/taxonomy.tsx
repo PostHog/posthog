@@ -807,6 +807,31 @@ export const KEY_MAPPING: KeyMappingInterface = {
             description: 'UTM Source. (First-touch, session-scoped)',
             examples: ['free goodies'],
         },
+        // Mobile SDK events
+        'Application Opened': {
+            label: 'Application Opened',
+            description: 'When a user opens the app either from the first time or from the foreground.',
+        },
+        'Application Backgrounded': {
+            label: 'Application Backgrounded',
+            description: 'When a user puts the app in the background.',
+        },
+        'Application Updated': {
+            label: 'Application Updated',
+            description: 'When a user upgrades the mobile app.',
+        },
+        'Application Installed': {
+            label: 'Application Installed',
+            description: 'When a user installs the app.',
+        },
+        'Application Became Active': {
+            label: 'Application Became Active',
+            description: 'When a user puts the app in the foreground.',
+        },
+        'Deep Link Opened': {
+            label: 'Deep Link Opened',
+            description: 'When a user opens the via via a deep link.',
+        },
     },
     element: {
         tag_name: {
