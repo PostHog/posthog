@@ -156,6 +156,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                         showTime
                         showSecond={false}
                         format={DAYJS_FORMAT}
+                        showNow={false}
                     />
                 </div>
             </div>
