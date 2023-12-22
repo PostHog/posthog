@@ -3,8 +3,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 
-import type { hedgehogBuddyLogicType } from './hedgehogBuddyLogicType'
 import { AccessoryInfo, standardAccessories } from './sprites/sprites'
+
+import type { hedgehogBuddyLogicType } from './hedgehogBuddyLogicType'
 
 export const hedgehogBuddyLogic = kea<hedgehogBuddyLogicType>([
     path(['hedgehog', 'hedgehogBuddyLogic']),

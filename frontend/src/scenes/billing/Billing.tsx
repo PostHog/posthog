@@ -1,4 +1,4 @@
-import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
@@ -19,6 +19,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { BillingHero } from './BillingHero'
 import { billingLogic } from './billingLogic'
 import { BillingProduct } from './BillingProduct'
+import { BuilderHogWavingSmiling } from 'lib/components/hedgehogs'
 
 export const scene: SceneExport = {
     component: Billing,
@@ -38,6 +39,7 @@ export function Billing(): JSX.Element {
         showLicenseDirectInput,
         isActivateLicenseSubmitting,
         isUnlicensedDebug,
+        over20kAnnual,
     } = useValues(billingLogic)
     const { reportBillingV2Shown } = useActions(billingLogic)
     const { preflight } = useValues(preflightLogic)
@@ -125,24 +127,7 @@ export function Billing(): JSX.Element {
 
     return (
         <div ref={ref}>
-            {!isOnboarding && (
-                <div className="flex justify-between">
-                    <BillingPageHeader />
-                    {billing?.has_active_subscription && (
-                        <div>
-                            <LemonButton
-                                type="primary"
-                                htmlType="submit"
-                                to={billing.stripe_portal_url}
-                                disableClientSideRouting
-                                center
-                            >
-                                Manage card details
-                            </LemonButton>
-                        </div>
-                    )}
-                </div>
-            )}
+            {!isOnboarding && <BillingPageHeader />}
             {showLicenseDirectInput && (
                 <>
                     <Form logic={billingLogic} formKey="activateLicense" enableFormOnSubmit className="space-y-4">
@@ -175,7 +160,7 @@ export function Billing(): JSX.Element {
                 </>
             )}
             <div
-                className={clsx('flex flex-wrap gap-4', {
+                className={clsx('flex flex-wrap gap-4 pb-4', {
                     'flex-col items-stretch': size === 'small',
                     'items-center': size !== 'small',
                 })}
@@ -183,20 +168,6 @@ export function Billing(): JSX.Element {
                 {!isOnboarding && billing?.billing_period && (
                     <div className="flex-1">
                         <div className="space-y-2">
-                            <div>
-                                <p className="ml-0 mb-0">
-                                    {billing?.has_active_subscription ? 'Billing period' : 'Cycle'}:{' '}
-                                    <b>{billing.billing_period.current_period_start.format('LL')}</b> to{' '}
-                                    <b>{billing.billing_period.current_period_end.format('LL')}</b> (
-                                    {billing.billing_period.current_period_end.diff(dayjs(), 'days')} days remaining)
-                                </p>
-                                {!billing.has_active_subscription && (
-                                    <p className="italic ml-0 text-muted">
-                                        Monthly free allocation resets at the end of the cycle.
-                                    </p>
-                                )}
-                            </div>
-
                             {billing?.has_active_subscription && (
                                 <>
                                     <LemonLabel
@@ -237,37 +208,91 @@ export function Billing(): JSX.Element {
                                     )}
                                 </>
                             )}
+                            <div>
+                                <p className="ml-0 mb-0">
+                                    {billing?.has_active_subscription ? 'Billing period' : 'Cycle'}:{' '}
+                                    <b>{billing.billing_period.current_period_start.format('LL')}</b> to{' '}
+                                    <b>{billing.billing_period.current_period_end.format('LL')}</b> (
+                                    {billing.billing_period.current_period_end.diff(dayjs(), 'days')} days remaining)
+                                </p>
+                                {!billing.has_active_subscription && (
+                                    <p className="italic ml-0 text-muted">
+                                        Monthly free allocation resets at the end of the cycle.
+                                    </p>
+                                )}
+                            </div>
                         </div>
                     </div>
                 )}
 
-                <div
-                    className={clsx('space-y-2', {
-                        'p-4': size === 'medium',
-                    })}
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ width: size === 'medium' ? '20rem' : undefined }}
-                >
-                    {!cloudOrDev && billing?.license?.plan ? (
-                        <div className="bg-primary-alt-highlight text-primary-alt rounded p-2 px-4">
-                            <div className="text-center font-bold">
-                                {capitalizeFirstLetter(billing.license.plan)} license
-                            </div>
-                            <span>
-                                Please contact <Link to="mailto:sales@posthog.com">sales@posthog.com</Link> if you would
-                                like to make any changes to your license.
-                            </span>
+                {!isOnboarding && over20kAnnual && (
+                    <div className="flex flex-row gap-8">
+                        <div className="h-30 self-center">
+                            <BuilderHogWavingSmiling className="max-h-full w-auto object-contain" />
                         </div>
-                    ) : null}
+                        <div className="flex flex-col">
+                            <LemonLabel>You're elgibile for PostHog perks!</LemonLabel>
+                            <LemonCheckbox checked disabled label="Save 20% by switching to up-front annual billing" />
+                            <LemonCheckbox
+                                checked
+                                disabled
+                                label="Discounts for bundling subscriptions to multiple products"
+                            />
+                            <LemonCheckbox checked disabled label="Team training" />
+                            <LemonCheckbox checked disabled label="Dedicated support in a Slack channel" />
+                            <LemonCheckbox checked disabled label="Free merch" />
+                            <div style={{ alignSelf: 'start', paddingTop: '8px' }}>
+                                <LemonButton type="secondary" to="mailto:sales@posthog.com">
+                                    Get in touch!
+                                </LemonButton>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
-                    {!cloudOrDev && !billing?.has_active_subscription ? (
-                        <p>
-                            Self-hosted licenses are no longer available for purchase. Please contact{' '}
-                            <Link to="mailto:sales@posthog.com">sales@posthog.com</Link> to discuss options.
-                        </p>
-                    ) : null}
-                </div>
+                {!cloudOrDev && (billing?.license?.plan || !billing?.has_active_subscription) && (
+                    <div
+                        className={clsx('space-y-2', {
+                            'p-4': size === 'medium',
+                        })}
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ width: size === 'medium' ? '20rem' : undefined }}
+                    >
+                        {!cloudOrDev && billing?.license?.plan ? (
+                            <div className="bg-primary-alt-highlight text-primary-alt rounded p-2 px-4">
+                                <div className="text-center font-bold">
+                                    {capitalizeFirstLetter(billing.license.plan)} license
+                                </div>
+                                <span>
+                                    Please contact <Link to="mailto:sales@posthog.com">sales@posthog.com</Link> if you
+                                    would like to make any changes to your license.
+                                </span>
+                            </div>
+                        ) : null}
+
+                        {!cloudOrDev && !billing?.has_active_subscription ? (
+                            <p>
+                                Self-hosted licenses are no longer available for purchase. Please contact{' '}
+                                <Link to="mailto:sales@posthog.com">sales@posthog.com</Link> to discuss options.
+                            </p>
+                        ) : null}
+                    </div>
+                )}
             </div>
+
+            {!isOnboarding && billing?.has_active_subscription && (
+                <div style={{ width: 'fit-content' }}>
+                    <LemonButton
+                        type="primary"
+                        htmlType="submit"
+                        to={billing.stripe_portal_url}
+                        disableClientSideRouting
+                        center
+                    >
+                        Manage card details and view past invoices
+                    </LemonButton>
+                </div>
+            )}
 
             <div className="flex justify-between mt-4">
                 <h2>Products</h2>
