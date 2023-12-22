@@ -19,7 +19,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-05-25',
-        testOptions: { waitForSelector: '.LemonTable__content' },
     },
     decorators: [
         mswDecorator({
@@ -109,4 +108,7 @@ export const BillingUnsubscribeModal_DataPipelines = (): JSX.Element => {
     ]
 
     return <UnsubscribeSurveyModal product={product} />
+}
+BillingUnsubscribeModal_DataPipelines.parameters = {
+    testOptions: { waitForSelector: '.LemonTable__content' },
 }
