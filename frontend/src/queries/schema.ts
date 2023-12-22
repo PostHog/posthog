@@ -46,7 +46,7 @@ export enum NodeKind {
     PersonsNode = 'PersonsNode',
     HogQLQuery = 'HogQLQuery',
     HogQLMetadata = 'HogQLMetadata',
-    PersonsQuery = 'PersonsQuery',
+    ActorsQuery = 'ActorsQuery',
     SessionsTimelineQuery = 'SessionsTimelineQuery',
 
     // Interface nodes
@@ -62,7 +62,7 @@ export enum NodeKind {
     PathsQuery = 'PathsQuery',
     StickinessQuery = 'StickinessQuery',
     LifecycleQuery = 'LifecycleQuery',
-    InsightPersonsQuery = 'InsightPersonsQuery',
+    InsightActorsQuery = 'InsightActorsQuery',
 
     // Web analytics queries
     WebOverviewQuery = 'WebOverviewQuery',
@@ -85,8 +85,8 @@ export type AnyDataNode =
     | PersonsNode // old persons API endpoint
     | TimeToSeeDataSessionsQuery // old API
     | EventsQuery
-    | PersonsQuery
-    | InsightPersonsQuery
+    | ActorsQuery
+    | InsightActorsQuery
     | SessionsTimelineQuery
     | HogQLQuery
     | HogQLMetadata
@@ -336,7 +336,7 @@ export interface DataTableNode extends Node, DataTableNodeViewProps {
         | EventsNode
         | EventsQuery
         | PersonsNode
-        | PersonsQuery
+        | ActorsQuery
         | HogQLQuery
         | TimeToSeeDataSessionsQuery
         | WebOverviewQuery
@@ -631,7 +631,7 @@ export interface LifecycleQuery extends Omit<InsightsQueryBase, 'aggregation_gro
     response?: LifecycleQueryResponse
 }
 
-export interface PersonsQueryResponse {
+export interface ActorsQueryResponse {
     results: any[][]
     columns: any[]
     types: string[]
@@ -646,9 +646,9 @@ export interface PersonsQueryResponse {
     missing_actors_count?: number
 }
 
-export interface PersonsQuery extends DataNode {
-    kind: NodeKind.PersonsQuery
-    source?: InsightPersonsQuery | HogQLQuery
+export interface ActorsQuery extends DataNode {
+    kind: NodeKind.ActorsQuery
+    source?: InsightActorsQuery | HogQLQuery
     select?: HogQLExpression[]
     search?: string
     properties?: AnyPropertyFilter[]
@@ -658,7 +658,7 @@ export interface PersonsQuery extends DataNode {
     limit?: number
     /** @asType integer */
     offset?: number
-    response?: PersonsQueryResponse
+    response?: ActorsQueryResponse
 }
 
 export interface TimelineEntry {
@@ -776,8 +776,8 @@ export type InsightFilter =
     | StickinessFilter
     | LifecycleFilter
 
-export interface InsightPersonsQuery {
-    kind: NodeKind.InsightPersonsQuery
+export interface InsightActorsQuery {
+    kind: NodeKind.InsightActorsQuery
     source: InsightQueryNode
     day?: string
     status?: string
@@ -788,7 +788,7 @@ export interface InsightPersonsQuery {
     interval?: number
     // TODO: add breakdowns
     // TODO: add fields for other insights (funnels dropdown, compare_previous choice, etc)
-    response?: PersonsQueryResponse
+    response?: ActorsQueryResponse
 }
 
 export const dateRangeForFilter = (source: FilterType | undefined): DateRange | undefined => {
