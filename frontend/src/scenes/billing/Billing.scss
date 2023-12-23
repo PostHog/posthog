@@ -1,3 +1,5 @@
+@import '../../styles/vars';
+
 .BillingPlan {
     flex-grow: 1;
     max-width: 500px;
@@ -28,5 +30,17 @@
             font-size: 0.75rem;
             color: var(--muted);
         }
+    }
+}
+
+.LargeCustomerCTA {
+    @media screen and (max-width: $lg) {
+        float: unset;
+        padding-left: 0;
+    }
+
+    @media screen and (min-width: $lg) {
+        float: right;
+        padding-left: 2rem;
     }
 }

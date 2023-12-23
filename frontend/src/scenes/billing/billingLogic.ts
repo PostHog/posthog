@@ -67,6 +67,7 @@ export const billingLogic = kea<billingLogicType>([
         registerInstrumentationProps: true,
         setRedirectPath: true,
         setIsOnboarding: true,
+        setPerksCTADismissed: (perksCTADismissed: boolean) => ({ perksCTADismissed }),
     }),
     connect({
         values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
@@ -105,6 +106,13 @@ export const billingLogic = kea<billingLogicType>([
             false,
             {
                 setIsOnboarding: () => window.location.pathname.includes('/onboarding'),
+            },
+        ],
+        perksCTADismissed: [
+            false,
+            { persist: true },
+            {
+                setPerksCTADismissed: (_, { perksCTADismissed }) => perksCTADismissed,
             },
         ],
     }),

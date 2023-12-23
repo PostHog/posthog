@@ -1,12 +1,15 @@
-import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
+import './Billing.scss'
+
+import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
+import { SurprisedHog } from 'lib/components/hedgehogs'
 import { PageHeader } from 'lib/components/PageHeader'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconPlus } from 'lib/lemon-ui/icons'
+import { IconCheckCircleOutline, IconPlus } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
@@ -19,7 +22,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { BillingHero } from './BillingHero'
 import { billingLogic } from './billingLogic'
 import { BillingProduct } from './BillingProduct'
-import { BuilderHogWavingSmiling } from 'lib/components/hedgehogs'
 
 export const scene: SceneExport = {
     component: Billing,
@@ -40,8 +42,9 @@ export function Billing(): JSX.Element {
         isActivateLicenseSubmitting,
         isUnlicensedDebug,
         over20kAnnual,
+        perksCTADismissed,
     } = useValues(billingLogic)
-    const { reportBillingV2Shown } = useActions(billingLogic)
+    const { reportBillingV2Shown, setPerksCTADismissed } = useActions(billingLogic)
     const { preflight } = useValues(preflightLogic)
     const cloudOrDev = preflight?.cloud || preflight?.is_debug
     const { openSupportForm } = useActions(supportLogic)
@@ -159,8 +162,48 @@ export function Billing(): JSX.Element {
                     </div>
                 </>
             )}
+
+            {!isOnboarding && over20kAnnual && !perksCTADismissed && (
+                <div className="LargeCustomerCTA flex flex-row gap-2 relative">
+                    <div className="flex flex-col">
+                        <LemonLabel className="py-2">You've unlocked enterprise-grade perks:</LemonLabel>
+                        <div className="flex gap-2 items-center">
+                            <IconCheckCircleOutline className="text-success shrink-0" />
+                            Save 20% by switching to up-front annual billing
+                        </div>
+                        <div className="flex gap-2 items-center">
+                            <IconCheckCircleOutline className="text-success shrink-0" />
+                            Discounts for bundling subscriptions to multiple products
+                        </div>
+                        <div className="flex gap-2 items-center">
+                            <IconCheckCircleOutline className="text-success shrink-0" />
+                            Team training
+                        </div>
+                        <div className="flex gap-2 items-center">
+                            <IconCheckCircleOutline className="text-success shrink-0" />
+                            Dedicated support in a Slack channel
+                        </div>
+                        <div className="flex gap-2 items-center">
+                            <IconCheckCircleOutline className="text-success shrink-0" />
+                            Free merch
+                        </div>
+                        <div className="pt-1 self-start flex flex-row gap-1">
+                            <LemonButton type="secondary" to="mailto:sales@posthog.com">
+                                Get in touch!
+                            </LemonButton>
+                            <LemonButton type="tertiary" onClick={() => setPerksCTADismissed(true)}>
+                                Dismiss
+                            </LemonButton>
+                        </div>
+                    </div>
+                    <div className="h-30 self-center -scale-x-1">
+                        <SurprisedHog className="max-h-full w-auto object-contain" />
+                    </div>
+                </div>
+            )}
+
             <div
-                className={clsx('flex flex-wrap gap-4 pb-4', {
+                className={clsx('flex flex-wrap gap-4 pb-4 w-fit', {
                     'flex-col items-stretch': size === 'small',
                     'items-center': size !== 'small',
                 })}
@@ -225,31 +268,6 @@ export function Billing(): JSX.Element {
                     </div>
                 )}
 
-                {!isOnboarding && over20kAnnual && (
-                    <div className="flex flex-row gap-8">
-                        <div className="h-30 self-center">
-                            <BuilderHogWavingSmiling className="max-h-full w-auto object-contain" />
-                        </div>
-                        <div className="flex flex-col">
-                            <LemonLabel>You're elgibile for PostHog perks!</LemonLabel>
-                            <LemonCheckbox checked disabled label="Save 20% by switching to up-front annual billing" />
-                            <LemonCheckbox
-                                checked
-                                disabled
-                                label="Discounts for bundling subscriptions to multiple products"
-                            />
-                            <LemonCheckbox checked disabled label="Team training" />
-                            <LemonCheckbox checked disabled label="Dedicated support in a Slack channel" />
-                            <LemonCheckbox checked disabled label="Free merch" />
-                            <div style={{ alignSelf: 'start', paddingTop: '8px' }}>
-                                <LemonButton type="secondary" to="mailto:sales@posthog.com">
-                                    Get in touch!
-                                </LemonButton>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
                 {!cloudOrDev && (billing?.license?.plan || !billing?.has_active_subscription) && (
                     <div
                         className={clsx('space-y-2', {
@@ -281,7 +299,7 @@ export function Billing(): JSX.Element {
             </div>
 
             {!isOnboarding && billing?.has_active_subscription && (
-                <div style={{ width: 'fit-content' }}>
+                <div className="w-fit">
                     <LemonButton
                         type="primary"
                         htmlType="submit"
