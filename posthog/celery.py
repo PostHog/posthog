@@ -357,7 +357,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     sender.add_periodic_task(
         crontab(minute="23", hour="*"),
-        calculate_external_data_rows_synced.s(),
+        check_data_import_row_limits.s(),
         name="check external data rows synced",
     )
 
