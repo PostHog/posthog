@@ -54,8 +54,8 @@ async def create_external_data_job_model(inputs: CreateExternalDataJobInputs) ->
 
     # Sync schemas if they have changed
     await sync_to_async(sync_old_schemas_with_new_schemas)(  # type: ignore
-        all_schemas=list(PIPELINE_TYPE_SCHEMA_MAPPING[source.source_type]),  # type: ignore
-        default_schemas=list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source.source_type]),  # type: ignore
+        all_schemas=list(PIPELINE_TYPE_SCHEMA_MAPPING[source.source_type]),
+        default_schemas=list(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source.source_type]),
         source_id=inputs.external_data_source_id,
         team_id=inputs.team_id,
     )
