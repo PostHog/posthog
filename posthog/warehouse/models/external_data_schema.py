@@ -38,9 +38,10 @@ def get_all_schemas_for_source_id(source_id: uuid.UUID, team_id: int):
     return [val["name"] for val in schemas]
 
 
-def sync_old_schemas_with_new_schemas(new_schemas: list, source_id: uuid.UUID, team_id: int):
+def sync_old_schemas_with_new_schemas(all_schemas: list, default_schemas: list, source_id: uuid.UUID, team_id: int):
     old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
-    schemas_to_create = [schema for schema in new_schemas if schema not in old_schemas]
+    schemas_to_create = [schema for schema in all_schemas if schema not in old_schemas]
 
     for schema in schemas_to_create:
-        ExternalDataSchema.objects.create(name=schema, team_id=team_id, source_id=source_id)
+        should_sync = schema in default_schemas
+        ExternalDataSchema.objects.create(name=schema, team_id=team_id, source_id=source_id, should_sync=should_sync)
