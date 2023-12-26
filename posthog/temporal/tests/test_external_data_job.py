@@ -22,6 +22,7 @@ from posthog.temporal.data_imports.external_data_job import (
 )
 from posthog.warehouse.models import (
     get_latest_run_if_exists,
+    get_all_schemas_for_source_id,
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSource,
@@ -30,6 +31,7 @@ from posthog.warehouse.models import (
 
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
+    PIPELINE_TYPE_SCHEMA_MAPPING,
 )
 from posthog.temporal.data_imports.pipelines.pipeline import DataImportPipeline
 from temporalio.testing import WorkflowEnvironment
@@ -111,6 +113,9 @@ async def test_create_external_job_activity(activity_environment, team, **kwargs
     runs = ExternalDataJob.objects.filter(id=run_id)
     assert await sync_to_async(runs.exists)()  # type:ignore
     assert len(schemas) == len(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type])
+
+    all_schemas = await sync_to_async(get_all_schemas_for_source_id)(new_source.pk, team_id=team.pk)
+    assert len(all_schemas) == len(PIPELINE_TYPE_SCHEMA_MAPPING[new_source.source_type])
 
 
 @pytest.mark.django_db(transaction=True)
