@@ -410,6 +410,25 @@ def test_sanitize_keys(key, expected):
 
 
 class TestRelativeDateParsing(unittest.TestCase):
+    def test_invalid_input(self):
+        with freeze_time("2020-01-01T12:01:20.1340Z"):
+            assert relative_date_parse_for_feature_flag_matching("1") is None
+            assert relative_date_parse_for_feature_flag_matching("1x") is None
+            assert relative_date_parse_for_feature_flag_matching("1.2y") is None
+            assert relative_date_parse_for_feature_flag_matching("1z") is None
+            assert relative_date_parse_for_feature_flag_matching("1s") is None
+            assert relative_date_parse_for_feature_flag_matching("123344000.134m") is None
+            assert relative_date_parse_for_feature_flag_matching("bazinga") is None
+            assert relative_date_parse_for_feature_flag_matching("000bello") is None
+            assert relative_date_parse_for_feature_flag_matching("000hello") is None
+
+            assert relative_date_parse_for_feature_flag_matching("000h") is not None
+            assert relative_date_parse_for_feature_flag_matching("1000h") is not None
+
+    def test_overflow(self):
+        assert relative_date_parse_for_feature_flag_matching("1000000h") is None
+        assert relative_date_parse_for_feature_flag_matching("100000000000000000y") is None
+
     def test_hour_parsing(self):
         with freeze_time("2020-01-01T12:01:20.1340Z"):
             assert relative_date_parse_for_feature_flag_matching("1h") == datetime.datetime(
