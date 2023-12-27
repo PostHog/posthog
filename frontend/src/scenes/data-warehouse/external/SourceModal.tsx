@@ -1,4 +1,4 @@
-import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonModalProps } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonModalProps, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
@@ -10,21 +10,40 @@ import { ConnectorConfigType, sourceModalLogic } from './sourceModalLogic'
 interface SourceModalProps extends LemonModalProps {}
 
 export default function SourceModal(props: SourceModalProps): JSX.Element {
-    const { tableLoading, isExternalDataSourceSubmitting, selectedConnector, isManualLinkFormVisible, connectors } =
-        useValues(sourceModalLogic)
+    const {
+        tableLoading,
+        isExternalDataSourceSubmitting,
+        selectedConnector,
+        isManualLinkFormVisible,
+        connectors,
+        addToHubspotUrl,
+    } = useValues(sourceModalLogic)
     const { selectConnector, toggleManualLinkFormVisible, resetExternalDataSource, resetTable } =
         useActions(sourceModalLogic)
 
     const MenuButton = (config: ConnectorConfigType): JSX.Element => {
-        const onClick = (): void => {
-            selectConnector(config)
+        if (config.name === 'Stripe') {
+            const onClick = (): void => {
+                selectConnector(config)
+            }
+
+            return (
+                <LemonButton onClick={onClick} className="w-100" center type="secondary">
+                    <img src={stripeLogo} alt={`stripe logo`} height={50} />
+                </LemonButton>
+            )
+        }
+        if (config.name === 'Hubspot') {
+            return (
+                <Link to={addToHubspotUrl() || ''}>
+                    <LemonButton className="w-100" center type="secondary">
+                        Hubspot
+                    </LemonButton>
+                </Link>
+            )
         }
 
-        return (
-            <LemonButton onClick={onClick} className="w-100" center type="secondary">
-                <img src={stripeLogo} alt={`stripe logo`} height={50} />
-            </LemonButton>
-        )
+        return <></>
     }
 
     const onClear = (): void => {

@@ -25,6 +25,9 @@ from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSeriali
 from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
+from posthog.temporal.data_imports.pipelines.hubspot.auth import (
+    get_access_token_from_code,
+)
 import temporalio
 
 logger = structlog.get_logger(__name__)
@@ -107,7 +110,6 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         )
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        client_secret = request.data["client_secret"]
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
 
@@ -127,18 +129,12 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             )
 
         # TODO: remove dummy vars
-        new_source_model = ExternalDataSource.objects.create(
-            source_id=str(uuid.uuid4()),
-            connection_id=str(uuid.uuid4()),
-            destination_id=str(uuid.uuid4()),
-            team=self.team,
-            status="Running",
-            source_type=source_type,
-            job_inputs={
-                "stripe_secret_key": client_secret,
-            },
-            prefix=prefix,
-        )
+        if source_type == ExternalDataSource.Type.STRIPE:
+            new_source_model = self._handle_stripe_source(request, *args, **kwargs)
+        elif source_type == ExternalDataSource.Type.HUBSPOT:
+            new_source_model = self._handle_hubspot_source(request, *args, **kwargs)
+        else:
+            raise NotImplementedError(f"Source type {source_type} not implemented")
 
         schemas = PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[source_type]
         for schema in schemas:
@@ -155,6 +151,51 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             logger.exception("Could not trigger external data job", exc_info=e)
 
         return Response(status=status.HTTP_201_CREATED, data={"id": new_source_model.pk})
+
+    def _handle_stripe_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
+        client_secret = request.data["client_secret"]
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        # TODO: remove dummy vars
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            status="Running",
+            source_type=source_type,
+            job_inputs={
+                "stripe_secret_key": client_secret,
+            },
+            prefix=prefix,
+        )
+
+        return new_source_model
+
+    def _handle_hubspot_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
+        code = request.data["code"]
+        prefix = request.data.get("prefix", None)
+        source_type = request.data["source_type"]
+
+        access_token, refresh_token = get_access_token_from_code(code)
+
+        # TODO: remove dummy vars
+        new_source_model = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=self.team,
+            status="Running",
+            source_type=source_type,
+            job_inputs={
+                "hubspot_secret_key": access_token,
+                "hubspot_refresh_token": refresh_token,
+            },
+            prefix=prefix,
+        )
+
+        return new_source_model
 
     def prefix_required(self, source_type: str) -> bool:
         source_type_exists = ExternalDataSource.objects.filter(team_id=self.team.pk, source_type=source_type).exists()

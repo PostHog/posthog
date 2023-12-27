@@ -3,6 +3,7 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { forms } from 'kea-forms'
 import { router } from 'kea-router'
 import api from 'lib/api'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { ExternalDataStripeSourceCreatePayload } from '~/types'
@@ -12,6 +13,10 @@ import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLog
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import type { sourceModalLogicType } from './sourceModalLogicType'
 
+export const getHubspotRedirectUri = (next: string = ''): string =>
+    `${window.location.origin.replace('http://', 'https://')}/data_warehouse/hubspot/redirect${
+        next ? '?next=' + encodeURIComponent(next) : ''
+    }`
 export interface ConnectorConfigType {
     name: string
     fields: string[]
@@ -23,8 +28,14 @@ export interface ConnectorConfigType {
 export const CONNECTORS: ConnectorConfigType[] = [
     {
         name: 'Stripe',
-        fields: ['accound_id', 'client_secret'],
+        fields: ['account_id', 'client_secret'],
         caption: 'Enter your Stripe credentials to link your Stripe to PostHog',
+        disabledReason: null,
+    },
+    {
+        name: 'Hubspot',
+        fields: [],
+        caption: '',
         disabledReason: null,
     },
 ]
@@ -36,7 +47,14 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
         toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
     }),
     connect({
-        values: [dataWarehouseTableLogic, ['tableLoading'], dataWarehouseSettingsLogic, ['dataWarehouseSources']],
+        values: [
+            dataWarehouseTableLogic,
+            ['tableLoading'],
+            dataWarehouseSettingsLogic,
+            ['dataWarehouseSources'],
+            preflightLogic,
+            ['preflight'],
+        ],
         actions: [
             dataWarehouseSceneLogic,
             ['toggleSourceModal'],
@@ -75,6 +93,27 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
                             ? 'Already linked'
                             : null,
                 }))
+            },
+        ],
+        addToHubspotUrl: [
+            (s) => [s.preflight],
+            (preflight) => {
+                return (next: string = '') => {
+                    const clientId = preflight?.data_warehouse_integrations?.hubspot.client_id
+
+                    if (!clientId) {
+                        return null
+                    }
+
+                    const scopes = ['crm.objects.contacts.read', 'crm.objects.companies.read']
+
+                    const params = new URLSearchParams()
+                    params.set('client_id', clientId)
+                    params.set('redirect_uri', getHubspotRedirectUri(next))
+                    params.set('scope', scopes.join(' '))
+
+                    return `https://app.hubspot.com/oauth/authorize?${params.toString()}`
+                }
             },
         ],
     }),

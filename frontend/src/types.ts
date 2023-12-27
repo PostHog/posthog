@@ -2500,6 +2500,11 @@ export interface PreflightStatus {
         available: boolean
         client_id?: string
     }
+    data_warehouse_integrations: {
+        hubspot: {
+            client_id?: string
+        }
+    }
     /** Whether PostHog is running in DEBUG mode. */
     is_debug?: boolean
     licensed_users_available?: number | null
