@@ -5,11 +5,9 @@ import { useActions, useValues } from 'kea'
 import { ActivationSidebarToggle } from 'lib/components/ActivationSidebar/ActivationSidebarToggle'
 import { CommandPalette } from 'lib/components/CommandPalette/CommandPalette'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
-import { Link } from 'lib/lemon-ui/Link'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { NotificationBell } from '~/layout/navigation-3000/sidepanel/panels/activity/NotificationBell'
-import { Logo } from '~/toolbar/assets/Logo'
 
 import { navigationLogic } from '../navigationLogic'
 import { ProjectSwitcherOverlay } from '../ProjectSwitcher'
@@ -37,9 +35,6 @@ export function TopBar(): JSX.Element {
                             {isSideBarShown ? null : null}
                         </div>
                     )}
-                    <Link to="/" className="TopBar__logo">
-                        <Logo />
-                    </Link>
                     {!minimalTopBar && <ActivationSidebarToggle />}
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">

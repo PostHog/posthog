@@ -44,24 +44,6 @@
     user-select: none;
 }
 
-.TopBar__logo {
-    flex-shrink: 0;
-    width: 40px;
-    overflow: hidden;
-
-    svg {
-        vertical-align: middle;
-    }
-
-    @include screen($md) {
-        display: flex;
-        align-items: center;
-        width: auto;
-        overflow: hidden;
-        font-size: 1rem;
-    }
-}
-
 .TopBar__lightning-mode-box {
     background: var(--bridge) !important;
 
