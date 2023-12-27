@@ -23,25 +23,9 @@
     align-items: center;
     height: 100%;
 
-    &--left {
-        flex-grow: 1;
-    }
-
-    &--left > * + * {
-        margin-left: 1rem;
-    }
-
     &--right > * + * {
         margin-left: 1rem;
     }
-}
-
-.TopBar__hamburger {
-    display: flex;
-    height: 1.5rem;
-    font-size: 1.5rem;
-    cursor: pointer;
-    user-select: none;
 }
 
 .TopBar__lightning-mode-box {

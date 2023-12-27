@@ -1,10 +1,7 @@
 import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 import { Meta } from '@storybook/react'
-import { useActions } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { useEffect } from 'react'
 
-import { navigationLogic } from './navigationLogic'
 import { SideBar } from './SideBar/SideBar'
 
 const meta: Meta = {
@@ -65,23 +62,9 @@ function BaseAppPage(): JSX.Element {
 }
 
 export function AppPageWithSideBarHidden(): JSX.Element {
-    const { toggleSideBarBase, toggleSideBarMobile } = useActions(navigationLogic)
-
-    useEffect(() => {
-        toggleSideBarBase(false)
-        toggleSideBarMobile(false)
-    }, [])
-
     return <BaseAppPage />
 }
 
 export function AppPageWithSideBarShown(): JSX.Element {
-    const { toggleSideBarBase, toggleSideBarMobile } = useActions(navigationLogic)
-
-    useEffect(() => {
-        toggleSideBarBase(true)
-        toggleSideBarMobile(true)
-    }, [])
-
     return <BaseAppPage />
 }
