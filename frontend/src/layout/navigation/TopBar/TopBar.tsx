@@ -7,7 +7,6 @@ import { CommandPalette } from 'lib/components/CommandPalette/CommandPalette'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { UniversalSearchPopover } from 'lib/components/UniversalSearch/UniversalSearchPopover'
-import { IconMenu, IconMenuOpen } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { organizationLogic } from 'scenes/organizationLogic'
 
@@ -53,7 +52,7 @@ export function TopBar(): JSX.Element {
                             className="TopBar__hamburger"
                             onClick={() => (mobileLayout ? toggleSideBarMobile() : toggleSideBarBase())}
                         >
-                            {isSideBarShown ? <IconMenuOpen /> : <IconMenu />}
+                            {isSideBarShown ? null : null}
                         </div>
                     )}
                     <Link to="/" className="TopBar__logo">
