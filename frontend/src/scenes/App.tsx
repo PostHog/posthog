@@ -1,5 +1,4 @@
 import { actions, BindLogic, connect, events, kea, path, reducers, selectors, useMountedLogic, useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { use3000Body } from 'lib/hooks/use3000Body'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
@@ -16,8 +15,7 @@ import { userLogic } from 'scenes/userLogic'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { GlobalModals } from '~/layout/GlobalModals'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
-import { Navigation as NavigationClassic } from '~/layout/navigation/Navigation'
-import { Navigation as Navigation3000 } from '~/layout/navigation-3000/Navigation'
+import { Navigation } from '~/layout/navigation-3000/Navigation'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -112,7 +110,6 @@ function AppScene(): JSX.Element | null {
     const { activeScene, activeLoadedScene, sceneParams, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
     const { showingDelayedSpinner } = useValues(appLogic)
     const { isDarkModeOn } = useValues(themeLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const toastContainer = (
         <ToastContainer
@@ -154,8 +151,6 @@ function AppScene(): JSX.Element | null {
             </>
         ) : null
     }
-
-    const Navigation = featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test' ? Navigation3000 : NavigationClassic
 
     return (
         <>

@@ -1,6 +1,5 @@
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import {
     IconGauge,
     IconInfo,
@@ -37,7 +36,6 @@ export function PlayerInspectorControls(): JSX.Element {
     const { showOnlyMatching, timestampMode, miniFilters, syncScroll, searchQuery } = useValues(playerSettingsLogic)
     const { setShowOnlyMatching, setTimestampMode, setMiniFilter, setSyncScroll, setSearchQuery } =
         useActions(playerSettingsLogic)
-    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 
@@ -175,8 +173,8 @@ export function PlayerInspectorControls(): JSX.Element {
                         size="small"
                         noPadding
                         status="primary-alt"
-                        active={is3000 && syncScroll}
-                        type={is3000 ? 'tertiary' : syncScroll ? 'primary' : 'tertiary'}
+                        active={syncScroll}
+                        type="tertiary"
                         onClick={() => {
                             // If the user has syncScrolling on but it is paused due to interacting with the Inspector, we want to resume it
                             if (syncScroll && syncScrollingPaused) {

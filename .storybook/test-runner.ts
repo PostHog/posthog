@@ -136,8 +136,7 @@ async function expectStoryToMatchSnapshot(
         Array.from(document.querySelectorAll('img')).every((i: HTMLImageElement) => i.complete)
     )
 
-    await check(page, context, browser, 'legacy', storyContext.parameters?.testOptions?.snapshotTargetSelector)
-
+    // snapshot light theme
     await page.evaluate(() => {
         document.body.classList.add('posthog-3000')
         document.body.setAttribute('theme', 'light')
@@ -145,6 +144,7 @@ async function expectStoryToMatchSnapshot(
 
     await check(page, context, browser, 'light', storyContext.parameters?.testOptions?.snapshotTargetSelector)
 
+    // snapshot dark theme
     await page.evaluate(() => {
         document.body.setAttribute('theme', 'dark')
     })
@@ -168,11 +168,11 @@ async function expectStoryToMatchSceneSnapshot(
     theme: SnapshotTheme
 ): Promise<void> {
     await page.evaluate(() => {
-        // The screenshot gets clipped by the overflow hidden of the sidebar
-        document.querySelector('.SideBar')?.setAttribute('style', 'overflow: visible;')
+        // The screenshot gets clipped by overflow hidden on .Navigation3000
+        document.querySelector('Navigation3000')?.setAttribute('style', 'overflow: visible;')
     })
 
-    await expectLocatorToMatchStorySnapshot(page.locator('.main-app-content'), context, browser, theme)
+    await expectLocatorToMatchStorySnapshot(page.locator('main'), context, browser, theme)
 }
 
 async function expectStoryToMatchComponentSnapshot(

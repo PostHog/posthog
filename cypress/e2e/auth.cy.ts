@@ -2,7 +2,7 @@ import { urls } from 'scenes/urls'
 
 describe('Auth', () => {
     beforeEach(() => {
-        cy.get('[data-attr=top-menu-toggle]').click()
+        cy.get('[data-attr=menu-item-me]').click()
     })
 
     it('Logout', () => {

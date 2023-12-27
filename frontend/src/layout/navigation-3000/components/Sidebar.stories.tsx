@@ -18,7 +18,7 @@ const meta: Meta = {
         mockDate: '2023-02-01',
         layout: 'fullscreen',
         viewMode: 'story',
-        featureFlags: [FEATURE_FLAGS.POSTHOG_3000, FEATURE_FLAGS.POSTHOG_3000_NAV],
+        featureFlags: [FEATURE_FLAGS.POSTHOG_3000_NAV],
     },
 }
 export default meta
