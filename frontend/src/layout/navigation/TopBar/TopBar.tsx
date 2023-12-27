@@ -13,7 +13,6 @@ import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { NotebookButton } from '~/layout/navigation/TopBar/NotebookButton'
 import { YearInHogButton } from '~/layout/navigation/TopBar/YearInHogButton'
 import { NotificationBell } from '~/layout/navigation-3000/sidepanel/panels/activity/NotificationBell'
 import { groupsModel } from '~/models/groupsModel'
@@ -85,7 +84,6 @@ export function TopBar(): JSX.Element {
                                         url={`${window.location.origin}${window.POSTHOG_APP_CONTEXT.year_in_hog_url}`}
                                     />
                                 )}
-                            <NotebookButton />
                             <NotificationBell />
                         </>
                     ) : (
