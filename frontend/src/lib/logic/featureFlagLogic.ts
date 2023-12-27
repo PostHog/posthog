@@ -1,5 +1,4 @@
 import { actions, afterMount, kea, path, reducers } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { getAppContext } from 'lib/utils/getAppContext'
 import posthog from 'posthog-js'
 
@@ -39,8 +38,6 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
         appContext?.preflight?.cloud || appContext?.preflight?.is_debug || process.env.NODE_ENV === 'test'
             ? { ...persistedFlags, ...featureFlags }
             : persistedFlags
-
-    availableFlags[FEATURE_FLAGS.NOTEBOOKS] = true
 
     if (typeof window.Proxy !== 'undefined') {
         return new Proxy(

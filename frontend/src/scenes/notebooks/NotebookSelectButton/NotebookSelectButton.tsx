@@ -1,7 +1,5 @@
 import { LemonDivider, LemonDropdown, ProfilePicture } from '@posthog/lemon-ui'
 import { BuiltLogic, useActions, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconPlus, IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
@@ -261,9 +259,5 @@ export function NotebookSelectButton({ children, onNotebookOpened, ...props }: N
         </LemonButton>
     )
 
-    return (
-        <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
-            {nodeLogic ? button : <NotebookSelectPopover {...props}>{button}</NotebookSelectPopover>}
-        </FlaggedFeature>
-    )
+    return nodeLogic ? button : <NotebookSelectPopover {...props}>{button}</NotebookSelectPopover>
 }
