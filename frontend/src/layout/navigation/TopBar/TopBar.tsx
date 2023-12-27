@@ -4,7 +4,6 @@ import { LemonButtonWithDropdown, Lettermark } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivationSidebarToggle } from 'lib/components/ActivationSidebar/ActivationSidebarToggle'
 import { CommandPalette } from 'lib/components/CommandPalette/CommandPalette'
-import { HelpButton } from 'lib/components/HelpButton/HelpButton'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { navigationLogic } from '../navigationLogic'
@@ -55,7 +54,6 @@ export function TopBar(): JSX.Element {
                             </LemonButtonWithDropdown>
                         </div>
                     )}
-                    <HelpButton />
                     <SitePopover />
                 </div>
             </header>
