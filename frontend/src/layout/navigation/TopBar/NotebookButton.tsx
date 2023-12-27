@@ -1,6 +1,6 @@
+import { IconNotebook } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
-import { IconNotebook } from 'scenes/notebooks/IconNotebook'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 
 export function NotebookButton(): JSX.Element {
