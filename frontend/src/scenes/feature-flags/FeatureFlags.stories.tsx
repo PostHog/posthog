@@ -23,6 +23,8 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:team_id/integrations': {},
+
                 '/api/projects/:team_id/feature_flags': featureFlags,
                 '/api/projects/:team_id/feature_flags/1111111111111/': [
                     404,
@@ -36,6 +38,9 @@ const meta: Meta = {
                     200,
                     featureFlags.results.find((r) => r.id === Number(req.params['flagId'])),
                 ],
+            },
+            post: {
+                '/api/projects/:team_id/query': {},
             },
         }),
     ],

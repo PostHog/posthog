@@ -2,8 +2,6 @@ import { IconChevronDown, IconFeatures, IconLive } from '@posthog/icons'
 import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 import {
     IconBill,
     IconCheckmark,
@@ -284,9 +282,7 @@ export function SitePopoverOverlay(): JSX.Element {
                 </SitePopoverSection>
             )}
             <SitePopoverSection>
-                <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000} match="test">
-                    <ThemeSwitcher fullWidth type="tertiary" />
-                </FlaggedFeature>
+                <ThemeSwitcher fullWidth type="tertiary" />
                 <LemonButton
                     onClick={closeSitePopover}
                     to={'https://posthog.com/changelog'}

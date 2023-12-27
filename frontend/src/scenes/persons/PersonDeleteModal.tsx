@@ -1,6 +1,5 @@
 import { LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 
 import { PersonType } from '~/types'
@@ -10,7 +9,6 @@ import { asDisplay } from './person-utils'
 export function PersonDeleteModal(): JSX.Element | null {
     const { personDeleteModal } = useValues(personDeleteModalLogic)
     const { deletePerson, showPersonDeleteModal } = useActions(personDeleteModalLogic)
-    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     return (
         <LemonModal
@@ -37,7 +35,7 @@ export function PersonDeleteModal(): JSX.Element | null {
                 <>
                     <LemonButton
                         status="danger"
-                        type={is3000 ? 'tertiary' : 'secondary'}
+                        type="tertiary"
                         onClick={() => {
                             deletePerson(personDeleteModal as PersonType, true)
                         }}
@@ -53,7 +51,7 @@ export function PersonDeleteModal(): JSX.Element | null {
                         Cancel
                     </LemonButton>
                     <LemonButton
-                        type={is3000 ? 'secondary' : 'primary'}
+                        type="secondary"
                         status="danger"
                         onClick={() => {
                             deletePerson(personDeleteModal as PersonType, false)
