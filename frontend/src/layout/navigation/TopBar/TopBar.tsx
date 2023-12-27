@@ -5,13 +5,10 @@ import { useActions, useValues } from 'kea'
 import { ActivationSidebarToggle } from 'lib/components/ActivationSidebar/ActivationSidebarToggle'
 import { CommandPalette } from 'lib/components/CommandPalette/CommandPalette'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { UniversalSearchPopover } from 'lib/components/UniversalSearch/UniversalSearchPopover'
 import { Link } from 'lib/lemon-ui/Link'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { NotificationBell } from '~/layout/navigation-3000/sidepanel/panels/activity/NotificationBell'
-import { groupsModel } from '~/models/groupsModel'
 import { Logo } from '~/toolbar/assets/Logo'
 
 import { navigationLogic } from '../navigationLogic'
@@ -23,24 +20,9 @@ import { topBarLogic } from './topBarLogic'
 export function TopBar(): JSX.Element {
     const { isSideBarShown, noSidebar, minimalTopBar, mobileLayout } = useValues(navigationLogic)
     const { toggleSideBarBase, toggleSideBarMobile } = useActions(navigationLogic)
-    const { groupNamesTaxonomicTypes } = useValues(groupsModel)
     const { currentOrganization } = useValues(organizationLogic)
     const { isProjectSwitcherShown } = useValues(topBarLogic)
     const { toggleProjectSwitcher, hideProjectSwitcher } = useActions(topBarLogic)
-
-    const groupTypes = [
-        TaxonomicFilterGroupType.Events,
-        TaxonomicFilterGroupType.Persons,
-        TaxonomicFilterGroupType.Actions,
-        TaxonomicFilterGroupType.Cohorts,
-        TaxonomicFilterGroupType.Insights,
-        TaxonomicFilterGroupType.FeatureFlags,
-        TaxonomicFilterGroupType.Plugins,
-        TaxonomicFilterGroupType.Experiments,
-        TaxonomicFilterGroupType.Dashboards,
-        TaxonomicFilterGroupType.Notebooks,
-        ...groupNamesTaxonomicTypes,
-    ]
 
     return (
         <>
@@ -58,17 +40,7 @@ export function TopBar(): JSX.Element {
                     <Link to="/" className="TopBar__logo">
                         <Logo />
                     </Link>
-                    {!minimalTopBar && (
-                        <>
-                            <div className="grow">
-                                <UniversalSearchPopover
-                                    groupType={TaxonomicFilterGroupType.Events}
-                                    groupTypes={groupTypes}
-                                />
-                            </div>
-                            <ActivationSidebarToggle />
-                        </>
-                    )}
+                    {!minimalTopBar && <ActivationSidebarToggle />}
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
                     {!minimalTopBar ? (
