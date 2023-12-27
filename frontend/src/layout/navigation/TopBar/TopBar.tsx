@@ -9,7 +9,6 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { navigationLogic } from '../navigationLogic'
 import { ProjectSwitcherOverlay } from '../ProjectSwitcher'
 import { Announcement } from './Announcement'
-import { SitePopover } from './SitePopover'
 import { topBarLogic } from './topBarLogic'
 
 export function TopBar(): JSX.Element {
@@ -54,7 +53,6 @@ export function TopBar(): JSX.Element {
                             </LemonButtonWithDropdown>
                         </div>
                     )}
-                    <SitePopover />
                 </div>
             </header>
             <CommandPalette />
