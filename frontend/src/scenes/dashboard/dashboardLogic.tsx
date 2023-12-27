@@ -67,7 +67,7 @@ export const MIN_ITEM_HEIGHT_UNITS = 5
 
 export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 5
 
-const IS_TEST_MODE = process.env.NODE_ENV === 'test'
+const IS_TEST_MODE = global.process?.env.NODE_ENV === 'test'
 
 export interface DashboardLogicProps {
     id?: number
@@ -1093,7 +1093,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (
                 values.lastRefreshed &&
                 values.lastRefreshed.isBefore(now().subtract(AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS, 'hours')) &&
-                !process.env.STORYBOOK // allow mocking of date in storybook without triggering refresh
+                !global.process?.env.STORYBOOK // allow mocking of date in storybook without triggering refresh
             ) {
                 actions.refreshAllDashboardItems({ action: 'refresh_above_threshold', initialLoad, dashboardQueryId })
                 allLoaded = false

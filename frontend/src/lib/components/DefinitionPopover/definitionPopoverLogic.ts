@@ -17,7 +17,7 @@ import { ActionType, AvailableFeature, CohortType, EventDefinition, PropertyDefi
 
 import type { definitionPopoverLogicType } from './definitionPopoverLogicType'
 
-const IS_TEST_MODE = process.env.NODE_ENV === 'test'
+const IS_TEST_MODE = global.process?.env.NODE_ENV === 'test'
 
 export enum DefinitionPopoverState {
     Edit = 'edit',

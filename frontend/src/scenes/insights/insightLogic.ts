@@ -54,7 +54,7 @@ import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
 import type { insightLogicType } from './insightLogicType'
 import { extractObjectDiffKeys, findInsightFromMountedLogic, getInsightId } from './utils'
 
-const IS_TEST_MODE = process.env.NODE_ENV === 'test'
+const IS_TEST_MODE = global.process?.env.NODE_ENV === 'test'
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
 
 function emptyFilters(filters: Partial<FilterType> | undefined): boolean {

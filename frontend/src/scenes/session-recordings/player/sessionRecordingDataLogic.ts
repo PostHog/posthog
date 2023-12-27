@@ -36,7 +36,7 @@ import { PostHogEE } from '../../../../@posthog/ee/types'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 
-const IS_TEST_MODE = process.env.NODE_ENV === 'test'
+const IS_TEST_MODE = global.process?.env.NODE_ENV === 'test'
 const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
 
 let postHogEEModule: PostHogEE
