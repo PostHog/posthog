@@ -1,3 +1,5 @@
+import './Announcement.scss'
+
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'

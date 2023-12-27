@@ -1,3 +1,5 @@
+import './SitePopover.scss'
+
 import { IconFeatures, IconLive } from '@posthog/icons'
 import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import clsx from 'clsx'
