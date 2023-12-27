@@ -1,41 +1,5 @@
 @import '../../../styles/mixins';
 
-.TopBar {
-    position: sticky;
-    top: 0;
-    z-index: var(--z-main-nav);
-    display: flex;
-    gap: 1rem;
-    align-items: center;
-    justify-content: space-between;
-    height: 3.5rem;
-    padding: 0.5rem;
-    background: var(--bg-bridge);
-    border-bottom: 1px solid var(--border);
-
-    @include screen($sm) {
-        padding: 0.5rem 1rem;
-    }
-}
-
-.TopBar__segment {
-    display: flex;
-    align-items: center;
-    height: 100%;
-
-    &--right > * + * {
-        margin-left: 1rem;
-    }
-}
-
-.TopBar__lightning-mode-box {
-    background: var(--bridge) !important;
-
-    .LemonSwitch__slider {
-        background-color: var(--border) !important;
-    }
-}
-
 .Announcement {
     display: flex;
     flex-shrink: 0;
