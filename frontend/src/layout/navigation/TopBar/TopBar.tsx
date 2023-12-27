@@ -7,13 +7,10 @@ import { CommandPalette } from 'lib/components/CommandPalette/CommandPalette'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { UniversalSearchPopover } from 'lib/components/UniversalSearch/UniversalSearchPopover'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconMenu, IconMenuOpen } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { YearInHogButton } from '~/layout/navigation/TopBar/YearInHogButton'
 import { NotificationBell } from '~/layout/navigation-3000/sidepanel/panels/activity/NotificationBell'
 import { groupsModel } from '~/models/groupsModel'
 import { Logo } from '~/toolbar/assets/Logo'
@@ -28,7 +25,6 @@ export function TopBar(): JSX.Element {
     const { isSideBarShown, noSidebar, minimalTopBar, mobileLayout } = useValues(navigationLogic)
     const { toggleSideBarBase, toggleSideBarMobile } = useActions(navigationLogic)
     const { groupNamesTaxonomicTypes } = useValues(groupsModel)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { isProjectSwitcherShown } = useValues(topBarLogic)
     const { toggleProjectSwitcher, hideProjectSwitcher } = useActions(topBarLogic)
@@ -78,12 +74,6 @@ export function TopBar(): JSX.Element {
                 <div className="TopBar__segment TopBar__segment--right">
                     {!minimalTopBar ? (
                         <>
-                            {!!featureFlags[FEATURE_FLAGS.YEAR_IN_HOG] &&
-                                window.POSTHOG_APP_CONTEXT?.year_in_hog_url && (
-                                    <YearInHogButton
-                                        url={`${window.location.origin}${window.POSTHOG_APP_CONTEXT.year_in_hog_url}`}
-                                    />
-                                )}
                             <NotificationBell />
                         </>
                     ) : (
