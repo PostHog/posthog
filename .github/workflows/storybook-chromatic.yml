@@ -148,14 +148,6 @@ jobs:
               run: |
                   pnpm test:visual-regression:stories:ci:$VARIANT --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/$SHARD_COUNT
 
-            - name: Run @playwright/test (legacy, Chromium-only)
-              if: matrix.browser == 'chromium' && matrix.shard == 1
-              env:
-                  # Update snapshots for PRs on the main repo, verify on forks, which don't have access to PostHog Bot
-                  VARIANT: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'update' || 'verify' }}
-              run: |
-                  pnpm test:visual-regression:legacy:ci:$VARIANT
-
             - name: Archive failure screenshots
               if: ${{ failure() }}
               uses: actions/upload-artifact@v3
