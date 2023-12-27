@@ -114,7 +114,7 @@ async def test_create_external_job_activity(activity_environment, team, **kwargs
     assert await sync_to_async(runs.exists)()  # type:ignore
     assert len(schemas) == len(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type])
 
-    all_schemas = await sync_to_async(get_all_schemas_for_source_id)(new_source.pk, team_id=team.pk)
+    all_schemas = await sync_to_async(get_all_schemas_for_source_id)(new_source.pk, team.pk)
     assert len(all_schemas) == len(PIPELINE_TYPE_SCHEMA_MAPPING[new_source.source_type])
 
 
