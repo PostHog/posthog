@@ -2,7 +2,6 @@ import './TopBar.scss'
 
 import { LemonButtonWithDropdown, Lettermark } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { ActivationSidebarToggle } from 'lib/components/ActivationSidebar/ActivationSidebarToggle'
 import { CommandPalette } from 'lib/components/CommandPalette/CommandPalette'
 import { organizationLogic } from 'scenes/organizationLogic'
 
@@ -12,7 +11,7 @@ import { Announcement } from './Announcement'
 import { topBarLogic } from './topBarLogic'
 
 export function TopBar(): JSX.Element {
-    const { isSideBarShown, noSidebar, minimalTopBar, mobileLayout } = useValues(navigationLogic)
+    const { isSideBarShown, noSidebar, mobileLayout } = useValues(navigationLogic)
     const { toggleSideBarBase, toggleSideBarMobile } = useActions(navigationLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { isProjectSwitcherShown } = useValues(topBarLogic)
@@ -31,7 +30,6 @@ export function TopBar(): JSX.Element {
                             {isSideBarShown ? null : null}
                         </div>
                     )}
-                    {!minimalTopBar && <ActivationSidebarToggle />}
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
                     {currentOrganization?.teams && currentOrganization.teams.length > 1 && (
