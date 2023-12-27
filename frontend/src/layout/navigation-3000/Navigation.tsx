@@ -14,6 +14,7 @@ import { ProjectNotice } from '../navigation/ProjectNotice'
 import { MinimalNavigation } from './components/MinimalNavigation'
 import { Navbar } from './components/Navbar'
 import { Sidebar } from './components/Sidebar'
+import { TopBar } from './components/TopBar'
 import { navigation3000Logic } from './navigationLogic'
 import { SidePanel } from './sidepanel/SidePanel'
 import { themeLogic } from './themeLogic'
@@ -50,6 +51,8 @@ export function Navigation({
                 {activeNavbarItem && <Sidebar key={activeNavbarItem.identifier} navbarItem={activeNavbarItem} />}
             </FlaggedFeature>
             <main>
+                <TopBar />
+
                 <div
                     className={clsx(
                         'Navigation3000__scene',
