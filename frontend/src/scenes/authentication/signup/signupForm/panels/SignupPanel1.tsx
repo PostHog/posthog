@@ -6,7 +6,6 @@ import { SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLogin
 import { Field } from 'lib/forms/Field'
 import { Link } from 'lib/lemon-ui/Link'
 import { useEffect, useRef } from 'react'
-import { useButtonStyle } from 'scenes/authentication/useButtonStyles'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { signupLogic } from '../signupLogic'
@@ -15,7 +14,6 @@ export function SignupPanel1(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { isSignupPanel1Submitting, signupPanel1 } = useValues(signupLogic)
     const emailInputRef = useRef<HTMLInputElement | null>(null)
-    const buttonStyles = useButtonStyle()
 
     useEffect(() => {
         // There's no password in the demo environment
@@ -74,7 +72,8 @@ export function SignupPanel1(): JSX.Element | null {
                     data-attr="signup-start"
                     loading={isSignupPanel1Submitting}
                     disabled={isSignupPanel1Submitting}
-                    {...buttonStyles}
+                    status="primary-alt"
+                    size="large"
                 >
                     Continue
                 </LemonButton>
