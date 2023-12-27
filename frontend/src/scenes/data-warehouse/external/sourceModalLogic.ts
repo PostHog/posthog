@@ -14,7 +14,7 @@ import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import type { sourceModalLogicType } from './sourceModalLogicType'
 
 export const getHubspotRedirectUri = (next: string = ''): string =>
-    `${window.location.origin.replace('http://', 'https://')}/data_warehouse/hubspot/redirect${
+    `${window.location.origin.replace('http://', 'https://')}/external_data_source/hubspot/redirect${
         next ? '?next=' + encodeURIComponent(next) : ''
     }`
 export interface ConnectorConfigType {
@@ -95,7 +95,7 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
                 }))
             },
         ],
-        addToHubspotUrl: [
+        addToHubspotButtonUrl: [
             (s) => [s.preflight],
             (preflight) => {
                 return (next: string = '') => {

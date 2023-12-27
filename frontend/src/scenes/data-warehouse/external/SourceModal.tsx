@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import stripeLogo from 'public/stripe-logo.svg'
+import { urls } from 'scenes/urls'
 
 import { DatawarehouseTableForm } from '../new_table/DataWarehouseTableForm'
 import { ConnectorConfigType, sourceModalLogic } from './sourceModalLogic'
@@ -16,7 +17,7 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
         selectedConnector,
         isManualLinkFormVisible,
         connectors,
-        addToHubspotUrl,
+        addToHubspotButtonUrl,
     } = useValues(sourceModalLogic)
     const { selectConnector, toggleManualLinkFormVisible, resetExternalDataSource, resetTable } =
         useActions(sourceModalLogic)
@@ -35,7 +36,7 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
         }
         if (config.name === 'Hubspot') {
             return (
-                <Link to={addToHubspotUrl() || ''}>
+                <Link to={addToHubspotButtonUrl(urls.dataWarehouseSettings()) || ''}>
                     <LemonButton className="w-100" center type="secondary">
                         Hubspot
                     </LemonButton>
