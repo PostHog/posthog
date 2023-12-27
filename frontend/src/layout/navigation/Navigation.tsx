@@ -5,7 +5,6 @@ import { SceneConfig } from 'scenes/sceneTypes'
 
 import { ProjectNotice } from './ProjectNotice'
 import { SideBar } from './SideBar/SideBar'
-import { TopBar } from './TopBar/TopBar'
 
 export function Navigation({
     children,
@@ -16,7 +15,6 @@ export function Navigation({
 }): JSX.Element {
     return (
         <div className="h-screen flex flex-col">
-            <TopBar />
             <SideBar>
                 <div
                     className={clsx(
