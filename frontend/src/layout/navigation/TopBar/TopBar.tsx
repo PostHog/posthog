@@ -7,8 +7,6 @@ import { CommandPalette } from 'lib/components/CommandPalette/CommandPalette'
 import { HelpButton } from 'lib/components/HelpButton/HelpButton'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { NotificationBell } from '~/layout/navigation-3000/sidepanel/panels/activity/NotificationBell'
-
 import { navigationLogic } from '../navigationLogic'
 import { ProjectSwitcherOverlay } from '../ProjectSwitcher'
 import { Announcement } from './Announcement'
@@ -38,31 +36,24 @@ export function TopBar(): JSX.Element {
                     {!minimalTopBar && <ActivationSidebarToggle />}
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
-                    {!minimalTopBar ? (
-                        <>
-                            <NotificationBell />
-                        </>
-                    ) : (
-                        currentOrganization?.teams &&
-                        currentOrganization.teams.length > 1 && (
-                            <div>
-                                <LemonButtonWithDropdown
-                                    icon={<Lettermark name={currentOrganization?.name} />}
-                                    onClick={() => toggleProjectSwitcher()}
-                                    dropdown={{
-                                        visible: isProjectSwitcherShown,
-                                        onClickOutside: hideProjectSwitcher,
-                                        overlay: <ProjectSwitcherOverlay onClickInside={hideProjectSwitcher} />,
-                                        actionable: true,
-                                        placement: 'top-end',
-                                    }}
-                                    type="secondary"
-                                    fullWidth
-                                >
-                                    <span className="text-muted">Switch project</span>
-                                </LemonButtonWithDropdown>
-                            </div>
-                        )
+                    {currentOrganization?.teams && currentOrganization.teams.length > 1 && (
+                        <div>
+                            <LemonButtonWithDropdown
+                                icon={<Lettermark name={currentOrganization?.name} />}
+                                onClick={() => toggleProjectSwitcher()}
+                                dropdown={{
+                                    visible: isProjectSwitcherShown,
+                                    onClickOutside: hideProjectSwitcher,
+                                    overlay: <ProjectSwitcherOverlay onClickInside={hideProjectSwitcher} />,
+                                    actionable: true,
+                                    placement: 'top-end',
+                                }}
+                                type="secondary"
+                                fullWidth
+                            >
+                                <span className="text-muted">Switch project</span>
+                            </LemonButtonWithDropdown>
+                        </div>
                     )}
                     <HelpButton />
                     <SitePopover />
