@@ -68,41 +68,35 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
                             active={editor.isActive('heading', { level: 1 })}
                             icon={<NotebookIconHeading level={1} />}
                             size="small"
-                            status={editor.isActive('heading', { level: 1 }) ? 'primary' : 'stealth'}
                         />
                         <LemonButton
                             onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
                             active={editor.isActive('heading', { level: 2 })}
                             icon={<NotebookIconHeading level={2} />}
                             size="small"
-                            status={editor.isActive('heading', { level: 2 }) ? 'primary' : 'stealth'}
                         />
                         <LemonButton
                             onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
                             active={editor.isActive('heading', { level: 3 })}
                             icon={<NotebookIconHeading level={3} />}
                             size="small"
-                            status={editor.isActive('heading', { level: 3 }) ? 'primary' : 'stealth'}
                         />
                         <LemonDivider vertical />
                         <LemonButton
                             onClick={() => editor.chain().focus().toggleMark('italic').run()}
                             active={editor.isActive('italic')}
                             icon={<IconItalic />}
-                            status={editor.isActive('italic') ? 'primary' : 'stealth'}
                             size="small"
                         />
                         <LemonButton
                             onClick={() => editor.chain().focus().toggleMark('bold').run()}
                             active={editor.isActive('bold')}
                             icon={<IconBold />}
-                            status={editor.isActive('bold') ? 'primary' : 'stealth'}
                             size="small"
                         />
                         <LemonButton
                             onClick={() => editor.chain().focus().setMark('link').run()}
                             icon={<IconLink />}
-                            status="stealth"
                             size="small"
                         />
                     </>

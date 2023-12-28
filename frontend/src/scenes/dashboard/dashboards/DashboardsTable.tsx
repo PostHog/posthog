@@ -240,8 +240,6 @@ export function DashboardsTable({
                     <div className="flex items-center gap-2">
                         <span>Created by:</span>
                         <MemberSelect
-                            size="small"
-                            type="secondary"
                             value={filters.createdBy === 'All users' ? null : filters.createdBy}
                             onChange={(user) => setFilters({ createdBy: user?.uuid || 'All users' })}
                         />

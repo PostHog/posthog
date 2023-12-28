@@ -248,8 +248,6 @@ export function Experiments(): JSX.Element {
                                         <b>Created by</b>
                                     </span>
                                     <MemberSelect
-                                        size="small"
-                                        type="secondary"
                                         defaultLabel="Any user"
                                         value={userFilter ?? null}
                                         onChange={(user) => setUserFilter(user?.uuid ?? null)}

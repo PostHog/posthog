@@ -121,8 +121,6 @@ export function NotebooksTable(): JSX.Element {
                     <div className="flex items-center gap-2">
                         <span>Created by:</span>
                         <MemberSelect
-                            size="small"
-                            type="secondary"
                             value={filters.createdBy}
                             onChange={(user) => setFilters({ createdBy: user?.uuid || DEFAULT_FILTERS.createdBy })}
                         />

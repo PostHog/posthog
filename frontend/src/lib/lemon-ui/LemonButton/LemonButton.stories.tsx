@@ -75,7 +75,7 @@ const ButtonVariants3000 = ({
 }): JSX.Element => {
     return (
         <div className="flex gap-2 flex-wrap">
-            {['default', 'alt', 'danger'].map((status, index) => (
+            {statuses.map((status, index) => (
                 <LemonButton key={index} active={active} type={type} status={status} icon={<IconCalculate />}>
                     <span className="capitalize">{status}</span>
                 </LemonButton>
@@ -251,7 +251,7 @@ export const PseudoStates = (): JSX.Element => {
                     <ButtonVariants3000 />
                 </div>
             </div>
-            <div className="border rounded p-2">
+            {/* <div className="border rounded p-2">
                 <div>
                     <h5>TYPE=TERTIARY STATE=DEFAULT</h5>
                     <ButtonVariants3000 tertiary />
@@ -264,7 +264,7 @@ export const PseudoStates = (): JSX.Element => {
                     <h5>TYPE=TERTIARY STATE=HOVER,ACTIVE</h5>
                     <ButtonVariants3000 tertiary />
                 </div>
-            </div>
+            </div> */}
         </div>
     )
 }
@@ -280,11 +280,9 @@ export const MenuButtons = (): JSX.Element => {
         <div className="space-y-2">
             <p>When a button is used inside a menu item it should have the special status **stealth**</p>
             <div className="border rounded-lg flex flex-col p-2 space-y-1">
-                <LemonButton active status="stealth">
-                    Active item
-                </LemonButton>
-                <LemonButton status="stealth">Item 1</LemonButton>
-                <LemonButton status="stealth">Item 2</LemonButton>
+                <LemonButton active>Active item</LemonButton>
+                <LemonButton>Item 1</LemonButton>
+                <LemonButton>Item 2</LemonButton>
             </div>
         </div>
     )
@@ -386,18 +384,10 @@ WithDropdownToTheRight.args = {
     dropdown: {
         overlay: (
             <>
-                <LemonButton status="stealth" fullWidth>
-                    Kakapo
-                </LemonButton>
-                <LemonButton status="stealth" fullWidth>
-                    Kangaroo
-                </LemonButton>
-                <LemonButton status="stealth" fullWidth>
-                    Kingfisher
-                </LemonButton>
-                <LemonButton status="stealth" fullWidth>
-                    Koala
-                </LemonButton>
+                <LemonButton fullWidth>Kakapo</LemonButton>
+                <LemonButton fullWidth>Kangaroo</LemonButton>
+                <LemonButton fullWidth>Kingfisher</LemonButton>
+                <LemonButton fullWidth>Koala</LemonButton>
             </>
         ),
         placement: 'right-start',
@@ -410,18 +400,10 @@ WithDropdownToTheBottom.args = {
     dropdown: {
         overlay: (
             <>
-                <LemonButton status="stealth" fullWidth>
-                    Kakapo
-                </LemonButton>
-                <LemonButton status="stealth" fullWidth>
-                    Kangaroo
-                </LemonButton>
-                <LemonButton status="stealth" fullWidth>
-                    Kingfisher
-                </LemonButton>
-                <LemonButton status="stealth" fullWidth>
-                    Koala
-                </LemonButton>
+                <LemonButton fullWidth>Kakapo</LemonButton>
+                <LemonButton fullWidth>Kangaroo</LemonButton>
+                <LemonButton fullWidth>Kingfisher</LemonButton>
+                <LemonButton fullWidth>Koala</LemonButton>
             </>
         ),
         placement: 'bottom',
@@ -436,7 +418,7 @@ WithVeryLongPopoverToTheBottom.args = {
         overlay: (
             <>
                 {range(200).map((n) => (
-                    <LemonButton key={n} status="stealth" fullWidth>
+                    <LemonButton key={n} fullWidth>
                         {n.toString()}
                     </LemonButton>
                 ))}
@@ -458,16 +440,10 @@ export const More_ = (): JSX.Element => {
         <More
             overlay={
                 <>
-                    <LemonButton status="stealth" fullWidth>
-                        View
-                    </LemonButton>
-                    <LemonButton status="stealth" fullWidth>
-                        Edit
-                    </LemonButton>
+                    <LemonButton fullWidth>View</LemonButton>
+                    <LemonButton fullWidth>Edit</LemonButton>
                     <LemonDivider />
-                    <LemonButton status="danger" fullWidth>
-                        Delete
-                    </LemonButton>
+                    <LemonButton fullWidth>Delete</LemonButton>
                 </>
             }
         />

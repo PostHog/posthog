@@ -183,8 +183,6 @@ export function Surveys(): JSX.Element {
                                         <b>Created by</b>
                                     </span>
                                     <MemberSelect
-                                        size="small"
-                                        type="secondary"
                                         defaultLabel="Any user"
                                         value={filters.created_by ?? null}
                                         onChange={(user) => setSurveysFilters({ created_by: user?.id })}

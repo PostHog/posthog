@@ -117,7 +117,6 @@ export function CohortTaxonomicField({
     return (
         <TaxonomicPopover
             className="CohortField"
-            type="secondary"
             groupType={groupType}
             loading={calculatedValueLoading(groupType)}
             value={calculatedValue(groupType) as TaxonomicFilterValue}

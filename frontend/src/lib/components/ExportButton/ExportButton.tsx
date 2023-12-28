@@ -13,14 +13,13 @@ export interface ExportButtonItem {
     insight?: number
 }
 
-export interface ExportButtonProps extends Pick<LemonButtonProps, 'icon' | 'type' | 'status' | 'fullWidth'> {
+export interface ExportButtonProps extends Pick<LemonButtonProps, 'icon' | 'type' | 'fullWidth'> {
     items: ExportButtonItem[]
 }
 
 export function ExportButton({ items, ...buttonProps }: ExportButtonProps): JSX.Element {
     return (
         <LemonButtonWithDropdown
-            status="stealth"
             data-attr="export-button"
             {...buttonProps}
             dropdown={{

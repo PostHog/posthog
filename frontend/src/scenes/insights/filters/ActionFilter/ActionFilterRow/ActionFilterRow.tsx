@@ -233,8 +233,6 @@ export function ActionFilterRow({
                 </span>
             )}
             groupTypes={actionsTaxonomicGroupTypes}
-            type="secondary"
-            status="stealth"
             placeholder="All events"
             placeholderClass=""
             disabled={disabled || readOnly}

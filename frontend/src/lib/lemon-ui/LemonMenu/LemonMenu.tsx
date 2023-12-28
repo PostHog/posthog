@@ -245,7 +245,6 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
                 <LemonButton
                     ref={ref}
                     tooltipPlacement={tooltipPlacement}
-                    status="stealth"
                     fullWidth
                     role="menuitem"
                     size={size}
