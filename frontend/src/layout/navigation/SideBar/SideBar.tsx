@@ -3,7 +3,6 @@ import './SideBar.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ActivationSidebar } from 'lib/components/ActivationSidebar/ActivationSidebar'
-import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -13,18 +12,14 @@ import {
     IconExperiment,
     IconFlag,
     IconGauge,
-    IconOpenInApp,
     IconPinOutline,
     IconPipeline,
     IconPlus,
     IconTools,
 } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useState } from 'react'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { IconNotebook } from 'scenes/notebooks/IconNotebook'
@@ -203,7 +198,7 @@ function Pages(): JSX.Element {
                                 visible: isToolbarLaunchShown,
                                 onClickOutside: () => setIsToolbarLaunchShown(false),
                                 onClickInside: hideSideBarMobile,
-                                overlay: <AppUrls setIsToolbarLaunchShown={setIsToolbarLaunchShown} />,
+                                overlay: null,
                             },
                         }}
                     />
@@ -229,51 +224,6 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
             <NotebookPopover />
             <div className="SideBar__content">{children}</div>
             <ActivationSidebar />
-        </div>
-    )
-}
-
-function AppUrls({ setIsToolbarLaunchShown }: { setIsToolbarLaunchShown: (state: boolean) => void }): JSX.Element {
-    const { authorizedUrls, launchUrl, suggestionsLoading } = useValues(
-        authorizedUrlListLogic({ type: AuthorizedUrlListType.TOOLBAR_URLS, actionId: null })
-    )
-    return (
-        <div className="SideBar__side-actions" data-attr="sidebar-launch-toolbar">
-            <h5>TOOLBAR URLS</h5>
-            <LemonDivider />
-            {suggestionsLoading ? (
-                <Spinner />
-            ) : (
-                <>
-                    {authorizedUrls.map((appUrl, index) => (
-                        <LemonButton
-                            className="LaunchToolbarButton"
-                            status="stealth"
-                            fullWidth
-                            key={index}
-                            onClick={() => setIsToolbarLaunchShown(false)}
-                            to={launchUrl(appUrl)}
-                            targetBlank
-                            sideIcon={
-                                <Tooltip title="Launch toolbar">
-                                    <IconOpenInApp />
-                                </Tooltip>
-                            }
-                        >
-                            {appUrl}
-                        </LemonButton>
-                    ))}
-                    <LemonButton
-                        status="stealth"
-                        data-attr="sidebar-launch-toolbar-add-new-url"
-                        fullWidth
-                        to={`${urls.toolbarLaunch()}?addNew=true`}
-                        onClick={() => setIsToolbarLaunchShown(false)}
-                    >
-                        Add toolbar URL
-                    </LemonButton>
-                </>
-            )}
         </div>
     )
 }
