@@ -10,23 +10,14 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import {
     IconApps,
     IconBarChart,
-    IconCohort,
     IconExperiment,
     IconFlag,
     IconGauge,
-    IconLive,
-    IconMessages,
     IconOpenInApp,
     IconPinOutline,
     IconPipeline,
     IconPlus,
-    IconRecording,
-    IconRocketLaunch,
-    IconSettings,
-    IconSurveys,
     IconTools,
-    IconUnverifiedEvent,
-    IconWeb,
 } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -173,17 +164,6 @@ function Pages(): JSX.Element {
                             onClick: hideSideBarMobile,
                         }}
                     />
-                    <FlaggedFeature flag={FEATURE_FLAGS.WEB_ANALYTICS}>
-                        <PageButton
-                            icon={<IconWeb />}
-                            identifier={Scene.WebAnalytics}
-                            to={urls.webAnalytics()}
-                            highlight="beta"
-                        />
-                    </FlaggedFeature>
-                    <PageButton icon={<IconRecording />} identifier={Scene.Replay} to={urls.replay()} />
-
-                    <div className="SideBar__heading">Feature Management</div>
 
                     <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
 
@@ -191,38 +171,6 @@ function Pages(): JSX.Element {
                         !preflight?.instance_preferences?.disable_paid_fs) && (
                         <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
                     )}
-                    <PageButton
-                        icon={<IconSurveys />}
-                        identifier={Scene.Surveys}
-                        title={'Surveys'}
-                        to={urls.surveys()}
-                        highlight="new"
-                    />
-                    <PageButton
-                        icon={<IconRocketLaunch />}
-                        identifier={Scene.EarlyAccessFeatures}
-                        title={'Early access features'}
-                        to={urls.earlyAccessFeatures()}
-                    />
-                    <div className="SideBar__heading">Data</div>
-
-                    <PageButton
-                        icon={<IconLive />}
-                        identifier={Scene.Events}
-                        to={urls.events()}
-                        title={'Event explorer'}
-                    />
-                    <PageButton
-                        icon={<IconUnverifiedEvent />}
-                        identifier={Scene.DataManagement}
-                        to={urls.eventDefinitions()}
-                    />
-                    <PageButton
-                        icon={<IconCohort />}
-                        identifier={Scene.PersonsManagement}
-                        to={urls.persons()}
-                        title="People"
-                    />
                     <FlaggedFeature flag={FEATURE_FLAGS.PIPELINE_UI}>
                         <PageButton icon={<IconPipeline />} identifier={Scene.Pipeline} to={urls.pipeline()} />
                     </FlaggedFeature>
@@ -241,9 +189,6 @@ function Pages(): JSX.Element {
                             {Object.keys(frontendApps).length > 0 && <SideBarApps />}
                         </>
                     ) : null}
-                    <FlaggedFeature flag={FEATURE_FLAGS.FEEDBACK_SCENE}>
-                        <PageButton icon={<IconMessages />} identifier={Scene.Feedback} to={urls.feedback()} />
-                    </FlaggedFeature>
                     <div className="SideBar__heading">Configuration</div>
 
                     <PageButton
@@ -262,7 +207,6 @@ function Pages(): JSX.Element {
                             },
                         }}
                     />
-                    <PageButton icon={<IconSettings />} identifier={Scene.Settings} to={urls.settings('project')} />
                 </>
             )}
         </ul>
