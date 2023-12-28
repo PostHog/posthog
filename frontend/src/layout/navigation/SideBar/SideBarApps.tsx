@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { IconExtension } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { canInstallPlugins } from 'scenes/plugins/access'
@@ -14,14 +13,14 @@ import { PluginInstallationType } from '~/types'
 
 export function SideBarApps(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
-    const { hideSideBarMobile, openAppSourceEditor, setOpenAppMenu } = useActions(navigationLogic)
+    const { hideSideBarMobile, setOpenAppMenu } = useActions(navigationLogic)
     const { openAppMenu } = useValues(navigationLogic)
     const { frontendApps, appConfigs } = useValues(frontendAppsLogic)
     const { currentLocation } = useValues(router)
 
     return (
         <>
-            {Object.values(frontendApps).map(({ id, pluginId, title }) => (
+            {Object.values(frontendApps).map(({ id, title }) => (
                 <PageButton
                     key={id}
                     icon={<IconExtension />}
@@ -41,15 +40,7 @@ export function SideBarApps(): JSX.Element {
                                           setOpenAppMenu(null)
                                           hideSideBarMobile()
                                       },
-                                      overlay: (
-                                          <LemonButton
-                                              status="stealth"
-                                              onClick={() => openAppSourceEditor(id, pluginId)}
-                                              fullWidth
-                                          >
-                                              Edit source code
-                                          </LemonButton>
-                                      ),
+                                      overlay: null,
                                   },
                               }
                             : undefined

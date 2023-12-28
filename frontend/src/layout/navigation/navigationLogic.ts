@@ -35,7 +35,6 @@ export const navigationLogic = kea<navigationLogicType>([
         toggleSitePopover: true,
         toggleProjectSwitcher: true,
         hideProjectSwitcher: true,
-        openAppSourceEditor: (id: number, pluginId: number) => ({ id, pluginId }),
         setOpenAppMenu: (id: number | null) => ({ id }),
         closeProjectNotice: (projectNoticeVariant: ProjectNoticeVariant) => ({ projectNoticeVariant }),
     }),
@@ -86,12 +85,6 @@ export const navigationLogic = kea<navigationLogicType>([
             {
                 toggleProjectSwitcher: (state) => !state,
                 hideProjectSwitcher: () => false,
-            },
-        ],
-        appSourceEditor: [
-            null as null | { pluginId: number; id: number },
-            {
-                openAppSourceEditor: (_, payload) => payload,
             },
         ],
         openAppMenu: [null as null | number, { setOpenAppMenu: (_, { id }) => id }],
