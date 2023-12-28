@@ -84,7 +84,7 @@ const CorrelationActionsCellComponent = ({ buttons }: CorrelationActionsCellComp
                 <LemonButton key={index} status="stealth" fullWidth {...props} />
             ))}
         >
-            <LemonButton status="stealth" onClick={() => setPopoverOpen(!popoverOpen)}>
+            <LemonButton onClick={() => setPopoverOpen(!popoverOpen)}>
                 <IconEllipsis />
             </LemonButton>
         </Popover>

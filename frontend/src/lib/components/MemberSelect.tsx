@@ -62,13 +62,7 @@ export function MemberSelect({
                     />
                     <ul className="space-y-px">
                         <li>
-                            <LemonButton
-                                status="stealth"
-                                fullWidth
-                                role="menuitem"
-                                size="small"
-                                onClick={() => _onChange(null)}
-                            >
+                            <LemonButton fullWidth role="menuitem" size="small" onClick={() => _onChange(null)}>
                                 {defaultLabel}
                             </LemonButton>
                         </li>
@@ -76,7 +70,6 @@ export function MemberSelect({
                         {filteredMembers.map((member) => (
                             <li key={member.user.uuid}>
                                 <LemonButton
-                                    status="stealth"
                                     fullWidth
                                     role="menuitem"
                                     size="small"

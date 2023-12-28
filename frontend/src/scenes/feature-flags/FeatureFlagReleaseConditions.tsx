@@ -111,14 +111,12 @@ export function FeatureFlagReleaseConditions({
                             <div className="flex">
                                 <LemonButton
                                     icon={<IconCopy />}
-                                    status="muted"
                                     noPadding
                                     onClick={() => duplicateConditionSet(index)}
                                 />
                                 {!isEarlyAccessFeatureCondition(group) && filterGroups.length > 1 && (
                                     <LemonButton
                                         icon={<IconDelete />}
-                                        status="muted"
                                         noPadding
                                         onClick={() => removeConditionSet(index)}
                                     />
@@ -147,15 +145,10 @@ export function FeatureFlagReleaseConditions({
                                         {idx === 0 ? (
                                             <LemonButton
                                                 icon={<IconSubArrowRight className="arrow-right" />}
-                                                status="muted"
                                                 size="small"
                                             />
                                         ) : (
-                                            <LemonButton
-                                                icon={<span className="text-sm">&</span>}
-                                                status="muted"
-                                                size="small"
-                                            />
+                                            <LemonButton icon={<span className="text-sm">&</span>} size="small" />
                                         )}
                                         <span className="simple-tag tag-light-blue text-primary-alt">
                                             {property.type === 'cohort' ? 'Cohort' : property.key}{' '}
@@ -361,11 +354,7 @@ export function FeatureFlagReleaseConditions({
                     {(group.properties?.length || 0) > 0 && (
                         <>
                             <div className="feature-flag-property-display">
-                                <LemonButton
-                                    icon={<IconSubArrowRight className="arrow-right" />}
-                                    status="muted"
-                                    size="small"
-                                />
+                                <LemonButton icon={<IconSubArrowRight className="arrow-right" />} size="small" />
                                 <span>
                                     If null, default to <b>Release conditions</b>
                                 </span>
@@ -382,7 +371,6 @@ export function FeatureFlagReleaseConditions({
                             }
                             aria-label="more"
                             data-attr={'feature-flag-feature-list-button'}
-                            status="primary"
                             size="small"
                             onClick={() =>
                                 featureFlag.features &&

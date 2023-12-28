@@ -122,19 +122,13 @@ export function Experiments(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton
-                                    status="stealth"
-                                    to={urls.experiment(`${experiment.id}`)}
-                                    size="small"
-                                    fullWidth
-                                >
+                                <LemonButton to={urls.experiment(`${experiment.id}`)} size="small" fullWidth>
                                     View
                                 </LemonButton>
                                 {!experiment.archived &&
                                     experiment?.end_date &&
                                     dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') && (
                                         <LemonButton
-                                            status="stealth"
                                             onClick={() => archiveExperiment(experiment.id as number)}
                                             data-attr={`experiment-${experiment.id}-dropdown-archive`}
                                             fullWidth

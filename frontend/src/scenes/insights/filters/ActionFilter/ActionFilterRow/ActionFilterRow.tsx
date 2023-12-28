@@ -247,7 +247,6 @@ export function ActionFilterRow({
         <IconWithCount key="property-filter" count={filter.properties?.length || 0} showZero={false}>
             <LemonButton
                 icon={propertyFiltersVisible ? <IconFilter /> : <IconFilter />} // TODO: Get new IconFilterStriked icon
-                status="primary-alt"
                 title="Show filters"
                 data-attr={`show-prop-filter-${index}`}
                 noPadding
@@ -265,7 +264,6 @@ export function ActionFilterRow({
         <LemonButton
             key="rename"
             icon={<IconEdit />}
-            status="primary-alt"
             title="Rename graph series"
             data-attr={`show-prop-rename-${index}`}
             noPadding
@@ -280,7 +278,6 @@ export function ActionFilterRow({
         <LemonButton
             key="duplicate"
             icon={<IconCopy />}
-            status="primary-alt"
             title="Duplicate graph series"
             data-attr={`show-prop-duplicate-${index}`}
             noPadding
@@ -294,7 +291,6 @@ export function ActionFilterRow({
         <LemonButton
             key="delete"
             icon={<IconDelete />}
-            status="primary-alt"
             title="Delete graph series"
             data-attr={`delete-prop-filter-${index}`}
             noPadding
@@ -433,7 +429,6 @@ export function ActionFilterRow({
                                             >
                                                 <LemonButton
                                                     fullWidth
-                                                    status="stealth"
                                                     type="secondary"
                                                     data-attr={`math-hogql-select-${index}`}
                                                     onClick={() => setIsHogQLDropdownVisible(!isHogQLDropdownVisible)}

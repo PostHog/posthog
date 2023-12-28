@@ -314,7 +314,6 @@ function AppUrls({ setIsToolbarLaunchShown }: { setIsToolbarLaunchShown: (state:
                     {authorizedUrls.map((appUrl, index) => (
                         <LemonButton
                             className="LaunchToolbarButton"
-                            status="stealth"
                             fullWidth
                             key={index}
                             onClick={() => setIsToolbarLaunchShown(false)}
@@ -330,7 +329,6 @@ function AppUrls({ setIsToolbarLaunchShown }: { setIsToolbarLaunchShown: (state:
                         </LemonButton>
                     ))}
                     <LemonButton
-                        status="stealth"
                         data-attr="sidebar-launch-toolbar-add-new-url"
                         fullWidth
                         to={`${urls.toolbarLaunch()}?addNew=true`}

@@ -157,7 +157,6 @@ function AppsTable(): JSX.Element {
                                     overlay={
                                         <>
                                             <LemonButton
-                                                status="stealth"
                                                 onClick={() => {
                                                     toggleEnabled({
                                                         enabled: !pluginConfig.enabled,
@@ -175,7 +174,6 @@ function AppsTable(): JSX.Element {
                                                 {pluginConfig.enabled ? 'Disable' : 'Enable'} app
                                             </LemonButton>
                                             <LemonButton
-                                                status="stealth"
                                                 to={urls.pipelineApp(pluginConfig.id, PipelineAppTabs.Configuration)}
                                                 id={`app-${pluginConfig.id}-configuration`}
                                                 fullWidth
@@ -183,7 +181,6 @@ function AppsTable(): JSX.Element {
                                                 {canConfigurePlugins ? 'Edit' : 'View'} app configuration
                                             </LemonButton>
                                             <LemonButton
-                                                status="stealth"
                                                 to={urls.pipelineApp(pluginConfig.id, PipelineAppTabs.Metrics)}
                                                 id={`app-${pluginConfig.id}-metrics`}
                                                 fullWidth
@@ -191,7 +188,6 @@ function AppsTable(): JSX.Element {
                                                 View app metrics
                                             </LemonButton>
                                             <LemonButton
-                                                status="stealth"
                                                 to={urls.pipelineApp(pluginConfig.id, PipelineAppTabs.Logs)}
                                                 id={`app-${pluginConfig.id}-logs`}
                                                 fullWidth
@@ -200,7 +196,6 @@ function AppsTable(): JSX.Element {
                                             </LemonButton>
                                             {plugins[pluginConfig.plugin].url && (
                                                 <LemonButton
-                                                    status="stealth"
                                                     to={plugins[pluginConfig.plugin].url}
                                                     targetBlank={true}
                                                     id={`app-${pluginConfig.id}-source-code`}
@@ -222,7 +217,7 @@ function AppsTable(): JSX.Element {
                                                         callback: loadPluginConfigs,
                                                     })
                                                 }}
-                                                id={`app-reorder`}
+                                                id="app-reorder"
                                                 disabledReason={
                                                     canConfigurePlugins
                                                         ? undefined
