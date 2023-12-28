@@ -171,7 +171,6 @@ function ConsoleFilters({
                 </div>
             </FlaggedFeature>
             <LemonButtonWithDropdown
-                status="stealth"
                 type="secondary"
                 data-attr={'console-filters'}
                 fullWidth={true}

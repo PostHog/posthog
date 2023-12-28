@@ -173,7 +173,7 @@ export function PlayerInspectorListItem({
                 ) : null}
             </span>
             {!isExpanded ? (
-                <LemonButton size="small" noPadding status="primary-alt" onClick={() => seekToEvent()}>
+                <LemonButton size="small" noPadding onClick={() => seekToEvent()}>
                     <span className="p-1 text-xs">
                         {timestampMode === 'absolute' ? (
                             <TZLabel time={item.timestamp} formatDate="DD, MMM" formatTime="HH:mm:ss" noStyles />

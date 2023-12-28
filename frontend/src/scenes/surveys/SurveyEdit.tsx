@@ -210,7 +210,6 @@ export default function SurveyEdit(): JSX.Element {
                                                                           <b>Confirmation message</b>
                                                                           <LemonButton
                                                                               icon={<IconDelete />}
-                                                                              status="primary-alt"
                                                                               data-attr={`delete-survey-confirmation`}
                                                                               onClick={(e) => {
                                                                                   e.stopPropagation()
@@ -427,7 +426,6 @@ export default function SurveyEdit(): JSX.Element {
                                                                 className="ml-2"
                                                                 icon={<IconCancel />}
                                                                 size="small"
-                                                                status="stealth"
                                                                 onClick={() => onChange(null)}
                                                                 aria-label="close"
                                                             />

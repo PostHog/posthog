@@ -268,7 +268,6 @@ export function Surveys(): JSX.Element {
                                                 overlay={
                                                     <>
                                                         <LemonButton
-                                                            status="stealth"
                                                             fullWidth
                                                             onClick={() => router.actions.push(urls.survey(survey.id))}
                                                         >
@@ -276,7 +275,6 @@ export function Surveys(): JSX.Element {
                                                         </LemonButton>
                                                         {!survey.start_date && (
                                                             <LemonButton
-                                                                status="stealth"
                                                                 fullWidth
                                                                 onClick={() =>
                                                                     updateSurvey({
@@ -292,7 +290,6 @@ export function Surveys(): JSX.Element {
                                                         )}
                                                         {survey.start_date && !survey.end_date && (
                                                             <LemonButton
-                                                                status="stealth"
                                                                 fullWidth
                                                                 onClick={() => {
                                                                     updateSurvey({
@@ -308,7 +305,6 @@ export function Surveys(): JSX.Element {
                                                         )}
                                                         {survey.end_date && !survey.archived && (
                                                             <LemonButton
-                                                                status="stealth"
                                                                 fullWidth
                                                                 onClick={() => {
                                                                     updateSurvey({
@@ -323,7 +319,6 @@ export function Surveys(): JSX.Element {
                                                         <LemonDivider />
                                                         {survey.end_date && survey.archived && (
                                                             <LemonButton
-                                                                status="stealth"
                                                                 fullWidth
                                                                 onClick={() =>
                                                                     updateSurvey({
@@ -337,7 +332,6 @@ export function Surveys(): JSX.Element {
                                                         )}
                                                         {survey.end_date && !survey.archived && (
                                                             <LemonButton
-                                                                status="stealth"
                                                                 fullWidth
                                                                 onClick={() =>
                                                                     updateSurvey({

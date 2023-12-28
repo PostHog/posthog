@@ -49,7 +49,6 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                 return (
                     <LemonButton
                         size="small"
-                        status="primary-alt"
                         onClick={() => updatePlaylist(short_id, { pinned: !pinned })}
                         icon={pinned ? <IconPinFilled /> : <IconPinOutline />}
                     />
@@ -88,7 +87,6 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                         overlay={
                             <>
                                 <LemonButton
-                                    status="stealth"
                                     onClick={() => duplicatePlaylist(playlist)}
                                     fullWidth
                                     data-attr="duplicate-playlist"
@@ -130,7 +128,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                             active={filters.pinned}
                             size="small"
                             type="secondary"
-                            status="stealth"
+                            status="alt"
                             center
                             onClick={() => setSavedPlaylistsFilters({ pinned: !filters.pinned })}
                             icon={filters.pinned ? <IconPinFilled /> : <IconPinOutline />}
