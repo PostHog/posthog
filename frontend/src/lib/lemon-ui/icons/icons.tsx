@@ -512,18 +512,6 @@ export function IconMenu(props: LemonIconProps): JSX.Element {
     )
 }
 
-/** Material Design Menu Open icon. */
-export function IconMenuOpen(props: LemonIconProps): JSX.Element {
-    return (
-        <LemonIconBase {...props}>
-            <path
-                d="m3 18h13v-2h-13zm0-5h10v-2h-10zm0-7v2h13v-2zm18 9.59-3.58-3.59 3.58-3.59-1.41-1.41-5 5 5 5z"
-                fill="currentColor"
-            />
-        </LemonIconBase>
-    )
-}
-
 /** Material Design Sync icon. */
 export function IconSync(props: LemonIconProps): JSX.Element {
     return (

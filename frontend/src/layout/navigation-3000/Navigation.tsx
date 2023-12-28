@@ -3,7 +3,7 @@ import './Navigation.scss'
 import clsx from 'clsx'
 import { useMountedLogic, useValues } from 'kea'
 import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
-import { CommandPalette } from 'lib/components/CommandPalette/CommandPalette'
+import { CommandBar } from 'lib/components/CommandBar/CommandBar'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { ReactNode, useEffect } from 'react'
@@ -66,7 +66,7 @@ export function Navigation({
                 </div>
             </main>
             {!mobileLayout && <SidePanel />}
-            <CommandPalette />
+            <CommandBar />
         </div>
     )
 }
