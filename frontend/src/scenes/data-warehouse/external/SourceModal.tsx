@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import stripeLogo from 'public/stripe-logo.svg'
-import { urls } from 'scenes/urls'
 
 import { ExternalDataSourceType } from '~/types'
 
