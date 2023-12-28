@@ -11,7 +11,6 @@ import {
     IconApps,
     IconBarChart,
     IconCohort,
-    IconDatabase,
     IconExperiment,
     IconFlag,
     IconGauge,
@@ -226,15 +225,6 @@ function Pages(): JSX.Element {
                     />
                     <FlaggedFeature flag={FEATURE_FLAGS.PIPELINE_UI}>
                         <PageButton icon={<IconPipeline />} identifier={Scene.Pipeline} to={urls.pipeline()} />
-                    </FlaggedFeature>
-                    <FlaggedFeature flag={FEATURE_FLAGS.DATA_WAREHOUSE}>
-                        <PageButton
-                            icon={<IconDatabase />}
-                            identifier={Scene.DataWarehouse}
-                            title={'Data warehouse'}
-                            to={urls.dataWarehouse()}
-                            highlight="beta"
-                        />
                     </FlaggedFeature>
                     {canViewPlugins(currentOrganization) || Object.keys(frontendApps).length > 0 ? (
                         <>
