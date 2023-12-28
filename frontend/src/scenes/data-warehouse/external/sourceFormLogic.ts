@@ -14,6 +14,39 @@ export interface SourceFormProps {
     sourceType: ExternalDataSourceType
 }
 
+interface SourceConfig {
+    name: string
+    caption: string
+    fields: FieldConfig[]
+}
+interface FieldConfig {
+    name: string
+    label: string
+    type: string
+    required: boolean
+}
+
+export const SOURCE_DETAILS: Record<string, SourceConfig> = {
+    Stripe: {
+        name: 'Stripe',
+        caption: 'Enter your Stripe credentials to link your Stripe to PostHog',
+        fields: [
+            {
+                name: 'account_id',
+                label: 'Account ID',
+                type: 'text',
+                required: true,
+            },
+            {
+                name: 'client_secret',
+                label: 'Client Secret',
+                type: 'text',
+                required: true,
+            },
+        ],
+    },
+}
+
 const getPayloadDefaults = (sourceType: string): Record<string, any> => {
     switch (sourceType) {
         case 'Stripe':

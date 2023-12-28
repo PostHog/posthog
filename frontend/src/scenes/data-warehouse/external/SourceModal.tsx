@@ -7,7 +7,7 @@ import stripeLogo from 'public/stripe-logo.svg'
 import { ExternalDataSourceType } from '~/types'
 
 import { DatawarehouseTableForm } from '../new_table/DataWarehouseTableForm'
-import { sourceFormLogic } from './sourceFormLogic'
+import { SOURCE_DETAILS, sourceFormLogic } from './sourceFormLogic'
 import { ConnectorConfigType, sourceModalLogic } from './sourceModalLogic'
 
 interface SourceModalProps extends LemonModalProps {}
@@ -128,12 +128,11 @@ function SourceForm({ sourceType }: SourceFormProps): JSX.Element {
             <Field name="prefix" label="Table Prefix">
                 <LemonInput className="ph-ignore-input" autoFocus data-attr="prefix" placeholder="internal_" />
             </Field>
-            <Field name={['payload', 'account_id']} label="Stripe Account ID">
-                <LemonInput className="ph-ignore-input" autoFocus data-attr="account-id" placeholder="acct_" />
-            </Field>
-            <Field name={['payload', 'client_secret']} label="Stripe Client Secret">
-                <LemonInput className="ph-ignore-input" autoFocus data-attr="client-secret" placeholder="sklive" />
-            </Field>
+            {SOURCE_DETAILS[sourceType].fields.map((field) => (
+                <Field key={field.name} name={['payload', field.name]} label={field.label}>
+                    <LemonInput className="ph-ignore-input" data-attr={field.name} />
+                </Field>
+            ))}
             <LemonDivider className="mt-4" />
             <div className="mt-2 flex flex-row justify-end gap-2">
                 <LemonButton type="secondary" center data-attr="source-modal-back-button" onClick={onBack}>
