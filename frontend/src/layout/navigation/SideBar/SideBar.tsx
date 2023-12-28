@@ -4,19 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ActivationSidebar } from 'lib/components/ActivationSidebar/ActivationSidebar'
 import { DebugNotice } from 'lib/components/DebugNotice'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
-import {
-    IconApps,
-    IconBarChart,
-    IconExperiment,
-    IconFlag,
-    IconGauge,
-    IconPinOutline,
-    IconPipeline,
-    IconPlus,
-    IconTools,
-} from 'lib/lemon-ui/icons'
+import { IconApps, IconBarChart, IconGauge, IconPinOutline, IconPlus, IconTools } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link'
@@ -24,8 +12,6 @@ import { useState } from 'react'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { IconNotebook } from 'scenes/notebooks/IconNotebook'
 import { NotebookPopover } from 'scenes/notebooks/NotebookPanel/NotebookPopover'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { userLogic } from 'scenes/userLogic'
 
 import { ProjectName, ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import { PageButton } from '~/layout/navigation/SideBar/PageButton'
@@ -36,7 +22,6 @@ import { canViewPlugins } from '~/scenes/plugins/access'
 import { Scene } from '~/scenes/sceneTypes'
 import { isAuthenticatedTeam, teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
-import { AvailableFeature } from '~/types'
 
 import { navigationLogic } from '../navigationLogic'
 
@@ -45,8 +30,6 @@ function Pages(): JSX.Element {
     const { hideSideBarMobile, toggleProjectSwitcher, hideProjectSwitcher } = useActions(navigationLogic)
     const { isProjectSwitcherShown } = useValues(navigationLogic)
     const { pinnedDashboards } = useValues(dashboardsModel)
-    const { hasAvailableFeature } = useValues(userLogic)
-    const { preflight } = useValues(preflightLogic)
     const { currentTeam } = useValues(teamLogic)
     const { frontendApps } = useValues(frontendAppsLogic)
 
@@ -160,15 +143,6 @@ function Pages(): JSX.Element {
                         }}
                     />
 
-                    <PageButton icon={<IconFlag />} identifier={Scene.FeatureFlags} to={urls.featureFlags()} />
-
-                    {(hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ||
-                        !preflight?.instance_preferences?.disable_paid_fs) && (
-                        <PageButton icon={<IconExperiment />} identifier={Scene.Experiments} to={urls.experiments()} />
-                    )}
-                    <FlaggedFeature flag={FEATURE_FLAGS.PIPELINE_UI}>
-                        <PageButton icon={<IconPipeline />} identifier={Scene.Pipeline} to={urls.pipeline()} />
-                    </FlaggedFeature>
                     {canViewPlugins(currentOrganization) || Object.keys(frontendApps).length > 0 ? (
                         <>
                             <div className="SideBar__heading">Apps</div>
