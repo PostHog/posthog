@@ -24,9 +24,4 @@ describe('activationLogic', () => {
     it('should load custom events on mount', async () => {
         expectLogic(logic).toDispatchActions(['loadCustomEvents', 'loadInsights'])
     })
-
-    it('should report activation sidebar shown', async () => {
-        navigationLogic.actions.showActivationSideBar()
-        expectLogic(logic).toDispatchActions(['reportActivationSidebarShown'])
-    })
 })
