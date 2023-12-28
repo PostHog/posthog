@@ -61,18 +61,3 @@
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }
-
-.SideBar__side-actions {
-    max-width: calc(100vw - 14rem);
-    max-height: calc(100vh - 20rem);
-
-    .LaunchToolbarButton {
-        padding-right: 0.5em;
-        padding-left: 0.5em;
-
-        .LemonButton__content {
-            display: block;
-            text-overflow: ellipsis;
-        }
-    }
-}
