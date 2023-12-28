@@ -2,7 +2,7 @@ import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
-import { HTMLProps, RefObject } from 'react'
+import { HTMLProps } from 'react'
 
 import { NotebookNodeResource, NotebookPopoverVisibility } from '~/types'
 
@@ -14,7 +14,6 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
     actions({
         setFullScreen: (full: boolean) => ({ full }),
         selectNotebook: (id: string, autofocus: EditorFocusPosition | undefined = undefined) => ({ id, autofocus }),
-        setElementRef: (element: RefObject<HTMLElement>) => ({ element }),
         setPopoverVisibility: (visibility: NotebookPopoverVisibility) => ({ visibility }),
         startDropMode: true,
         endDropMode: true,
@@ -47,12 +46,6 @@ export const notebookPopoverLogic = kea<notebookPopoverLogicType>([
             'start' as EditorFocusPosition,
             {
                 selectNotebook: (_, { autofocus }) => autofocus ?? 'start',
-            },
-        ],
-        elementRef: [
-            null as RefObject<HTMLElement> | null,
-            {
-                setElementRef: (_, { element }) => element,
             },
         ],
         dropMode: [
