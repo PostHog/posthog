@@ -177,10 +177,11 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def _handle_hubspot_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
         payload = request.data["payload"]
         code = payload.get("code")
+        redirect_uri = payload.get("redirect_uri")
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
 
-        access_token, refresh_token = get_access_token_from_code(code)
+        access_token, refresh_token = get_access_token_from_code(code, redirect_uri=redirect_uri)
 
         # TODO: remove dummy vars
         new_source_model = ExternalDataSource.objects.create(

@@ -127,6 +127,7 @@ export const urls = {
     dataWarehouseExternal: (): string => '/data-warehouse/external',
     dataWarehouseSavedQueries: (): string => '/data-warehouse/views',
     dataWarehouseSettings: (): string => '/data-warehouse/settings',
+    dataWarehouseRedirect: (kind: string): string => `/data-warehouse/${kind}/redirect`,
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     projectApps: (tab?: PluginTab): string => `/project/apps${tab ? `?tab=${tab}` : ''}`,

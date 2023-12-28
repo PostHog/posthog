@@ -21,14 +21,14 @@ def refresh_access_token(refresh_token: str) -> str:
     return res.json()["access_token"]
 
 
-def get_access_token_from_code(code: str) -> Tuple[str, str]:
+def get_access_token_from_code(code: str, redirect_uri: str) -> Tuple[str, str]:
     res = requests.post(
         "https://api.hubapi.com/oauth/v1/token",
         data={
             "grant_type": "authorization_code",
             "client_id": settings.HUBSPOT_APP_CLIENT_ID,
             "client_secret": settings.HUBSPOT_APP_CLIENT_SECRET,
-            "redirect_uri": "https://app.posthog.com/setup/hubspot",
+            "redirect_uri": redirect_uri,
             "code": code,
         },
     )

@@ -12,7 +12,7 @@ import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLog
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import type { sourceModalLogicType } from './sourceModalLogicType'
 
-export const getHubspotRedirectUri = (): string => `${window.location.origin}/data-warehouse/settings/hubspot`
+export const getHubspotRedirectUri = (): string => `${window.location.origin}/data-warehouse/hubspot/redirect`
 export interface ConnectorConfigType {
     name: ExternalDataSourceType
     fields: string[]
@@ -116,7 +116,7 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
         ],
     }),
     urlToAction(({ actions }) => ({
-        '/integrations/:kind/redirect': ({ kind = '' }, searchParams) => {
+        '/data-warehouse/:kind/redirect': ({ kind = '' }, searchParams) => {
             actions.handleRedirect(kind, searchParams)
         },
     })),
@@ -129,7 +129,8 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
                             source_type: 'Hubspot',
                             prefix: 'hubspot_',
                             payload: {
-                                code: searchParams.get('code'),
+                                code: searchParams.code,
+                                redirect_uri: getHubspotRedirectUri(),
                             },
                         })
                         lemonToast.success(`Oauth successful.`)
