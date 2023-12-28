@@ -135,9 +135,9 @@
             }
         }
 
-        &.LemonButton--is-stealth.LemonButton--active,
-        &.LemonButton--is-stealth:hover,
-        &.LemonButton--secondary:not(.LemonButton--is-stealth) {
+        &.LemonButton--secondary.LemonButton--status-alt:hover,
+        &.LemonButton--secondary.LemonButton--status-alt.LemonButton--active,
+        &.LemonButton--secondary:not(.LemonButton--status-alt, .LemonButton--status-danger) {
             @include secondary-variables;
         }
 
@@ -151,7 +151,7 @@
             --lemon-button-icon-opacity: 1;
         }
 
-        &.LemonButton--is-stealth {
+        &.LemonButton--secondary.LemonButton--status-alt {
             --lemon-button-color: var(--muted);
 
             &.LemonButton--active,
@@ -267,7 +267,7 @@
         }
     }
 
-    .LemonButtonWithSideAction:hover > .LemonButton--is-stealth {
+    .LemonButtonWithSideAction:hover > .LemonButton--secondary.LemonButton--status-alt {
         @include secondary-variables;
     }
 
