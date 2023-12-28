@@ -65,7 +65,6 @@ export function DashboardsTable({
                 return (
                     <LemonButton
                         size="small"
-                        status="stealth"
                         onClick={
                             pinned
                                 ? () => unpinDashboard(id, DashboardEventSource.DashboardsList)
@@ -139,7 +138,6 @@ export function DashboardsTable({
                               overlay={
                                   <>
                                       <LemonButton
-                                          status="stealth"
                                           to={urls.dashboard(id)}
                                           onClick={() => {
                                               dashboardLogic({ id }).mount()
@@ -153,7 +151,6 @@ export function DashboardsTable({
                                           View
                                       </LemonButton>
                                       <LemonButton
-                                          status="stealth"
                                           to={urls.dashboard(id)}
                                           onClick={() => {
                                               dashboardLogic({ id }).mount()
@@ -167,7 +164,6 @@ export function DashboardsTable({
                                           Edit
                                       </LemonButton>
                                       <LemonButton
-                                          status="stealth"
                                           onClick={() => {
                                               showDuplicateDashboardModal(id, name)
                                           }}
@@ -222,7 +218,6 @@ export function DashboardsTable({
                             <LemonButton
                                 active={filters.pinned}
                                 type="secondary"
-                                status="stealth"
                                 size="small"
                                 onClick={() => setFilters({ pinned: !filters.pinned })}
                                 icon={<IconPin />}
@@ -234,7 +229,6 @@ export function DashboardsTable({
                             <LemonButton
                                 active={filters.shared}
                                 type="secondary"
-                                status="stealth"
                                 size="small"
                                 onClick={() => setFilters({ shared: !filters.shared })}
                                 icon={<IconShare />}

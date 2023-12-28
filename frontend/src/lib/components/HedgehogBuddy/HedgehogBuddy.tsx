@@ -481,7 +481,7 @@ export function HedgehogBuddy({
 
                         <LemonDivider />
                         <div className="flex justify-end gap-2">
-                            <LemonButton type="secondary" status="danger" onClick={() => disappear()}>
+                            <LemonButton type="secondary" status="danger" onClick={disappear}>
                                 Good bye!
                             </LemonButton>
                             <LemonButton type="secondary" onClick={() => setPopoverVisible(false)}>

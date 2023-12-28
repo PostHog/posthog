@@ -52,7 +52,6 @@ export function ExportButton({ items, ...buttonProps }: ExportButtonProps): JSX.
                                 <LemonButton
                                     key={i}
                                     fullWidth
-                                    status="stealth"
                                     onClick={() => void triggerExport(triggerExportProps)}
                                     data-attr={`export-button-${exportFormatExtension}`}
                                     data-ph-capture-attribute-export-target={target}

@@ -125,7 +125,6 @@ export function SSOEnforcedLoginButton({ provider, email }: SSOEnforcedLoginButt
                 fullWidth
                 center
                 icon={SocialLoginIcon(provider)}
-                status="primary-alt"
                 size="large"
             >
                 Log in with {SSO_PROVIDER_NAMES[provider]}

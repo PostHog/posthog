@@ -120,15 +120,7 @@ export function Annotations(): JSX.Element {
             key: 'actions',
             width: 0,
             render: function RenderActions(_, annotation): JSX.Element {
-                return (
-                    <LemonButton
-                        icon={<IconEdit />}
-                        size="small"
-                        type="tertiary"
-                        status="stealth"
-                        to={urls.annotation(annotation.id)}
-                    />
-                )
+                return <LemonButton icon={<IconEdit />} size="small" to={urls.annotation(annotation.id)} />
             },
         },
     ]

@@ -51,7 +51,6 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
                         <LemonButton
                             onClick={openLink}
                             icon={<IconOpenInNew />}
-                            status="primary"
                             size="small"
                             disabledReason={!isURL(href) && 'Enter a URL.'}
                         />

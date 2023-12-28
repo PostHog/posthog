@@ -13,7 +13,6 @@ export function EditHogQLButton({ hogql, ...props }: EditHogQLButtonProps): JSX.
         <LemonButton
             data-attr={'open-json-editor-button'}
             type="secondary"
-            status="primary-alt"
             to={urls.insightNew(
                 undefined,
                 undefined,

@@ -62,9 +62,9 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
                             e.stopPropagation()
                             onClose()
                         }}
-                        stealth
                         className="p-0.5"
-                        status="stealth"
+                        type="secondary"
+                        status="alt"
                     />
                 )}
             </ButtonComponent>

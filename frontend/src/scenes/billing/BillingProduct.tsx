@@ -81,7 +81,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                 <div className="ml-4 mr-4 mt-2 self-center flex gap-x-2 whitespace-nowrap">
                     {addon.docs_url && (
                         <Tooltip title="Read the docs">
-                            <LemonButton icon={<IconArticle />} status="stealth" size="small" to={addon.docs_url} />
+                            <LemonButton icon={<IconArticle />} size="small" to={addon.docs_url} />
                         </Tooltip>
                     )}
                     {addon.subscribed ? (
@@ -89,11 +89,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             <More
                                 overlay={
                                     <>
-                                        <LemonButton
-                                            status="stealth"
-                                            fullWidth
-                                            onClick={() => deactivateProduct(addon.type)}
-                                        >
+                                        <LemonButton fullWidth onClick={() => deactivateProduct(addon.type)}>
                                             Remove addon
                                         </LemonButton>
                                     </>
@@ -305,7 +301,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 <Tooltip title="Read the docs">
                                     <LemonButton
                                         icon={<IconArticle />}
-                                        status="stealth"
                                         size="small"
                                         to={product.docs_url}
                                         className="justify-end"
@@ -329,7 +324,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             <>
                                                 {product.plans?.length > 0 ? (
                                                     <LemonButton
-                                                        status="stealth"
                                                         fullWidth
                                                         onClick={() => {
                                                             setSurveyResponse(product.type, '$survey_response_1')
@@ -340,7 +334,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     </LemonButton>
                                                 ) : (
                                                     <LemonButton
-                                                        status="stealth"
                                                         fullWidth
                                                         to="mailto:sales@posthog.com?subject=Custom%20plan%20unsubscribe%20request"
                                                     >
@@ -350,7 +343,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
                                                 <LemonButton
                                                     fullWidth
-                                                    status="stealth"
                                                     to="https://posthog.com/docs/billing/estimating-usage-costs#how-to-reduce-your-posthog-costs"
                                                 >
                                                     Learn how to reduce your bill
@@ -358,7 +350,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 {billing?.billing_period?.interval == 'month' && (
                                                     <LemonButton
                                                         fullWidth
-                                                        status="stealth"
                                                         disabledReason={
                                                             billing?.discount_percent === 100
                                                                 ? "You can't set a billing limit with a 100% discount"
@@ -414,7 +405,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             {product.subscribed && (
                                                 <LemonButton
                                                     icon={showTierBreakdown ? <IconExpandMore /> : <IconChevronRight />}
-                                                    status="stealth"
                                                     onClick={() => setShowTierBreakdown(!showTierBreakdown)}
                                                 />
                                             )}

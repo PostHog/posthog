@@ -64,7 +64,6 @@ export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
                                 <th className="relative">
                                     {showLeftMonth && (
                                         <LemonButton
-                                            status="stealth"
                                             fullWidth
                                             data-attr="lemon-calendar-month-previous"
                                             className="absolute-left"
@@ -87,7 +86,6 @@ export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
                                 <th className="relative">
                                     {showRightMonth && (
                                         <LemonButton
-                                            status="stealth"
                                             fullWidth
                                             data-attr="lemon-calendar-month-next"
                                             className="absolute-right"
@@ -132,7 +130,6 @@ export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
                                                 <LemonButton
                                                     fullWidth
                                                     center
-                                                    status="stealth"
                                                     data-attr="lemon-calendar-day"
                                                     onClick={() => props.onDateClick?.(date)}
                                                     {...buttonProps}
