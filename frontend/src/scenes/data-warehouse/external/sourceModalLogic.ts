@@ -1,24 +1,20 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { forms } from 'kea-forms'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
-import { ExternalDataStripeSourceCreatePayload } from '~/types'
+import { ExternalDataSourceType } from '~/types'
 
 import { dataWarehouseTableLogic } from '../new_table/dataWarehouseTableLogic'
 import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLogic'
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import type { sourceModalLogicType } from './sourceModalLogicType'
 
-export const getHubspotRedirectUri = (next: string = ''): string =>
-    `${window.location.origin.replace('http://', 'https://')}/external_data_source/hubspot/redirect${
-        next ? '?next=' + encodeURIComponent(next) : ''
-    }`
+export const getHubspotRedirectUri = (): string => `${window.location.origin}/data-warehouse/settings/hubspot`
 export interface ConnectorConfigType {
-    name: string
+    name: ExternalDataSourceType
     fields: string[]
     caption: string
     disabledReason: string | null
@@ -45,6 +41,8 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
     actions({
         selectConnector: (connector: ConnectorConfigType | null) => ({ connector }),
         toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
+        handleRedirect: (kind: string, searchParams: any) => ({ kind, searchParams }),
+        onClear: true,
     }),
     connect({
         values: [
@@ -98,7 +96,7 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
         addToHubspotButtonUrl: [
             (s) => [s.preflight],
             (preflight) => {
-                return (next: string = '') => {
+                return () => {
                     const clientId = preflight?.data_warehouse_integrations?.hubspot.client_id
 
                     if (!clientId) {
@@ -109,7 +107,7 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
 
                     const params = new URLSearchParams()
                     params.set('client_id', clientId)
-                    params.set('redirect_uri', getHubspotRedirectUri(next))
+                    params.set('redirect_uri', getHubspotRedirectUri())
                     params.set('scope', scopes.join(' '))
 
                     return `https://app.hubspot.com/oauth/authorize?${params.toString()}`
@@ -117,36 +115,39 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
             },
         ],
     }),
-    forms(() => ({
-        externalDataSource: {
-            defaults: {
-                account_id: '',
-                client_secret: '',
-                prefix: '',
-                source_type: 'Stripe',
-            } as ExternalDataStripeSourceCreatePayload,
-            errors: ({ account_id, client_secret }) => {
-                return {
-                    account_id: !account_id && 'Please enter an account id.',
-                    client_secret: !client_secret && 'Please enter a client secret.',
-                }
-            },
-            submit: async (payload: ExternalDataStripeSourceCreatePayload) => {
-                const newResource = await api.externalDataSources.create(payload)
-                return newResource
-            },
+    urlToAction(({ actions }) => ({
+        '/integrations/:kind/redirect': ({ kind = '' }, searchParams) => {
+            actions.handleRedirect(kind, searchParams)
         },
     })),
     listeners(({ actions }) => ({
-        submitExternalDataSourceSuccess: () => {
-            lemonToast.success('New Data Resource Created')
-            actions.toggleSourceModal()
-            actions.resetExternalDataSource()
-            actions.loadSources()
-            router.actions.push(urls.dataWarehouseSettings())
+        handleRedirect: async ({ kind, searchParams }) => {
+            switch (kind) {
+                case 'hubspot': {
+                    try {
+                        await api.externalDataSources.create({
+                            source_type: 'Hubspot',
+                            prefix: 'hubspot_',
+                            payload: {
+                                code: searchParams.get('code'),
+                            },
+                        })
+                        lemonToast.success(`Oauth successful.`)
+                    } catch (e) {
+                        lemonToast.error(`Something went wrong. Please try again.`)
+                    } finally {
+                        router.actions.replace(urls.dataWarehouseSettings())
+                    }
+                    return
+                }
+                default:
+                    lemonToast.error(`Something went wrong.`)
+            }
         },
-        submitExternalDataSourceFailure: ({ error }) => {
-            lemonToast.error(error?.message || 'Something went wrong')
+        onClear: () => {
+            actions.selectConnector(null)
+            actions.toggleManualLinkFormVisible(false)
+            actions.resetTable()
         },
     })),
 ])

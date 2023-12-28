@@ -3333,13 +3333,13 @@ export interface DataWarehouseViewLink {
     from_join_key?: string
 }
 
-export interface ExternalDataStripeSourceCreatePayload {
-    account_id: string
-    client_secret: string
-    prefix: string
-    source_type: string
-}
+export type ExternalDataSourceType = 'Stripe' | 'Hubspot'
 
+export interface ExternalDataSourceCreatePayload {
+    source_type: ExternalDataSourceType
+    prefix: string
+    payload: Record<string, any>
+}
 export interface ExternalDataStripeSource {
     id: string
     source_id: string

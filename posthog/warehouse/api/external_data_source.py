@@ -153,7 +153,8 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return Response(status=status.HTTP_201_CREATED, data={"id": new_source_model.pk})
 
     def _handle_stripe_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
-        client_secret = request.data["client_secret"]
+        payload = request.data["payload"]
+        client_secret = payload.get("client_secret")
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
 
@@ -174,7 +175,8 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return new_source_model
 
     def _handle_hubspot_source(self, request: Request, *args: Any, **kwargs: Any) -> ExternalDataSource:
-        code = request.data["code"]
+        payload = request.data["payload"]
+        code = payload.get("code")
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
 
