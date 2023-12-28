@@ -1,10 +1,10 @@
 import { ActivationSidebar } from 'lib/components/ActivationSidebar/ActivationSidebar'
-import { NotebookPopover } from 'scenes/notebooks/NotebookPanel/NotebookPopover'
+import { DebugNotice } from 'lib/components/DebugNotice'
 
 export function SideBar(): JSX.Element {
     return (
         <div>
-            <NotebookPopover />
+            <DebugNotice />
             <ActivationSidebar />
         </div>
     )
