@@ -32,7 +32,9 @@ export function Navigation({
 
     useEffect(() => {
         // FIXME: Include debug notice in a non-obstructing way
-        document.getElementById('bottom-notice')?.remove()
+        if (mode !== 'minimal') {
+            document.getElementById('bottom-notice')?.remove()
+        }
     }, [])
 
     if (mode !== 'full') {
