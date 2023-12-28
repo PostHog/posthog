@@ -35,7 +35,6 @@ export const navigationLogic = kea<navigationLogicType>([
         toggleSitePopover: true,
         toggleProjectSwitcher: true,
         hideProjectSwitcher: true,
-        setOpenAppMenu: (id: number | null) => ({ id }),
         closeProjectNotice: (projectNoticeVariant: ProjectNoticeVariant) => ({ projectNoticeVariant }),
     }),
     loaders({
@@ -87,7 +86,6 @@ export const navigationLogic = kea<navigationLogicType>([
                 hideProjectSwitcher: () => false,
             },
         ],
-        openAppMenu: [null as null | number, { setOpenAppMenu: (_, { id }) => id }],
         projectNoticesAcknowledged: [
             {} as Record<ProjectNoticeVariant, boolean>,
             { persist: true },

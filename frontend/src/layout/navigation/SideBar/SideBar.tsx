@@ -9,16 +9,13 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link'
 import { useState } from 'react'
-import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { IconNotebook } from 'scenes/notebooks/IconNotebook'
 import { NotebookPopover } from 'scenes/notebooks/NotebookPanel/NotebookPopover'
 
 import { ProjectName, ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import { PageButton } from '~/layout/navigation/SideBar/PageButton'
-import { SideBarApps } from '~/layout/navigation/SideBar/SideBarApps'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { organizationLogic } from '~/scenes/organizationLogic'
-import { canViewPlugins } from '~/scenes/plugins/access'
 import { Scene } from '~/scenes/sceneTypes'
 import { isAuthenticatedTeam, teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
@@ -31,7 +28,6 @@ function Pages(): JSX.Element {
     const { isProjectSwitcherShown } = useValues(navigationLogic)
     const { pinnedDashboards } = useValues(dashboardsModel)
     const { currentTeam } = useValues(teamLogic)
-    const { frontendApps } = useValues(frontendAppsLogic)
 
     const [arePinnedDashboardsShown, setArePinnedDashboardsShown] = useState(false)
 
@@ -140,10 +136,6 @@ function Pages(): JSX.Element {
                             onClick: hideSideBarMobile,
                         }}
                     />
-
-                    {canViewPlugins(currentOrganization) || Object.keys(frontendApps).length > 0 ? (
-                        <>{Object.keys(frontendApps).length > 0 && <SideBarApps />}</>
-                    ) : null}
                 </>
             )}
         </ul>
