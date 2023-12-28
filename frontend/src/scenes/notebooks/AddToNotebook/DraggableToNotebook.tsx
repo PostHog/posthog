@@ -1,11 +1,8 @@
 import './DraggableToNotebook.scss'
 
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { useActions } from 'kea'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import React, { useState } from 'react'
 
 import { NotebookNodeType } from '~/types'
@@ -33,16 +30,14 @@ export function useNotebookDrag({ href, node, properties, onlyWithModifierKey }:
     const { startDropMode, endDropMode } = useActions(notebookPanelLogic)
 
     const [isDragging, setIsDragging] = useState(false)
-    const { featureFlags } = useValues(featureFlagLogic)
 
-    const notebooksEnabled = featureFlags[FEATURE_FLAGS.NOTEBOOKS]
     const isInNotebook = useNotebookNode()
     const hasDragOptions = !!(href || node)
 
     const altKeyHeld = useKeyHeld('Alt')
     const dragModeActive = onlyWithModifierKey ? altKeyHeld : true
 
-    if (!hasDragOptions || isInNotebook || !notebooksEnabled || !dragModeActive) {
+    if (!hasDragOptions || isInNotebook || !dragModeActive) {
         return {
             isDragging: false,
             draggable: false,
@@ -89,15 +84,13 @@ export function DraggableToNotebook({
 
     return (
         <>
-            <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} fallback={children}>
-                <span
-                    className={clsx('DraggableToNotebook', className, isDragging && 'DraggableToNotebook--dragging')}
-                    draggable={draggable}
-                    {...elementProps}
-                >
-                    {children}
-                </span>
-            </FlaggedFeature>
+            <span
+                className={clsx('DraggableToNotebook', className, isDragging && 'DraggableToNotebook--dragging')}
+                draggable={draggable}
+                {...elementProps}
+            >
+                {children}
+            </span>
         </>
     )
 }

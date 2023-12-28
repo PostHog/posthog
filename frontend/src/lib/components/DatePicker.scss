@@ -27,8 +27,28 @@
         background: var(--primary-3000);
     }
 
+    .ant-picker-time-panel .ant-picker-time-panel-column:nth-child(3)::after {
+        // :HACKY: fix to keep the whole am/pm section in view
+        display: none;
+    }
+
+    .ant-picker-cell .ant-picker-cell-inner {
+        border-radius: var(--radius);
+    }
+
+    .ant-picker-cell.ant-picker-cell-selected .ant-picker-cell-inner {
+        color: var(--default);
+        background: var(--primary);
+    }
+
+    .ant-picker-cell.ant-picker-cell-today .ant-picker-cell-inner::before {
+        background: none;
+        border-color: var(--primary);
+    }
+
     .ant-picker-cell:hover:not(.ant-picker-cell-in-view) .ant-picker-cell-inner,
     .ant-picker-cell:hover:not(
+            .ant-picker-cell-today,
             .ant-picker-cell-selected,
             .ant-picker-cell-range-start,
             .ant-picker-cell-range-end,
@@ -38,5 +58,15 @@
         .ant-picker-cell-inner,
     .ant-picker-time-panel-column > li.ant-picker-time-panel-cell .ant-picker-time-panel-cell-inner:hover {
         background: var(--secondary-3000);
+    }
+
+    .ant-picker-footer .ant-btn-primary {
+        background: var(--primary);
+        border: none;
+        border-radius: 0.25rem;
+    }
+
+    .ant-picker-footer .ant-picker-now-btn:hover {
+        color: var(--primary);
     }
 }

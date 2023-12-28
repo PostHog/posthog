@@ -3,7 +3,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import posthog from 'posthog-js'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'

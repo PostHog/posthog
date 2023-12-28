@@ -1,8 +1,8 @@
 # name: ClickhouseClientTestCase.test_async_query_client
   '
   SELECT plus(1, 1)
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=600,
-                       allow_experimental_object_type=1
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=600,
+                     allow_experimental_object_type=1
   '
 ---

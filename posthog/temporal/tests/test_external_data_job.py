@@ -28,10 +28,10 @@ from posthog.warehouse.models import (
     ExternalDataSchema,
 )
 
-from posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline import (
-    PIPELINE_TYPE_RUN_MAPPING,
+from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
+from posthog.temporal.data_imports.pipelines.pipeline import DataImportPipeline
 from temporalio.testing import WorkflowEnvironment
 from temporalio.common import RetryPolicy
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -449,7 +449,7 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
 
     with mock.patch(
         "posthog.warehouse.models.table.DataWarehouseTable.get_columns", return_value={"id": "string"}
-    ), mock.patch.dict(PIPELINE_TYPE_RUN_MAPPING, {ExternalDataSource.Type.STRIPE: mock_async_func}):
+    ), mock.patch.object(DataImportPipeline, "run", mock_async_func):
         with override_settings(AIRBYTE_BUCKET_KEY="test-key", AIRBYTE_BUCKET_SECRET="test-secret"):
             async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
                 async with Worker(

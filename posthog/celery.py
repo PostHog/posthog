@@ -271,6 +271,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         name="recalculate cohorts",
     )
 
+    add_periodic_task_with_expiry(
+        sender,
+        120,
+        process_scheduled_changes.s(),
+        name="process scheduled changes",
+    )
+
     if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
         sender.add_periodic_task(
             clear_clickhouse_crontab,
@@ -341,11 +348,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         name="sync datawarehouse sources that have settled in s3 bucket",
     )
 
-    # Every 30 minutes try to retrieve and calculate total rows synced in period
     sender.add_periodic_task(
-        crontab(minute="*/30"),
-        calculate_external_data_rows_synced.s(),
-        name="calculate external data rows synced",
+        crontab(minute="23", hour="*"),
+        check_data_import_row_limits.s(),
+        name="check external data rows synced",
     )
 
 
@@ -872,6 +878,13 @@ def calculate_cohort():
 
 
 @app.task(ignore_result=True)
+def process_scheduled_changes():
+    from posthog.tasks.process_scheduled_changes import process_scheduled_changes
+
+    process_scheduled_changes()
+
+
+@app.task(ignore_result=True)
 def sync_insight_cache_states_task():
     from posthog.caching.insight_caching_state import sync_insight_cache_states
 
@@ -1104,3 +1117,13 @@ def sync_datawarehouse_sources():
         pass
     else:
         sync_resources()
+
+
+@app.task(ignore_result=True)
+def check_data_import_row_limits():
+    try:
+        from posthog.tasks.warehouse import check_synced_row_limits
+    except ImportError:
+        pass
+    else:
+        check_synced_row_limits()

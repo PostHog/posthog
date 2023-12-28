@@ -5,7 +5,7 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -50,6 +50,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setSearchStatus: (status: ProgressStatus | 'all') => ({ status }),
         setExperimentsTab: (tabKey: ExperimentsTabs) => ({ tabKey }),
+        setUserFilter: (userFilter: string | null) => ({ userFilter }),
     }),
     reducers({
         searchTerm: {
@@ -58,6 +59,12 @@ export const experimentsLogic = kea<experimentsLogicType>([
         searchStatus: {
             setSearchStatus: (_, { status }) => status,
         },
+        userFilter: [
+            null as string | null,
+            {
+                setUserFilter: (_, { userFilter }) => userFilter,
+            },
+        ],
         tab: [
             ExperimentsTabs.All as ExperimentsTabs,
             {
@@ -97,8 +104,8 @@ export const experimentsLogic = kea<experimentsLogicType>([
     })),
     selectors(({ values }) => ({
         filteredExperiments: [
-            (selectors) => [selectors.experiments, selectors.searchTerm, selectors.searchStatus, selectors.tab],
-            (experiments, searchTerm, searchStatus, tab) => {
+            (s) => [s.experiments, s.searchTerm, s.searchStatus, s.userFilter, s.tab],
+            (experiments, searchTerm, searchStatus, userFilter, tab) => {
                 let filteredExperiments: Experiment[] = experiments
 
                 if (tab === ExperimentsTabs.Archived) {
@@ -125,6 +132,12 @@ export const experimentsLogic = kea<experimentsLogicType>([
                         (experiment) => getExperimentStatus(experiment) === searchStatus
                     )
                 }
+
+                if (userFilter) {
+                    filteredExperiments = filteredExperiments.filter(
+                        (experiment) => experiment.created_by?.uuid === userFilter
+                    )
+                }
                 return filteredExperiments
             },
         ],
@@ -133,14 +146,9 @@ export const experimentsLogic = kea<experimentsLogicType>([
             (hasAvailableFeature): boolean => hasAvailableFeature(AvailableFeature.EXPERIMENTATION),
         ],
         shouldShowEmptyState: [
-            (s) => [s.experimentsLoading, s.filteredExperiments],
-            (experimentsLoading, filteredExperiments): boolean => {
-                return (
-                    filteredExperiments.length === 0 &&
-                    !experimentsLoading &&
-                    !values.searchTerm &&
-                    !values.searchStatus
-                )
+            (s) => [s.experimentsLoading, s.experiments],
+            (experimentsLoading, experiments): boolean => {
+                return experiments.length === 0 && !experimentsLoading && !values.searchTerm && !values.searchStatus
             },
         ],
         shouldShowProductIntroduction: [

@@ -76,6 +76,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "uuid": str(self.user.uuid),
             "distinct_id": self.user.distinct_id,
             "first_name": self.user.first_name,
+            "last_name": self.user.last_name,
             "email": self.user.email,
             "is_email_verified": None,
         }
@@ -84,6 +85,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "uuid": str(alt_user.uuid),
             "distinct_id": alt_user.distinct_id,
             "first_name": alt_user.first_name,
+            "last_name": alt_user.last_name,
             "email": alt_user.email,
             "is_email_verified": None,
         }

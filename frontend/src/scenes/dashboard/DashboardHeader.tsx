@@ -3,7 +3,6 @@ import { router } from 'kea-router'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FullScreen } from 'lib/components/FullScreen'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -266,15 +265,13 @@ export function DashboardHeader(): JSX.Element | null {
                                             >
                                                 Duplicate dashboard
                                             </LemonButton>
-                                            <FlaggedFeature flag={'notebooks'}>
-                                                <LemonButton
-                                                    onClick={() => createNotebookFromDashboard(dashboard)}
-                                                    status="stealth"
-                                                    fullWidth
-                                                >
-                                                    Create notebook from dashboard
-                                                </LemonButton>
-                                            </FlaggedFeature>
+                                            <LemonButton
+                                                onClick={() => createNotebookFromDashboard(dashboard)}
+                                                status="stealth"
+                                                fullWidth
+                                            >
+                                                Create notebook from dashboard
+                                            </LemonButton>
                                             {canEditDashboard && (
                                                 <LemonButton
                                                     onClick={() => {

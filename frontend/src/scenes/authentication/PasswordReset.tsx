@@ -15,7 +15,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { passwordResetLogic } from './passwordResetLogic'
 import { SupportModalButton } from './SupportModalButton'
-import { useButtonStyle } from './useButtonStyles'
 
 export const scene: SceneExport = {
     component: PasswordReset,
@@ -87,7 +86,6 @@ function EmailUnavailable(): JSX.Element {
 
 function ResetForm(): JSX.Element {
     const { isRequestPasswordResetSubmitting } = useValues(passwordResetLogic)
-    const buttonStyles = useButtonStyle()
 
     return (
         <Form logic={passwordResetLogic} formKey={'requestPasswordReset'} className="space-y-4" enableFormOnSubmit>
@@ -111,7 +109,8 @@ function ResetForm(): JSX.Element {
                 htmlType="submit"
                 data-attr="password-reset"
                 loading={isRequestPasswordResetSubmitting}
-                {...buttonStyles}
+                status="primary-alt"
+                size="large"
             >
                 Continue
             </LemonButton>
@@ -122,7 +121,6 @@ function ResetForm(): JSX.Element {
 function ResetSuccess(): JSX.Element {
     const { requestPasswordReset } = useValues(passwordResetLogic)
     const { push } = useActions(router)
-    const buttonStyles = useButtonStyle()
 
     return (
         <div className="text-center">
@@ -135,7 +133,8 @@ function ResetSuccess(): JSX.Element {
                     center
                     fullWidth
                     onClick={() => push('/login')}
-                    {...buttonStyles}
+                    status="primary-alt"
+                    size="large"
                 >
                     Back to login
                 </LemonButton>
@@ -147,7 +146,6 @@ function ResetSuccess(): JSX.Element {
 function ResetThrottled(): JSX.Element {
     const { requestPasswordReset } = useValues(passwordResetLogic)
     const { push } = useActions(router)
-    const buttonStyles = useButtonStyle()
 
     return (
         <div className="text-center">
@@ -164,7 +162,8 @@ function ResetThrottled(): JSX.Element {
                     center
                     fullWidth
                     onClick={() => push('/login')}
-                    {...buttonStyles}
+                    status="primary-alt"
+                    size="large"
                 >
                     Back to login
                 </LemonButton>

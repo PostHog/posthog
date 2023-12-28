@@ -4,7 +4,6 @@ import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions } from '@posth
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { DateOption, rollingDateRangeFilterLogic } from './rollingDateRangeFilterLogic'
@@ -39,7 +38,6 @@ export function RollingDateRangeFilter({
     const { increaseCounter, decreaseCounter, setCounter, setDateOption, toggleDateOptionsSelector, select } =
         useActions(rollingDateRangeFilterLogic(logicProps))
     const { counter, dateOption, formattedDate } = useValues(rollingDateRangeFilterLogic(logicProps))
-    const is3000 = useFeatureFlag('POSTHOG_3000')
 
     return (
         <Tooltip title={makeLabel ? makeLabel(formattedDate) : undefined}>
@@ -91,7 +89,7 @@ export function RollingDateRangeFilter({
                         ...popover,
                         className: 'RollingDateRangeFilter__popover',
                     }}
-                    size={is3000 ? 'xsmall' : 'small'}
+                    size="xsmall"
                 />
             </LemonButton>
         </Tooltip>

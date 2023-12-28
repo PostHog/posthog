@@ -1,5 +1,3 @@
-import './LemonSelect.scss'
-
 import clsx from 'clsx'
 import React, { useMemo } from 'react'
 
@@ -143,12 +141,21 @@ export function LemonSelect<T extends string | number | boolean | null>({
             closeParentPopoverOnClickInside={menu?.closeParentPopoverOnClickInside}
         >
             <LemonButton
-                className={clsx(className, 'LemonSelect', isClearButtonShown && 'LemonSelect--clearable')}
+                className={clsx(className, 'LemonSelect')}
                 icon={activeLeaf?.icon}
-                // so that the pop-up isn't shown along with the close button
-                sideIcon={isClearButtonShown ? <></> : undefined}
                 type="secondary"
                 status="stealth"
+                sideAction={
+                    isClearButtonShown
+                        ? {
+                              icon: <IconClose />,
+                              divider: false,
+                              onClick: () => {
+                                  onChange?.(null as T)
+                              },
+                          }
+                        : null
+                }
                 {...buttonProps}
             >
                 <span className="flex flex-1">
@@ -158,19 +165,6 @@ export function LemonSelect<T extends string | number | boolean | null>({
                         ? activeLeaf.label
                         : value ?? <span className="text-muted">{placeholder}</span>}
                 </span>
-                {isClearButtonShown && (
-                    <LemonButton
-                        className="LemonSelect--button--clearable"
-                        type="tertiary"
-                        status="stealth"
-                        noPadding
-                        icon={<IconClose />}
-                        tooltip="Clear selection"
-                        onClick={() => {
-                            onChange?.(null as T)
-                        }}
-                    />
-                )}
             </LemonButton>
         </LemonMenu>
     )

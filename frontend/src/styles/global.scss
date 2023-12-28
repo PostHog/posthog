@@ -452,32 +452,6 @@ input::-ms-clear {
     }
 }
 
-.main-app-content {
-    position: relative; // So that scene-level <SpinnerOverlay /> is positioned correctly.
-    flex: 1;
-    width: 100%;
-    min-width: 0;
-    padding: 0 1rem 1rem;
-    background-color: var(--bg-light);
-
-    &.main-app-content--plain {
-        padding: 0;
-    }
-
-    &.main-app-content--container {
-        align-self: center;
-        max-width: 72rem;
-    }
-
-    @include screen($sm) {
-        padding: 0 1rem 2rem;
-    }
-
-    @include screen($lg) {
-        padding: 0 2rem 4rem;
-    }
-}
-
 // AntD overrrides, placed inside `body` to increase specifity (nicely avoiding the need for !important)
 body {
     // Until we have 3000 rolled out we fallback to standard colors

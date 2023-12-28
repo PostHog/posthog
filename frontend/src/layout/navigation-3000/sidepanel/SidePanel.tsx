@@ -1,15 +1,6 @@
 import './SidePanel.scss'
 
-import {
-    IconConfetti,
-    IconEllipsis,
-    IconFeatures,
-    IconGear,
-    IconInfo,
-    IconNotebook,
-    IconNotification,
-    IconSupport,
-} from '@posthog/icons'
+import { IconConfetti, IconEllipsis, IconFeatures, IconGear, IconInfo, IconNotebook, IconSupport } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -20,7 +11,7 @@ import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
 
 import { SidePanelTab } from '~/types'
 
-import { SidePanelActivity } from './panels/activity/SidePanelActivity'
+import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
 import { SidePanelActivation, SidePanelActivationIcon } from './panels/SidePanelActivation'
 import { SidePanelDocs } from './panels/SidePanelDocs'
 import { SidePanelFeaturePreviews } from './panels/SidePanelFeaturePreviews'
@@ -66,7 +57,7 @@ export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; C
 
     [SidePanelTab.Activity]: {
         label: 'Activity',
-        Icon: IconNotification,
+        Icon: SidePanelActivityIcon,
         Content: SidePanelActivity,
     },
     [SidePanelTab.Welcome]: {

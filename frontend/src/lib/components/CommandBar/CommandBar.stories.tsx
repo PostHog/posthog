@@ -505,7 +505,6 @@ const meta: Meta<typeof CommandBar> = {
         layout: 'fullscreen',
         testOptions: {
             snapshotTargetSelector: '[data-attr="command-bar"]',
-            include3000: true,
         },
         viewMode: 'story',
     },

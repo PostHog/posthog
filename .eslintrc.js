@@ -114,13 +114,8 @@ module.exports = {
                     },
                     {
                         name: 'antd',
-                        importNames: ['Tooltip'],
-                        message: 'Please use Tooltip from @posthog/lemon-ui instead.',
-                    },
-                    {
-                        name: 'antd',
-                        importNames: ['Alert'],
-                        message: 'Please use LemonBanner from @posthog/lemon-ui instead.',
+                        importNames: ['Card', 'Col', 'Row', 'Alert', 'Tooltip'],
+                        message: 'please use the Lemon equivalent instead',
                     },
                 ],
             },
@@ -142,21 +137,8 @@ module.exports = {
             {
                 forbid: [
                     {
-                        element: 'Row',
-                        message:
-                            'use flex utility classes instead, e.g. <Row align="middle"> could be <div className="flex items-center">',
-                    },
-                    {
-                        element: 'Col',
-                        message: 'use flex utility classes instead - most of the time can simply be a plain <div>',
-                    },
-                    {
                         element: 'Divider',
                         message: 'use <LemonDivider> instead',
-                    },
-                    {
-                        element: 'Card',
-                        message: 'use utility classes instead',
                     },
                     {
                         element: 'Button',

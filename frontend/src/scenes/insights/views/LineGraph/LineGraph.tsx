@@ -51,7 +51,6 @@ export function ensureTooltip(): [Root, HTMLElement] {
             tooltipEl = document.createElement('div')
             tooltipEl.id = 'InsightTooltipWrapper'
             tooltipEl.classList.add('InsightTooltipWrapper')
-            tooltipEl.style.display = 'none'
             document.body.appendChild(tooltipEl)
         }
 
@@ -461,7 +460,6 @@ export function LineGraph_({
                         tooltipEl.classList.remove('above', 'below', 'no-transform')
                         tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
                         tooltipEl.style.opacity = '1'
-                        tooltipEl.style.display = 'initial'
 
                         if (tooltip.body) {
                             const referenceDataPoint = tooltip.dataPoints[0] // Use this point as reference to get the date
@@ -549,8 +547,8 @@ export function LineGraph_({
                                 ? chartClientLeft + tooltip.caretX - tooltipEl.clientWidth - 8 // If tooltip is too large (or close to the edge), show it to the left of the data point instead
                                 : defaultOffsetLeft
 
-                        tooltipEl.style.top = Math.min(tooltipClientTop, window.innerHeight) + 'px'
-                        tooltipEl.style.left = Math.min(tooltipClientLeft, window.innerWidth) + 'px'
+                        tooltipEl.style.top = tooltipClientTop + 'px'
+                        tooltipEl.style.left = tooltipClientLeft + 'px'
                     },
                 },
                 ...(!isBar

@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { FeatureFlagHog } from 'lib/components/hedgehogs'
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -52,7 +53,7 @@ export function OverViewTab({
     const { aggregationLabel } = useValues(groupsModel)
 
     const flagLogic = featureFlagsLogic({ flagPrefix })
-    const { featureFlagsLoading, searchedFeatureFlags, searchTerm, uniqueCreators, filters, shouldShowEmptyState } =
+    const { featureFlagsLoading, searchedFeatureFlags, searchTerm, filters, shouldShowEmptyState } =
         useValues(flagLogic)
     const { updateFeatureFlag, loadFeatureFlags, setSearchTerm, setFeatureFlagsFilters } = useActions(flagLogic)
     const { user, hasAvailableFeature } = useValues(userLogic)
@@ -274,6 +275,7 @@ export function OverViewTab({
                                         </span>
                                         <LemonSelect
                                             dropdownMatchSelectWidth={false}
+                                            size="small"
                                             onChange={(type) => {
                                                 if (type) {
                                                     if (type === 'all') {
@@ -301,6 +303,7 @@ export function OverViewTab({
                                 </span>
                                 <LemonSelect
                                     dropdownMatchSelectWidth={false}
+                                    size="small"
                                     onChange={(status) => {
                                         if (status) {
                                             if (status === 'all') {
@@ -323,22 +326,21 @@ export function OverViewTab({
                                 <span className="ml-1">
                                     <b>Created by</b>
                                 </span>
-                                <LemonSelect
-                                    dropdownMatchSelectWidth={false}
+                                <MemberSelect
+                                    size="small"
+                                    type="secondary"
+                                    defaultLabel="Any user"
+                                    value={filters.created_by ?? null}
                                     onChange={(user) => {
-                                        if (user) {
-                                            if (user === 'any') {
-                                                if (filters) {
-                                                    const { created_by, ...restFilters } = filters
-                                                    setFeatureFlagsFilters(restFilters, true)
-                                                }
-                                            } else {
-                                                setFeatureFlagsFilters({ created_by: user })
+                                        if (!user) {
+                                            if (filters) {
+                                                const { created_by, ...restFilters } = filters
+                                                setFeatureFlagsFilters(restFilters, true)
                                             }
+                                        } else {
+                                            setFeatureFlagsFilters({ created_by: user.id })
                                         }
                                     }}
-                                    options={uniqueCreators}
-                                    value={filters.created_by ?? 'any'}
                                 />
                             </div>
                         </div>
