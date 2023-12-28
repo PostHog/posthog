@@ -26,7 +26,6 @@ export const navigationLogic = kea<navigationLogicType>([
         actions: [eventUsageLogic, ['reportProjectNoticeDismissed']],
     })),
     actions({
-        hideSideBarMobile: true,
         openSitePopover: true,
         closeSitePopover: true,
         toggleSitePopover: true,
