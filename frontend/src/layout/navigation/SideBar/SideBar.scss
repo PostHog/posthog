@@ -81,21 +81,6 @@
     }
 }
 
-.SideBar__heading {
-    margin-top: 1rem;
-    margin-left: 0.5rem;
-    font-size: 0.75rem;
-    font-weight: 600;
-    line-height: 1.5rem;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-
-    &:first-of-type {
-        margin-top: 0;
-    }
-}
-
 .ProjectSwitcher__label {
     padding: 0 0.5rem;
     font-size: 0.75rem;

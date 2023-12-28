@@ -38,7 +38,6 @@ function Pages(): JSX.Element {
 
     return (
         <ul>
-            <div className="SideBar__heading">Project</div>
             <PageButton
                 title={
                     isAuthenticatedTeam(currentTeam) ? (
@@ -145,7 +144,6 @@ function Pages(): JSX.Element {
 
                     {canViewPlugins(currentOrganization) || Object.keys(frontendApps).length > 0 ? (
                         <>
-                            <div className="SideBar__heading">Apps</div>
                             {canViewPlugins(currentOrganization) && (
                                 <PageButton
                                     title="Browse apps"
@@ -158,8 +156,6 @@ function Pages(): JSX.Element {
                             {Object.keys(frontendApps).length > 0 && <SideBarApps />}
                         </>
                     ) : null}
-                    <div className="SideBar__heading">Configuration</div>
-
                     <PageButton
                         icon={<IconTools />}
                         identifier={Scene.ToolbarLaunch}
