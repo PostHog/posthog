@@ -100,11 +100,6 @@ export const navigationLogic = kea<navigationLogicType>([
             (s) => [s.fullscreen, s.sceneConfig],
             (fullscreen, sceneConfig) => fullscreen || sceneConfig?.layout === 'plain',
         ],
-        isSideBarShown: [
-            (s) => [s.mobileLayout, s.isSideBarShownMobile, s.noSidebar],
-            (mobileLayout, isSideBarShownMobile, noSidebar) =>
-                !noSidebar && (mobileLayout ? isSideBarShownMobile : true),
-        ],
         isActivationSideBarShown: [
             (s) => [s.mobileLayout, s.isActivationSideBarShownBase, s.isSideBarShownMobile, s.noSidebar],
             (mobileLayout, isActivationSideBarShownBase, isSideBarShownMobile, noSidebar) =>
