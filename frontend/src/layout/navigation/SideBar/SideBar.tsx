@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ActivationSidebar } from 'lib/components/ActivationSidebar/ActivationSidebar'
 import { DebugNotice } from 'lib/components/DebugNotice'
-import { IconApps, IconBarChart, IconGauge, IconPinOutline, IconPlus, IconTools } from 'lib/lemon-ui/icons'
+import { IconApps, IconBarChart, IconGauge, IconPinOutline, IconPlus } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link'
@@ -34,7 +34,6 @@ function Pages(): JSX.Element {
     const { frontendApps } = useValues(frontendAppsLogic)
 
     const [arePinnedDashboardsShown, setArePinnedDashboardsShown] = useState(false)
-    const [isToolbarLaunchShown, setIsToolbarLaunchShown] = useState(false)
 
     return (
         <ul>
@@ -156,22 +155,6 @@ function Pages(): JSX.Element {
                             {Object.keys(frontendApps).length > 0 && <SideBarApps />}
                         </>
                     ) : null}
-                    <PageButton
-                        icon={<IconTools />}
-                        identifier={Scene.ToolbarLaunch}
-                        to={urls.toolbarLaunch()}
-                        sideAction={{
-                            identifier: 'toolbar-launch',
-                            tooltip: 'Launch toolbar',
-                            onClick: () => setIsToolbarLaunchShown((state) => !state),
-                            dropdown: {
-                                visible: isToolbarLaunchShown,
-                                onClickOutside: () => setIsToolbarLaunchShown(false),
-                                onClickInside: hideSideBarMobile,
-                                overlay: null,
-                            },
-                        }}
-                    />
                 </>
             )}
         </ul>
