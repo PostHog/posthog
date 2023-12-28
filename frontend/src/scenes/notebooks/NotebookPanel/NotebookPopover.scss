@@ -33,18 +33,6 @@
 
         // Transition properties that are overwritten
         transform: translateX(calc(100% + 1rem));
-
-        .NotebookPopover__content__card {
-            display: flex;
-            flex: 1;
-            flex-direction: column;
-            overflow: hidden;
-            background-color: var(--bg-3000);
-            border: 1px solid var(--border-3000);
-            border-radius: var(--radius);
-            box-shadow: 0 16px 16px rgb(0 0 0 / 0%);
-            transition: box-shadow 150ms linear;
-        }
     }
 
     &--visible {
@@ -55,10 +43,6 @@
 
         .NotebookPopover__content {
             transform: translateX(0);
-
-            .NotebookPopover__content__card {
-                box-shadow: 0 16px 16px rgb(0 0 0 / 15%);
-            }
         }
     }
 
@@ -66,10 +50,6 @@
         .NotebookPopover__content {
             transition: none; // NOTE: This shouldn't be none as it affects other transitions
             transform: translateX(calc(100% - 5rem));
-
-            .NotebookPopover__content__card {
-                box-shadow: 0 16px 16px rgb(0 0 0 / 15%);
-            }
         }
     }
 
