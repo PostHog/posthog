@@ -103,7 +103,13 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
                         return null
                     }
 
-                    const scopes = ['crm.objects.contacts.read', 'crm.objects.companies.read']
+                    const scopes = [
+                        'crm.objects.contacts.read',
+                        'crm.objects.companies.read',
+                        'crm.objects.deals.read',
+                        'tickets',
+                        'crm.objects.quotes.read',
+                    ]
 
                     const params = new URLSearchParams()
                     params.set('client_id', clientId)
@@ -134,6 +140,7 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
                             },
                         })
                         lemonToast.success(`Oauth successful.`)
+                        actions.loadSources()
                     } catch (e) {
                         lemonToast.error(`Something went wrong. Please try again.`)
                     } finally {
