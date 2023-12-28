@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ActivationSidebar } from 'lib/components/ActivationSidebar/ActivationSidebar'
 import { DebugNotice } from 'lib/components/DebugNotice'
-import { IconApps, IconBarChart, IconGauge, IconPinOutline, IconPlus } from 'lib/lemon-ui/icons'
+import { IconBarChart, IconGauge, IconPinOutline, IconPlus } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link'
@@ -142,18 +142,7 @@ function Pages(): JSX.Element {
                     />
 
                     {canViewPlugins(currentOrganization) || Object.keys(frontendApps).length > 0 ? (
-                        <>
-                            {canViewPlugins(currentOrganization) && (
-                                <PageButton
-                                    title="Browse apps"
-                                    icon={<IconApps />}
-                                    identifier={Scene.Apps}
-                                    to={urls.projectApps()}
-                                />
-                            )}
-
-                            {Object.keys(frontendApps).length > 0 && <SideBarApps />}
-                        </>
+                        <>{Object.keys(frontendApps).length > 0 && <SideBarApps />}</>
                     ) : null}
                 </>
             )}
