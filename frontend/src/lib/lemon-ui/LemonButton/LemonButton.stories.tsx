@@ -12,7 +12,7 @@ import { urls } from 'scenes/urls'
 import { LemonButton, LemonButtonProps, LemonButtonWithDropdown, LemonButtonWithDropdownProps } from './LemonButton'
 import { More } from './More'
 
-const statuses: LemonButtonProps['status'][] = ['primary', 'danger', 'primary-alt', 'muted', 'stealth']
+const statuses: LemonButtonProps['status'][] = ['default', 'alt', 'danger']
 const types: LemonButtonProps['type'][] = ['primary', 'secondary', 'tertiary']
 
 type Story = StoryObj<typeof LemonButton>

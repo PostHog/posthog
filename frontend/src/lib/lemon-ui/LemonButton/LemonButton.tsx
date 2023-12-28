@@ -108,7 +108,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 disabledReason,
                 loading,
                 type = 'tertiary',
-                status = 'primary',
+                status = 'default',
                 icon,
                 sideIcon,
                 sideAction,
