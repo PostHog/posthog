@@ -1,5 +1,4 @@
 import './LemonButton.scss'
-import './LemonButtonLegacy.scss'
 import './LemonButton3000.scss'
 
 import { IconChevronDown } from '@posthog/icons'
@@ -34,7 +33,7 @@ export interface LemonButtonPropsBase
     children?: React.ReactNode
     type?: 'primary' | 'secondary' | 'tertiary'
     /** Button color scheme. */
-    status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'stealth'
+    status?: 'default' | 'alt' | 'danger'
     /** Whether hover style should be applied, signaling that the button is held active in some way. */
     active?: boolean
     /** URL to link to. */

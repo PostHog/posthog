@@ -67,28 +67,18 @@ const TypesAndStatusesTemplate: StoryFn<typeof LemonButton> = (props) => {
 }
 
 const ButtonVariants3000 = ({
-    tertiary = false,
+    type = 'primary',
     active = false,
 }: {
-    tertiary?: boolean
+    type?: LemonButtonProps['type']
     active?: LemonButtonProps['active']
 }): JSX.Element => {
-    const variants: LemonButtonProps[] = tertiary
-        ? [
-              { type: 'tertiary', children: 'Primary' },
-              { type: 'tertiary', status: 'danger', children: 'Danger' },
-          ]
-        : [
-              { type: 'primary', children: 'Primary' },
-              { type: 'primary', status: 'primary-alt', children: 'Primary alt' },
-              { type: 'secondary', children: 'Secondary' },
-              { type: 'secondary', status: 'danger', children: 'Danger' },
-              { type: 'secondary', stealth: true, status: 'primary', children: 'Stealth' },
-          ]
     return (
         <div className="flex gap-2 flex-wrap">
-            {variants.map((props, index) => (
-                <LemonButton key={index} active={active} {...props} icon={<IconCalculate />} />
+            {['default', 'alt', 'danger'].map((status, index) => (
+                <LemonButton key={index} active={active} type={type} status={status} icon={<IconCalculate />}>
+                    <span className="capitalize">{status}</span>
+                </LemonButton>
             ))}
         </div>
     )
@@ -97,7 +87,7 @@ const ButtonVariants3000 = ({
 export const Types3000: Story = () => {
     return (
         <div className="space-y-2">
-            <h5>type=3D</h5>
+            <h5>type=PRIMARY</h5>
             <div className="border rounded">
                 <div className="p-2">
                     <ButtonVariants3000 />
@@ -113,15 +103,35 @@ export const Types3000: Story = () => {
                     </div>
                 </div>
             </div>
-            <h5>type=TERTIARY</h5>
+            <h5>type=SECONDARY</h5>
             <div className="border rounded">
                 <div className="p-2">
-                    <ButtonVariants3000 tertiary />
+                    <ButtonVariants3000 type="secondary" />
+                </div>
+                <div className="p-2">
+                    <h5>Active</h5>
+                    <ButtonVariants3000 active type="secondary" />
                 </div>
                 <div className="p-2 bg-bg-light rounded-b">
                     <h5>Light background</h5>
                     <div className="flex gap-2 flex-wrap">
-                        <ButtonVariants3000 tertiary />
+                        <ButtonVariants3000 type="secondary" />
+                    </div>
+                </div>
+            </div>
+            <h5>type=TERTIARY</h5>
+            <div className="border rounded">
+                <div className="p-2">
+                    <ButtonVariants3000 type="tertiary" />
+                </div>
+                <div className="p-2">
+                    <h5>Active</h5>
+                    <ButtonVariants3000 active type="tertiary" />
+                </div>
+                <div className="p-2 bg-bg-light rounded-b">
+                    <h5>Light background</h5>
+                    <div className="flex gap-2 flex-wrap">
+                        <ButtonVariants3000 type="tertiary" />
                     </div>
                 </div>
             </div>

@@ -581,6 +581,10 @@ $decorations: underline, overline, line-through, no-underline;
     text-transform: uppercase;
 }
 
+.capitalize {
+    text-transform: capitalize;
+}
+
 .float-right {
     float: right;
 }
