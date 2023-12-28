@@ -7,13 +7,6 @@
     overflow: hidden;
 }
 
-.SideBar__content {
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-    overflow: auto;
-}
-
 .SideBar__slider {
     position: absolute;
     z-index: var(--z-lemon-sidebar);
@@ -56,28 +49,6 @@
         .SideBar--hidden & {
             margin-left: -15.5rem;
         }
-    }
-}
-
-.SideBar__overlay {
-    position: absolute;
-    z-index: var(--z-mobile-nav-overlay);
-    width: 100%;
-    height: 100%;
-    background-color: var(--modal-backdrop-color);
-    backdrop-filter: blur(var(--modal-backdrop-blur));
-    opacity: 1;
-    transition: background-color var(--modal-transition-time) ease-out,
-        backdrop-filter var(--modal-transition-time) ease-out;
-
-    .SideBar--hidden & {
-        pointer-events: none;
-        background-color: transparent;
-        backdrop-filter: blur(0);
-    }
-
-    @include screen($lg) {
-        display: none;
     }
 }
 

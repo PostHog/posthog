@@ -142,9 +142,8 @@ function Pages(): JSX.Element {
     )
 }
 
-export function SideBar({ children }: { children: React.ReactNode }): JSX.Element {
+export function SideBar(): JSX.Element {
     const { isSideBarShown } = useValues(navigationLogic)
-    const { hideSideBarMobile } = useActions(navigationLogic)
 
     return (
         <div className={clsx('SideBar', !isSideBarShown && 'SideBar--hidden')}>
@@ -154,9 +153,7 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
                     <DebugNotice />
                 </div>
             </div>
-            <div className="SideBar__overlay" onClick={hideSideBarMobile} />
             <NotebookPopover />
-            <div className="SideBar__content">{children}</div>
             <ActivationSidebar />
         </div>
     )
