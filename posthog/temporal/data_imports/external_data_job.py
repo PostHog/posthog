@@ -167,7 +167,13 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
         if not hubspot_access_code:
             hubspot_access_code = refresh_access_token(refresh_token)
 
-        source = hubspot(api_key=hubspot_access_code, refresh_token=refresh_token, endpoints=tuple(inputs.schemas))
+        source = hubspot(
+            api_key=hubspot_access_code,
+            refresh_token=refresh_token,
+            job_id=str(model.id),
+            team_id=inputs.team_id,
+            endpoints=tuple(inputs.schemas),
+        )
     else:
         raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 

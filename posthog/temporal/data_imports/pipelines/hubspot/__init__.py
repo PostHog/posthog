@@ -28,6 +28,7 @@ from typing import Literal, Sequence, Iterator
 import dlt
 from dlt.common.typing import TDataItems
 from dlt.sources import DltResource
+from posthog.temporal.data_imports.pipelines.helpers import limit_paginated_generator
 
 from .helpers import (
     fetch_data,
@@ -49,6 +50,8 @@ THubspotObjectType = Literal["company", "contact", "deal", "ticket", "quote"]
 def hubspot(
     api_key: str,
     refresh_token: str,
+    job_id: str,
+    team_id: int,
     endpoints: Sequence[str] = ("companies", "contacts", "deals", "tickets", "quotes"),
     include_history: bool = False,
 ) -> Sequence[DltResource]:
@@ -84,15 +87,18 @@ def hubspot(
             name=endpoint,
             write_disposition="append",
         )(
-            OBJECT_TYPE_SINGULAR[endpoint],
-            api_key,
-            refresh_token,
-            include_history,
-            DEFAULT_PROPS[endpoint],
+            object_type=OBJECT_TYPE_SINGULAR[endpoint],
+            api_key=api_key,
+            refresh_token=refresh_token,
+            include_history=include_history,
+            props=DEFAULT_PROPS[endpoint],
             include_custom_props=True,
+            job_id=job_id,
+            team_id=team_id,
         )
 
 
+@limit_paginated_generator
 def crm_objects(
     object_type: str,
     api_key: str,
