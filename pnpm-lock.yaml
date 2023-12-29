@@ -1,4 +1,4 @@
-lockfileVersion: '6.0'
+lockfileVersion: '6.1'
 
 settings:
   autoInstallPeers: true
@@ -225,8 +225,8 @@ dependencies:
     specifier: ^2.11.0
     version: 2.11.0
   posthog-js:
-    specifier: file:.yalc/posthog-js
-    version: file:.yalc/posthog-js
+    specifier: 1.96.0
+    version: 1.96.0
   posthog-js-lite:
     specifier: 2.5.0
     version: 2.5.0
@@ -327,7 +327,7 @@ dependencies:
 optionalDependencies:
   fsevents:
     specifier: ^2.3.2
-    version: 2.3.3
+    version: 2.3.2
 
 devDependencies:
   '@babel/core':
@@ -12227,7 +12227,6 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
     requiresBuild: true
-    dev: true
     optional: true
 
   /fsevents@2.3.3:
@@ -16508,6 +16507,12 @@ packages:
     resolution: {integrity: sha512-Urvlp0Vu9h3td0BVFWt0QXFJDoOZcaAD83XM9d91NKMKTVPZtfU0ysoxstIf5mw/ce9ZfuMgpWPaagrZI4rmSg==}
     dev: false
 
+  /posthog-js@1.96.0:
+    resolution: {integrity: sha512-nutEP3UbwjPt1a78KwBbdNBMhAY30lLjYXbBOPZ/juB9NDklmSqLF+lWImPcf6+rlXEhIboSr5sdTAF/R+Dasg==}
+    dependencies:
+      fflate: 0.4.8
+    dev: false
+
   /potpack@2.0.0:
     resolution: {integrity: sha512-Q+/tYsFU9r7xoOJ+y/ZTtdVQwTWfzjbiXBDMM/JKUux3+QPP02iUuIoeBQ+Ot6oEDlC+/PGjB/5A3K7KKb7hcw==}
     dev: false
@@ -20663,11 +20668,4 @@ packages:
 
   /zxcvbn@4.4.2:
     resolution: {integrity: sha512-Bq0B+ixT/DMyG8kgX2xWcI5jUvCwqrMxSFam7m0lAf78nf04hv6lNCsyLYdyYTrCVMqNDY/206K7eExYCeSyUQ==}
-    dev: false
-
-  file:.yalc/posthog-js:
-    resolution: {directory: .yalc/posthog-js, type: directory}
-    name: posthog-js
-    dependencies:
-      fflate: 0.4.8
     dev: false
