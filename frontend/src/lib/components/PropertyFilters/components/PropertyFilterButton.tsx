@@ -63,8 +63,6 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
                             onClose()
                         }}
                         className="p-0.5"
-                        type="secondary"
-                        status="alt"
                     />
                 )}
             </ButtonComponent>
