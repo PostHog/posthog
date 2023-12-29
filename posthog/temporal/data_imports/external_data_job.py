@@ -160,14 +160,14 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
         from posthog.temporal.data_imports.pipelines.hubspot import hubspot
 
         hubspot_access_code = model.pipeline.job_inputs.get("hubspot_secret_key", None)
+        refresh_token = model.pipeline.job_inputs.get("hubspot_refresh_token", None)
+        if not refresh_token:
+            raise ValueError(f"Hubspot refresh token not found for job {model.id}")
 
         if not hubspot_access_code:
-            refresh_token = model.pipeline.job_inputs.get("hubspot_refresh_token", None)
-            if not refresh_token:
-                raise ValueError(f"Hubspot refresh token not found for job {model.id}")
             hubspot_access_code = refresh_access_token(refresh_token)
 
-        source = hubspot(api_key=hubspot_access_code, endpoints=tuple(inputs.schemas))
+        source = hubspot(api_key=hubspot_access_code, refresh_token=refresh_token, endpoints=tuple(inputs.schemas))
     else:
         raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 

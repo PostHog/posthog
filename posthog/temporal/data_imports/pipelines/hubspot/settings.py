@@ -7,14 +7,12 @@ STARTDATE = pendulum.datetime(year=2000, month=1, day=1)
 CONTACT = "contact"
 COMPANY = "company"
 DEAL = "deal"
-PRODUCT = "product"
 TICKET = "ticket"
 QUOTE = "quote"
 
-CRM_CONTACTS_ENDPOINT = "/crm/v3/objects/contacts?associations=deals,products,tickets,quotes"
-CRM_COMPANIES_ENDPOINT = "/crm/v3/objects/companies?associations=contacts,deals,products,tickets,quotes"
+CRM_CONTACTS_ENDPOINT = "/crm/v3/objects/contacts?associations=deals,tickets,quotes"
+CRM_COMPANIES_ENDPOINT = "/crm/v3/objects/companies?associations=contacts,deals,tickets,quotes"
 CRM_DEALS_ENDPOINT = "/crm/v3/objects/deals"
-CRM_PRODUCTS_ENDPOINT = "/crm/v3/objects/products"
 CRM_TICKETS_ENDPOINT = "/crm/v3/objects/tickets"
 CRM_QUOTES_ENDPOINT = "/crm/v3/objects/quotes"
 
@@ -22,7 +20,6 @@ CRM_OBJECT_ENDPOINTS = {
     CONTACT: CRM_CONTACTS_ENDPOINT,
     COMPANY: CRM_COMPANIES_ENDPOINT,
     DEAL: CRM_DEALS_ENDPOINT,
-    PRODUCT: CRM_PRODUCTS_ENDPOINT,
     TICKET: CRM_TICKETS_ENDPOINT,
     QUOTE: CRM_QUOTES_ENDPOINT,
 }
@@ -34,7 +31,6 @@ OBJECT_TYPE_SINGULAR = {
     "contacts": CONTACT,
     "deals": DEAL,
     "tickets": TICKET,
-    "products": PRODUCT,
     "quotes": QUOTE,
 }
 
@@ -46,7 +42,6 @@ ENDPOINTS = (
     OBJECT_TYPE_PLURAL[DEAL],
     OBJECT_TYPE_PLURAL[COMPANY],
     OBJECT_TYPE_PLURAL[TICKET],
-    OBJECT_TYPE_PLURAL[PRODUCT],
     OBJECT_TYPE_PLURAL[QUOTE],
 )
 
@@ -88,15 +83,6 @@ DEFAULT_TICKET_PROPS = [
     "hs_ticket_category",
     "hs_ticket_priority",
     "subject",
-]
-
-DEFAULT_PRODUCT_PROPS = [
-    "createdate",
-    "description",
-    "hs_lastmodifieddate",
-    "hs_object_id",
-    "name",
-    "price",
 ]
 
 DEFAULT_QUOTE_PROPS = [

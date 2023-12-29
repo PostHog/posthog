@@ -6,7 +6,6 @@ The source retrieves data from the following endpoints:
 - CRM Contacts
 - CRM Deals
 - CRM Tickets
-- CRM Products
 - CRM Quotes
 - Web Analytics Events
 
@@ -21,15 +20,14 @@ To retrieve data from all endpoints, use the following code:
 
 python
 
->>> resources = hubspot(api_key="your_api_key")
+>>> resources = hubspot(api_key="hubspot_access_code")
 """
 
-from typing import Any, Dict, List, Literal, Sequence, Iterator
+from typing import Literal, Sequence, Iterator
 from urllib.parse import quote
 
 import dlt
-from dlt.common import pendulum
-from dlt.common.typing import TDataItems, TDataItem
+from dlt.common.typing import TDataItems
 from dlt.sources import DltResource
 
 from .helpers import (
@@ -43,7 +41,6 @@ from .settings import (
     DEFAULT_COMPANY_PROPS,
     DEFAULT_CONTACT_PROPS,
     DEFAULT_DEAL_PROPS,
-    DEFAULT_PRODUCT_PROPS,
     DEFAULT_TICKET_PROPS,
     DEFAULT_QUOTE_PROPS,
     OBJECT_TYPE_PLURAL,
@@ -51,13 +48,14 @@ from .settings import (
     WEB_ANALYTICS_EVENTS_ENDPOINT,
 )
 
-THubspotObjectType = Literal["company", "contact", "deal", "ticket", "product", "quote"]
+THubspotObjectType = Literal["company", "contact", "deal", "ticket", "quote"]
 
 
 @dlt.source(name="hubspot")
 def hubspot(
-    api_key: str = dlt.secrets.value,
-    endpoints: Sequence[THubspotObjectType] = ("company", "contact", "deal", "ticket", "product", "quote"),
+    api_key: str,
+    refresh_token: str,
+    endpoints: Sequence[str] = ("companies", "contacts", "deals", "tickets", "quotes"),
     include_history: bool = False,
 ) -> Sequence[DltResource]:
     """
@@ -65,7 +63,7 @@ def hubspot(
     specified API key.
 
     This function retrieves data for several HubSpot API endpoints,
-    including companies, contacts, deals, tickets, products and web
+    including companies, contacts, deals, tickets and web
     analytics events. It returns a tuple of Dlt resources, one for
     each endpoint.
 
@@ -97,6 +95,7 @@ def hubspot(
         yield from crm_objects(
             "company",
             api_key,
+            refresh_token,
             include_history=include_history,
             props=props,
             include_custom_props=include_custom_props,
@@ -113,6 +112,7 @@ def hubspot(
         yield from crm_objects(
             "contact",
             api_key,
+            refresh_token,
             include_history,
             props,
             include_custom_props,
@@ -129,6 +129,7 @@ def hubspot(
         yield from crm_objects(
             "deal",
             api_key,
+            refresh_token,
             include_history,
             props,
             include_custom_props,
@@ -145,22 +146,7 @@ def hubspot(
         yield from crm_objects(
             "ticket",
             api_key,
-            include_history,
-            props,
-            include_custom_props,
-        )
-
-    @dlt.resource(name="products", write_disposition="replace")
-    def products(
-        api_key: str = api_key,
-        include_history: bool = include_history,
-        props: Sequence[str] = DEFAULT_PRODUCT_PROPS,
-        include_custom_props: bool = True,
-    ) -> Iterator[TDataItems]:
-        """Hubspot products resource"""
-        yield from crm_objects(
-            "product",
-            api_key,
+            refresh_token,
             include_history,
             props,
             include_custom_props,
@@ -177,27 +163,42 @@ def hubspot(
         yield from crm_objects(
             "quote",
             api_key,
+            refresh_token,
             include_history,
             props,
             include_custom_props,
         )
 
-    return companies, contacts
+    resource_map = {
+        "companies": companies,
+        "contacts": contacts,
+        "deals": deals,
+        "tickets": tickets,
+        "quotes": quotes,
+    }
+
+    resources = ()
+
+    for endpoint in endpoints:
+        resources += (resource_map[endpoint],)
+
+    return resources
 
 
 def crm_objects(
     object_type: str,
-    api_key: str = dlt.secrets.value,
+    api_key: str,
+    refresh_token: str,
     include_history: bool = False,
     props: Sequence[str] = None,
     include_custom_props: bool = True,
 ) -> Iterator[TDataItems]:
     """Building blocks for CRM resources."""
     if props == ALL:
-        props = list(_get_property_names(api_key, object_type))
+        props = list(_get_property_names(api_key, refresh_token, object_type))
 
     if include_custom_props:
-        all_props = _get_property_names(api_key, object_type)
+        all_props = _get_property_names(api_key, refresh_token, object_type)
         custom_props = [prop for prop in all_props if not prop.startswith("hs_")]
         props = props + custom_props  # type: ignore
 
@@ -216,7 +217,7 @@ def crm_objects(
 
     params = {"properties": props, "limit": 100}
 
-    yield from fetch_data(CRM_OBJECT_ENDPOINTS[object_type], api_key, params=params)
+    yield from fetch_data(CRM_OBJECT_ENDPOINTS[object_type], api_key, refresh_token, params=params)
     if include_history:
         # Get history separately, as requesting both all properties and history together
         # is likely to hit hubspot's URL length limit
@@ -229,59 +230,3 @@ def crm_objects(
                 history_entries,
                 OBJECT_TYPE_PLURAL[object_type] + "_property_history",
             )
-
-
-@dlt.resource
-def hubspot_events_for_objects(
-    object_type: THubspotObjectType,
-    object_ids: List[str],
-    api_key: str = dlt.secrets.value,
-    start_date: pendulum.DateTime = STARTDATE,
-) -> DltResource:
-    """
-    A standalone DLT resources that retrieves web analytics events from the HubSpot API for a particular object type and list of object ids.
-
-    Args:
-        object_type(THubspotObjectType, required): One of the hubspot object types see definition of THubspotObjectType literal
-        object_ids: (List[THubspotObjectType], required): List of object ids to track events
-        api_key (str, optional): The API key used to authenticate with the HubSpot API. Defaults to dlt.secrets.value.
-        start_date (datetime, optional): The initial date time from which start getting events, default to STARTDATE
-
-    Returns:
-        incremental dlt resource to track events for objects from the list
-    """
-
-    end_date = pendulum.now().isoformat()
-    name = object_type + "_events"
-
-    def get_web_analytics_events(
-        occurred_at: dlt.sources.incremental[str],
-    ) -> Iterator[List[Dict[str, Any]]]:
-        """
-        A helper function that retrieves web analytics events for a given object type from the HubSpot API.
-
-        Args:
-            object_type (str): The type of object for which to retrieve web analytics events.
-
-        Yields:
-            dict: A dictionary representing a web analytics event.
-        """
-        for object_id in object_ids:
-            yield from fetch_data(
-                WEB_ANALYTICS_EVENTS_ENDPOINT.format(
-                    objectType=object_type,
-                    objectId=object_id,
-                    occurredAfter=quote(occurred_at.last_value),
-                    occurredBefore=quote(end_date),
-                ),
-                api_key=api_key,
-            )
-
-    return dlt.resource(
-        get_web_analytics_events,
-        name=name,
-        primary_key="id",
-        write_disposition="append",
-        selected=True,
-        table_name=lambda e: name + "_" + str(e["eventType"]),
-    )(dlt.sources.incremental("occurredAt", initial_value=start_date.isoformat()))
