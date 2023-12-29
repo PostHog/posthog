@@ -24,7 +24,6 @@ python
 """
 
 from typing import Literal, Sequence, Iterator
-from urllib.parse import quote
 
 import dlt
 from dlt.common.typing import TDataItems
@@ -38,14 +37,9 @@ from .helpers import (
 from .settings import (
     ALL,
     CRM_OBJECT_ENDPOINTS,
-    DEFAULT_COMPANY_PROPS,
-    DEFAULT_CONTACT_PROPS,
-    DEFAULT_DEAL_PROPS,
-    DEFAULT_TICKET_PROPS,
-    DEFAULT_QUOTE_PROPS,
+    DEFAULT_PROPS,
     OBJECT_TYPE_PLURAL,
-    STARTDATE,
-    WEB_ANALYTICS_EVENTS_ENDPOINT,
+    OBJECT_TYPE_SINGULAR,
 )
 
 THubspotObjectType = Literal["company", "contact", "deal", "ticket", "quote"]
@@ -84,105 +78,19 @@ def hubspot(
         `api_key` argument.
     """
 
-    @dlt.resource(name="companies", write_disposition="replace")
-    def companies(
-        api_key: str = api_key,
-        include_history: bool = include_history,
-        props: Sequence[str] = DEFAULT_COMPANY_PROPS,
-        include_custom_props: bool = True,
-    ) -> Iterator[TDataItems]:
-        """Hubspot companies resource"""
-        yield from crm_objects(
-            "company",
-            api_key,
-            refresh_token,
-            include_history=include_history,
-            props=props,
-            include_custom_props=include_custom_props,
-        )
-
-    @dlt.resource(name="contacts", write_disposition="replace")
-    def contacts(
-        api_key: str = api_key,
-        include_history: bool = include_history,
-        props: Sequence[str] = DEFAULT_CONTACT_PROPS,
-        include_custom_props: bool = True,
-    ) -> Iterator[TDataItems]:
-        """Hubspot contacts resource"""
-        yield from crm_objects(
-            "contact",
-            api_key,
-            refresh_token,
-            include_history,
-            props,
-            include_custom_props,
-        )
-
-    @dlt.resource(name="deals", write_disposition="replace")
-    def deals(
-        api_key: str = api_key,
-        include_history: bool = include_history,
-        props: Sequence[str] = DEFAULT_DEAL_PROPS,
-        include_custom_props: bool = True,
-    ) -> Iterator[TDataItems]:
-        """Hubspot deals resource"""
-        yield from crm_objects(
-            "deal",
-            api_key,
-            refresh_token,
-            include_history,
-            props,
-            include_custom_props,
-        )
-
-    @dlt.resource(name="tickets", write_disposition="replace")
-    def tickets(
-        api_key: str = api_key,
-        include_history: bool = include_history,
-        props: Sequence[str] = DEFAULT_TICKET_PROPS,
-        include_custom_props: bool = True,
-    ) -> Iterator[TDataItems]:
-        """Hubspot tickets resource"""
-        yield from crm_objects(
-            "ticket",
-            api_key,
-            refresh_token,
-            include_history,
-            props,
-            include_custom_props,
-        )
-
-    @dlt.resource(name="quotes", write_disposition="replace")
-    def quotes(
-        api_key: str = api_key,
-        include_history: bool = include_history,
-        props: Sequence[str] = DEFAULT_QUOTE_PROPS,
-        include_custom_props: bool = True,
-    ) -> Iterator[TDataItems]:
-        """Hubspot quotes resource"""
-        yield from crm_objects(
-            "quote",
-            api_key,
-            refresh_token,
-            include_history,
-            props,
-            include_custom_props,
-        )
-
-    resource_map = {
-        "companies": companies,
-        "contacts": contacts,
-        "deals": deals,
-        "tickets": tickets,
-        "quotes": quotes,
-    }
-
-    resources = ()
-
     for endpoint in endpoints:
-        resources += (resource_map[endpoint],)
-
-    return resources
+        yield dlt.resource(
+            crm_objects,
+            name=endpoint,
+            write_disposition="append",
+        )(
+            OBJECT_TYPE_SINGULAR[endpoint],
+            api_key,
+            refresh_token,
+            include_history,
+            DEFAULT_PROPS[endpoint],
+            include_custom_props=True,
+        )
 
 
 def crm_objects(
