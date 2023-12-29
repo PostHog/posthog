@@ -66,81 +66,19 @@ const TypesAndStatusesTemplate: StoryFn<typeof LemonButton> = (props) => {
     )
 }
 
-const ButtonVariants3000 = ({
-    type = 'primary',
-    active = false,
-}: {
-    type?: LemonButtonProps['type']
-    active?: LemonButtonProps['active']
-}): JSX.Element => {
+export const TypesAndStatuses: Story = () => {
     return (
-        <div className="flex gap-2 flex-wrap">
-            {statuses.map((status, index) => (
-                <LemonButton key={index} active={active} type={type} status={status} icon={<IconCalculate />}>
-                    <span className="capitalize">{status}</span>
-                </LemonButton>
-            ))}
+        <div className="space-y-12">
+            <div className="p-2 rounded-lg border">
+                <TypesAndStatusesTemplate />
+            </div>
+            <div className="p-2 bg-bg-light rounded-lg border">
+                <TypesAndStatusesTemplate />
+            </div>
         </div>
     )
 }
 
-export const Types3000: Story = () => {
-    return (
-        <div className="space-y-2">
-            <h5>type=PRIMARY</h5>
-            <div className="border rounded">
-                <div className="p-2">
-                    <ButtonVariants3000 />
-                </div>
-                <div className="p-2">
-                    <h5>Active</h5>
-                    <ButtonVariants3000 active />
-                </div>
-                <div className="p-2 bg-bg-light rounded-b">
-                    <h5>Light background</h5>
-                    <div className="flex gap-2 flex-wrap">
-                        <ButtonVariants3000 />
-                    </div>
-                </div>
-            </div>
-            <h5>type=SECONDARY</h5>
-            <div className="border rounded">
-                <div className="p-2">
-                    <ButtonVariants3000 type="secondary" />
-                </div>
-                <div className="p-2">
-                    <h5>Active</h5>
-                    <ButtonVariants3000 active type="secondary" />
-                </div>
-                <div className="p-2 bg-bg-light rounded-b">
-                    <h5>Light background</h5>
-                    <div className="flex gap-2 flex-wrap">
-                        <ButtonVariants3000 type="secondary" />
-                    </div>
-                </div>
-            </div>
-            <h5>type=TERTIARY</h5>
-            <div className="border rounded">
-                <div className="p-2">
-                    <ButtonVariants3000 type="tertiary" />
-                </div>
-                <div className="p-2">
-                    <h5>Active</h5>
-                    <ButtonVariants3000 active type="tertiary" />
-                </div>
-                <div className="p-2 bg-bg-light rounded-b">
-                    <h5>Light background</h5>
-                    <div className="flex gap-2 flex-wrap">
-                        <ButtonVariants3000 type="tertiary" />
-                    </div>
-                </div>
-            </div>
-        </div>
-    )
-}
-Types3000.args = { ...Default.args }
-
-export const TypesAndStatuses: Story = TypesAndStatusesTemplate.bind({})
 TypesAndStatuses.args = { ...Default.args }
 
 type PopoverStory = StoryObj<typeof LemonButtonWithDropdown>
@@ -230,41 +168,83 @@ export const Active = (): JSX.Element => {
                 <LemonButton>I am not active</LemonButton>
                 <LemonButton active>I am active</LemonButton>
             </div>
+            <div className="flex items-center gap-2">
+                <LemonButton type="primary">I am not active</LemonButton>
+                <LemonButton type="primary" active>
+                    I am active
+                </LemonButton>
+            </div>
+            <div className="flex items-center gap-2">
+                <LemonButton type="primary" status="alt">
+                    I am not active
+                </LemonButton>
+                <LemonButton type="primary" status="alt" active>
+                    I am active
+                </LemonButton>
+            </div>
+            <div className="flex items-center gap-2">
+                <LemonButton type="secondary">I am not active</LemonButton>
+                <LemonButton type="secondary" active>
+                    I am active
+                </LemonButton>
+            </div>
+            <div className="flex items-center gap-2">
+                <LemonButton type="secondary" status="alt">
+                    I am not active
+                </LemonButton>
+                <LemonButton type="secondary" status="alt" active>
+                    I am active
+                </LemonButton>
+            </div>
         </div>
     )
 }
 
 export const PseudoStates = (): JSX.Element => {
     return (
-        <div className="space-y-2">
-            <div className="border rounded p-2">
+        <div className="space-y-8">
+            <div>
                 <div>
                     <h5>TYPE=3D STATE=DEFAULT</h5>
-                    <ButtonVariants3000 />
+                    <StatusesTemplate type="primary" />
                 </div>
                 <div id="hover">
                     <h5>TYPE=3D STATE=HOVER</h5>
-                    <ButtonVariants3000 />
+                    <StatusesTemplate type="primary" />
                 </div>
                 <div id="active">
                     <h5>TYPE=3D STATE=HOVER,ACTIVE</h5>
-                    <ButtonVariants3000 />
+                    <StatusesTemplate type="primary" />
                 </div>
             </div>
-            {/* <div className="border rounded p-2">
+            <div>
+                <div>
+                    <h5>TYPE=SECONDARY STATE=DEFAULT</h5>
+                    <StatusesTemplate type="secondary" />
+                </div>
+                <div id="hover">
+                    <h5>TYPE=SECONDARY STATE=HOVER</h5>
+                    <StatusesTemplate type="secondary" />
+                </div>
+                <div id="active">
+                    <h5>TYPE=SECONDARY STATE=HOVER,ACTIVE</h5>
+                    <StatusesTemplate type="secondary" />
+                </div>
+            </div>
+            <div>
                 <div>
                     <h5>TYPE=TERTIARY STATE=DEFAULT</h5>
-                    <ButtonVariants3000 tertiary />
+                    <StatusesTemplate type="tertiary" />
                 </div>
                 <div id="hover">
                     <h5>TYPE=TERTIARY STATE=HOVER</h5>
-                    <ButtonVariants3000 tertiary />
+                    <StatusesTemplate type="tertiary" />
                 </div>
                 <div id="active">
                     <h5>TYPE=TERTIARY STATE=HOVER,ACTIVE</h5>
-                    <ButtonVariants3000 tertiary />
+                    <StatusesTemplate type="tertiary" />
                 </div>
-            </div> */}
+            </div>
         </div>
     )
 }
@@ -278,7 +258,6 @@ PseudoStates.parameters = {
 export const MenuButtons = (): JSX.Element => {
     return (
         <div className="space-y-2">
-            <p>When a button is used inside a menu item it should have the special status **stealth**</p>
             <div className="border rounded-lg flex flex-col p-2 space-y-1">
                 <LemonButton active>Active item</LemonButton>
                 <LemonButton>Item 1</LemonButton>
@@ -443,7 +422,9 @@ export const More_ = (): JSX.Element => {
                     <LemonButton fullWidth>View</LemonButton>
                     <LemonButton fullWidth>Edit</LemonButton>
                     <LemonDivider />
-                    <LemonButton fullWidth>Delete</LemonButton>
+                    <LemonButton status="danger" fullWidth>
+                        Delete
+                    </LemonButton>
                 </>
             }
         />
