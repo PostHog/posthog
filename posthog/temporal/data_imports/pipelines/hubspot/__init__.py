@@ -23,7 +23,7 @@ python
 >>> resources = hubspot(api_key="hubspot_access_code")
 """
 
-from typing import Literal, Sequence, Iterator
+from typing import Literal, Sequence, Iterator, Iterable
 
 import dlt
 from dlt.common.typing import TDataItems
@@ -54,7 +54,7 @@ def hubspot(
     team_id: int,
     endpoints: Sequence[str] = ("companies", "contacts", "deals", "tickets", "quotes"),
     include_history: bool = False,
-) -> Sequence[DltResource]:
+) -> Iterable[DltResource]:
     """
     A DLT source that retrieves data from the HubSpot API using the
     specified API key.
@@ -103,8 +103,8 @@ def crm_objects(
     object_type: str,
     api_key: str,
     refresh_token: str,
-    include_history: bool = False,
-    props: Sequence[str] = None,
+    include_history: bool,
+    props: Sequence[str],
     include_custom_props: bool = True,
 ) -> Iterator[TDataItems]:
     """Building blocks for CRM resources."""
