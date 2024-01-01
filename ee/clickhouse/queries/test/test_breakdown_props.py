@@ -94,7 +94,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                 "count(*)",
                 self.team,
             )
-            self.assertEqual(res, ["test"])
+            self.assertEqual(res[0], ["test"])
 
     def test_breakdown_person_props_with_entity_filter(self):
         _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test"})
@@ -150,7 +150,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                     }
                 )
                 res = get_breakdown_prop_values(filter, Entity(entity_params[0]), "count(*)", self.team)
-                self.assertEqual(res, ["test"])
+                self.assertEqual(res[0], ["test"])
 
     @snapshot_clickhouse_queries
     def test_breakdown_person_props_with_entity_filter_and_or_props_with_partial_pushdown(self):
@@ -242,7 +242,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
                         "funnel_window_days": 14,
                     }
                 )
-                res = sorted(get_breakdown_prop_values(filter, Entity(entity_params[0]), "count(*)", self.team))
+                res = sorted(get_breakdown_prop_values(filter, Entity(entity_params[0]), "count(*)", self.team)[0])
                 self.assertEqual(res, ["test", "test2"])
 
     @snapshot_clickhouse_queries
@@ -319,7 +319,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
         result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team)
-        self.assertEqual(result, ["finance", "technology"])
+        self.assertEqual(result[0], ["finance", "technology"])
 
         filter = Filter(
             data={
@@ -345,7 +345,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
             }
         )
         result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team)
-        self.assertEqual(result, ["finance", "technology"])
+        self.assertEqual(result[0], ["finance", "technology"])
 
     @snapshot_clickhouse_queries
     def test_breakdown_session_props(self):
@@ -397,7 +397,7 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
             }
         )
         result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team)
-        self.assertEqual(result, [70, 20])
+        self.assertEqual(result[0], [70, 20])
 
     @snapshot_clickhouse_queries
     def test_breakdown_with_math_property_session(self):
@@ -511,10 +511,10 @@ class TestBreakdownProps(ClickhouseTestMixin, APIBaseTest):
         result = get_breakdown_prop_values(filter, filter.entities[0], aggregate_operation, self.team)
         # test should come first, based on aggregate operation, even if absolute count of events for
         # mac is higher
-        self.assertEqual(result, ["test", "mac"])
+        self.assertEqual(result[0], ["test", "mac"])
 
         result = get_breakdown_prop_values(filter, filter.entities[0], "count(*)", self.team)
-        self.assertEqual(result, ["mac", "test"])
+        self.assertEqual(result[0], ["mac", "test"])
 
 
 @pytest.mark.parametrize(

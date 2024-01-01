@@ -119,7 +119,7 @@ export function ActionsLineGraph({
                               openPersonsModal({
                                   title,
                                   query: {
-                                      kind: NodeKind.InsightPersonsQuery,
+                                      kind: NodeKind.InsightActorsQuery,
                                       source: query.source,
                                       day,
                                       status: dataset.status,

@@ -258,8 +258,9 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
             <div className="mt-1">{annotation.content}</div>
             <div className="leading-6 mt-2">
                 <ProfilePicture
-                    name={annotation.creation_type === 'GIT' ? 'GitHub automation' : annotation.created_by?.first_name}
-                    email={annotation.creation_type === 'GIT' ? undefined : annotation.created_by?.email}
+                    user={
+                        annotation.creation_type === 'GIT' ? { first_name: 'GitHub automation' } : annotation.created_by
+                    }
                     showName
                     size="md"
                     type={annotation.creation_type === 'GIT' ? 'bot' : 'person'}

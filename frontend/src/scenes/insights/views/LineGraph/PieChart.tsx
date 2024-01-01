@@ -203,7 +203,6 @@ export function PieChart({
                             tooltipEl.classList.remove('above', 'below', 'no-transform')
                             tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
                             tooltipEl.style.opacity = '1'
-                            tooltipEl.style.display = 'initial'
 
                             if (tooltip.body) {
                                 const referenceDataPoint = tooltip.dataPoints[0] // Use this point as reference to get the date

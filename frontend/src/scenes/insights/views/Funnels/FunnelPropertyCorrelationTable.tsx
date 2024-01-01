@@ -2,7 +2,7 @@ import './FunnelCorrelationTable.scss'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
-import { Col, ConfigProvider, Empty, Row, Table } from 'antd'
+import { ConfigProvider, Empty, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { PersonPropertySelect } from 'lib/components/PersonPropertySelect/PersonPropertySelect'
@@ -135,58 +135,52 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     return steps.length > 1 ? (
         <VisibilitySensor offset={150} id={`${correlationPropKey}-properties`}>
             <div className="funnel-correlation-table">
-                <Row className="funnel-correlation-header">
-                    <Col className="table-header">
+                <div className="funnel-correlation-header">
+                    <div className="table-header">
                         <IconSelectProperties style={{ marginRight: 4, opacity: 0.5, fontSize: 24 }} />
                         CORRELATED PROPERTIES
-                    </Col>
-                    <Col className="table-options">
-                        <Row style={{ display: 'contents' }}>
-                            <>
-                                <p className="title">PROPERTIES </p>
-                                <Popover
-                                    visible={isPropertiesOpen}
-                                    onClickOutside={() => setIsPropertiesOpen(false)}
-                                    overlay={
-                                        <div className="p-4">
-                                            <PersonPropertySelect
-                                                onChange={setPropertyNames}
-                                                selectedProperties={
-                                                    propertyNames.length === 1 && propertyNames[0] === '$all'
-                                                        ? []
-                                                        : propertyNames
-                                                }
-                                                addText="Add properties"
-                                            />
-                                            <br />
-                                            {propertyNames.length === 1 && propertyNames[0] === '$all' ? (
-                                                <>All properties selected</>
-                                            ) : (
-                                                <LemonButton
-                                                    size="small"
-                                                    type="primary"
-                                                    onClick={() => setAllProperties()}
-                                                >
-                                                    Select all properties
-                                                </LemonButton>
-                                            )}
-                                        </div>
-                                    }
-                                >
-                                    <LemonButton size="small" onClick={() => setIsPropertiesOpen(true)}>
+                    </div>
+                    <div className="table-options">
+                        <div className="flex">
+                            <p className="title">PROPERTIES</p>
+                            <Popover
+                                visible={isPropertiesOpen}
+                                onClickOutside={() => setIsPropertiesOpen(false)}
+                                overlay={
+                                    <div className="p-4">
+                                        <PersonPropertySelect
+                                            onChange={setPropertyNames}
+                                            selectedProperties={
+                                                propertyNames.length === 1 && propertyNames[0] === '$all'
+                                                    ? []
+                                                    : propertyNames
+                                            }
+                                            addText="Add properties"
+                                        />
+                                        <br />
                                         {propertyNames.length === 1 && propertyNames[0] === '$all' ? (
                                             <>All properties selected</>
                                         ) : (
-                                            <>
-                                                {propertyNames.length} propert{propertyNames.length === 1 ? 'y' : 'ies'}{' '}
-                                                selected
-                                            </>
+                                            <LemonButton size="small" type="primary" onClick={() => setAllProperties()}>
+                                                Select all properties
+                                            </LemonButton>
                                         )}
-                                    </LemonButton>
-                                </Popover>
-                            </>
-                        </Row>
-                        <Row style={{ display: 'contents' }}>
+                                    </div>
+                                }
+                            >
+                                <LemonButton size="small" onClick={() => setIsPropertiesOpen(true)}>
+                                    {propertyNames.length === 1 && propertyNames[0] === '$all' ? (
+                                        <>All properties selected</>
+                                    ) : (
+                                        <>
+                                            {propertyNames.length} propert{propertyNames.length === 1 ? 'y' : 'ies'}{' '}
+                                            selected
+                                        </>
+                                    )}
+                                </LemonButton>
+                            </Popover>
+                        </div>
+                        <div className="flex">
                             <p className="title ml-2">CORRELATION</p>
                             <div className="flex">
                                 <LemonCheckbox
@@ -204,9 +198,9 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                                     bordered
                                 />
                             </div>
-                        </Row>
-                    </Col>
-                </Row>
+                        </div>
+                    </div>
+                </div>
                 <ConfigProvider
                     renderEmpty={() =>
                         loadedPropertyCorrelationsTableOnce ? (

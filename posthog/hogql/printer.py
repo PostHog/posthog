@@ -30,6 +30,7 @@ from posthog.hogql.escape_sql import (
     escape_hogql_string,
 )
 from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES, validate_function_args, HOGQL_COMPARISON_MAPPING
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.resolver import ResolverException, resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts
@@ -38,6 +39,7 @@ from posthog.hogql.transforms.property_types import resolve_property_types
 from posthog.hogql.visitor import Visitor, clone_expr
 from posthog.models.property import PropertyName, TableColumn
 from posthog.models.team.team import WeekStartDay
+from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.schema import MaterializationMode
 from posthog.utils import PersonOnEventsMode
@@ -56,12 +58,14 @@ def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType]
     )
 
 
-def to_printed_hogql(query: ast.Expr, team_id: int) -> str:
+def to_printed_hogql(query: ast.Expr, team: Team) -> str:
     """Prints the HogQL query without mutating the node"""
     return print_ast(
         clone_expr(query),
         dialect="hogql",
-        context=HogQLContext(team_id=team_id, enable_select_queries=True),
+        context=HogQLContext(
+            team_id=team.pk, enable_select_queries=True, modifiers=create_default_modifiers_for_team(team)
+        ),
         pretty=True,
     )
 
@@ -236,39 +240,28 @@ class _Printer(Visitor):
             next_join = next_join.next_join
 
         if node.select:
-            # Only for ClickHouse: Gather all visible aliases, and/or the last hidden alias for
-            # each unique alias name. Then make the last hidden aliases visible.
             if self.dialect == "clickhouse":
-                visible_aliases = {}
+                # Gather all visible aliases, and/or the last hidden alias for each unique alias name.
+                found_aliases = {}
                 for alias in reversed(node.select):
                     if isinstance(alias, ast.Alias):
-                        if not visible_aliases.get(alias.alias, None) or not alias.hidden:
-                            visible_aliases[alias.alias] = alias
+                        if not found_aliases.get(alias.alias, None) or not alias.hidden:
+                            found_aliases[alias.alias] = alias
 
                 columns = []
                 for column in node.select:
                     if isinstance(column, ast.Alias):
-                        # It's either a visible alias, or the last hidden alias for this name.
-                        if visible_aliases.get(column.alias) == column:
+                        # It's either a visible alias, or the last hidden alias with this name.
+                        if found_aliases.get(column.alias) == column:
                             if column.hidden:
-                                if (
-                                    isinstance(column.expr, ast.Field)
-                                    and isinstance(column.expr.type, ast.FieldType)
-                                    and column.expr.type.name == column.alias
-                                ):
-                                    # Hide the hidden alias only if it's a simple field,
-                                    # and we're using the same name for the field and the alias
-                                    # E.g. events.event AS event --> events.evnet.
-                                    column = column.expr
-                                else:
-                                    # Make the hidden alias visible
-                                    column = cast(ast.Alias, clone_expr(column))
-                                    column.hidden = False
+                                # Make the hidden alias visible
+                                column = cast(ast.Alias, clone_expr(column))
+                                column.hidden = False
                             else:
                                 # Always print visible aliases.
                                 pass
                         else:
-                            # This is not the alias for this unique alias name. Skip it.
+                            # Non-unique hidden alias. Skip.
                             column = column.expr
                     columns.append(self.visit(column))
             else:

@@ -147,6 +147,7 @@ interface UserBaseType {
     uuid: string
     distinct_id: string
     first_name: string
+    last_name?: string
     email: string
 }
 
@@ -164,6 +165,8 @@ export interface SceneDashboardChoice {
     scene: DashboardCompatibleScenes
     dashboard: number | DashboardBasicType
 }
+
+export type UserTheme = 'light' | 'dark' | 'system'
 
 /** Full User model. */
 export interface UserType extends UserBaseType {
@@ -186,8 +189,7 @@ export interface UserType extends UserBaseType {
     has_social_auth: boolean
     has_seen_product_intro_for?: Record<string, boolean>
     scene_personalisation?: SceneDashboardChoice[]
-    /** Null means "sync with system". */
-    theme_mode: 'light' | 'dark' | null
+    theme_mode?: UserTheme | null
 }
 
 export interface NotificationSettings {
@@ -590,6 +592,7 @@ export interface SessionPropertyFilter extends BasePropertyFilter {
 export interface CohortPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Cohort
     key: 'id'
+    /**  @asType integer */
     value: number
 }
 
@@ -871,6 +874,7 @@ export interface MatchedRecording {
 interface CommonActorType {
     id: string | number
     properties: Record<string, any>
+    /** @format date-time */
     created_at: string
     matched_recordings: MatchedRecording[]
     value_at_data_point: number | null
@@ -1759,6 +1763,7 @@ export interface FilterType {
     breakdown_normalize_url?: boolean
     breakdowns?: Breakdown[]
     breakdown_group_type_index?: number | null
+    breakdown_hide_other_aggregation?: boolean | null
     aggregation_group_type_index?: number // Groups aggregation
 }
 
@@ -1869,7 +1874,7 @@ export interface RetentionEntity {
     kind?: NodeKind.ActionsNode | NodeKind.EventsNode
     name?: string
     type?: EntityType
-    // @asType integer
+    /**  @asType integer */
     order?: number
     uuid?: string
     custom_name?: string
@@ -1878,8 +1883,10 @@ export interface RetentionEntity {
 export interface RetentionFilterType extends FilterType {
     retention_type?: RetentionType
     retention_reference?: 'total' | 'previous' // retention wrt cohort size or previous period
-    /** @asType integer */
-    total_intervals?: number // retention total intervals
+    /**
+     * @asType integer
+     */
+    total_intervals?: number
     returning_entity?: RetentionEntity
     target_entity?: RetentionEntity
     period?: RetentionPeriod

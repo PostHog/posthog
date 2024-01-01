@@ -1,6 +1,6 @@
 import { actions, BuiltLogic, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightLogicType } from 'scenes/insights/insightLogicType'

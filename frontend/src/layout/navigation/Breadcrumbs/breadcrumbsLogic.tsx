@@ -1,5 +1,3 @@
-import './Breadcrumbs.scss'
-
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
@@ -114,7 +112,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                     breadcrumbs.push({
                         key: 'me',
                         name: user.first_name,
-                        symbol: <ProfilePicture name={user.first_name} email={user.email} size="md" />,
+                        symbol: <ProfilePicture user={user} size="md" />,
                     })
                 }
                 // Instance

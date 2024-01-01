@@ -67,9 +67,9 @@ export function TrendInsight({ view, context }: Props): JSX.Element {
             {display !== ChartDisplayType.WorldMap && // the world map doesn't need this cta
                 breakdown &&
                 (hasBreakdownOther || loadMoreBreakdownUrl) && (
-                    <div className="my-4 flex flex-col items-center">
-                        <div className="text-muted mb-2">
-                            For readability, <b>not all breakdown values are displayed</b>. Click below to load them.
+                    <div className="my-4 flex flex-col items-center px-2">
+                        <div className="text-muted text-center mb-2">
+                            For readability, <b>not all breakdown values are displayed</b>. Click below to load more.
                         </div>
                         <LemonButton
                             onClick={
