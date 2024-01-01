@@ -12,6 +12,7 @@ from . import (
     sync_all_organization_available_features,
     usage_report,
     user_identify,
+    warehouse,
 )
 
 __all__ = [
@@ -26,4 +27,5 @@ __all__ = [
     "sync_all_organization_available_features",
     "user_identify",
     "usage_report",
+    "warehouse",
 ]

@@ -1,7 +1,6 @@
 import { LemonBanner, LemonDivider, LemonTable, Tooltip } from '@posthog/lemon-ui'
 import { Popconfirm } from 'antd'
 import { useActions, useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconDelete, IconLock, IconLockOpen } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -75,7 +74,6 @@ type RenderAppsTable = {
 function AppsTable({ plugins }: RenderAppsTable): JSX.Element {
     const { unusedPlugins } = useValues(appsManagementLogic)
     const { uninstallPlugin, patchPlugin } = useActions(appsManagementLogic)
-    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     // TODO: row expansion to show the source code and allow updating source apps
 
@@ -176,7 +174,7 @@ function AppsTable({ plugins }: RenderAppsTable): JSX.Element {
                                         className="Plugins__Popconfirm"
                                     >
                                         <LemonButton
-                                            type={is3000 ? 'secondary' : 'primary'}
+                                            type="secondary"
                                             status="danger"
                                             size="small"
                                             icon={<IconDelete />}

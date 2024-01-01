@@ -1,6 +1,6 @@
 describe('Password Reset', () => {
     beforeEach(() => {
-        cy.get('[data-attr=top-menu-toggle]').click()
+        cy.get('[data-attr=menu-item-me]').click()
         cy.get('[data-attr=top-menu-item-logout]').click()
         cy.location('pathname').should('eq', '/login')
     })

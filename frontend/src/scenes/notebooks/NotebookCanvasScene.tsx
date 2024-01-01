@@ -3,9 +3,7 @@ import './NotebookScene.scss'
 import { IconEllipsis } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonMenu, lemonToast } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
-import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { uuid } from 'lib/utils'
 import { getTextFromFile, selectFiles } from 'lib/utils/file-utils'
 import { useMemo } from 'react'
@@ -27,14 +25,6 @@ export function NotebookCanvas(): JSX.Element {
     }
 
     const { duplicateNotebook, exportJSON, setLocalContent } = useActions(notebookLogic(logicProps))
-
-    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
-
-    if (!is3000) {
-        return <NotFound object="canvas" caption={<>Canvas mode requires PostHog 3000</>} />
-    }
-
-    // TODO: The absolute positioning doesn't work so well in non-3000 mode
 
     return (
         <>
