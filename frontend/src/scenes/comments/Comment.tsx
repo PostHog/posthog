@@ -36,12 +36,7 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
             data-comment-id={comment.id}
         >
             <div className="flex-1 flex justify-start p-2 gap-2">
-                <ProfilePicture
-                    className="mt-1"
-                    size="xl"
-                    name={comment.created_by?.first_name}
-                    email={comment.created_by?.email}
-                />
+                <ProfilePicture className="mt-1" size="xl" user={comment.created_by} />
 
                 <div className="flex flex-col flex-1">
                     <div className="flex items-center gap-2">
