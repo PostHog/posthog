@@ -2,6 +2,7 @@ import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonModalProps, Lin
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
+import hubspotLogo from 'public/hubspot-logo.png'
 import stripeLogo from 'public/stripe-logo.svg'
 
 import { ExternalDataSourceType } from '~/types'
@@ -33,6 +34,7 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
             return (
                 <Link to={addToHubspotButtonUrl() || ''}>
                     <LemonButton className="w-100" center type="secondary">
+                        <img src={hubspotLogo} alt={`hubspot logo`} height={50} />
                         Hubspot
                     </LemonButton>
                 </Link>
