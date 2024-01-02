@@ -30,6 +30,7 @@ ActivityScope = Literal[
     "Experiment",
     "Survey",
     "EarlyAccessFeature",
+    "SessionRecordingPlaylist",
     "Comment",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
