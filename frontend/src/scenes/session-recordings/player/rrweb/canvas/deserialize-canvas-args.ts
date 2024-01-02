@@ -3,8 +3,7 @@
  * Modified to limit support to only canvas snapshots (rather than draw commands)
  */
 import type { CanvasArg } from '@rrweb/types'
-import { base64Decode } from 'lib/utils'
-// import { decode } from 'base64-arraybuffer'
+import { base64ArrayBuffer } from 'lib/utils'
 import { Replayer } from 'rrweb'
 
 // TODO: add ability to wipe this list
@@ -50,30 +49,12 @@ export function deserializeCanvasArg(
                 return variableListFor(ctx, name)[index]
             }
             if ('args' in arg) {
-                // XXX: This differs from rrweb, we only support snapshots for now, so
-                // this shouldn't be necessary
-                // const {rr_type: name, args} = arg;
-                //
-                // const ctor = window[name as keyof Window];
-                //
-                // return new ctor(
-                //   ...(await Promise.all(args.map(deserializeCanvasArg(imageMap, ctx, preload))))
-                // );
                 return arg
             }
             if ('base64' in arg) {
-                return base64Decode(arg.base64)
+                return base64ArrayBuffer(arg.base64)
             }
             if ('src' in arg) {
-                // XXX: Likewise, snapshots means there will be no need for image support
-                // const image = imageMap.get(arg.src);
-                // if (image) {
-                //   return image;
-                // }
-                // const newImage = new Image();
-                // newImage.src = arg.src;
-                // imageMap.set(arg.src, newImage);
-                // return newImage;
                 return arg
             }
             if ('data' in arg && arg.rr_type === 'Blob') {
