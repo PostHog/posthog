@@ -329,14 +329,6 @@ const SEARCH_RESULT = {
         },
         {
             type: 'feature_flag',
-            result_id: '161',
-            extra_fields: {
-                key: 'console-recording-search',
-                name: 'console-recording-search',
-            },
-        },
-        {
-            type: 'feature_flag',
             result_id: '134',
             extra_fields: {
                 key: 'early-access-feature',
