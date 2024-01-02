@@ -90,6 +90,10 @@ export function humanize(
     const logLines: HumanizedActivityLogItem[] = []
 
     for (const logItem of results) {
+        if (!logItem.detail || !logItem.scope) {
+            // Sometimes we can end up with bad payloads from the backend so we check for some required fields here
+            continue
+        }
         const describer = describerFor?.(logItem)
 
         if (!describer) {
