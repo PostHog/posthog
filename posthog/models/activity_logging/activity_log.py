@@ -117,7 +117,6 @@ common_field_exclusions = [
     "last_modified_by",
     "updated_at",
     "updated_by",
-    "deleted",
     "team",
     "team_id",
 ]
