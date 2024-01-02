@@ -125,7 +125,7 @@ export const SidePanelActivity = (): JSX.Element => {
                 <div className="shrink-0 space-y-2 p-2">
                     {activeTab === SidePanelActivityTab.Unread ? (
                         <>
-                            <LemonBanner type="info">
+                            <LemonBanner type="info" dismissKey="notifications-introduction">
                                 Notifications shows you changes others make to{' '}
                                 <Link to={urls.savedInsights('history')}>Insights</Link> and{' '}
                                 <Link to={urls.featureFlags('history')}>Feature Flags</Link> that you created. Come join{' '}
