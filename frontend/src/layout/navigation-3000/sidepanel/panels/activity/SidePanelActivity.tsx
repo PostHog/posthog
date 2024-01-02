@@ -2,9 +2,11 @@ import { IconNotification } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonCheckbox,
     LemonSelect,
     LemonSelectOption,
     LemonSkeleton,
+    LemonSwitch,
     LemonTabs,
     Link,
     Spinner,
@@ -51,9 +53,17 @@ export const SidePanelActivity = (): JSX.Element => {
         hasUnread,
         filters,
         filtersForCurrentPage,
+        showDetails,
     } = useValues(sidePanelActivityLogic)
-    const { togglePolling, setActiveTab, maybeLoadOlderActivity, markAllAsRead, loadImportantChanges, setFilters } =
-        useActions(sidePanelActivityLogic)
+    const {
+        togglePolling,
+        setActiveTab,
+        maybeLoadOlderActivity,
+        markAllAsRead,
+        loadImportantChanges,
+        setFilters,
+        toggleShowDetails,
+    } = useActions(sidePanelActivityLogic)
 
     usePageVisibility((pageIsVisible) => {
         togglePolling(pageIsVisible)
@@ -99,6 +109,13 @@ export const SidePanelActivity = (): JSX.Element => {
             label: `This ${humanizeScope(filtersForCurrentPage.scope, true)}`,
         })
     }
+
+    const toggleExtendedDescription = (
+        <>
+            <LemonSwitch bordered label="Show details" checked={showDetails} onChange={toggleShowDetails} />
+        </>
+    )
+
     return (
         <div className="flex flex-col overflow-hidden flex-1">
             <SidePanelPaneHeader title="Activity" />
@@ -133,17 +150,19 @@ export const SidePanelActivity = (): JSX.Element => {
                                 else should be here!
                             </LemonBanner>
 
-                            {hasUnread ? (
-                                <div className="flex justify-end mb-2">
+                            <div className="flex items-center justify-between gap-2">
+                                {toggleExtendedDescription}
+                                {hasUnread ? (
                                     <LemonButton type="secondary" onClick={() => markAllAsRead()}>
                                         Mark all as read
                                     </LemonButton>
-                                </div>
-                            ) : null}
+                                ) : null}
+                            </div>
                         </>
                     ) : activeTab === SidePanelActivityTab.All ? (
                         <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2">
+                                {toggleExtendedDescription}
                                 {allActivityResponseLoading ? <Spinner textColored /> : null}
                             </div>
 
@@ -189,7 +208,11 @@ export const SidePanelActivity = (): JSX.Element => {
                                     <LemonSkeleton className="my-2 h-12" repeat={10} fade />
                                 ) : hasNotifications ? (
                                     notifications.map((logItem, index) => (
-                                        <ActivityLogRow logItem={logItem} key={index} showExtendedDescription={false} />
+                                        <ActivityLogRow
+                                            logItem={logItem}
+                                            key={index}
+                                            showExtendedDescription={showDetails}
+                                        />
                                     ))
                                 ) : (
                                     <div className="border rounded text-center border-dashed p-6 text-muted-alt">
@@ -207,7 +230,7 @@ export const SidePanelActivity = (): JSX.Element => {
                                             <ActivityLogRow
                                                 logItem={logItem}
                                                 key={index}
-                                                showExtendedDescription={false}
+                                                showExtendedDescription={showDetails}
                                             />
                                         ))}
 

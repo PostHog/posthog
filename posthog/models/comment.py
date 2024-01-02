@@ -47,7 +47,7 @@ def log_comment_activity(sender, instance: Comment, created: bool, **kwargs):
         # 3. Pass only the URL which allows us to say "X commented on insight/1234"
 
         # If it is a reply, the scope is the original comment
-        item_id = instance.source_comment_id or instance.item_id
+        item_id: str = instance.source_comment_id or instance.item_id
         scope = "Comment" if instance.source_comment_id else instance.scope
 
         log_activity(

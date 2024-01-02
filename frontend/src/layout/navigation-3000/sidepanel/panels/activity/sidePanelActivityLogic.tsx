@@ -48,6 +48,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
         loadImportantChanges: (onlyUnread = true) => ({ onlyUnread }),
         setFilters: (filters: ActivityFilters | null) => ({ filters }),
         setFiltersForCurrentPage: (filters: ActivityFilters | null) => ({ filters }),
+        toggleShowDetails: (showing?: boolean) => ({ showing }),
     }),
     reducers({
         activeTab: [
@@ -74,6 +75,13 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
             null as ActivityFilters | null,
             {
                 setFiltersForCurrentPage: (_, { filters }) => filters,
+            },
+        ],
+        showDetails: [
+            false,
+            { persist: true },
+            {
+                toggleShowDetails: (state, { showing }) => showing ?? !state,
             },
         ],
     }),

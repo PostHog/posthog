@@ -1,4 +1,5 @@
 import { dayjs } from 'lib/dayjs'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { fullName } from 'lib/utils'
 
 import { ActivityScope, InsightShortId, PersonType } from '~/types'
@@ -151,24 +152,32 @@ export function defaultDescriber(
         }
     }
 
-    if (logItem.activity == 'commented' && logItem.scope === 'Comment') {
-        return {
-            description: (
+    if (logItem.activity == 'commented') {
+        let description: JSX.Element | string
+
+        if (logItem.scope === 'Comment') {
+            description = (
                 <>
                     <strong>{userNameForLogItem(logItem)}</strong> replied to a {humanizeScope(logItem.scope, true)}
                 </>
-            ),
-        }
-    }
-
-    if (logItem.activity == 'commented') {
-        return {
-            description: (
+            )
+        } else {
+            description = (
                 <>
                     <strong>{userNameForLogItem(logItem)}</strong> commented
                     {asNotification ? <> on a {humanizeScope(logItem.scope, true)}</> : null}
                 </>
-            ),
+            )
+        }
+        const commentContent = logItem.detail.changes?.[0].after as string | undefined
+
+        return {
+            description,
+            extendedDescription: commentContent ? (
+                <div className="border rounded bg-bg-light p-4">
+                    <LemonMarkdown lowKeyHeadings>{commentContent}</LemonMarkdown>
+                </div>
+            ) : undefined,
         }
     }
 
