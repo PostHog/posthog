@@ -486,6 +486,75 @@ describe('replay/transform', () => {
                 ).toMatchSnapshot()
             })
 
+            test('isolated add mutation', () => {
+                expect(
+                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                        timestamp: 1,
+                        type: EventType.IncrementalSnapshot,
+                        data: {
+                            source: 0,
+                            adds: [
+                                {
+                                    parentId: 54321,
+                                    wireframe: {
+                                        id: 12365,
+                                        width: 100,
+                                        height: 30,
+                                        type: 'input',
+                                        inputType: 'progress',
+                                        style: { bar: 'rating' },
+                                        max: '12',
+                                        value: '6.5',
+                                    },
+                                },
+                            ],
+                        },
+                    })
+                ).toMatchSnapshot()
+            })
+
+            test('isolated remove mutation', () => {
+                expect(
+                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                        timestamp: 1,
+                        type: EventType.IncrementalSnapshot,
+                        data: {
+                            source: 0,
+                            removes: [{ parentId: 54321, id: 12345 }],
+                        },
+                    })
+                ).toMatchSnapshot()
+            })
+
+            test('isolated update mutation', () => {
+                expect(
+                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                        timestamp: 1,
+                        type: EventType.IncrementalSnapshot,
+                        data: {
+                            source: 0,
+                            texts: [],
+                            attributes: [],
+                            updates: [
+                                {
+                                    parentId: 54321,
+                                    wireframe: {
+                                        id: 12365,
+                                        width: 100,
+                                        height: 30,
+                                        type: 'input',
+                                        inputType: 'progress',
+                                        style: { bar: 'rating' },
+                                        max: '12',
+                                        value: '6.5',
+                                    },
+                                },
+                            ],
+                        },
+                    })
+                ).toMatchSnapshot()
+            })
+
             test('closed keyboard custom event', () => {
                 expect(
                     posthogEEModule.mobileReplay?.transformEventToWeb({
