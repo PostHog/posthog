@@ -18,8 +18,8 @@ import {
     fullSnapshotEvent as MobileFullSnapshotEvent,
     keyboardEvent,
     metaEvent as MobileMetaEvent,
-    MobileAddedNodeMutation,
     MobileIncrementalSnapshotEvent,
+    MobileNodeMutation,
     MobileNodeType,
     NodeType,
     serializedNodeWithId,
@@ -809,7 +809,7 @@ function isMobileIncrementalSnapshotEvent(x: unknown): x is MobileIncrementalSna
     return hasMutationSource && (hasAddedWireframe || hasUpdatedWireframe)
 }
 
-function makeIncrementalAdd(add: MobileAddedNodeMutation): addedNodeMutation | null {
+function makeIncrementalAdd(add: MobileNodeMutation): addedNodeMutation | null {
     const converted = convertWireframe(add.wireframe)
     return converted
         ? {
@@ -820,7 +820,7 @@ function makeIncrementalAdd(add: MobileAddedNodeMutation): addedNodeMutation | n
         : null
 }
 
-function makeIncrementalRemove(update: MobileAddedNodeMutation): removedNodeMutation {
+function makeIncrementalRemove(update: MobileNodeMutation): removedNodeMutation {
     return {
         parentId: update.parentId,
         id: update.wireframe.id,

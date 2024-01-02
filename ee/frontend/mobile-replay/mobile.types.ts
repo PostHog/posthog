@@ -283,14 +283,14 @@ export type incrementalSnapshotEvent = {
     data: any // TODO: this will change as we implement incremental snapshots
 }
 
-export type MobileAddedNodeMutation = {
+export type MobileNodeMutation = {
     parentId: number
     wireframe: wireframe
 }
 
 export type MobileAddedNodeMutationData = {
     source: IncrementalSource.Mutation
-    adds: MobileAddedNodeMutation[]
+    adds: MobileNodeMutation[]
 }
 
 export type MobileUpdatedNodeMutationData = {
@@ -298,7 +298,7 @@ export type MobileUpdatedNodeMutationData = {
     /**
      * @description An update is implemented as a remove and then an add, so the updates array contains the ID of the removed node and the wireframe for the added node
      */
-    updates: MobileAddedNodeMutation[]
+    updates: MobileNodeMutation[]
 }
 
 export type MobileIncrementalSnapshotEvent = {
