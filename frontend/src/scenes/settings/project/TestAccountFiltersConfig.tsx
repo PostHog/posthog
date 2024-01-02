@@ -92,7 +92,7 @@ export function ProjectAccountFiltersSetting(): JSX.Element {
             <p>
                 These filters apply only to queries when the toggle is enabled. Adding filters here does not prevent
                 events or recordings being ingested.{' '}
-                <Link to={'https://posthog.com/tutorials/filter-internal-users'}>Learn more in our docs</Link>
+                <Link to={'https://posthog.com/tutorials/filter-internal-users'}>Learn more in our docs</Link>.
             </p>
             <div className={'mt-4'}>
                 <strong>Example filters</strong>
