@@ -75,7 +75,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 scope: ActivityScope.NOTEBOOK,
                 item_id: props.shortId,
             }),
-            ['comments'],
+            ['comments', 'itemContext'],
         ],
         actions: [
             notebooksModel,
@@ -86,7 +86,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 scope: ActivityScope.NOTEBOOK,
                 item_id: props.shortId,
             }),
-            ['setItemContext', 'sendComposedContentSuccess', 'maybeLoadComments'],
+            ['setItemContext', 'maybeLoadComments'],
         ],
     })),
     actions({
@@ -669,7 +669,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     .map((comment) => comment.item_context?.id)
 
                 editor.getMarks('comment').forEach((mark) => {
-                    if (!commentMarkIds.includes(mark.id)) {
+                    if (!commentMarkIds.includes(mark.id) && values.itemContext?.context?.id !== mark.id) {
                         editor.removeComment(mark.pos)
                     }
                 })
