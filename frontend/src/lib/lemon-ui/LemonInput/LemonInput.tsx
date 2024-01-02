@@ -33,7 +33,7 @@ interface LemonInputPropsBase
     /** Element to prefix input field */
     prefix?: React.ReactElement | null
     /** Element to suffix input field */
-    suffix?: React.ReactElement | null
+    suffix?: React.ReactElement | string | null
     /** Whether input field is disabled */
     disabled?: boolean
     /** Whether input field is full width */
