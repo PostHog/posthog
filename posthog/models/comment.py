@@ -1,3 +1,4 @@
+from typing import cast
 from django.db import models
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.signals import mutable_receiver
@@ -47,7 +48,7 @@ def log_comment_activity(sender, instance: Comment, created: bool, **kwargs):
         # 3. Pass only the URL which allows us to say "X commented on insight/1234"
 
         # If it is a reply, the scope is the original comment
-        item_id: str = instance.source_comment_id or instance.item_id
+        item_id = cast(str, instance.source_comment_id) or instance.item_id
         scope = "Comment" if instance.source_comment_id else instance.scope
 
         log_activity(
