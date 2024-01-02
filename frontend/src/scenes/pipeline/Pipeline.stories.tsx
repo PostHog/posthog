@@ -23,7 +23,7 @@ export default {
             },
         }),
     ],
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' }, // scene mode
+    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story', mockDate: '2023-02-18' }, // scene mode
 } as Meta
 
 export function PipelineLandingPage(): JSX.Element {
