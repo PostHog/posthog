@@ -1,5 +1,6 @@
 import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -10,7 +11,6 @@ import { PipelineAppTabs, PipelineTabs } from '~/types'
 import { appMetricsLogic } from './appMetricsLogic'
 import { appsManagementLogic } from './appsManagementLogic'
 import { pipelineLogic } from './pipelineLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export default {
     title: 'Scenes-App/Pipeline',
