@@ -135,7 +135,7 @@ export function humanizeScope(scope: ActivityScope, singular = false): string {
 }
 
 export function defaultDescriber(logItem: ActivityLogItem, resource?: string | JSX.Element): HumanizedChange {
-    resource = resource || logItem.detail.name || `a ${humanizeScope(logItem.scope)}`
+    resource = resource || logItem.detail.name || `a ${humanizeScope(logItem.scope, true)}`
 
     if (logItem.activity == 'deleted') {
         return {
@@ -147,11 +147,21 @@ export function defaultDescriber(logItem: ActivityLogItem, resource?: string | J
         }
     }
 
+    if (logItem.activity == 'commented' && logItem.scope === 'Comment') {
+        return {
+            description: (
+                <>
+                    <strong>{userNameForLogItem(logItem)}</strong> replied to a {humanizeScope(logItem.scope, true)}
+                </>
+            ),
+        }
+    }
+
     if (logItem.activity == 'commented') {
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> commented on {resource}
+                    <strong>{userNameForLogItem(logItem)}</strong> commented on a {humanizeScope(logItem.scope, true)}
                 </>
             ),
         }

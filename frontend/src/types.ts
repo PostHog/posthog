@@ -3255,6 +3255,7 @@ export enum ActivityScope {
     EXPERIMENT = 'Experiment',
     SURVEY = 'Survey',
     EARLY_ACCESS_FEATURE = 'EarlyAccessFeature',
+    COMMENT = 'Comment',
 }
 
 export type CommentType = {

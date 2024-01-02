@@ -37,7 +37,7 @@ def log_comment_activity(sender, instance: Comment, created: bool, **kwargs):
         # 2. The resource commented on (title, link)
 
         # For filtering important changes we need to know
-        # 1. The thing that was commented on (Ben commented on your insight/1234)
+        # 1. The thing that was commented on (Ben commented on your insight/1234) - NOTE: We don't have the short_id here...
         # 2. The reply thread (Paul replied to your comment on insight/1234)
         # 3. Persons mentioned in the comment (@Ben mentioned you in insight/1234)
 
@@ -58,7 +58,8 @@ def log_comment_activity(sender, instance: Comment, created: bool, **kwargs):
             scope=scope,
             activity="commented",
             detail=Detail(
-                name=instance.content,
+                # name=TODO,
+                # short_id=TODO,
                 changes=[Change(type="Comment", field="content", action="created", after=instance.content)],
             ),
         )
