@@ -1,7 +1,7 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
-import api from 'lib/api'
+import api, { PaginatedResponse } from 'lib/api'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogItem, humanize, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { dayjs } from 'lib/dayjs'
@@ -137,12 +137,11 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
             },
         ],
         allActivityResponse: [
-            null as ChangesResponse | null,
+            null as PaginatedResponse<ActivityLogItem> | null,
             {
                 loadAllActivity: async (_, breakpoint) => {
-                    const response = await api.get<ChangesResponse>(
-                        `api/projects/${teamLogic.values.currentTeamId}/activity_log?` + toParams(values.filters ?? {})
-                    )
+                    const response = await api.activity.list(values.filters ?? {})
+
                     breakpoint()
                     return response
                 },
@@ -154,7 +153,7 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                         return values.allActivityResponse
                     }
 
-                    const response = await api.get<ChangesResponse>(values.allActivityResponse.next)
+                    const response = await api.get<PaginatedResponse<ActivityLogItem>>(values.allActivityResponse.next)
 
                     response.results = [...values.allActivityResponse.results, ...response.results]
 

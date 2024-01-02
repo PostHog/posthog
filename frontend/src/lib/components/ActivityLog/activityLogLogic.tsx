@@ -65,7 +65,7 @@ export const activityLogLogic = kea<activityLogLogicType>([
         activity: [
             { results: [], total_count: 0 } as ActivityLogPaginatedResponse<ActivityLogItem>,
             {
-                fetchActivity: async () => await api.activity.list(props, values.page),
+                fetchActivity: async () => await api.activity.listLegacy(props, values.page),
             },
         ],
     })),

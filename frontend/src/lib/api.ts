@@ -701,6 +701,11 @@ class ApiRequest {
         return this.externalDataSchemas(teamId).addPathComponent(schemaId)
     }
 
+    // ActivityLog
+    public activity_log(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('activity_log')
+    }
+
     // Request finalization
     public async get(options?: ApiMethodOptions): Promise<any> {
         return await api.get(this.assembleFullUrl(), options)
@@ -867,11 +872,19 @@ const api = {
 
     activity: {
         list(
+            filters: Partial<Pick<ActivityLogItem, 'item_id' | 'scope'> & { user?: UserBasicType['id'] }>,
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+        ): Promise<PaginatedResponse<ActivityLogItem>> {
+            return new ApiRequest().activity_log(teamId).withQueryString(toParams(filters)).get()
+        },
+
+        listLegacy(
             activityLogProps: ActivityLogProps,
             page: number = 1,
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): Promise<ActivityLogPaginatedResponse<ActivityLogItem>> {
-            const requestForScope: Record<ActivityScope, (props: ActivityLogProps) => ApiRequest | null> = {
+            // TODO: Can we replace all these endpoint specific implementations with the generic REST endpoint above?
+            const requestForScope: { [key in ActivityScope]?: (props: ActivityLogProps) => ApiRequest | null } = {
                 [ActivityScope.FEATURE_FLAG]: (props) => {
                     return new ApiRequest().featureFlagsActivity((props.id ?? null) as number | null, teamId)
                 },
@@ -906,8 +919,8 @@ const api = {
             }
 
             const pagingParameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE }
-            const request = requestForScope[activityLogProps.scope](activityLogProps)
-            return request !== null
+            const request = requestForScope[activityLogProps.scope]?.(activityLogProps)
+            return request && request !== null
                 ? request.withQueryString(toParams(pagingParameters)).get()
                 : Promise.resolve({ results: [], count: 0 })
         },
@@ -935,17 +948,11 @@ const api = {
             return new ApiRequest().comment(id, teamId).get()
         },
 
-        // TODO: Abstract params between list and getCount
-        async list(
-            params: {
-                scope?: CommentType['scope']
-                item_id?: CommentType['item_id']
-            } = {}
-        ): Promise<CountedPaginatedResponse<CommentType>> {
+        async list(params: Partial<CommentType> = {}): Promise<CountedPaginatedResponse<CommentType>> {
             return new ApiRequest().comments().withQueryString(params).get()
         },
 
-        async getCount(params: { scope?: CommentType['scope']; item_id?: CommentType['item_id'] }): Promise<number> {
+        async getCount(params: Partial<CommentType>): Promise<number> {
             return (await new ApiRequest().comments().withAction('count').withQueryString(params).get()).count
         },
     },
