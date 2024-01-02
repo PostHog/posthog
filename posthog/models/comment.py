@@ -21,7 +21,7 @@ class Comment(UUIDModel):
     scope = models.CharField(max_length=79, null=False)
 
     # Threads/replies are simply comments with a source_comment_id
-    source_comment_id: models.ForeignKey = models.ForeignKey("Comment", on_delete=models.CASCADE, null=True, blank=True)
+    source_comment: models.ForeignKey = models.ForeignKey("Comment", on_delete=models.CASCADE, null=True, blank=True)
 
     class Meta:
         indexes = [models.Index(fields=["team_id", "scope", "item_id"])]
@@ -31,19 +31,32 @@ class Comment(UUIDModel):
 def log_comment_activity(sender, instance: Comment, created: bool, **kwargs):
     if created:
         # TRICKY: - Comments relate to a "thing" like a flag or insight. When we log the activity we need to know what the "thing" is
-        # to store the name that should be displayed. Rather than lookup the item every time, we
 
-        # TODO: Ensure we got this right, people should get notified when
-        # 1. A comment is placed on something they are interested in
-        # 2. A comment is in reply to a thread they started (for now)
-        # 3. A comment includes a @mention of them
+        # Rendering in the frontend we need
+        # 1. The comment content
+        # 2. The resource commented on (title, link)
+
+        # For filtering important changes we need to know
+        # 1. The thing that was commented on (Ben commented on your insight/1234)
+        # 2. The reply thread (Paul replied to your comment on insight/1234)
+        # 3. Persons mentioned in the comment (@Ben mentioned you in insight/1234)
+
+        # Options:
+        # 1. Pass the information when commenting needed for the activity log (title, link)
+        # 2. Lookup the information when loading the activity (could be pretty slow as well as needing custom logic for each type of thing)
+        # 3. Pass only the URL which allows us to say "X commented on insight/1234"
+
+        # If it is a reply, the scope is the original comment
+        item_id = instance.source_comment_id or instance.item_id
+        scope = "Comment" if instance.source_comment_id else instance.scope
+
         log_activity(
             organization_id=None,
             team_id=instance.team_id,
             user=instance.created_by,
-            item_id=instance.id,
-            scope=instance.scope,
-            activity="created",
+            item_id=item_id,
+            scope=scope,
+            activity="commented",
             detail=Detail(
                 name=instance.content,
                 changes=[Change(type="Comment", field="content", action="created", after=instance.content)],
