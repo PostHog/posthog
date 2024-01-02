@@ -930,6 +930,7 @@ export const makeIncrementalEvent = (
             attributes: [],
             texts: [],
             adds,
+            // TODO: this assumes that removes are processed before adds 🤞
             removes,
         }
     }
