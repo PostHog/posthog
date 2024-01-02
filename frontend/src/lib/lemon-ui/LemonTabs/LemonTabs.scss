@@ -19,6 +19,7 @@
 
     &.LemonTabs--borderless {
         --lemon-tabs-margin-bottom: 0;
+
         .LemonTabs__bar::before {
             content: none;
         }
@@ -29,11 +30,11 @@
         display: flex;
         flex-direction: row;
         flex-shrink: 0;
+        gap: var(--lemon-tabs-gap);
         align-items: stretch;
         margin-bottom: var(--lemon-tabs-margin-bottom);
         overflow-x: auto;
         list-style: none;
-        gap: var(--lemon-tabs-gap);
 
         &::before {
             position: absolute;
