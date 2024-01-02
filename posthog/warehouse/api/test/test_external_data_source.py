@@ -30,7 +30,7 @@ class TestSavedQuery(APIBaseTest):
     def test_create_external_data_source(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/external_data_sources/",
-            data={"source_type": "Stripe", "payload": {"client_secret": "sk_test_123"}},
+            data={"source_type": "Stripe", "client_secret": "sk_test_123"},
         )
         payload = response.json()
 
@@ -46,7 +46,7 @@ class TestSavedQuery(APIBaseTest):
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/external_data_sources/",
-            data={"source_type": "Stripe", "payload": {"client_secret": "sk_test_123"}},
+            data={"source_type": "Stripe", "client_secret": "sk_test_123"},
         )
         self.assertEqual(response.status_code, 201)
 
@@ -54,7 +54,7 @@ class TestSavedQuery(APIBaseTest):
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/external_data_sources/",
-            data={"source_type": "Stripe", "payload": {"client_secret": "sk_test_123"}},
+            data={"source_type": "Stripe", "client_secret": "sk_test_123"},
         )
 
         self.assertEqual(response.status_code, 400)
@@ -63,7 +63,7 @@ class TestSavedQuery(APIBaseTest):
         # Create with prefix
         response = self.client.post(
             f"/api/projects/{self.team.id}/external_data_sources/",
-            data={"source_type": "Stripe", "payload": {"client_secret": "sk_test_123"}, "prefix": "test_"},
+            data={"source_type": "Stripe", "client_secret": "sk_test_123", "prefix": "test_"},
         )
 
         self.assertEqual(response.status_code, 201)
@@ -71,7 +71,7 @@ class TestSavedQuery(APIBaseTest):
         # Try to create same type with same prefix again
         response = self.client.post(
             f"/api/projects/{self.team.id}/external_data_sources/",
-            data={"source_type": "Stripe", "payload": {"client_secret": "sk_test_123"}, "prefix": "test_"},
+            data={"source_type": "Stripe", "client_secret": "sk_test_123", "prefix": "test_"},
         )
 
         self.assertEqual(response.status_code, 400)
