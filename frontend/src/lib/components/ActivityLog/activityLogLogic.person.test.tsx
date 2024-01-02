@@ -12,7 +12,7 @@ describe('the activity log logic', () => {
         it('can handle addition of a property', async () => {
             const logic = await personTestSetup('test person', 'updated', [
                 {
-                    type: 'Person',
+                    type: ActivityScope.PERSON,
                     action: 'changed',
                     field: 'properties',
                 },
@@ -24,7 +24,7 @@ describe('the activity log logic', () => {
 
         it('can handle merging people', async () => {
             const logic = await personTestSetup('test person', 'people_merged_into', null, {
-                type: 'Person',
+                type: ActivityScope.PERSON,
                 source: [
                     { distinct_ids: ['a'], properties: {} },
                     { distinct_ids: ['c'], properties: {} },
@@ -41,7 +41,7 @@ describe('the activity log logic', () => {
         it('can handle splitting people', async () => {
             const logic = await personTestSetup('test_person', 'split_person', [
                 {
-                    type: 'Person',
+                    type: ActivityScope.PERSON,
                     action: 'changed',
                     field: undefined,
                     before: {},

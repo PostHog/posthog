@@ -17,7 +17,7 @@ describe('the activity log logic', () => {
         it('can handle change of key', async () => {
             const logic = await featureFlagsTestSetup('test flag', 'updated', [
                 {
-                    type: 'FeatureFlag',
+                    type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
                     field: 'key',
                     before: 'the-first-key',
@@ -34,7 +34,7 @@ describe('the activity log logic', () => {
         it('can handle soft deletion', async () => {
             const logic = await featureFlagsTestSetup('test flag', 'updated', [
                 {
-                    type: 'FeatureFlag',
+                    type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
                     field: 'deleted',
                     after: 'true',
@@ -48,7 +48,7 @@ describe('the activity log logic', () => {
         it('can handle soft un-deletion', async () => {
             const logic = await featureFlagsTestSetup('test flag', 'updated', [
                 {
-                    type: 'FeatureFlag',
+                    type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
                     field: 'deleted',
                     after: 'false',
@@ -62,7 +62,7 @@ describe('the activity log logic', () => {
         it('can handle soft enabling flag', async () => {
             const logic = await featureFlagsTestSetup('test flag', 'updated', [
                 {
-                    type: 'FeatureFlag',
+                    type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
                     field: 'active',
                     after: 'true',
@@ -76,7 +76,7 @@ describe('the activity log logic', () => {
         it('can handle soft disabling flag', async () => {
             const logic = await featureFlagsTestSetup('test flag', 'updated', [
                 {
-                    type: 'FeatureFlag',
+                    type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
                     field: 'active',
                     after: 'false',
@@ -90,7 +90,7 @@ describe('the activity log logic', () => {
         it('can handle enabling experience continuity for a flag', async () => {
             const logic = await featureFlagsTestSetup('test flag', 'updated', [
                 {
-                    type: 'FeatureFlag',
+                    type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
                     field: 'ensure_experience_continuity',
                     after: 'true',
@@ -106,7 +106,7 @@ describe('the activity log logic', () => {
         it('can handle disabling experience continuity for a flag', async () => {
             const logic = await featureFlagsTestSetup('test flag', 'updated', [
                 {
-                    type: 'FeatureFlag',
+                    type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
                     field: 'ensure_experience_continuity',
                     after: 'false',
@@ -122,7 +122,7 @@ describe('the activity log logic', () => {
         it('can handle deleting several groups from a flag', async () => {
             const logic = await featureFlagsTestSetup('test flag', 'updated', [
                 {
-                    type: 'FeatureFlag',
+                    type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
                     field: 'filters',
                     before: {
@@ -177,7 +177,7 @@ describe('the activity log logic', () => {
         it('can handle deleting a group from a flag', async () => {
             const logic = await featureFlagsTestSetup('test flag', 'updated', [
                 {
-                    type: 'FeatureFlag',
+                    type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
                     field: 'filters',
                     before: {
@@ -228,7 +228,7 @@ describe('the activity log logic', () => {
         it('can handle rollout percentage change', async () => {
             const logic = await featureFlagsTestSetup('test flag', 'updated', [
                 {
-                    type: 'FeatureFlag',
+                    type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
                     field: 'rollout_percentage',
                     after: '36',
@@ -245,7 +245,7 @@ describe('the activity log logic', () => {
         it('can handle deleting the first of several groups from a flag', async () => {
             const logic = await featureFlagsTestSetup('test flag', 'updated', [
                 {
-                    type: 'FeatureFlag',
+                    type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
                     field: 'filters',
                     before: {
@@ -289,13 +289,13 @@ describe('the activity log logic', () => {
         it('can humanize more than one change', async () => {
             const logic = await featureFlagsTestSetup('test flag', 'updated', [
                 {
-                    type: 'FeatureFlag',
+                    type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
                     field: 'rollout_percentage',
                     after: '36',
                 },
                 {
-                    type: 'FeatureFlag',
+                    type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
                     field: 'name',
                     after: 'strawberry',
@@ -312,7 +312,7 @@ describe('the activity log logic', () => {
         it('can handle filter change - boolean value, no conditions', async () => {
             const logic = await featureFlagsTestSetup('test flag', 'updated', [
                 {
-                    type: 'FeatureFlag',
+                    type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
                     field: 'filters',
                     after: { groups: [{ properties: [], rollout_percentage: 99 }], multivariate: null },
@@ -329,7 +329,7 @@ describe('the activity log logic', () => {
         it('can handle filter change with cohort', async () => {
             const logic = await featureFlagsTestSetup('with cohort', 'updated', [
                 {
-                    type: 'FeatureFlag',
+                    type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
                     field: 'filters',
                     after: {
@@ -371,7 +371,7 @@ describe('the activity log logic', () => {
         it('can describe a simple rollout percentage change', async () => {
             const logic = await featureFlagsTestSetup('with simple rollout change', 'updated', [
                 {
-                    type: 'FeatureFlag',
+                    type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
                     field: 'filters',
                     before: {
@@ -404,7 +404,7 @@ describe('the activity log logic', () => {
         it('describes a null rollout percentage as 100%', async () => {
             const logic = await featureFlagsTestSetup('with null rollout change', 'updated', [
                 {
-                    type: 'FeatureFlag',
+                    type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
                     field: 'filters',
                     before: {
@@ -462,7 +462,7 @@ describe('the activity log logic', () => {
         it('can describe two property changes', async () => {
             const logic = await featureFlagsTestSetup('with two changes', 'updated', [
                 {
-                    type: 'FeatureFlag',
+                    type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
                     field: 'filters',
                     before: {

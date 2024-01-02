@@ -25,7 +25,7 @@ describe('the activity log logic', () => {
                     type: undefined,
                     changes: [
                         {
-                            type: 'Notebook',
+                            type: ActivityScope.NOTEBOOK,
                             after: {
                                 type: 'doc',
                                 content: [
@@ -82,7 +82,7 @@ describe('the activity log logic', () => {
                             },
                         },
                         {
-                            type: 'Notebook',
+                            type: ActivityScope.NOTEBOOK,
                             after: 12,
                             field: 'version',
                             action: 'changed',
