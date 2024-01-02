@@ -8,7 +8,6 @@ from posthog.models.utils import CreatedMetaFields, UUIDModel, sane_repr
 class ExternalDataSource(CreatedMetaFields, UUIDModel):
     class Type(models.TextChoices):
         STRIPE = "Stripe", "Stripe"
-        HUBSPOT = "Hubspot", "Hubspot"
 
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
