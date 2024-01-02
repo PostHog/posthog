@@ -20,9 +20,6 @@ class Comment(UUIDModel):
     item_context = models.JSONField(null=True)
     scope = models.CharField(max_length=79, null=False)
 
-    # TODO: How do we allow comments to exist on individual elements such as a line in a Notebook?
-    # Maybe the right way is to create a Mark in a notebook and then have that store the CommentID, keeping the comments clean
-
     # Threads/replies are simply comments with a source_comment_id
     source_comment_id: models.ForeignKey = models.ForeignKey("Comment", on_delete=models.CASCADE, null=True, blank=True)
 

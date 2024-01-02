@@ -3270,7 +3270,7 @@ export type CommentType = {
 }
 
 export type NotebookListItemType = {
-    // id: string
+    id: string
     short_id: string
     title?: string
     is_template?: boolean
