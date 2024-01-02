@@ -70,7 +70,7 @@ def log_notebook_activity(
         organization_id=organization_id,
         team_id=team_id,
         user=user,
-        item_id=notebook.id,
+        item_id=notebook.short_id,
         scope="Notebook",
         activity=activity,
         detail=Detail(changes=changes, short_id=short_id, name=notebook.title),

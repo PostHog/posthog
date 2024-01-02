@@ -32,6 +32,7 @@ export const commentsLogic = kea<commentsLogicType>([
     // TODO: Connect to sidePanelDiscussionLogic and update the commentCount
     actions({
         loadComments: true,
+        maybeLoadComments: true,
         setComposedComment: (content: string) => ({ content }),
         sendComposedContent: true,
         deleteComment: (comment: CommentType) => ({ comment }),
@@ -158,6 +159,11 @@ export const commentsLogic = kea<commentsLogicType>([
         },
         focusComposer: () => {
             values.composerRef?.focus()
+        },
+        maybeLoadComments: () => {
+            if (!values.comments && !values.commentsLoading) {
+                actions.loadComments()
+            }
         },
     })),
 

@@ -2,9 +2,8 @@ import { afterMount, connect, kea, key, path, props, selectors } from 'kea'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
 import { notebooksModel } from '~/models/notebooksModel'
-import { ActivityScope, Breadcrumb } from '~/types'
+import { Breadcrumb } from '~/types'
 
 import { notebookLogic } from './Notebook/notebookLogic'
 import type { notebookSceneLogicType } from './notebookSceneLogicType'
@@ -41,18 +40,6 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
                     name: notebook ? notebook?.title || 'Unnamed' : loading ? null : 'Notebook not found',
                 },
             ],
-        ],
-
-        activityFilters: [
-            (s) => [s.notebook],
-            (notebook): ActivityFilters | null => {
-                return notebook
-                    ? {
-                          scope: ActivityScope.NOTEBOOK,
-                          item_id: notebook.id,
-                      }
-                    : null
-            },
         ],
     })),
 

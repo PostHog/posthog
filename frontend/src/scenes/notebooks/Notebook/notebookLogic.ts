@@ -86,7 +86,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 scope: ActivityScope.NOTEBOOK,
                 item_id: props.shortId,
             }),
-            ['setItemContext', 'sendComposedContentSuccess'],
+            ['setItemContext', 'sendComposedContentSuccess', 'maybeLoadComments'],
         ],
     })),
     actions({
@@ -580,7 +580,10 @@ export const notebookLogic = kea<notebookLogicType>([
         },
 
         saveNotebookSuccess: actions.scheduleNotebookRefresh,
-        loadNotebookSuccess: actions.scheduleNotebookRefresh,
+        loadNotebookSuccess: () => {
+            actions.scheduleNotebookRefresh()
+            actions.maybeLoadComments()
+        },
 
         exportJSON: () => {
             const file = new File(
@@ -625,6 +628,7 @@ export const notebookLogic = kea<notebookLogicType>([
         // Comments
         insertComment: ({ context }) => {
             actions.openSidePanel(SidePanelTab.Discussion)
+
             actions.setItemContext(context, (result) => {
                 if (!result.sent && values.editor) {
                     const pos = values.editor.findCommentPosition(context.id)
@@ -657,12 +661,8 @@ export const notebookLogic = kea<notebookLogicType>([
             // If the notebook ever changes, we want to reset the scheduled refresh
             actions.scheduleNotebookRefresh()
         },
-        comments: (comments: CommentType[] | undefined | null, prevComments: CommentType[] | undefined | null) => {
-            const commentsLoaded = comments && comments.length >= 0 && prevComments === null
-            const commentsCountChanged =
-                comments?.length && prevComments?.length ? comments?.length != prevComments?.length : false
-
-            if ((commentsLoaded || commentsCountChanged) && comments && values.editor) {
+        comments: (comments: CommentType[] | undefined | null) => {
+            if (comments && values.editor) {
                 const { editor } = values
                 const commentMarkIds = comments
                     .filter((comment) => comment.item_context?.type === 'mark')
