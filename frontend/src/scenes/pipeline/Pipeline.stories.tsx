@@ -1,5 +1,6 @@
 import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -23,7 +24,13 @@ export default {
             },
         }),
     ],
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' }, // scene mode
+    parameters: {
+        layout: 'fullscreen',
+        options: { showPanel: false },
+        viewMode: 'story',
+        mockDate: '2023-02-18',
+        featureFlags: [FEATURE_FLAGS.PIPELINE_UI],
+    }, // scene mode
 } as Meta
 
 export function PipelineLandingPage(): JSX.Element {
@@ -59,6 +66,19 @@ export function PipelineTransformationsPage(): JSX.Element {
     })
     useEffect(() => {
         router.actions.push(urls.pipeline(PipelineTabs.Transformations))
+        pipelineLogic.mount()
+    }, [])
+    return <App />
+}
+export function PipelineDestinationsPage(): JSX.Element {
+    useStorybookMocks({
+        get: {
+            'api/organizations/@current/pipeline_destinations/': require('./__mocks__/plugins.json'),
+            'api/projects/:team_id/pipeline_destinations_configs/': require('./__mocks__/transformationPluginConfigs.json'),
+        },
+    })
+    useEffect(() => {
+        router.actions.push(urls.pipeline(PipelineTabs.Destinations))
         pipelineLogic.mount()
     }, [])
     return <App />

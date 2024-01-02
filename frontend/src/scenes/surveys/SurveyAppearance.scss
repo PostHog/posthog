@@ -121,7 +121,15 @@
 .description {
     margin-top: 5px;
     font-size: 13px;
-    opacity: 0.6;
+    color: rgba(var(--survey-text-color), 0.6);
+
+    a {
+        color: rgb(var(--survey-text-color));
+
+        &:hover {
+            color: rgba(var(--survey-text-color), 0.6);
+        }
+    }
 }
 
 .ratings-number {
@@ -302,4 +310,23 @@
 
 .bottom-section {
     margin-top: 14px;
+}
+
+.ph-survey-widget-tab {
+    position: fixed;
+    top: 50%;
+    right: 0;
+    z-index: 9999999;
+    min-width: 40px;
+    padding: 8px 12px;
+    font-weight: 500;
+    text-align: center;
+    cursor: pointer;
+    border-radius: 3px 3px 0 0;
+    transform: rotate(-90deg) translate(0, -100%);
+    transform-origin: right top;
+}
+
+.ph-survey-widget-tab:hover {
+    padding-bottom: 13px;
 }

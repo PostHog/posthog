@@ -18,12 +18,14 @@ from posthog.warehouse.data_load.service import (
     delete_external_data_schedule,
     cancel_external_data_workflow,
     delete_data_import_folder,
+    is_any_external_data_job_paused,
 )
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema, ExternalDataJob
 from posthog.warehouse.api.external_data_schema import ExternalDataSchemaSerializer
-from posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline import (
+from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
+import temporalio
 
 logger = structlog.get_logger(__name__)
 
@@ -32,7 +34,7 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
     account_id = serializers.CharField(write_only=True)
     client_secret = serializers.CharField(write_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
-    schemas = ExternalDataSchemaSerializer(many=True, read_only=True)
+    schemas = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = ExternalDataSource
@@ -58,6 +60,23 @@ class ExternalDataSourceSerializers(serializers.ModelSerializer):
         )
 
         return latest_completed_run.created_at if latest_completed_run else None
+
+    def get_schemas(self, instance: ExternalDataSource):
+        schemas = instance.schemas.order_by("name").all()
+        return ExternalDataSchemaSerializer(schemas, many=True, read_only=True).data
+
+
+class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
+    class Meta:
+        model = ExternalDataSource
+        fields = [
+            "id",
+            "created_at",
+            "created_by",
+            "status",
+            "source_type",
+        ]
+        read_only_fields = ["id", "created_by", "created_at", "status", "source_type"]
 
 
 class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
@@ -101,6 +120,12 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             elif self.prefix_exists(source_type, prefix):
                 return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Prefix already exists"})
 
+        if is_any_external_data_job_paused(self.team_id):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Monthly sync limit reached. Please contact PostHog support to increase your limit."},
+            )
+
         # TODO: remove dummy vars
         new_source_model = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -123,7 +148,11 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 source=new_source_model,
             )
 
-        sync_external_data_job_workflow(new_source_model, create=True)
+        try:
+            sync_external_data_job_workflow(new_source_model, create=True)
+        except Exception as e:
+            # Log error but don't fail because the source model was already created
+            logger.exception("Could not trigger external data job", exc_info=e)
 
         return Response(status=status.HTTP_201_CREATED, data={"id": new_source_model.pk})
 
@@ -168,7 +197,23 @@ class ExternalDataSourceViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["POST"], detail=True)
     def reload(self, request: Request, *args: Any, **kwargs: Any):
         instance = self.get_object()
-        trigger_external_data_workflow(instance)
+
+        if is_any_external_data_job_paused(self.team_id):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Monthly sync limit reached. Please contact PostHog support to increase your limit."},
+            )
+
+        try:
+            trigger_external_data_workflow(instance)
+
+        except temporalio.service.RPCError as e:
+            # schedule doesn't exist
+            if e.message == "sql: no rows in result set":
+                sync_external_data_job_workflow(instance, create=True)
+        except Exception as e:
+            logger.exception("Could not trigger external data job", exc_info=e)
+            raise
 
         instance.status = "Running"
         instance.save()

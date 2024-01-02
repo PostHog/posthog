@@ -55,7 +55,6 @@ export function CohortSelectorField({
     return (
         <LemonButtonWithDropdown
             type="secondary"
-            status="stealth"
             sideIcon={undefined}
             data-attr={`cohort-selector-field-${fieldKey}`}
             dropdown={{
@@ -74,7 +73,6 @@ export function CohortSelectorField({
                                             onClick={() => {
                                                 onChange({ [fieldKey]: _value })
                                             }}
-                                            status="stealth"
                                             active={_value == value}
                                             fullWidth
                                             data-attr={`cohort-${groupKey}-${_value}-type`}
@@ -119,8 +117,6 @@ export function CohortTaxonomicField({
     return (
         <TaxonomicPopover
             className="CohortField"
-            type="secondary"
-            status="stealth"
             groupType={groupType}
             loading={calculatedValueLoading(groupType)}
             value={calculatedValue(groupType) as TaxonomicFilterValue}

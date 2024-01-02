@@ -58,6 +58,7 @@ from posthog.queries.trends.sql import (
     SESSION_DURATION_BREAKDOWN_INNER_SQL,
     VOLUME_PER_ACTOR_BREAKDOWN_AGGREGATE_SQL,
     VOLUME_PER_ACTOR_BREAKDOWN_INNER_SQL,
+    BREAKDOWN_PROP_JOIN_WITH_OTHER_SQL,
 )
 from posthog.queries.trends.util import (
     COUNT_PER_ACTOR_MATH_FUNCTIONS,
@@ -80,6 +81,11 @@ from posthog.utils import (
     generate_short_id,
 )
 from posthog.queries.person_on_events_v2_sql import PERSON_OVERRIDES_JOIN_SQL
+
+BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
+BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991  # pow(2, 53) - 1, for JS compatibility
+BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
+BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990  # pow(2, 53) - 2, for JS compatibility
 
 
 class TrendsBreakdown:
@@ -434,7 +440,7 @@ class TrendsBreakdown:
         return params, breakdown_filter, breakdown_filter_params, "value"
 
     def _breakdown_prop_params(self, aggregate_operation: str, math_params: Dict):
-        values_arr = get_breakdown_prop_values(
+        values_arr, has_more_values = get_breakdown_prop_values(
             self.filter,
             self.entity,
             aggregate_operation,
@@ -448,6 +454,8 @@ class TrendsBreakdown:
         assert isinstance(self.filter.breakdown, str)
 
         breakdown_value = self._get_breakdown_value(self.filter.breakdown)
+        breakdown_other_value: str | int = BREAKDOWN_OTHER_STRING_LABEL
+        breakdown_null_value: str | int = BREAKDOWN_NULL_STRING_LABEL
         numeric_property_filter = ""
         if self.filter.using_histogram:
             numeric_property_filter = f"AND {breakdown_value} is not null"
@@ -457,14 +465,38 @@ class TrendsBreakdown:
             # Not adding "Other" for the custom session duration filter.
             pass
         else:
-            # Adding "Other" breakdown option
-            breakdown_value = (
-                f"transform({breakdown_value}, (%(values)s), (%(values)s), '$$_posthog_breakdown_other_$$')"
+            all_values_are_numeric_or_none = all(
+                isinstance(value, int) or isinstance(value, float) or value is None for value in values_arr
             )
+            all_values_are_string_or_none = all(isinstance(value, str) or value is None for value in values_arr)
+
+            if all_values_are_numeric_or_none:
+                breakdown_other_value = BREAKDOWN_OTHER_NUMERIC_LABEL
+                breakdown_null_value = BREAKDOWN_NULL_NUMERIC_LABEL
+                values_arr = [BREAKDOWN_NULL_NUMERIC_LABEL if value is None else value for value in values_arr]
+            else:
+                if not all_values_are_string_or_none:
+                    breakdown_value = f"toString({breakdown_value})"
+                breakdown_value = f"nullIf({breakdown_value}, '')"
+                values_arr = [BREAKDOWN_NULL_STRING_LABEL if value in (None, "") else value for value in values_arr]
+            breakdown_value = f"transform(ifNull({breakdown_value}, %(breakdown_null_value)s), (%(values)s), (%(values)s), %(breakdown_other_value)s)"
+
+        if self.filter.using_histogram:
+            sql_query = BREAKDOWN_HISTOGRAM_PROP_JOIN_SQL
+        elif self.filter.breakdown_hide_other_aggregation:
+            sql_query = BREAKDOWN_PROP_JOIN_SQL
+        else:
+            sql_query = BREAKDOWN_PROP_JOIN_WITH_OTHER_SQL
 
         return (
-            {"values": values_arr},
-            BREAKDOWN_PROP_JOIN_SQL if not self.filter.using_histogram else BREAKDOWN_HISTOGRAM_PROP_JOIN_SQL,
+            {
+                "values": [*values_arr, breakdown_other_value]
+                if has_more_values and not self.filter.breakdown_hide_other_aggregation
+                else values_arr,
+                "breakdown_other_value": breakdown_other_value,
+                "breakdown_null_value": breakdown_null_value,
+            },
+            sql_query,
             {
                 "breakdown_value_expr": breakdown_value,
                 "numeric_property_filter": numeric_property_filter,
@@ -704,8 +736,10 @@ class TrendsBreakdown:
     ) -> str:
         if breakdown_type == "cohort":
             return get_breakdown_cohort_name(breakdown_value)
-        elif str(value) == "$$_posthog_breakdown_other_$$":
+        elif str(value) == BREAKDOWN_OTHER_STRING_LABEL or value == BREAKDOWN_OTHER_NUMERIC_LABEL:
             return "Other"
+        elif str(value) == BREAKDOWN_NULL_STRING_LABEL or value == BREAKDOWN_NULL_NUMERIC_LABEL:
+            return "none"
         else:
             return str(value) or "none"
 

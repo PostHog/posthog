@@ -3,6 +3,8 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { Resizer } from 'lib/components/Resizer/Resizer'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { IconWarning } from 'lib/lemon-ui/icons'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -19,7 +21,7 @@ import { NavbarButton } from './NavbarButton'
 
 export function Navbar(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { isSitePopoverOpen } = useValues(navigationLogic)
+    const { isSitePopoverOpen, systemStatusHealthy } = useValues(navigationLogic)
     const { closeSitePopover, toggleSitePopover } = useActions(navigationLogic)
     const { isNavShown, isSidebarShown, activeNavbarItemId, navbarItems, mobileLayout } = useValues(navigation3000Logic)
     const { showSidebar, hideSidebar, toggleNavCollapsed, hideNavOnMobile } = useActions(navigation3000Logic)
@@ -32,7 +34,7 @@ export function Navbar(): JSX.Element {
         <>
             <nav className={clsx('Navbar3000', !isNavShown && 'Navbar3000--hidden')} ref={containerRef}>
                 <div className="Navbar3000__content">
-                    <div className="Navbar3000__top">
+                    <ScrollableShadows innerClassName="Navbar3000__top" direction="vertical">
                         {navbarItems.map((section, index) => (
                             <ul key={index}>
                                 {section.map((item) =>
@@ -65,7 +67,7 @@ export function Navbar(): JSX.Element {
                                 )}
                             </ul>
                         ))}
-                    </div>
+                    </ScrollableShadows>
                     <div className="Navbar3000__bottom">
                         <ul>
                             <NavbarButton
@@ -88,14 +90,24 @@ export function Navbar(): JSX.Element {
                                 to={urls.settings('project')}
                             />
 
+                            {!systemStatusHealthy ? (
+                                <NavbarButton
+                                    icon={<IconWarning />}
+                                    identifier={Scene.Settings}
+                                    title="System issue!"
+                                    to={urls.instanceStatus()}
+                                />
+                            ) : null}
+
                             <Popover
                                 overlay={<SitePopoverOverlay />}
                                 visible={isSitePopoverOpen}
                                 onClickOutside={closeSitePopover}
                                 placement="right-end"
+                                className="min-w-70"
                             >
                                 <NavbarButton
-                                    icon={<ProfilePicture name={user?.first_name} email={user?.email} size="md" />}
+                                    icon={<ProfilePicture user={user} size="md" />}
                                     identifier="me"
                                     title={`Hi${user?.first_name ? `, ${user?.first_name}` : ''}!`}
                                     shortTitle={user?.first_name || user?.email}

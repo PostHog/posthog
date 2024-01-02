@@ -26,7 +26,6 @@ export function EditableBreakdownTag({ breakdown, breakdownType, isTrends }: Edi
     const [menuOpen, setMenuOpen] = useState(false)
 
     const logicProps = { insightProps, breakdown, breakdownType, isTrends }
-    const { shouldShowMenu } = useValues(breakdownTagLogic(logicProps))
     const { removeBreakdown } = useActions(breakdownTagLogic(logicProps))
 
     return (
@@ -40,13 +39,13 @@ export function EditableBreakdownTag({ breakdown, breakdownType, isTrends }: Edi
                             breakdown={breakdown}
                             breakdownType={breakdownType}
                             // display remove button only if we can edit and don't have a separate menu
-                            closable={!shouldShowMenu}
+                            closable={false}
                             onClose={removeBreakdown}
                             onClick={() => {
                                 setFilterOpen(!filterOpen)
                             }}
                             popover={{
-                                overlay: shouldShowMenu ? <BreakdownTagMenu /> : undefined,
+                                overlay: <BreakdownTagMenu />,
                                 closeOnClickInside: false,
                                 onVisibilityChange: (visible) => {
                                     setMenuOpen(visible)

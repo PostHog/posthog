@@ -200,6 +200,7 @@ export interface PluginsServerConfig {
     DROP_EVENTS_BY_TOKEN: string
     POE_EMBRACE_JOIN_FOR_TEAMS: string
     POE_DEFERRED_WRITES_ENABLED: boolean
+    POE_DEFERRED_WRITES_USE_FLAT_OVERRIDES: boolean
     RELOAD_PLUGIN_JITTER_MAX_MS: number
     RUSTY_HOOK_FOR_TEAMS: string
     RUSTY_HOOK_URL: string
@@ -225,7 +226,7 @@ export interface PluginsServerConfig {
     SESSION_RECORDING_CONSOLE_LOGS_INGESTION_ENABLED: boolean
     // a single partition which will output many more log messages to the console
     // useful when that partition is lagging unexpectedly
-    SESSION_RECORDING_DEBUG_PARTITION: number | undefined
+    SESSION_RECORDING_DEBUG_PARTITION: string | undefined
 
     // Dedicated infra values
     SESSION_RECORDING_KAFKA_HOSTS: string | undefined

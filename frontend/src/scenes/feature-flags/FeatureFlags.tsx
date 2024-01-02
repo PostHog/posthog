@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { FeatureFlagHog } from 'lib/components/hedgehogs'
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -52,7 +53,7 @@ export function OverViewTab({
     const { aggregationLabel } = useValues(groupsModel)
 
     const flagLogic = featureFlagsLogic({ flagPrefix })
-    const { featureFlagsLoading, searchedFeatureFlags, searchTerm, uniqueCreators, filters, shouldShowEmptyState } =
+    const { featureFlagsLoading, searchedFeatureFlags, searchTerm, filters, shouldShowEmptyState } =
         useValues(flagLogic)
     const { updateFeatureFlag, loadFeatureFlags, setSearchTerm, setFeatureFlagsFilters } = useActions(flagLogic)
     const { user, hasAvailableFeature } = useValues(userLogic)
@@ -160,7 +161,6 @@ export function OverViewTab({
                         overlay={
                             <>
                                 <LemonButton
-                                    status="stealth"
                                     onClick={() => {
                                         void copyToClipboard(featureFlag.key, 'feature flag key')
                                     }}
@@ -169,7 +169,6 @@ export function OverViewTab({
                                     Copy feature flag key
                                 </LemonButton>
                                 <LemonButton
-                                    status="stealth"
                                     onClick={() => {
                                         featureFlag.id
                                             ? updateFeatureFlag({
@@ -186,7 +185,6 @@ export function OverViewTab({
                                 </LemonButton>
                                 {featureFlag.id && (
                                     <LemonButton
-                                        status="stealth"
                                         fullWidth
                                         disabled={!featureFlag.can_edit}
                                         onClick={() =>
@@ -197,7 +195,6 @@ export function OverViewTab({
                                     </LemonButton>
                                 )}
                                 <LemonButton
-                                    status="stealth"
                                     to={urls.insightNew({
                                         events: [{ id: '$pageview', name: '$pageview', type: 'events', math: 'dau' }],
                                         breakdown_type: 'event',
@@ -258,7 +255,7 @@ export function OverViewTab({
             {!shouldShowEmptyState && (
                 <>
                     <div>
-                        <div className="flex justify-between mb-4">
+                        <div className="flex justify-between mb-4 gap-2 flex-wrap">
                             <LemonInput
                                 className="w-60"
                                 type="search"
@@ -274,6 +271,7 @@ export function OverViewTab({
                                         </span>
                                         <LemonSelect
                                             dropdownMatchSelectWidth={false}
+                                            size="small"
                                             onChange={(type) => {
                                                 if (type) {
                                                     if (type === 'all') {
@@ -301,6 +299,7 @@ export function OverViewTab({
                                 </span>
                                 <LemonSelect
                                     dropdownMatchSelectWidth={false}
+                                    size="small"
                                     onChange={(status) => {
                                         if (status) {
                                             if (status === 'all') {
@@ -323,22 +322,19 @@ export function OverViewTab({
                                 <span className="ml-1">
                                     <b>Created by</b>
                                 </span>
-                                <LemonSelect
-                                    dropdownMatchSelectWidth={false}
+                                <MemberSelect
+                                    defaultLabel="Any user"
+                                    value={filters.created_by ?? null}
                                     onChange={(user) => {
-                                        if (user) {
-                                            if (user === 'any') {
-                                                if (filters) {
-                                                    const { created_by, ...restFilters } = filters
-                                                    setFeatureFlagsFilters(restFilters, true)
-                                                }
-                                            } else {
-                                                setFeatureFlagsFilters({ created_by: user })
+                                        if (!user) {
+                                            if (filters) {
+                                                const { created_by, ...restFilters } = filters
+                                                setFeatureFlagsFilters(restFilters, true)
                                             }
+                                        } else {
+                                            setFeatureFlagsFilters({ created_by: user.id })
                                         }
                                     }}
-                                    options={uniqueCreators}
-                                    value={filters.created_by ?? 'any'}
                                 />
                             </div>
                         </div>

@@ -1,9 +1,9 @@
 import './LemonButton.scss'
-import './LemonButtonLegacy.scss'
 import './LemonButton3000.scss'
 
+import { IconChevronDown } from '@posthog/icons'
 import clsx from 'clsx'
-import { IconArrowDropDown, IconChevronRight } from 'lib/lemon-ui/icons'
+import { IconChevronRight } from 'lib/lemon-ui/icons'
 import React, { useContext } from 'react'
 
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
@@ -33,7 +33,7 @@ export interface LemonButtonPropsBase
     children?: React.ReactNode
     type?: 'primary' | 'secondary' | 'tertiary'
     /** Button color scheme. */
-    status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'stealth'
+    status?: 'default' | 'alt' | 'danger'
     /** Whether hover style should be applied, signaling that the button is held active in some way. */
     active?: boolean
     /** URL to link to. */
@@ -65,8 +65,6 @@ export interface LemonButtonPropsBase
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: string | null | false
     noPadding?: boolean
-    /** Hides the button chrome until hover. */
-    stealth?: boolean
     size?: 'xsmall' | 'small' | 'medium' | 'large'
     'data-attr'?: string
     'aria-label'?: string
@@ -110,7 +108,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 disabledReason,
                 loading,
                 type = 'tertiary',
-                status = 'primary',
+                status = 'default',
                 icon,
                 sideIcon,
                 sideAction,
@@ -119,7 +117,6 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 size,
                 tooltip,
                 tooltipPlacement,
-                stealth = false,
                 htmlType = 'button',
                 noPadding,
                 to,
@@ -152,10 +149,10 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             } else if (popoverPlacement) {
                 if (!children) {
                     if (icon === undefined) {
-                        icon = popoverPlacement.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
+                        icon = popoverPlacement.startsWith('right') ? <IconChevronRight /> : <IconChevronDown />
                     }
                 } else if (sideIcon === undefined) {
-                    sideIcon = popoverPlacement.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
+                    sideIcon = popoverPlacement.startsWith('right') ? <IconChevronRight /> : <IconChevronDown />
                 }
             }
             if (loading) {
@@ -212,7 +209,6 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         !children && 'LemonButton--no-content',
                         !!icon && `LemonButton--has-icon`,
                         !!sideIcon && `LemonButton--has-side-icon`,
-                        stealth && 'LemonButton--is-stealth',
                         truncate && 'LemonButton--truncate',
                         className
                     )}
@@ -245,7 +241,12 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 const SideComponent = sideDropdown ? LemonButtonWithDropdown : LemonButton
 
                 workingButton = (
-                    <div className="LemonButtonWithSideAction">
+                    <div
+                        className={clsx(
+                            'LemonButtonWithSideAction',
+                            fullWidth && 'LemonButtonWithSideAction--full-width'
+                        )}
+                    >
                         {workingButton}
                         <div className="LemonButtonWithSideAction__side-button">
                             <SideComponent

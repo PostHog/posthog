@@ -1,11 +1,11 @@
 import { eventWithTime } from '@rrweb/types'
-import { captureException } from '@sentry/react'
+import { captureException, captureMessage } from '@sentry/react'
 import Ajv, { ErrorObject } from 'ajv'
 
 import { mobileEventWithTime } from './mobile.types'
 import mobileSchema from './schema/mobile/rr-mobile-schema.json'
 import webSchema from './schema/web/rr-web-schema.json'
-import { makeFullEvent, makeIncrementalEvent, makeMetaEvent } from './transformers'
+import { makeCustomEvent, makeFullEvent, makeIncrementalEvent, makeMetaEvent } from './transformers'
 
 const ajv = new Ajv({
     allowUnionTypes: true,
@@ -15,6 +15,7 @@ const transformers: Record<number, (x: any) => eventWithTime> = {
     2: makeFullEvent,
     3: makeIncrementalEvent,
     4: makeMetaEvent,
+    5: makeCustomEvent,
 }
 
 const mobileSchemaValidator = ajv.compile(mobileSchema)
@@ -36,7 +37,7 @@ function couldBeEventWithTime(x: unknown): x is eventWithTime | mobileEventWithT
     return typeof x === 'object' && x !== null && 'type' in x && 'timestamp' in x
 }
 
-export function transformEventToWeb(event: unknown): eventWithTime {
+export function transformEventToWeb(event: unknown, validateTransformation?: boolean): eventWithTime {
     // the transformation needs to never break a recording itself
     // so, we default to returning what we received
     // replacing it only if there's a valid transformation
@@ -46,11 +47,13 @@ export function transformEventToWeb(event: unknown): eventWithTime {
             const transformer = transformers[event.type]
             if (transformer) {
                 const transformed = transformer(event)
-                validateAgainstWebSchema(transformed)
+                if (validateTransformation) {
+                    validateAgainstWebSchema(transformed)
+                }
                 result = transformed
             }
         } else {
-            console.warn(`No type in event: ${JSON.stringify(event)}`)
+            captureMessage(`No type in event`, { extra: { event } })
         }
     } catch (e) {
         captureException(e, { extra: { event } })
@@ -70,8 +73,7 @@ export function validateAgainstWebSchema(data: unknown): boolean {
     const validationResult = webSchemaValidator(data)
     if (!validationResult) {
         // we are passing all data through this validation now and don't know how safe the schema is
-        console.error(webSchemaValidator.errors)
-        captureException(new Error('transformation did not match schema'), {
+        captureMessage('transformation did not match schema', {
             extra: { data, errors: webSchemaValidator.errors },
         })
     }

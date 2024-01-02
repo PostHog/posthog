@@ -2,7 +2,7 @@ from posthog.test.base import APIBaseTest
 from posthog.warehouse.models import ExternalDataSource, ExternalDataSchema
 import uuid
 from unittest.mock import patch
-from posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline import (
+from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
 
@@ -104,6 +104,7 @@ class TestSavedQuery(APIBaseTest):
             [
                 {
                     "id": str(schema.pk),
+                    "last_synced_at": schema.last_synced_at,
                     "name": schema.name,
                     "should_sync": schema.should_sync,
                     "latest_error": schema.latest_error,

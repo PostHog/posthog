@@ -41,7 +41,7 @@ import { NodeKind } from './queries/schema'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
-// Keep this in sync with backend constants (constants.py)
+// Keep this in sync with backend constants/features/{product_name}.yml
 export enum AvailableFeature {
     EVENTS = 'events',
     TRACKED_USERS = 'tracked_users',
@@ -91,6 +91,9 @@ export enum AvailableFeature {
     SURVEYS_STYLING = 'surveys_styling',
     SURVEYS_TEXT_HTML = 'surveys_text_html',
     SURVEYS_MULTIPLE_QUESTIONS = 'surveys_multiple_questions',
+    SESSION_REPLAY_SAMPLING = 'session_replay_sampling',
+    RECORDING_DURATION_MINIMUM = 'replay_recording_duration_minimum',
+    FEATURE_FLAG_BASED_RECORDING = 'replay_feature_flag_based_recording',
 }
 
 export enum ProductKey {
@@ -109,6 +112,7 @@ export enum ProductKey {
     EARLY_ACCESS_FEATURES = 'early_access_features',
     PRODUCT_ANALYTICS = 'product_analytics',
     PIPELINE_TRANSFORMATIONS = 'pipeline_transformations',
+    PIPELINE_DESTINATIONS = 'pipeline_destinations',
 }
 
 export enum LicensePlan {
@@ -146,6 +150,7 @@ interface UserBaseType {
     uuid: string
     distinct_id: string
     first_name: string
+    last_name?: string
     email: string
 }
 
@@ -163,6 +168,8 @@ export interface SceneDashboardChoice {
     scene: DashboardCompatibleScenes
     dashboard: number | DashboardBasicType
 }
+
+export type UserTheme = 'light' | 'dark' | 'system'
 
 /** Full User model. */
 export interface UserType extends UserBaseType {
@@ -185,8 +192,7 @@ export interface UserType extends UserBaseType {
     has_social_auth: boolean
     has_seen_product_intro_for?: Record<string, boolean>
     scene_personalisation?: SceneDashboardChoice[]
-    /** Null means "sync with system". */
-    theme_mode: 'light' | 'dark' | null
+    theme_mode?: UserTheme | null
 }
 
 export interface NotificationSettings {
@@ -589,6 +595,7 @@ export interface SessionPropertyFilter extends BasePropertyFilter {
 export interface CohortPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Cohort
     key: 'id'
+    /**  @asType integer */
     value: number
 }
 
@@ -702,6 +709,9 @@ export interface SessionPlayerSnapshotData {
     snapshots?: RecordingSnapshot[]
     sources?: SessionRecordingSnapshotSource[]
     blob_keys?: string[]
+    // used for a debug signal only for PostHog team, controlled by a feature flag
+    // DO NOT RELY ON THIS FOR NON DEBUG PURPOSES
+    untransformed_snapshots?: RecordingSnapshot[]
 }
 
 export interface SessionPlayerData {
@@ -867,6 +877,7 @@ export interface MatchedRecording {
 interface CommonActorType {
     id: string | number
     properties: Record<string, any>
+    /** @format date-time */
     created_at: string
     matched_recordings: MatchedRecording[]
     value_at_data_point: number | null
@@ -1573,10 +1584,10 @@ export interface PluginConfigTypeNew {
     team_id: number
     enabled: boolean
     order: number
-    error?: PluginErrorType
     name: string
     description?: string
     updated_at: string
+    delivery_rate_24h?: number | null
 }
 
 export interface PluginConfigWithPluginInfo extends PluginConfigType {
@@ -1755,6 +1766,7 @@ export interface FilterType {
     breakdown_normalize_url?: boolean
     breakdowns?: Breakdown[]
     breakdown_group_type_index?: number | null
+    breakdown_hide_other_aggregation?: boolean | null
     aggregation_group_type_index?: number // Groups aggregation
 }
 
@@ -1789,6 +1801,7 @@ export interface TrendsFilterType extends FilterType {
     aggregation_axis_format?: AggregationAxisFormat // a fixed format like duration that needs calculation
     aggregation_axis_prefix?: string // a prefix to add to the aggregation axis e.g. £
     aggregation_axis_postfix?: string // a postfix to add to the aggregation axis e.g. %
+    decimal_places?: number
     show_values_on_series?: boolean
     show_labels_on_series?: boolean
     show_percent_stack_view?: boolean
@@ -1864,7 +1877,7 @@ export interface RetentionEntity {
     kind?: NodeKind.ActionsNode | NodeKind.EventsNode
     name?: string
     type?: EntityType
-    // @asType integer
+    /**  @asType integer */
     order?: number
     uuid?: string
     custom_name?: string
@@ -1873,8 +1886,10 @@ export interface RetentionEntity {
 export interface RetentionFilterType extends FilterType {
     retention_type?: RetentionType
     retention_reference?: 'total' | 'previous' // retention wrt cohort size or previous period
-    /** @asType integer */
-    total_intervals?: number // retention total intervals
+    /**
+     * @asType integer
+     */
+    total_intervals?: number
     returning_entity?: RetentionEntity
     target_entity?: RetentionEntity
     period?: RetentionPeriod
@@ -2236,7 +2251,7 @@ export enum SurveyUrlMatchType {
 
 export enum SurveyType {
     Popover = 'popover',
-    Button = 'button',
+    Widget = 'widget',
     FullScreen = 'full_screen',
     Email = 'email',
     API = 'api',
@@ -2257,6 +2272,11 @@ export interface SurveyAppearance {
     thankYouMessageDescription?: string
     autoDisappear?: boolean
     position?: string
+    // widget only
+    widgetType?: 'button' | 'tab' | 'selector'
+    widgetSelector?: string
+    widgetLabel?: string
+    widgetColor?: string
 }
 
 export interface SurveyQuestionBase {
@@ -2423,6 +2443,23 @@ export interface NewEarlyAccessFeatureType extends Omit<EarlyAccessFeatureType, 
 export interface UserBlastRadiusType {
     users_affected: number
     total_users: number
+}
+
+export enum ScheduledChangeModels {
+    FeatureFlag = 'FeatureFlag',
+}
+
+export interface ScheduledChangeType {
+    id: number
+    team_id: number
+    record_id: number | string
+    model_name: ScheduledChangeModels
+    payload: Record<string, any>
+    scheduled_at: string
+    executed_at: string | null
+    failure_reason: string | null
+    created_at: string | null
+    created_by: UserBasicType
 }
 
 export interface PrevalidatedInvite {
@@ -3272,6 +3309,7 @@ export interface DataWarehouseTable {
     credential: DataWarehouseCredential
     columns: DatabaseSchemaQueryResponseField[]
     external_data_source?: ExternalDataStripeSource
+    external_schema?: SimpleExternalDataSourceSchema
 }
 
 export type DataWarehouseTableTypes = 'CSV' | 'Parquet'
@@ -3308,6 +3346,23 @@ export interface ExternalDataStripeSource {
     source_type: string
     prefix: string
     last_run_at?: Dayjs
+    schemas: ExternalDataSourceSchema[]
+}
+export interface SimpleExternalDataSourceSchema {
+    id: string
+    name: string
+    should_sync: boolean
+    last_synced_at?: Dayjs
+}
+
+export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
+    table?: SimpleDataWarehouseTable
+}
+
+export interface SimpleDataWarehouseTable {
+    id: string
+    name: string
+    columns: DatabaseSchemaQueryResponseField[]
 }
 
 export type BatchExportDestinationS3 = {

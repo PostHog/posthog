@@ -453,6 +453,49 @@ describe('replay/transform', () => {
                 ).toMatchSnapshot()
             })
 
+            test('progress rating', () => {
+                expect(
+                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                        type: 2,
+                        data: {
+                            wireframes: [
+                                {
+                                    id: 12365,
+                                    width: 100,
+                                    height: 30,
+                                    type: 'input',
+                                    inputType: 'progress',
+                                    style: { bar: 'rating' },
+                                    max: '12',
+                                    value: '6.5',
+                                },
+                            ],
+                        },
+                        timestamp: 1,
+                    })
+                ).toMatchSnapshot()
+            })
+
+            test('open keyboard custom event', () => {
+                expect(
+                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                        timestamp: 1,
+                        type: EventType.Custom,
+                        data: { tag: 'keyboard', payload: { open: true, height: 150 } },
+                    })
+                ).toMatchSnapshot()
+            })
+
+            test('closed keyboard custom event', () => {
+                expect(
+                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                        timestamp: 1,
+                        type: EventType.Custom,
+                        data: { tag: 'keyboard', payload: { open: false } },
+                    })
+                ).toMatchSnapshot()
+            })
+
             test('radio_group', () => {
                 expect(
                     posthogEEModule.mobileReplay?.transformEventToWeb({

@@ -46,7 +46,7 @@ export enum NodeKind {
     PersonsNode = 'PersonsNode',
     HogQLQuery = 'HogQLQuery',
     HogQLMetadata = 'HogQLMetadata',
-    PersonsQuery = 'PersonsQuery',
+    ActorsQuery = 'ActorsQuery',
     SessionsTimelineQuery = 'SessionsTimelineQuery',
 
     // Interface nodes
@@ -62,7 +62,7 @@ export enum NodeKind {
     PathsQuery = 'PathsQuery',
     StickinessQuery = 'StickinessQuery',
     LifecycleQuery = 'LifecycleQuery',
-    InsightPersonsQuery = 'InsightPersonsQuery',
+    InsightActorsQuery = 'InsightActorsQuery',
 
     // Web analytics queries
     WebOverviewQuery = 'WebOverviewQuery',
@@ -85,8 +85,8 @@ export type AnyDataNode =
     | PersonsNode // old persons API endpoint
     | TimeToSeeDataSessionsQuery // old API
     | EventsQuery
-    | PersonsQuery
-    | InsightPersonsQuery
+    | ActorsQuery
+    | InsightActorsQuery
     | SessionsTimelineQuery
     | HogQLQuery
     | HogQLMetadata
@@ -259,6 +259,10 @@ export interface EventsQueryResponse {
     hogql: string
     hasMore?: boolean
     timings?: QueryTiming[]
+    /** @asType integer */
+    limit?: number
+    /** @asType integer */
+    offset?: number
 }
 export interface EventsQueryPersonColumn {
     uuid: string
@@ -332,7 +336,7 @@ export interface DataTableNode extends Node, DataTableNodeViewProps {
         | EventsNode
         | EventsQuery
         | PersonsNode
-        | PersonsQuery
+        | ActorsQuery
         | HogQLQuery
         | TimeToSeeDataSessionsQuery
         | WebOverviewQuery
@@ -350,9 +354,13 @@ export interface GoalLine {
     value: number
 }
 
+export interface ChartAxis {
+    column: string
+}
+
 interface ChartSettings {
-    xAxisIndex?: number[]
-    yAxisIndex?: number[]
+    xAxis?: ChartAxis
+    yAxis?: ChartAxis[]
     goalLines?: GoalLine[]
 }
 
@@ -460,7 +468,10 @@ export interface InsightsQueryBase extends Node {
     filterTestAccounts?: boolean
     /** Property filters for all series */
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
-    /** Groups aggregation */
+    /**
+     * Groups aggregation
+     * @asType integer
+     **/
     aggregation_group_type_index?: number
     /** Sampling rate */
     samplingFactor?: number | null
@@ -620,26 +631,34 @@ export interface LifecycleQuery extends Omit<InsightsQueryBase, 'aggregation_gro
     response?: LifecycleQueryResponse
 }
 
-export interface PersonsQueryResponse {
+export interface ActorsQueryResponse {
     results: any[][]
     columns: any[]
     types: string[]
     hogql: string
     timings?: QueryTiming[]
     hasMore?: boolean
+    /** @asType integer */
+    limit: number
+    /** @asType integer */
+    offset: number
+    /** @asType integer */
+    missing_actors_count?: number
 }
 
-export interface PersonsQuery extends DataNode {
-    kind: NodeKind.PersonsQuery
-    source?: InsightPersonsQuery | HogQLQuery
+export interface ActorsQuery extends DataNode {
+    kind: NodeKind.ActorsQuery
+    source?: InsightActorsQuery | HogQLQuery
     select?: HogQLExpression[]
     search?: string
     properties?: AnyPropertyFilter[]
     fixedProperties?: AnyPropertyFilter[]
     orderBy?: string[]
+    /** @asType integer */
     limit?: number
+    /** @asType integer */
     offset?: number
-    response?: PersonsQueryResponse
+    response?: ActorsQueryResponse
 }
 
 export interface TimelineEntry {
@@ -707,6 +726,7 @@ export enum WebStatsBreakdown {
     Page = 'Page',
     InitialPage = 'InitialPage',
     // ExitPage = 'ExitPage'
+    InitialChannelType = 'InitialChannelType',
     InitialReferringDomain = 'InitialReferringDomain',
     InitialUTMSource = 'InitialUTMSource',
     InitialUTMCampaign = 'InitialUTMCampaign',
@@ -724,6 +744,7 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase {
     kind: NodeKind.WebStatsTableQuery
     breakdownBy: WebStatsBreakdown
     response?: WebStatsTableQueryResponse
+    includeScrollDepth?: boolean
 }
 export interface WebStatsTableQueryResponse extends QueryResponse {
     results: unknown[]
@@ -755,14 +776,19 @@ export type InsightFilter =
     | StickinessFilter
     | LifecycleFilter
 
-export interface InsightPersonsQuery {
-    kind: NodeKind.InsightPersonsQuery
+export interface InsightActorsQuery {
+    kind: NodeKind.InsightActorsQuery
     source: InsightQueryNode
     day?: string
     status?: string
+    /**
+     * An interval selected out of available intervals in source query
+     * @asType integer
+     */
+    interval?: number
     // TODO: add breakdowns
     // TODO: add fields for other insights (funnels dropdown, compare_previous choice, etc)
-    response?: PersonsQueryResponse
+    response?: ActorsQueryResponse
 }
 
 export const dateRangeForFilter = (source: FilterType | undefined): DateRange | undefined => {
@@ -846,6 +872,7 @@ export interface BreakdownFilter {
     breakdowns?: Breakdown[]
     breakdown_group_type_index?: number | null
     breakdown_histogram_bin_count?: number // trends breakdown histogram bin count
+    breakdown_hide_other_aggregation?: boolean | null // hides the "other" field for trends
 }
 
 export interface DashboardFilter {

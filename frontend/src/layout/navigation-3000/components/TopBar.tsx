@@ -1,10 +1,11 @@
 import './TopBar.scss'
 
+import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import { IconArrowDropDown, IconMenu } from 'lib/lemon-ui/icons'
+import { IconMenu } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import React, { useLayoutEffect, useState } from 'react'
@@ -163,7 +164,7 @@ function Breadcrumb({ breadcrumb, index, here }: BreadcrumbProps): JSX.Element {
             to={breadcrumb.path}
         >
             {nameElement}
-            {breadcrumb.popover && <IconArrowDropDown />}
+            {breadcrumb.popover && <IconChevronDown />}
         </Component>
     )
 
@@ -200,7 +201,7 @@ function Here({ breadcrumb }: HereProps): JSX.Element {
     const { tentativelyRename, finishRenaming } = useActions(breadcrumbsLogic)
 
     return (
-        <h1 className="TopBar3000__here">
+        <h1 className="TopBar3000__here" data-attr="top-bar-name">
             {breadcrumb.name == null ? (
                 <LemonSkeleton className="w-40 h-4" />
             ) : breadcrumb.onRename ? (
@@ -236,6 +237,7 @@ function Here({ breadcrumb }: HereProps): JSX.Element {
                     placeholder="Unnamed"
                     compactButtons="xsmall"
                     editingIndication="underlined"
+                    autoFocus
                 />
             ) : (
                 <span>{breadcrumb.name}</span>

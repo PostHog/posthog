@@ -15,9 +15,6 @@ from posthog.temporal.data_imports.external_data_job import (
     update_external_data_job_model,
     validate_schema_activity,
 )
-from posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline import (
-    StripeJobInputs,
-)
 from posthog.temporal.data_imports.external_data_job import (
     ExternalDataJobWorkflow,
     ExternalDataJobInputs,
@@ -31,19 +28,65 @@ from posthog.warehouse.models import (
     ExternalDataSchema,
 )
 
-from posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline import (
-    PIPELINE_TYPE_RUN_MAPPING,
+from posthog.temporal.data_imports.pipelines.schemas import (
     PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
 )
+from posthog.temporal.data_imports.pipelines.pipeline import DataImportPipeline
 from temporalio.testing import WorkflowEnvironment
 from temporalio.common import RetryPolicy
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
+import pytest_asyncio
+import aioboto3
+import functools
+from django.conf import settings
+import asyncio
+
+BUCKET_NAME = "test-external-data-jobs"
+SESSION = aioboto3.Session()
+create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
 
 AWS_BUCKET_MOCK_SETTINGS = {
-    "AIRBYTE_BUCKET_KEY": "test-key",
-    "AIRBYTE_BUCKET_SECRET": "test-secret",
+    "AIRBYTE_BUCKET_KEY": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+    "AIRBYTE_BUCKET_SECRET": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
 }
+
+
+async def delete_all_from_s3(minio_client, bucket_name: str, key_prefix: str):
+    """Delete all objects in bucket_name under key_prefix."""
+    response = await minio_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
+
+    if "Contents" in response:
+        for obj in response["Contents"]:
+            if "Key" in obj:
+                await minio_client.delete_object(Bucket=bucket_name, Key=obj["Key"])
+
+
+@pytest.fixture
+def bucket_name(request) -> str:
+    """Name for a test S3 bucket."""
+    return BUCKET_NAME
+
+
+@pytest_asyncio.fixture
+async def minio_client(bucket_name):
+    """Manage an S3 client to interact with a MinIO bucket.
+
+    Yields the client after creating a bucket. Upon resuming, we delete
+    the contents and the bucket itself.
+    """
+    async with create_test_client(
+        "s3",
+        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    ) as minio_client:
+        await minio_client.create_bucket(Bucket=bucket_name)
+
+        yield minio_client
+
+        await delete_all_from_s3(minio_client, bucket_name, key_prefix="/")
+
+        await minio_client.delete_bucket(Bucket=bucket_name)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -143,58 +186,118 @@ async def test_update_external_job_activity(activity_environment, team, **kwargs
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_run_stripe_job(activity_environment, team, **kwargs):
-    new_source = await sync_to_async(ExternalDataSource.objects.create)(
-        source_id=uuid.uuid4(),
-        connection_id=uuid.uuid4(),
-        destination_id=uuid.uuid4(),
-        team=team,
-        status="running",
-        source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key"},
-    )  # type: ignore
+async def test_run_stripe_job(activity_environment, team, minio_client, **kwargs):
+    async def setup_job_1():
+        new_source = await sync_to_async(ExternalDataSource.objects.create)(
+            source_id=uuid.uuid4(),
+            connection_id=uuid.uuid4(),
+            destination_id=uuid.uuid4(),
+            team=team,
+            status="running",
+            source_type="Stripe",
+            job_inputs={"stripe_secret_key": "test-key"},
+        )  # type: ignore
 
-    new_job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.create)(  # type: ignore
-        team_id=team.id,
-        pipeline_id=new_source.pk,
-        status=ExternalDataJob.Status.RUNNING,
-        rows_synced=0,
-    )
+        new_job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.create)(  # type: ignore
+            team_id=team.id,
+            pipeline_id=new_source.pk,
+            status=ExternalDataJob.Status.RUNNING,
+            rows_synced=0,
+        )
 
-    new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()  # type: ignore
+        new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()  # type: ignore
 
-    inputs = ExternalDataJobInputs(
-        team_id=team.id,
-        run_id=new_job.pk,
-        source_id=new_source.pk,
-        schemas=["test-1", "test-2", "test-3", "test-4", "test-5"],
-    )
+        schemas = ["Customer"]
+        inputs = ExternalDataJobInputs(
+            team_id=team.id,
+            run_id=new_job.pk,
+            source_id=new_source.pk,
+            schemas=schemas,
+        )
 
-    with mock.patch(
-        "posthog.temporal.data_imports.pipelines.stripe.stripe_pipeline.create_pipeline",
-    ) as mock_create_pipeline, mock.patch(
-        "posthog.temporal.data_imports.pipelines.stripe.helpers.stripe_get_data"
-    ) as mock_stripe_get_data:  # noqa: B015
-        mock_stripe_get_data.return_value = {
-            "data": [{"id": "test-id", "object": "test-object"}],
+        return new_job, inputs
+
+    async def setup_job_2():
+        new_source = await sync_to_async(ExternalDataSource.objects.create)(
+            source_id=uuid.uuid4(),
+            connection_id=uuid.uuid4(),
+            destination_id=uuid.uuid4(),
+            team=team,
+            status="running",
+            source_type="Stripe",
+            job_inputs={"stripe_secret_key": "test-key"},
+        )  # type: ignore
+
+        new_job: ExternalDataJob = await sync_to_async(ExternalDataJob.objects.create)(  # type: ignore
+            team_id=team.id,
+            pipeline_id=new_source.pk,
+            status=ExternalDataJob.Status.RUNNING,
+            rows_synced=0,
+        )
+
+        new_job = await sync_to_async(ExternalDataJob.objects.filter(id=new_job.id).prefetch_related("pipeline").get)()  # type: ignore
+
+        schemas = ["Customer", "Invoice"]
+        inputs = ExternalDataJobInputs(
+            team_id=team.id,
+            run_id=new_job.pk,
+            source_id=new_source.pk,
+            schemas=schemas,
+        )
+
+        return new_job, inputs
+
+    job_1, job_1_inputs = await setup_job_1()
+    job_2, job_2_inputs = await setup_job_2()
+
+    with mock.patch("stripe.Customer.list") as mock_customer_list, mock.patch(
+        "stripe.Invoice.list"
+    ) as mock_invoice_list, override_settings(
+        BUCKET_URL=f"s3://{BUCKET_NAME}",
+        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+    ):
+        mock_customer_list.return_value = {
+            "data": [
+                {
+                    "id": "cus_123",
+                    "name": "John Doe",
+                }
+            ],
             "has_more": False,
         }
-        await activity_environment.run(run_external_data_job, inputs)
 
-        assert mock_stripe_get_data.call_count == 5
-        assert mock_create_pipeline.call_count == 5
-
-        mock_create_pipeline.assert_called_with(
-            StripeJobInputs(
-                source_id=new_source.pk,
-                run_id=new_job.pk,
-                job_type="Stripe",
-                team_id=team.id,
-                stripe_secret_key="test-key",
-                dataset_name=new_job.folder_path,
-                schemas=["test-1", "test-2", "test-3", "test-4", "test-5"],
-            )
+        mock_invoice_list.return_value = {
+            "data": [
+                {
+                    "id": "inv_123",
+                    "customer": "cus_1",
+                }
+            ],
+            "has_more": False,
+        }
+        await asyncio.gather(
+            activity_environment.run(run_external_data_job, job_1_inputs),
+            activity_environment.run(run_external_data_job, job_2_inputs),
         )
+
+        job_1_customer_objects = await minio_client.list_objects_v2(
+            Bucket=BUCKET_NAME, Prefix=f"{job_1.folder_path}/customer/"
+        )
+        job_1_invoice_objects = await minio_client.list_objects_v2(
+            Bucket=BUCKET_NAME, Prefix=f"{job_1.folder_path}/invoice/"
+        )
+        assert len(job_1_customer_objects["Contents"]) == 1
+        assert job_1_invoice_objects.get("Contents", None) is None
+
+        job_2_customer_objects = await minio_client.list_objects_v2(
+            Bucket=BUCKET_NAME, Prefix=f"{job_2.folder_path}/customer/"
+        )
+        job_2_invoice_objects = await minio_client.list_objects_v2(
+            Bucket=BUCKET_NAME, Prefix=f"{job_2.folder_path}/invoice/"
+        )
+        assert len(job_2_customer_objects["Contents"]) == 1
+        assert len(job_2_invoice_objects["Contents"]) == 1
 
 
 @pytest.mark.django_db(transaction=True)
@@ -346,7 +449,7 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
 
     with mock.patch(
         "posthog.warehouse.models.table.DataWarehouseTable.get_columns", return_value={"id": "string"}
-    ), mock.patch.dict(PIPELINE_TYPE_RUN_MAPPING, {ExternalDataSource.Type.STRIPE: mock_async_func}):
+    ), mock.patch.object(DataImportPipeline, "run", mock_async_func):
         with override_settings(AIRBYTE_BUCKET_KEY="test-key", AIRBYTE_BUCKET_SECRET="test-secret"):
             async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
                 async with Worker(

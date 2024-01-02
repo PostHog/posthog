@@ -50,5 +50,6 @@ module.exports = {
         'scss/at-extend-no-missing-placeholder': null,
         'scss/comment-no-empty': null,
         'order/order': ['dollar-variables', 'custom-properties', 'declarations', 'rules', 'at-rules'],
+        'color-function-notation': ['modern', { ignore: ['with-var-inside'] }],
     },
 }

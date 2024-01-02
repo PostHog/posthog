@@ -325,8 +325,8 @@ export function ExperimentPreview({
                                                     {experiment.parameters?.custom_exposure_filter && (
                                                         <LemonButton
                                                             type="secondary"
-                                                            size="small"
                                                             status="danger"
+                                                            size="small"
                                                             className="mr-2"
                                                             onClick={() => updateExperimentExposure(null)}
                                                         >
@@ -463,9 +463,11 @@ export function MetricDisplay({ filters }: { filters?: FilterType }): JSX.Elemen
                                 />
                             </b>
                         </div>
-                        {event.properties?.map((prop: AnyPropertyFilter) => (
-                            <PropertyFilterButton key={prop.key} item={prop} />
-                        ))}
+                        <div className="space-y-1">
+                            {event.properties?.map((prop: AnyPropertyFilter) => (
+                                <PropertyFilterButton key={prop.key} item={prop} />
+                            ))}
+                        </div>
                     </div>
                 ))}
         </>

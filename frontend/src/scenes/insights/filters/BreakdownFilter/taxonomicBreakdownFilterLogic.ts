@@ -42,6 +42,7 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             taxonomicGroup,
         }),
         removeBreakdown: (breakdown: string | number) => ({ breakdown }),
+        setBreakdownLimit: (value: number | undefined) => ({ value }),
         setHistogramBinsUsed: (value: boolean) => ({ value }),
         setHistogramBinCount: (count: number | undefined) => ({ count }),
         setNormalizeBreakdownURL: (normalizeBreakdownURL: boolean) => ({
@@ -53,6 +54,12 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             10 as number | undefined,
             {
                 setHistogramBinCount: (_, { count }) => count,
+            },
+        ],
+        localBreakdownLimit: [
+            25 as number | undefined,
+            {
+                setBreakdownLimit: (_, { value }) => value ?? 25,
             },
         ],
     }),
@@ -90,6 +97,10 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
             (s) => [s.breakdownFilter, s.localHistogramBinCount],
             (breakdownFilter, localHistogramBinCount) =>
                 localHistogramBinCount || breakdownFilter?.breakdown_histogram_bin_count,
+        ],
+        breakdownLimit: [
+            (s) => [s.breakdownFilter, s.localBreakdownLimit],
+            (breakdownFilter, localBreakdownLimit) => localBreakdownLimit || breakdownFilter?.breakdown_limit || 25,
         ],
     }),
     listeners(({ props, values }) => ({

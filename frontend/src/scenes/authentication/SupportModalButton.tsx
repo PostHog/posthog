@@ -20,7 +20,6 @@ export function SupportModalButton({ name, email }: { name?: string; email?: str
                             target_area: 'login',
                         })
                     }}
-                    status="stealth"
                     icon={<IconBugShield />}
                     size="small"
                 >

@@ -18,6 +18,7 @@ export function CodeEditor({ options, ...editorProps }: CodeEditorProps): JSX.El
             loading={<Spinner />}
             options={{
                 ...options,
+                padding: { bottom: 8, top: 8 },
                 scrollbar: {
                     vertical: scrollbarRendering,
                     horizontal: scrollbarRendering,

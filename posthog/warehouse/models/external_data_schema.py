@@ -18,8 +18,14 @@ class ExternalDataSchema(CreatedMetaFields, UUIDModel):
     latest_error: models.TextField = models.TextField(
         null=True, help_text="The latest error that occurred when syncing this schema."
     )
+    last_synced_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
 
     __repr__ = sane_repr("name")
+
+
+def get_schema_if_exists(schema_name: str, team_id: int, source_id: uuid.UUID) -> ExternalDataSchema | None:
+    schema = ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id, name=schema_name).first()
+    return schema
 
 
 def get_active_schemas_for_source_id(source_id: uuid.UUID, team_id: int):

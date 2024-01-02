@@ -141,6 +141,8 @@ class Resolver(CloningVisitor):
                 alias = new_expr.type.alias
             elif isinstance(new_expr.type, ast.FieldType):
                 alias = new_expr.type.name
+            elif isinstance(new_expr.type, ast.ExpressionFieldType):
+                alias = new_expr.type.name
             elif isinstance(new_expr, ast.Alias):
                 alias = new_expr.alias
             else:
@@ -444,6 +446,7 @@ class Resolver(CloningVisitor):
             raise ResolverException(f"Unable to resolve field: {name}")
 
         # Recursively resolve the rest of the chain until we can point to the deepest node.
+        field_name = node.chain[-1]
         loop_type = type
         chain_to_parse = node.chain[1:]
         previous_types = []
@@ -484,7 +487,7 @@ class Resolver(CloningVisitor):
 
         if isinstance(node.type, ast.FieldType):
             return ast.Alias(
-                alias=node.type.name,
+                alias=field_name or node.type.name,
                 expr=node,
                 hidden=True,
                 type=ast.FieldAliasType(alias=node.type.name, type=node.type),

@@ -82,7 +82,7 @@ export const NotebookSyncInfo = (props: NotebookLogicProps): JSX.Element | null 
     ) : null
 }
 
-export const NotebookExpandButton = (props: LemonButtonProps): JSX.Element => {
+export const NotebookExpandButton = (props: Pick<LemonButtonProps, 'size' | 'type'>): JSX.Element => {
     const { isExpanded } = useValues(notebookSettingsLogic)
     const { setIsExpanded } = useActions(notebookSettingsLogic)
 

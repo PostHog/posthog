@@ -1,10 +1,21 @@
-import { EventType, fullSnapshotEvent, incrementalSnapshotEvent, metaEvent } from '@rrweb/types'
+import {
+    addedNodeMutation,
+    customEvent,
+    EventType,
+    fullSnapshotEvent,
+    incrementalSnapshotEvent,
+    IncrementalSource,
+    metaEvent,
+    mutationData,
+} from '@rrweb/types'
+import { captureMessage } from '@sentry/react'
 
 import {
     attributes,
     elementNode,
     fullSnapshotEvent as MobileFullSnapshotEvent,
     incrementalSnapshotEvent as MobileIncrementalSnapshotEvent,
+    keyboardEvent,
     metaEvent as MobileMetaEvent,
     MobileNodeType,
     NodeType,
@@ -12,11 +23,13 @@ import {
     textNode,
     wireframe,
     wireframeButton,
+    wireframeCheckBox,
     wireframeDiv,
     wireframeImage,
     wireframeInputComponent,
     wireframePlaceholder,
     wireframeProgress,
+    wireframeRadio,
     wireframeRadioGroup,
     wireframeRectangle,
     wireframeSelect,
@@ -25,11 +38,14 @@ import {
 } from './mobile.types'
 import {
     makeBodyStyles,
+    makeColorStyles,
     makeDeterminateProgressStyles,
     makeHTMLStyles,
     makeIndeterminateProgressStyles,
     makeMinimalStyles,
+    makePositionStyles,
     makeStylesString,
+    StyleOverride,
 } from './wireframeStyle'
 
 const BACKGROUND = '#f3f4ef'
@@ -59,7 +75,95 @@ function* ids(): Generator<number> {
 // TODO this is shared for the lifetime of the page, so a very, very long-lived session could exhaust the ids
 const idSequence = ids()
 
+// there are some fixed ids that we need to use for fixed elements or artificial mutations
+const DOCUMENT_ID = 1
+const HTML_DOC_TYPE_ID = 2
+const HTML_ELEMENT_ID = 3
+const HEAD_ID = 4
 const BODY_ID = 5
+const KEYBOARD_ID = 6
+
+function isKeyboardEvent(x: unknown): x is keyboardEvent {
+    return (
+        typeof x === 'object' &&
+        x !== null &&
+        'data' in x &&
+        typeof x.data === 'object' &&
+        x.data !== null &&
+        'tag' in x.data &&
+        x.data.tag === 'keyboard'
+    )
+}
+
+export const makeCustomEvent = (
+    mobileCustomEvent: (customEvent | keyboardEvent) & {
+        timestamp: number
+        delay?: number
+    }
+): (customEvent | incrementalSnapshotEvent) & {
+    timestamp: number
+    delay?: number
+} => {
+    if (isKeyboardEvent(mobileCustomEvent)) {
+        // keyboard events are handled as incremental snapshots to add or remove a keyboard from the DOM
+        // TODO eventually we can pass something to makeIncrementalEvent here
+        const adds: addedNodeMutation[] = []
+        const removes = []
+        if (mobileCustomEvent.data.payload.open) {
+            const shouldAbsolutelyPosition =
+                _isPositiveInteger(mobileCustomEvent.data.payload.x) ||
+                _isPositiveInteger(mobileCustomEvent.data.payload.y)
+            const styleOverride: StyleOverride | undefined = shouldAbsolutelyPosition ? undefined : { bottom: true }
+            const keyboardPlaceHolder = makePlaceholderElement(
+                {
+                    id: KEYBOARD_ID,
+                    type: 'placeholder',
+                    label: 'keyboard',
+                    height: mobileCustomEvent.data.payload.height,
+                    width: _isPositiveInteger(mobileCustomEvent.data.payload.width)
+                        ? mobileCustomEvent.data.payload.width
+                        : '100vw',
+                },
+                [],
+                styleOverride
+            )
+            if (keyboardPlaceHolder) {
+                adds.push({
+                    parentId: BODY_ID,
+                    nextId: null,
+                    node: keyboardPlaceHolder,
+                })
+                // mutations seem not to want a tree of nodes to add
+                // so even though `keyboardPlaceholder` is a tree with content
+                // we have to add the text content as well
+                adds.push({
+                    parentId: keyboardPlaceHolder.id,
+                    nextId: null,
+                    node: {
+                        type: NodeType.Text,
+                        id: idSequence.next().value,
+                        textContent: 'keyboard',
+                    },
+                })
+            } else {
+                captureMessage('Failed to create keyboard placeholder', { extra: { mobileCustomEvent } })
+            }
+        } else {
+            removes.push({
+                parentId: BODY_ID,
+                id: KEYBOARD_ID,
+            })
+        }
+        const mutation: mutationData = { adds, attributes: [], removes, source: IncrementalSource.Mutation, texts: [] }
+        return {
+            type: EventType.IncrementalSnapshot,
+            data: mutation,
+            timestamp: mobileCustomEvent.timestamp,
+        }
+    } else {
+        return mobileCustomEvent
+    }
+}
 
 export const makeMetaEvent = (
     mobileMetaEvent: MobileMetaEvent & {
@@ -131,7 +235,11 @@ function makeWebViewElement(wireframe: wireframe, children: serializedNodeWithId
     return makePlaceholderElement(labelledWireframe, children)
 }
 
-function makePlaceholderElement(wireframe: wireframe, children: serializedNodeWithId[]): serializedNodeWithId | null {
+function makePlaceholderElement(
+    wireframe: wireframe,
+    children: serializedNodeWithId[],
+    styleOverride?: StyleOverride
+): serializedNodeWithId | null {
     const txt = 'label' in wireframe && wireframe.label ? wireframe.label : wireframe.type || 'PLACEHOLDER'
     return {
         type: NodeType.Element,
@@ -142,6 +250,7 @@ function makePlaceholderElement(wireframe: wireframe, children: serializedNodeWi
                 horizontalAlign: 'center',
                 backgroundColor: wireframe.style?.backgroundColor || BACKGROUND,
                 color: wireframe.style?.color || FOREGROUND,
+                ...styleOverride,
             }),
         },
         id: wireframe.id,
@@ -314,6 +423,112 @@ function makeRadioGroupElement(
     }
 }
 
+function makeStar(title: string, path: string): serializedNodeWithId {
+    return {
+        type: NodeType.Element,
+        tagName: 'svg',
+        isSVG: true,
+        attributes: {
+            style: 'height: 100%;overflow-clip-margin: content-box;overflow:hidden',
+            viewBox: '0 0 24 24',
+            fill: 'currentColor',
+        },
+        id: idSequence.next().value,
+        childNodes: [
+            {
+                type: NodeType.Element,
+                tagName: 'title',
+                isSVG: true,
+                attributes: {},
+                id: idSequence.next().value,
+                childNodes: [
+                    {
+                        type: NodeType.Text,
+                        textContent: title,
+                        id: idSequence.next().value,
+                    },
+                ],
+            },
+            {
+                type: NodeType.Element,
+                tagName: 'path',
+                isSVG: true,
+                attributes: {
+                    d: path,
+                },
+                id: idSequence.next().value,
+                childNodes: [],
+            },
+        ],
+    }
+}
+
+function filledStar(): serializedNodeWithId {
+    return makeStar(
+        'filled star',
+        'M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z'
+    )
+}
+
+function halfStar(): serializedNodeWithId {
+    return makeStar(
+        'half-filled star',
+        'M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z'
+    )
+}
+
+function emptyStar(): serializedNodeWithId {
+    return makeStar(
+        'empty star',
+        'M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z'
+    )
+}
+
+function makeRatingBar(wireframe: wireframeProgress, children: serializedNodeWithId[]): serializedNodeWithId | null {
+    // max is the number of stars... and value is the number of stars to fill
+
+    // deliberate double equals, because we want to allow null and undefined
+    if (wireframe.value == null || wireframe.max == null) {
+        return makePlaceholderElement(wireframe, children)
+    }
+
+    const numberOfFilledStars = Math.floor(wireframe.value)
+    const numberOfHalfStars = wireframe.value - numberOfFilledStars > 0 ? 1 : 0
+    const numberOfEmptyStars = wireframe.max - numberOfFilledStars - numberOfHalfStars
+
+    const filledStars = Array(numberOfFilledStars)
+        .fill(undefined)
+        .map(() => filledStar())
+    const halfStars = Array(numberOfHalfStars)
+        .fill(undefined)
+        .map(() => halfStar())
+    const emptyStars = Array(numberOfEmptyStars)
+        .fill(undefined)
+        .map(() => emptyStar())
+
+    const ratingBar = {
+        type: NodeType.Element,
+        tagName: 'div',
+        id: idSequence.next().value,
+        attributes: {
+            style:
+                makeColorStyles(wireframe) +
+                'position: relative; display: flex; flex-direction: row; padding: 2px 4px;',
+        },
+        childNodes: [...filledStars, ...halfStars, ...emptyStars],
+    } as serializedNodeWithId
+
+    return {
+        type: NodeType.Element,
+        tagName: 'div',
+        attributes: {
+            style: makeStylesString(wireframe),
+        },
+        id: wireframe.id,
+        childNodes: [ratingBar, ...children],
+    }
+}
+
 function makeProgressElement(
     wireframe: wireframeProgress,
     children: serializedNodeWithId[]
@@ -378,6 +593,8 @@ function makeProgressElement(
                 ...children,
             ],
         }
+    } else if (wireframe.style?.bar === 'rating') {
+        return makeRatingBar(wireframe, children)
     } else {
         return {
             type: NodeType.Element,
@@ -389,20 +606,84 @@ function makeProgressElement(
     }
 }
 
-function makeToggleElement(
-    wireframe: wireframeToggle,
-    children: serializedNodeWithId[]
-): (elementNode & { id: number }) | null {
-    // first return simply a checkbox
+function makeToggleParts(wireframe: wireframeToggle): serializedNodeWithId[] {
+    const togglePosition = wireframe.checked ? 'right' : 'left'
+    const defaultColor = wireframe.checked ? '#1d4aff' : BACKGROUND
+    return [
+        {
+            type: NodeType.Element,
+            tagName: 'div',
+            attributes: {
+                'data-toggle-part': 'slider',
+                style: `position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;background-color:${
+                    wireframe.style?.color || defaultColor
+                };opacity: 0.2;border-radius:7.5%;`,
+            },
+            id: idSequence.next().value,
+            childNodes: [],
+        },
+        {
+            type: NodeType.Element,
+            tagName: 'div',
+            attributes: {
+                'data-toggle-part': 'handle',
+                style: `position:absolute;top:1.5%;${togglePosition}:5%;display:flex;align-items:center;justify-content:center;width:40%;height:75%;cursor:inherit;background-color:${
+                    wireframe.style?.color || defaultColor
+                };border:2px solid ${
+                    wireframe.style?.borderColor || wireframe.style?.color || defaultColor
+                };border-radius:50%;`,
+            },
+            id: idSequence.next().value,
+            childNodes: [],
+        },
+    ]
+}
+
+function makeToggleElement(wireframe: wireframeToggle): (elementNode & { id: number }) | null {
+    const isLabelled = 'label' in wireframe
     return {
         type: NodeType.Element,
-        tagName: 'input',
+        tagName: 'div',
         attributes: {
-            ...inputAttributes(wireframe),
-            type: 'checkbox',
+            // if labelled take up available space, otherwise use provided positioning
+            style: isLabelled ? `height:100%;flex:1` : makePositionStyles(wireframe),
         },
         id: wireframe.id,
-        childNodes: children,
+        childNodes: [
+            {
+                type: NodeType.Element,
+                tagName: 'div',
+                attributes: {
+                    // relative position, fills parent
+                    style: 'position:relative;width:100%;height:100%;',
+                },
+                id: idSequence.next().value,
+                childNodes: makeToggleParts(wireframe),
+            },
+        ],
+    }
+}
+
+function makeLabelledInput(
+    wireframe: wireframeCheckBox | wireframeRadio | wireframeToggle,
+    theInputElement: serializedNodeWithId
+): serializedNodeWithId {
+    const theLabel: serializedNodeWithId = {
+        type: NodeType.Text,
+        textContent: wireframe.label || '',
+        id: idSequence.next().value,
+    }
+
+    const orderedChildren = wireframe.inputType === 'toggle' ? [theLabel, theInputElement] : [theInputElement, theLabel]
+
+    return {
+        type: NodeType.Element,
+        tagName: 'label',
+        attributes: {
+            style: makeStylesString(wireframe),
+        },
+        id: idSequence.next().value,
+        childNodes: orderedChildren,
     }
 }
 
@@ -426,9 +707,9 @@ function makeInputElement(
         return makeProgressElement(wireframe, children)
     }
 
-    const theInputElement: (elementNode & { id: number }) | null =
+    const theInputElement: serializedNodeWithId | null =
         wireframe.inputType === 'toggle'
-            ? makeToggleElement(wireframe, children)
+            ? makeToggleElement(wireframe)
             : {
                   type: NodeType.Element,
                   tagName: 'input',
@@ -436,27 +717,13 @@ function makeInputElement(
                   id: wireframe.id,
                   childNodes: children,
               }
+
     if (!theInputElement) {
         return null
     }
 
     if ('label' in wireframe) {
-        return {
-            type: NodeType.Element,
-            tagName: 'label',
-            attributes: {
-                style: makeStylesString(wireframe),
-            },
-            id: idSequence.next().value,
-            childNodes: [
-                theInputElement,
-                {
-                    type: NodeType.Text,
-                    textContent: wireframe.label || '',
-                    id: idSequence.next().value,
-                },
-            ],
-        }
+        return makeLabelledInput(wireframe, theInputElement)
     } else {
         return {
             ...theInputElement,
@@ -582,19 +849,19 @@ export const makeFullEvent = (
                         name: 'html',
                         publicId: '',
                         systemId: '',
-                        id: 2,
+                        id: HTML_DOC_TYPE_ID,
                     },
                     {
                         type: NodeType.Element,
                         tagName: 'html',
                         attributes: { style: makeHTMLStyles() },
-                        id: 3,
+                        id: HTML_ELEMENT_ID,
                         childNodes: [
                             {
                                 type: NodeType.Element,
                                 tagName: 'head',
                                 attributes: {},
-                                id: 4,
+                                id: HEAD_ID,
                                 childNodes: [],
                             },
                             {
@@ -615,7 +882,7 @@ export const makeFullEvent = (
                         ],
                     },
                 ],
-                id: 1,
+                id: DOCUMENT_ID,
             },
             initialOffset: {
                 top: 0,

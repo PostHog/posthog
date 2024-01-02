@@ -66,7 +66,6 @@ export function SurveyEditQuestionHeader({
             {survey.questions.length > 1 && (
                 <LemonButton
                     icon={<IconDelete />}
-                    status="primary-alt"
                     data-attr={`delete-survey-question-${index}`}
                     onClick={(e) => {
                         e.stopPropagation()
@@ -130,7 +129,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                 ),
                             },
                             {
-                                label: 'Link',
+                                label: 'Link/Notification',
                                 value: SurveyQuestionType.Link,
                                 tooltip: () => (
                                     <BaseAppearance
@@ -304,7 +303,6 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                         <LemonButton
                                                             icon={<IconDelete />}
                                                             size="small"
-                                                            status="muted"
                                                             noPadding
                                                             onClick={() => {
                                                                 const newChoices = [...value]

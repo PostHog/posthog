@@ -1,10 +1,8 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Within3000PageHeaderContext } from 'lib/lemon-ui/LemonButton/LemonButton'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { createPortal } from 'react-dom'
-import { DraggableToNotebook, DraggableToNotebookProps } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { DraggableToNotebookProps } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 
@@ -17,46 +15,19 @@ interface PageHeaderProps {
     notebookProps?: Pick<DraggableToNotebookProps, 'href' | 'node' | 'properties'>
 }
 
-export function PageHeader({
-    title,
-    caption,
-    buttons,
-    tabbedPage,
-    delimited,
-    notebookProps,
-}: PageHeaderProps): JSX.Element | null {
-    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
+export function PageHeader({ caption, buttons, tabbedPage }: PageHeaderProps): JSX.Element | null {
     const { actionsContainer } = useValues(breadcrumbsLogic)
 
     return (
         <>
-            {!is3000 && (
-                <div className="page-title-row flex justify-between">
-                    <div className="min-w-0">
-                        {!is3000 &&
-                            (notebookProps ? (
-                                <DraggableToNotebook {...notebookProps}>
-                                    <h1 className="page-title">{title}</h1>
-                                </DraggableToNotebook>
-                            ) : (
-                                <h1 className="page-title">{title}</h1>
-                            ))}
-                    </div>
-                    {!is3000 && <div className="page-buttons">{buttons}</div>}
-                </div>
-            )}
-            {is3000 &&
-                buttons &&
+            {buttons &&
                 actionsContainer &&
                 createPortal(
-                    <Within3000PageHeaderContext.Provider value={is3000}>
-                        {buttons}
-                    </Within3000PageHeaderContext.Provider>,
+                    <Within3000PageHeaderContext.Provider value={true}>{buttons}</Within3000PageHeaderContext.Provider>,
                     actionsContainer
                 )}
 
             {caption && <div className={clsx('page-caption', tabbedPage && 'tabbed')}>{caption}</div>}
-            {delimited && <LemonDivider className={is3000 ? 'hidden' : 'my-4'} />}
         </>
     )
 }

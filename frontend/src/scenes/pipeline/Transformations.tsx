@@ -15,11 +15,11 @@ import {
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { dayjs } from 'lib/dayjs'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { urls } from 'scenes/urls'
@@ -31,6 +31,10 @@ import { pipelineTransformationsLogic } from './transformationsLogic'
 import { RenderApp } from './utils'
 
 export function Transformations(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    if (!featureFlags[FEATURE_FLAGS.PIPELINE_UI]) {
+        return <></>
+    }
     const {
         loading,
         sortedEnabledPluginConfigs,
@@ -66,8 +70,7 @@ export function Transformations(): JSX.Element {
                                 <LemonButton
                                     onClick={openReorderModal}
                                     noPadding
-                                    type="tertiary"
-                                    id={`app-reorder`}
+                                    id="app-reorder"
                                     disabledReason={
                                         canConfigurePlugins
                                             ? undefined
@@ -132,11 +135,6 @@ export function Transformations(): JSX.Element {
                             {
                                 title: 'Status',
                                 render: function RenderStatus(_, pluginConfig) {
-                                    // We're not very good at cleaning up the errors, so let's not show it if more than 7 days have passed
-                                    const days_since_error = pluginConfig.error
-                                        ? dayjs().diff(dayjs(pluginConfig.error.time), 'day')
-                                        : null
-                                    const show_error: boolean = !(days_since_error && days_since_error < 7)
                                     return (
                                         <>
                                             {pluginConfig.enabled ? (
@@ -147,30 +145,6 @@ export function Transformations(): JSX.Element {
                                                 <LemonTag type="default" className="uppercase">
                                                     Disabled
                                                 </LemonTag>
-                                            )}
-                                            {pluginConfig.error && show_error && (
-                                                <>
-                                                    <br />
-                                                    <Tooltip
-                                                        title={
-                                                            <>
-                                                                Click to see logs.
-                                                                <br />
-                                                                {humanFriendlyDetailedTime(
-                                                                    pluginConfig.error.time
-                                                                )}: {pluginConfig.error.message}
-                                                            </>
-                                                        }
-                                                    >
-                                                        <Link
-                                                            to={urls.pipelineApp(pluginConfig.id, PipelineAppTabs.Logs)}
-                                                        >
-                                                            <LemonTag type="danger" className="uppercase">
-                                                                Error
-                                                            </LemonTag>
-                                                        </Link>
-                                                    </Tooltip>
-                                                </>
                                             )}
                                         </>
                                     )
@@ -184,7 +158,6 @@ export function Transformations(): JSX.Element {
                                             overlay={
                                                 <>
                                                     <LemonButton
-                                                        status="stealth"
                                                         onClick={() => {
                                                             toggleEnabled({
                                                                 enabled: !pluginConfig.enabled,
@@ -203,7 +176,6 @@ export function Transformations(): JSX.Element {
                                                     </LemonButton>
                                                     {pluginConfig.enabled && (
                                                         <LemonButton
-                                                            status="stealth"
                                                             onClick={openReorderModal}
                                                             id={`app-reorder`}
                                                             disabledReason={
@@ -217,7 +189,6 @@ export function Transformations(): JSX.Element {
                                                         </LemonButton>
                                                     )}
                                                     <LemonButton
-                                                        status="stealth"
                                                         to={urls.pipelineApp(
                                                             pluginConfig.id,
                                                             PipelineAppTabs.Configuration
@@ -228,7 +199,6 @@ export function Transformations(): JSX.Element {
                                                         {canConfigurePlugins ? 'Edit' : 'View'} app configuration
                                                     </LemonButton>
                                                     <LemonButton
-                                                        status="stealth"
                                                         to={urls.pipelineApp(pluginConfig.id, PipelineAppTabs.Metrics)}
                                                         id={`app-${pluginConfig.id}-metrics`}
                                                         fullWidth
@@ -236,7 +206,6 @@ export function Transformations(): JSX.Element {
                                                         View app metrics
                                                     </LemonButton>
                                                     <LemonButton
-                                                        status="stealth"
                                                         to={urls.pipelineApp(pluginConfig.id, PipelineAppTabs.Logs)}
                                                         id={`app-${pluginConfig.id}-logs`}
                                                         fullWidth
@@ -245,7 +214,6 @@ export function Transformations(): JSX.Element {
                                                     </LemonButton>
                                                     {plugins[pluginConfig.plugin].url && (
                                                         <LemonButton
-                                                            status="stealth"
                                                             to={plugins[pluginConfig.plugin].url}
                                                             targetBlank={true}
                                                             id={`app-${pluginConfig.id}-source-code`}

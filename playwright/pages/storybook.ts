@@ -19,12 +19,10 @@ type ComponentScreenshotConfig = {
 
 export class StorybookStoryPage {
     readonly page: Page
-    readonly mainAppContent: Locator
     readonly storyRoot: Locator
 
     constructor(page: Page) {
         this.page = page
-        this.mainAppContent = page.locator('.main-app-content')
         this.storyRoot = page.locator('#storybook-root')
     }
 
@@ -39,10 +37,6 @@ export class StorybookStoryPage {
 
     async expectFullPageScreenshot(): Promise<void> {
         await expect(this.page).toHaveScreenshot({ maxDiffPixelRatio: 0.01 })
-    }
-
-    async expectSceneScreenshot(): Promise<void> {
-        await expect(this.mainAppContent).toHaveScreenshot({ maxDiffPixelRatio: 0.01 })
     }
 
     async expectComponentScreenshot({ pseudo } = {} as ComponentScreenshotConfig): Promise<void> {

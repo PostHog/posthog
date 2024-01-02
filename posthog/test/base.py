@@ -34,6 +34,13 @@ from posthog.cloud_utils import (
     is_cloud,
 )
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
+from posthog.models.channel_type.sql import (
+    CHANNEL_DEFINITION_TABLE_SQL,
+    DROP_CHANNEL_DEFINITION_TABLE_SQL,
+    DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
+    CHANNEL_DEFINITION_DICTIONARY_SQL,
+    CHANNEL_DEFINITION_DATA_SQL,
+)
 from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import (
     DISTRIBUTED_EVENTS_TABLE_SQL,
@@ -843,6 +850,8 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 TRUNCATE_COHORTPEOPLE_TABLE_SQL,
                 TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
                 TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
+                DROP_CHANNEL_DEFINITION_TABLE_SQL,
+                DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
             ]
         )
         run_clickhouse_statement_in_parallel(
@@ -851,6 +860,8 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 PERSONS_TABLE_SQL(),
                 SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                CHANNEL_DEFINITION_TABLE_SQL(),
+                CHANNEL_DEFINITION_DICTIONARY_SQL,
             ]
         )
         run_clickhouse_statement_in_parallel(
@@ -858,6 +869,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                CHANNEL_DEFINITION_DATA_SQL,
             ]
         )
 
@@ -871,6 +883,8 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
                 DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                DROP_CHANNEL_DEFINITION_TABLE_SQL,
+                DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
             ]
         )
 
@@ -880,6 +894,8 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 PERSONS_TABLE_SQL(),
                 SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                CHANNEL_DEFINITION_TABLE_SQL(),
+                CHANNEL_DEFINITION_DICTIONARY_SQL,
             ]
         )
         run_clickhouse_statement_in_parallel(
@@ -887,6 +903,7 @@ class ClickhouseDestroyTablesMixin(BaseTest):
                 DISTRIBUTED_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
                 DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
+                CHANNEL_DEFINITION_DATA_SQL,
             ]
         )
 

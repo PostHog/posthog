@@ -53,6 +53,7 @@ from sentry_sdk.api import capture_exception
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import RequestParsingError
+from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
 
 if TYPE_CHECKING:
@@ -370,7 +371,7 @@ def render_template(
             "current_user": None,
             "current_team": None,
             "preflight": json.loads(preflight_check(request).getvalue()),
-            "default_event_name": get_default_event_name(),
+            "default_event_name": "$pageview",
             "switched_team": getattr(request, "switched_team", None),
             **posthog_app_context,
         }
@@ -398,6 +399,7 @@ def render_template(
                 )
                 posthog_app_context["current_team"] = team_serialized.data
                 posthog_app_context["frontend_apps"] = get_frontend_apps(user.team.pk)
+                posthog_app_context["default_event_name"] = get_default_event_name(user.team)
 
     context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
 
@@ -455,12 +457,12 @@ def get_self_capture_api_token(request: Optional[HttpRequest]) -> Optional[str]:
     return None
 
 
-def get_default_event_name():
+def get_default_event_name(team: "Team"):
     from posthog.models import EventDefinition
 
-    if EventDefinition.objects.filter(name="$pageview").exists():
+    if EventDefinition.objects.filter(team=team, name="$pageview").exists():
         return "$pageview"
-    elif EventDefinition.objects.filter(name="$screen").exists():
+    elif EventDefinition.objects.filter(team=team, name="$screen").exists():
         return "$screen"
     return "$pageview"
 
@@ -631,6 +633,7 @@ def decompress(data: Any, compression: str):
             raise RequestParsingError("Failed to decompress data. %s" % (str(error)))
 
     if compression == "lz64":
+        KLUDGES_COUNTER.labels(kludge="lz64_compression").inc()
         if not isinstance(data, str):
             data = data.decode()
         data = data.replace(" ", "+")
@@ -645,6 +648,7 @@ def decompress(data: Any, compression: str):
     base64_decoded = None
     try:
         base64_decoded = base64_decode(data)
+        KLUDGES_COUNTER.labels(kludge="base64_after_decompression_" + compression).inc()
     except Exception:
         pass
 
@@ -659,7 +663,9 @@ def decompress(data: Any, compression: str):
     except (json.JSONDecodeError, UnicodeDecodeError) as error_main:
         if compression == "":
             try:
-                return decompress(data, "gzip")
+                fallback = decompress(data, "gzip")
+                KLUDGES_COUNTER.labels(kludge="unspecified_gzip_fallback").inc()
+                return fallback
             except Exception as inner:
                 # re-trying with compression set didn't succeed, throw original error
                 raise RequestParsingError("Invalid JSON: %s" % (str(error_main))) from inner
@@ -679,6 +685,8 @@ def load_data_from_request(request):
             data = request.POST.get("data")
     else:
         data = request.GET.get("data")
+        if data:
+            KLUDGES_COUNTER.labels(kludge="data_in_get_param").inc()
 
     # add the data in sentry's scope in case there's an exception
     with configure_scope() as scope:

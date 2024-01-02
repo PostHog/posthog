@@ -3,7 +3,6 @@ import { router } from 'kea-router'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FullScreen } from 'lib/components/FullScreen'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -194,7 +193,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                             DashboardEventSource.MoreDropdown
                                                         )
                                                     }
-                                                    status="stealth"
                                                     fullWidth
                                                 >
                                                     Edit layout (E)
@@ -207,7 +205,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                         DashboardEventSource.MoreDropdown
                                                     )
                                                 }
-                                                status="stealth"
                                                 fullWidth
                                             >
                                                 Go full screen (F)
@@ -221,7 +218,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                                 DashboardEventSource.MoreDropdown
                                                             )
                                                         }
-                                                        status="stealth"
                                                         fullWidth
                                                     >
                                                         Unpin dashboard
@@ -234,14 +230,13 @@ export function DashboardHeader(): JSX.Element | null {
                                                                 DashboardEventSource.MoreDropdown
                                                             )
                                                         }
-                                                        status="stealth"
                                                         fullWidth
                                                     >
                                                         Pin dashboard
                                                     </LemonButton>
                                                 ))}
                                             <SubscribeButton dashboardId={dashboard.id} />
-                                            <ExportButton fullWidth status="stealth" items={exportOptions} />
+                                            <ExportButton fullWidth items={exportOptions} />
                                             {user?.is_staff && (
                                                 <LemonButton
                                                     onClick={() => {
@@ -251,7 +246,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                         }
                                                     }}
                                                     fullWidth
-                                                    status="stealth"
                                                 >
                                                     Save as template
                                                 </LemonButton>
@@ -261,20 +255,16 @@ export function DashboardHeader(): JSX.Element | null {
                                                 onClick={() => {
                                                     showDuplicateDashboardModal(dashboard.id, dashboard.name)
                                                 }}
-                                                status="stealth"
                                                 fullWidth
                                             >
                                                 Duplicate dashboard
                                             </LemonButton>
-                                            <FlaggedFeature flag={'notebooks'}>
-                                                <LemonButton
-                                                    onClick={() => createNotebookFromDashboard(dashboard)}
-                                                    status="stealth"
-                                                    fullWidth
-                                                >
-                                                    Create notebook from dashboard
-                                                </LemonButton>
-                                            </FlaggedFeature>
+                                            <LemonButton
+                                                onClick={() => createNotebookFromDashboard(dashboard)}
+                                                fullWidth
+                                            >
+                                                Create notebook from dashboard
+                                            </LemonButton>
                                             {canEditDashboard && (
                                                 <LemonButton
                                                     onClick={() => {
@@ -318,7 +308,6 @@ export function DashboardHeader(): JSX.Element | null {
                                             overlay: (
                                                 <>
                                                     <LemonButton
-                                                        status="stealth"
                                                         fullWidth
                                                         onClick={() => {
                                                             push(urls.dashboardTextTile(dashboard.id, 'new'))

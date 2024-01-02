@@ -37,7 +37,7 @@ class HogQLQueryRunner(QueryRunner):
                     parsed_select = replace_filters(parsed_select, self.query.filters, self.team)
         return parsed_select
 
-    def to_persons_query(self) -> ast.SelectQuery:
+    def to_actors_query(self) -> ast.SelectQuery:
         return self.to_query()
 
     def calculate(self) -> HogQLQueryResponse:

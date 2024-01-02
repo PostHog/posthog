@@ -3,11 +3,11 @@ import './LemonTable.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useScrollable } from 'lib/hooks/useScrollable'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import React, { HTMLProps, useCallback, useEffect, useMemo, useState } from 'react'
+import React, { HTMLProps, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { PaginationAuto, PaginationControl, PaginationManual, usePagination } from '../PaginationControl'
 import { Tooltip } from '../Tooltip'
@@ -161,7 +161,7 @@ export function LemonTable<T extends Record<string, any>>({
     ) as LemonTableColumnGroup<T>[]
     const columns = columnGroups.flatMap((group) => group.children)
 
-    const [scrollRef, [isScrollableLeft, isScrollableRight]] = useScrollable()
+    const scrollRef = useRef<HTMLDivElement>(null)
 
     /** Sorting. */
     const currentSorting =
@@ -214,15 +214,13 @@ export function LemonTable<T extends Record<string, any>>({
         <div
             id={id}
             className={clsx(
-                'LemonTable scrollable',
+                'LemonTable',
                 size && size !== 'middle' && `LemonTable--${size}`,
                 inset && 'LemonTable--inset',
                 loading && 'LemonTable--loading',
                 embedded && 'LemonTable--embedded',
                 rowRibbonColor !== undefined && `LemonTable--with-ribbon`,
                 stealth && 'LemonTable--stealth',
-                isScrollableLeft && 'scrollable--left',
-                isScrollableRight && 'scrollable--right',
                 !uppercaseHeader && 'LemonTable--lowercase-header',
                 className
             )}
@@ -230,7 +228,7 @@ export function LemonTable<T extends Record<string, any>>({
             style={style}
             data-attr={dataAttr}
         >
-            <div className="scrollable__inner" ref={scrollRef}>
+            <ScrollableShadows direction="horizontal" scrollRef={scrollRef}>
                 <div className="LemonTable__content">
                     <table>
                         <colgroup>
@@ -434,7 +432,7 @@ export function LemonTable<T extends Record<string, any>>({
                     <PaginationControl {...paginationState} nouns={nouns} />
                     <div className="LemonTable__overlay" />
                 </div>
-            </div>
+            </ScrollableShadows>
         </div>
     )
 }
