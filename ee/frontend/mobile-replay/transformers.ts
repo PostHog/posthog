@@ -9,14 +9,15 @@ import {
     mutationData,
 } from '@rrweb/types'
 import { captureMessage } from '@sentry/react'
+import { isObject } from 'lib/utils'
 
 import {
     attributes,
     elementNode,
     fullSnapshotEvent as MobileFullSnapshotEvent,
-    incrementalSnapshotEvent as MobileIncrementalSnapshotEvent,
     keyboardEvent,
     metaEvent as MobileMetaEvent,
+    MobileIncrementalSnapshotEvent,
     MobileNodeType,
     NodeType,
     serializedNodeWithId,
@@ -84,15 +85,7 @@ const BODY_ID = 5
 const KEYBOARD_ID = 6
 
 function isKeyboardEvent(x: unknown): x is keyboardEvent {
-    return (
-        typeof x === 'object' &&
-        x !== null &&
-        'data' in x &&
-        typeof x.data === 'object' &&
-        x.data !== null &&
-        'tag' in x.data &&
-        x.data.tag === 'keyboard'
-    )
+    return isObject(x) && 'data' in x && isObject(x.data) && 'tag' in x.data && x.data.tag === 'keyboard'
 }
 
 export const makeCustomEvent = (
@@ -795,15 +788,83 @@ function convertWireframesFor(wireframes: wireframe[] | undefined): serializedNo
     }, [] as serializedNodeWithId[])
 }
 
+function isMobileIncrementalSnapshotEvent(x: unknown): x is MobileIncrementalSnapshotEvent {
+    const isIncrementalSnapshot = isObject(x) && 'type' in x && x.type === EventType.IncrementalSnapshot
+    if (!isIncrementalSnapshot) {
+        return false
+    }
+    const hasData = isObject(x) && 'data' in x
+    const data = hasData ? x.data : null
+
+    const hasMutationSource = isObject(data) && 'source' in data && data.source === IncrementalSource.Mutation
+
+    const adds = isObject(data) && 'adds' in data && Array.isArray(data.adds) ? data.adds : null
+    const updates = isObject(data) && 'updates' in data && Array.isArray(data.updates) ? data.updates : null
+
+    const hasUpdatedWireframe = !!updates && updates.length > 0 && isObject(updates[0]) && 'wireframe' in updates[0]
+    const hasAddedWireframe = !!adds && adds.length > 0 && isObject(adds[0]) && 'wireframe' in adds[0]
+
+    return hasMutationSource && (hasAddedWireframe || hasUpdatedWireframe)
+}
+
 /**
- * We've not implemented mutations, until then this is almost an index function.
+ * We want to ensure that any events don't use id = 0.
+ * They must always represent a valid ID from the dom, so we swap in the body id when the id = 0.
  *
- * But, we want to ensure that any mouse/touch events don't use id = 0.
- * They must always represent a valid ID from the dom, so we swap in the body id.
+ * For "removes", we don't need to do anything, the id of the element to be removed remains valid. We won't try and remove other elements that we added during transformation in order to show that element.
  *
+ * "adds" are processed as normal.
+ *
+ * an example add is
+ *
+ * "adds": [{
+ *     "parentId": 236954439,
+ *     "wireframe": {
+ *       "base64": "...",
+ *       "disabled": false,
+ *       "height": 390,
+ *       "id": 69210545,
+ *       "style": {},
+ *       "type": "image",
+ *       "width": 230,
+ *       "x": 0,
+ *       "y": 44
+ *     }
+ * }]
+ *
+ * "updates" are converted to a remove and an add.
+ *
+ * an example update is
+ *
+ * "updates": [{
+ *     "parentId": 167849074,
+ *     "wireframe": {
+ *       "disabled": false,
+ *       "height": 44,
+ *       "id": 204578238,
+ *       "inputType": "text_area",
+ *       "style": {
+ *         "backgroundColor": "#ffffff",
+ *         "color": "#FF0000",
+ *         "fontFamily": "sans-serif",
+ *         "fontSize": 17,
+ *         "horizontalAlign": "left",
+ *         "paddingBottom": 11,
+ *         "paddingLeft": 3,
+ *         "paddingRight": 3,
+ *         "paddingTop": 9,
+ *         "verticalAlign": "center"
+ *       },
+ *       "type": "input",
+ *       "value": "EditTexttext",
+ *       "width": 101,
+ *       "x": 0,
+ *       "y": 92
+ *     }
+ * }]
  */
 export const makeIncrementalEvent = (
-    mobileEvent: MobileIncrementalSnapshotEvent & {
+    mobileEvent: (MobileIncrementalSnapshotEvent | incrementalSnapshotEvent) & {
         timestamp: number
         delay?: number
     }
@@ -811,14 +872,36 @@ export const makeIncrementalEvent = (
     timestamp: number
     delay?: number
 } => {
-    const converted = mobileEvent as unknown as incrementalSnapshotEvent & {
-        timestamp: number
-        delay?: number
+    if (isMobileIncrementalSnapshotEvent(mobileEvent)) {
+        let adds: any[] = []
+        if ('adds' in mobileEvent.data && Array.isArray(mobileEvent.data.adds)) {
+            adds = mobileEvent.data.adds.flatMap((add) => {
+                // return makeIncrementalAdd(add, converted)
+                return [add]
+            })
+        }
+        // eslint-disable-next-line no-console
+        console.log(adds)
+
+        // TODO wat
+        const converted = mobileEvent as unknown as incrementalSnapshotEvent & {
+            timestamp: number
+            delay?: number
+        }
+        if ('id' in converted.data && converted.data.id === 0) {
+            converted.data.id = BODY_ID
+        }
+        return converted
+    } else {
+        const converted = mobileEvent as unknown as incrementalSnapshotEvent & {
+            timestamp: number
+            delay?: number
+        }
+        if ('id' in converted.data && converted.data.id === 0) {
+            converted.data.id = BODY_ID
+        }
+        return converted
     }
-    if ('id' in converted.data && converted.data.id === 0) {
-        converted.data.id = BODY_ID
-    }
-    return converted
 }
 
 export const makeFullEvent = (
