@@ -80,9 +80,7 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins
         my_feature_flags = list(
             FeatureFlag.objects.filter(created_by=user, team_id=self.team.pk).values_list("id", flat=True)
         )
-        my_notebooks = list(
-            Notebook.objects.filter(created_by=user, team_id=self.team.pk).values_list("short_id", flat=True)
-        )
+        my_notebooks = list(Notebook.objects.filter(created_by=user, team_id=self.team.pk).values_list("id", flat=True))
 
         # then things they edited
         interesting_changes = [
