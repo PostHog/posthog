@@ -2,7 +2,6 @@ import { IconNotification } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
-    LemonCheckbox,
     LemonSelect,
     LemonSelectOption,
     LemonSkeleton,
