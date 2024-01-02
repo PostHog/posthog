@@ -91,7 +91,6 @@ export function ExclusionRowSuffix({
             />
             <LemonButton
                 icon={<IconDelete />}
-                status="primary-alt"
                 onClick={onClose}
                 data-attr="delete-prop-exclusion-filter"
                 title="Delete event exclusion series"

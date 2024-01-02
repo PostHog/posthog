@@ -216,7 +216,6 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                             <>
                                 <LemonButton
                                     fullWidth
-                                    status={(query.source as EventsQuery)?.orderBy?.[0] === key ? 'primary' : 'stealth'}
                                     data-attr="datatable-sort-asc"
                                     onClick={() => {
                                         setQuery?.({
@@ -232,11 +231,6 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                 </LemonButton>
                                 <LemonButton
                                     fullWidth
-                                    status={
-                                        (query.source as EventsQuery)?.orderBy?.[0] === `${key} DESC`
-                                            ? 'primary'
-                                            : 'stealth'
-                                    }
                                     data-attr="datatable-sort-desc"
                                     onClick={() => {
                                         setQuery?.({

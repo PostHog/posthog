@@ -119,7 +119,7 @@ export const PlanComparison = ({
                 <LemonButton
                     to={getUpgradeProductLink(product, plan.plan_key || '', redirectPath, includeAddons)}
                     type={plan.current_plan ? 'secondary' : 'primary'}
-                    status="primary-alt"
+                    status={plan.current_plan ? 'default' : 'alt'}
                     fullWidth
                     center
                     disableClientSideRouting

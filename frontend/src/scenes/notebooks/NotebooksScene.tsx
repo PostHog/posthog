@@ -61,7 +61,7 @@ export function NotebooksScene(): JSX.Element {
                                 },
                             ]}
                         >
-                            <LemonButton icon={<IconEllipsis />} status="stealth" size="small" />
+                            <LemonButton icon={<IconEllipsis />} size="small" />
                         </LemonMenu>
                         <LemonButton data-attr={'new-notebook'} to={urls.notebook('new')} type="primary">
                             New notebook

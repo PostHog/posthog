@@ -120,7 +120,6 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
                 <LemonButton
                     key={member.id}
                     fullWidth
-                    status="primary-alt"
                     icon={<ProfilePicture user={member.user} size="sm" />}
                     active={index === selectedIndex}
                     onClick={() => void execute(member)}

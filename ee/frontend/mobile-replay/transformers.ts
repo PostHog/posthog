@@ -133,6 +133,18 @@ export const makeCustomEvent = (
                     nextId: null,
                     node: keyboardPlaceHolder,
                 })
+                // mutations seem not to want a tree of nodes to add
+                // so even though `keyboardPlaceholder` is a tree with content
+                // we have to add the text content as well
+                adds.push({
+                    parentId: keyboardPlaceHolder.id,
+                    nextId: null,
+                    node: {
+                        type: NodeType.Text,
+                        id: idSequence.next().value,
+                        textContent: 'keyboard',
+                    },
+                })
             } else {
                 captureMessage('Failed to create keyboard placeholder', { extra: { mobileCustomEvent } })
             }

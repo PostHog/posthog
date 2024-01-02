@@ -167,7 +167,6 @@ export function OverViewTab({
                         overlay={
                             <>
                                 <LemonButton
-                                    status="stealth"
                                     onClick={() => {
                                         void copyToClipboard(featureFlag.key, 'feature flag key')
                                     }}
@@ -176,7 +175,6 @@ export function OverViewTab({
                                     Copy feature flag key
                                 </LemonButton>
                                 <LemonButton
-                                    status="stealth"
                                     onClick={() => {
                                         featureFlag.id
                                             ? updateFeatureFlag({
@@ -193,7 +191,6 @@ export function OverViewTab({
                                 </LemonButton>
                                 {featureFlag.id && (
                                     <LemonButton
-                                        status="stealth"
                                         fullWidth
                                         disabled={!featureFlag.can_edit}
                                         onClick={() =>
@@ -204,7 +201,6 @@ export function OverViewTab({
                                     </LemonButton>
                                 )}
                                 <LemonButton
-                                    status="stealth"
                                     to={urls.insightNew({
                                         events: [{ id: '$pageview', name: '$pageview', type: 'events', math: 'dau' }],
                                         breakdown_type: 'event',
@@ -333,8 +329,6 @@ export function OverViewTab({
                                     <b>Created by</b>
                                 </span>
                                 <MemberSelect
-                                    size="small"
-                                    type="secondary"
                                     defaultLabel="Any user"
                                     value={filters.created_by ?? null}
                                     onChange={(user) => {

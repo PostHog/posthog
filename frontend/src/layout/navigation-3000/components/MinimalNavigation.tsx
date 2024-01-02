@@ -34,7 +34,6 @@ export function MinimalNavigation(): JSX.Element {
                 >
                     <LemonButton
                         type="tertiary"
-                        status="muted"
                         icon={<Lettermark name={currentTeam?.name} />}
                         onClick={toggleProjectSwitcher}
                     >
@@ -50,7 +49,6 @@ export function MinimalNavigation(): JSX.Element {
             >
                 <LemonButton
                     type="tertiary"
-                    status="muted"
                     icon={<ProfilePicture user={user} size="md" />}
                     onClick={toggleSitePopover}
                 >

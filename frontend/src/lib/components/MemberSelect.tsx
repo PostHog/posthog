@@ -1,4 +1,4 @@
-import { LemonButton, LemonButtonProps, LemonDropdown, LemonInput, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, LemonInput, ProfilePicture } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { fullName } from 'lib/utils'
 import { useMemo, useState } from 'react'
@@ -6,19 +6,14 @@ import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { UserBasicType } from '~/types'
 
-export type MemberSelectProps = Pick<LemonButtonProps, 'size' | 'type'> & {
+export type MemberSelectProps = {
     defaultLabel?: string
     // NOTE: Trying to cover a lot of different cases - if string we assume uuid, if number we assume id
     value: UserBasicType | string | number | null
     onChange: (value: UserBasicType | null) => void
 }
 
-export function MemberSelect({
-    defaultLabel = 'Any user',
-    value,
-    onChange,
-    ...buttonProps
-}: MemberSelectProps): JSX.Element {
+export function MemberSelect({ defaultLabel = 'Any user', value, onChange }: MemberSelectProps): JSX.Element {
     const { meFirstMembers, membersFuse } = useValues(membersLogic)
     const [showPopover, setShowPopover] = useState(false)
     const [searchTerm, setSearchTerm] = useState('')
@@ -62,13 +57,7 @@ export function MemberSelect({
                     />
                     <ul className="space-y-px">
                         <li>
-                            <LemonButton
-                                status="stealth"
-                                fullWidth
-                                role="menuitem"
-                                size="small"
-                                onClick={() => _onChange(null)}
-                            >
+                            <LemonButton fullWidth role="menuitem" size="small" onClick={() => _onChange(null)}>
                                 {defaultLabel}
                             </LemonButton>
                         </li>
@@ -76,7 +65,6 @@ export function MemberSelect({
                         {filteredMembers.map((member) => (
                             <li key={member.user.uuid}>
                                 <LemonButton
-                                    status="stealth"
                                     fullWidth
                                     role="menuitem"
                                     size="small"
@@ -102,7 +90,7 @@ export function MemberSelect({
                 </div>
             }
         >
-            <LemonButton status="stealth" {...buttonProps}>
+            <LemonButton size="small" type="secondary">
                 {typeof selectedMember === 'string' ? (
                     selectedMember
                 ) : selectedMember ? (

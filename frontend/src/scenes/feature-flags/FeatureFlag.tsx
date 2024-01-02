@@ -403,7 +403,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 <div>
                                     <LemonButton
                                         fullWidth
-                                        status="stealth"
                                         onClick={() => setAdvancedSettingsExpanded(!advancedSettingsExpanded)}
                                         sideIcon={advancedSettingsExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                     >
@@ -682,7 +681,7 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
                     {featureFlagLoading ? (
                         <EmptyDashboardComponent loading={true} canEdit={false} />
                     ) : (
-                        <LemonButton type={'primary'} onClick={() => generateUsageDashboard()}>
+                        <LemonButton type="primary" onClick={() => generateUsageDashboard()}>
                             Generate Usage Dashboard
                         </LemonButton>
                     )}
@@ -933,9 +932,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             </div>
                             <div className="col-span-4 flex items-center gap-1">
                                 <span>Rollout</span>
-                                <LemonButton type="tertiary" onClick={distributeVariantsEqually}>
-                                    (Redistribute)
-                                </LemonButton>
+                                <LemonButton onClick={distributeVariantsEqually}>(Redistribute)</LemonButton>
                             </div>
                         </div>
                         {variants.map((variant, index) => (
@@ -1036,7 +1033,6 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                         {variants.length > 1 && (
                                             <LemonButton
                                                 icon={<IconDelete />}
-                                                status="primary-alt"
                                                 data-attr={`delete-prop-filter-${index}`}
                                                 noPadding
                                                 onClick={() => removeVariant(index)}

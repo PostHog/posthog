@@ -62,13 +62,13 @@ export function CreateProjectModal({
             footer={
                 <>
                     {onClose && (
-                        <LemonButton type="secondary" onClick={() => onClose()}>
+                        <LemonButton type="secondary" onClick={onClose}>
                             Cancel
                         </LemonButton>
                     )}
                     <LemonButton
                         type="primary"
-                        onClick={() => handleSubmit()}
+                        onClick={handleSubmit}
                         disabledReason={!name ? 'Think of a name!' : null}
                     >
                         Create project
