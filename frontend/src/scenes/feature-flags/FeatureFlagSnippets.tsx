@@ -336,6 +336,22 @@ export function AndroidSnippet({ flagKey, multivariant, payload }: FeatureFlagSn
     )
 }
 
+export function FlutterSnippet({ flagKey, multivariant }: FeatureFlagSnippet): JSX.Element {
+    const clientSuffix = 'Posthog().'
+
+    const flagFunction = 'isFeatureEnabled'
+
+    const variantSuffix = multivariant ? ` == 'example-variant'` : ''
+    return (
+        <CodeSnippet language={Language.Dart} wrap>
+            {`if (${clientSuffix}${flagFunction}('${flagKey}') ${variantSuffix}) {
+    // do something
+}
+            `}
+        </CodeSnippet>
+    )
+}
+
 export function iOSSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'posthog.'
 
