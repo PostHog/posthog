@@ -5,6 +5,9 @@ import { IconEllipsis } from 'lib/lemon-ui/icons'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { AvailableFeature } from '~/types'
 
 import { batchExportsListLogic } from './batchExportsListLogic'
 import { BatchExportRunIcon, BatchExportTag } from './components'
@@ -14,6 +17,10 @@ export const scene: SceneExport = {
 }
 
 export function BatchExportsListScene(): JSX.Element {
+    const { hasAvailableFeature } = useValues(userLogic)
+    if (!hasAvailableFeature(AvailableFeature.DATA_PIPELINES)) {
+        return <></>
+    }
     return (
         <>
             <PageHeader
