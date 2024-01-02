@@ -67,11 +67,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         shouldShowWelcomeAnnouncement: [
             (s) => [s.welcomeAnnouncementAcknowledged, s.featureFlags],
             (welcomeAnnouncementAcknowledged, featureFlags) => {
-                if (
-                    featureFlags[FEATURE_FLAGS.POSTHOG_3000] &&
-                    featureFlags[FEATURE_FLAGS.POSTHOG_3000_WELCOME_ANNOUNCEMENT] &&
-                    !welcomeAnnouncementAcknowledged
-                ) {
+                if (featureFlags[FEATURE_FLAGS.POSTHOG_3000_WELCOME_ANNOUNCEMENT] && !welcomeAnnouncementAcknowledged) {
                     return true
                 }
 

@@ -348,11 +348,10 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         name="sync datawarehouse sources that have settled in s3 bucket",
     )
 
-    # Every 30 minutes try to retrieve and calculate total rows synced in period
     sender.add_periodic_task(
-        crontab(minute="*/30"),
-        calculate_external_data_rows_synced.s(),
-        name="calculate external data rows synced",
+        crontab(minute="23", hour="*"),
+        check_data_import_row_limits.s(),
+        name="check external data rows synced",
     )
 
 
@@ -1118,3 +1117,13 @@ def sync_datawarehouse_sources():
         pass
     else:
         sync_resources()
+
+
+@app.task(ignore_result=True)
+def check_data_import_row_limits():
+    try:
+        from posthog.tasks.warehouse import check_synced_row_limits
+    except ImportError:
+        pass
+    else:
+        check_synced_row_limits()

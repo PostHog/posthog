@@ -1,5 +1,6 @@
 import './SideBar.scss'
 
+import { IconNotebook } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ActivationSidebar } from 'lib/components/ActivationSidebar/ActivationSidebar'
@@ -37,7 +38,6 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useState } from 'react'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
-import { IconNotebook } from 'scenes/notebooks/IconNotebook'
 import { NotebookPopover } from 'scenes/notebooks/NotebookPanel/NotebookPopover'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -150,20 +150,18 @@ function Pages(): JSX.Element {
                             },
                         }}
                     />
-                    <FlaggedFeature flag="notebooks">
-                        <PageButton
-                            icon={<IconNotebook />}
-                            identifier={Scene.Notebooks}
-                            to={urls.notebooks()}
-                            sideAction={{
-                                icon: <IconPlus />,
-                                to: urls.notebook('new'),
-                                tooltip: 'New notebook',
-                                identifier: Scene.Notebook,
-                                onClick: hideSideBarMobile,
-                            }}
-                        />
-                    </FlaggedFeature>
+                    <PageButton
+                        icon={<IconNotebook />}
+                        identifier={Scene.Notebooks}
+                        to={urls.notebooks()}
+                        sideAction={{
+                            icon: <IconPlus />,
+                            to: urls.notebook('new'),
+                            tooltip: 'New notebook',
+                            identifier: Scene.Notebook,
+                            onClick: hideSideBarMobile,
+                        }}
+                    />
                     <PageButton
                         icon={<IconBarChart />}
                         identifier={Scene.SavedInsights}
