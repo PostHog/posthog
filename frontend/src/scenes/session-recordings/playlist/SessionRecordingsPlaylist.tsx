@@ -172,8 +172,6 @@ function RecordingsLists(): JSX.Element {
                         <LemonButton
                             tooltip="Filter recordings"
                             size="small"
-                            status={showFilters ? 'primary' : 'primary-alt'}
-                            type="tertiary"
                             active={showFilters}
                             icon={
                                 <IconWithCount count={totalFiltersCount}>
@@ -193,8 +191,6 @@ function RecordingsLists(): JSX.Element {
                         <LemonButton
                             tooltip="Playlist settings"
                             size="small"
-                            status={showSettings ? 'primary' : 'primary-alt'}
-                            type="tertiary"
                             active={showSettings}
                             icon={<IconSettings />}
                             onClick={() => setShowSettings(!showSettings)}
@@ -267,7 +263,7 @@ function RecordingsLists(): JSX.Element {
                                         <Spinner textColored /> Loading older recordings
                                     </>
                                 ) : hasNext ? (
-                                    <LemonButton status="primary" onClick={() => maybeLoadSessionRecordings('older')}>
+                                    <LemonButton onClick={() => maybeLoadSessionRecordings('older')}>
                                         Load more
                                     </LemonButton>
                                 ) : (
@@ -294,7 +290,7 @@ function RecordingsLists(): JSX.Element {
                                     <>
                                         <span>No matching recordings found</span>
                                         <LemonButton
-                                            type={'secondary'}
+                                            type="secondary"
                                             data-attr={'expand-replay-listing-from-default-seven-days-to-twenty-one'}
                                             onClick={() => {
                                                 setFilters({

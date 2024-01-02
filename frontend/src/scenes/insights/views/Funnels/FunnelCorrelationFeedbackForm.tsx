@@ -56,7 +56,7 @@ export const FunnelCorrelationFeedbackForm = (): JSX.Element | null => {
                             {content[1]}
                         </LemonButton>
                     ))}
-                    <LemonButton icon={<IconClose />} onClick={hideCorrelationAnalysisFeedback} status="stealth" />
+                    <LemonButton icon={<IconClose />} onClick={hideCorrelationAnalysisFeedback} />
                 </div>
             </div>
             {correlationDetailedFeedbackVisible ? (
