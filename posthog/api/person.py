@@ -622,7 +622,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         activity_page = load_activity(
             scope="Person",
             team_id=self.team_id,
-            item_ids=[item_id],
+            item_ids=[item_id] if item_id else None,
             limit=limit,
             page=page,
         )
