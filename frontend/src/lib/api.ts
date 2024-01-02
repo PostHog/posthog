@@ -29,9 +29,9 @@ import {
     EventType,
     Experiment,
     ExportedAssetType,
+    ExternalDataSourceCreatePayload,
     ExternalDataSourceSchema,
     ExternalDataStripeSource,
-    ExternalDataStripeSourceCreatePayload,
     FeatureFlagAssociatedRoleType,
     FeatureFlagType,
     Group,
@@ -1756,9 +1756,7 @@ const api = {
         async list(): Promise<PaginatedResponse<ExternalDataStripeSource>> {
             return await new ApiRequest().externalDataSources().get()
         },
-        async create(
-            data: Partial<ExternalDataStripeSourceCreatePayload>
-        ): Promise<ExternalDataStripeSourceCreatePayload> {
+        async create(data: Partial<ExternalDataSourceCreatePayload>): Promise<ExternalDataSourceCreatePayload> {
             return await new ApiRequest().externalDataSources().create({ data })
         },
         async delete(sourceId: ExternalDataStripeSource['id']): Promise<void> {
