@@ -9,6 +9,7 @@ aioboto3==12.0.0
 aiobotocore[boto3]==2.7.0
     # via
     #   aioboto3
+    #   aiobotocore
     #   s3fs
 aiohttp==3.9.0
     # via
@@ -240,6 +241,7 @@ giturlparse==0.12.0
     # via dlt
 google-api-core[grpc]==2.11.1
     # via
+    #   google-api-core
     #   google-cloud-bigquery
     #   google-cloud-core
 google-auth==2.22.0
@@ -260,6 +262,8 @@ googleapis-common-protos==1.60.0
     # via
     #   google-api-core
     #   grpcio-status
+greenlet==3.0.3
+    # via sqlalchemy
 grpcio==1.57.0
     # via
     #   google-api-core
@@ -404,7 +408,7 @@ ptyprocess==0.6.0
     # via pexpect
 py==1.11.0
     # via retry
-pyarrow==12.0.1
+pyarrow==14.0.1
     # via -r requirements.in
 pyasn1==0.5.0
     # via
