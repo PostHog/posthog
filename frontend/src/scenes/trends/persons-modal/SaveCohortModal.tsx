@@ -19,7 +19,7 @@ export function SaveCohortModal({ onSave, onCancel, isOpen }: Props): JSX.Elemen
                     </LemonButton>
                     <LemonButton
                         type="primary"
-                        disabled={!cohortTitle}
+                        disabledReason={!cohortTitle && 'Please add a title to your cohort'}
                         onClick={() => {
                             onSave(cohortTitle)
                             setCohortTitle('')

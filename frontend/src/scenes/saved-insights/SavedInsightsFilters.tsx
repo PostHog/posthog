@@ -75,8 +75,6 @@ export function SavedInsightsFilters(): JSX.Element {
                     <div className="flex items-center gap-2">
                         <span>Created by:</span>
                         <MemberSelect
-                            size="small"
-                            type="secondary"
                             value={createdBy === 'All users' ? null : createdBy}
                             onChange={(user) => setSavedInsightsFilters({ createdBy: user?.id || 'All users' })}
                         />

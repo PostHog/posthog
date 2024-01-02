@@ -103,7 +103,6 @@ function CollapsibleSection(props: {
     return (
         <div className="bg-mid border rounded">
             <LemonButton
-                status="stealth"
                 fullWidth
                 onClick={() => setIsExpanded(!isExpanded)}
                 sideIcon={isExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}

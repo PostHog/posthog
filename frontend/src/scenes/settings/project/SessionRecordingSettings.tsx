@@ -327,7 +327,6 @@ export function ReplayCostControl(): JSX.Element {
                                 className="ml-2"
                                 icon={<IconCancel />}
                                 size="small"
-                                status="stealth"
                                 onClick={() => updateCurrentTeam({ session_recording_linked_flag: null })}
                                 title="Clear selected flag"
                             />
