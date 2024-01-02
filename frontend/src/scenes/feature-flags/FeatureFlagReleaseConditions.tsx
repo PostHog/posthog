@@ -258,7 +258,7 @@ export function FeatureFlagReleaseConditions({
                                     value={group.rollout_percentage != null ? group.rollout_percentage : 100}
                                     min={0}
                                     max={100}
-                                    suffix="%"
+                                    suffix={<span>%</span>}
                                 />{' '}
                                 of <b>{aggregationTargetName}</b> in this set.{' '}
                             </div>

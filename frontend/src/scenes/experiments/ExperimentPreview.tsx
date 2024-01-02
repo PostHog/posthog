@@ -141,7 +141,7 @@ export function ExperimentPreview({
                                 min={1}
                                 max={sliderMaxValue}
                                 defaultValue={5}
-                                suffix="%"
+                                suffix={<span>%</span>}
                                 value={minimumDetectableChange}
                                 onChange={(value) => {
                                     setExperiment({
