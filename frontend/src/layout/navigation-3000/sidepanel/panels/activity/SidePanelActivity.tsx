@@ -184,8 +184,6 @@ export const SidePanelActivity = (): JSX.Element => {
 
                                 <span>by</span>
                                 <MemberSelect
-                                    size="small"
-                                    type="secondary"
                                     value={filters?.user ?? null}
                                     onChange={(user) =>
                                         setFilters({

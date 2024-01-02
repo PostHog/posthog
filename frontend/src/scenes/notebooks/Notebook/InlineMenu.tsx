@@ -117,7 +117,6 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
                                 insertComment({ type: 'mark', id: markId })
                             }}
                             icon={<IconComment className="w-4 h-4" />}
-                            status="stealth"
                             size="small"
                         />
                     </>

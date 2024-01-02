@@ -69,7 +69,7 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                                 },
                             ]}
                         >
-                            <LemonButton icon={<IconEllipsis />} status="stealth" size="xsmall" />
+                            <LemonButton icon={<IconEllipsis />} size="xsmall" />
                         </LemonMenu>
                     </div>
                     <LemonMarkdown lowKeyHeadings>{comment.content}</LemonMarkdown>
