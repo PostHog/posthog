@@ -17,6 +17,7 @@ import {
     fullSnapshotEvent as MobileFullSnapshotEvent,
     keyboardEvent,
     metaEvent as MobileMetaEvent,
+    MobileAddedNodeMutation,
     MobileIncrementalSnapshotEvent,
     MobileNodeType,
     NodeType,
@@ -768,19 +769,19 @@ function chooseConverter<T extends wireframe>(
     return converterMapping[converterType]
 }
 
+function convertWireframe(wireframe: wireframe): serializedNodeWithId | null {
+    const children = convertWireframesFor(wireframe.childWireframes)
+    const converter = chooseConverter(wireframe)
+    return converter?.(wireframe, children)
+}
+
 function convertWireframesFor(wireframes: wireframe[] | undefined): serializedNodeWithId[] {
     if (!wireframes) {
         return []
     }
 
     return wireframes.reduce((acc, wireframe) => {
-        const children = convertWireframesFor(wireframe.childWireframes)
-        const converter = chooseConverter(wireframe)
-        if (!converter) {
-            console.error(`No converter for wireframe type ${wireframe.type}`)
-            return acc
-        }
-        const convertedEl = converter(wireframe, children)
+        const convertedEl = convertWireframe(wireframe)
         if (convertedEl !== null) {
             acc.push(convertedEl)
         }
@@ -805,6 +806,17 @@ function isMobileIncrementalSnapshotEvent(x: unknown): x is MobileIncrementalSna
     const hasAddedWireframe = !!adds && adds.length > 0 && isObject(adds[0]) && 'wireframe' in adds[0]
 
     return hasMutationSource && (hasAddedWireframe || hasUpdatedWireframe)
+}
+
+function makeIncrementalAdd(add: MobileAddedNodeMutation): addedNodeMutation | null {
+    const converted = convertWireframe(add.wireframe)
+    return converted
+        ? {
+              parentId: add.parentId,
+              nextId: null,
+              node: converted,
+          }
+        : null
 }
 
 /**
@@ -875,9 +887,9 @@ export const makeIncrementalEvent = (
     if (isMobileIncrementalSnapshotEvent(mobileEvent)) {
         let adds: any[] = []
         if ('adds' in mobileEvent.data && Array.isArray(mobileEvent.data.adds)) {
-            adds = mobileEvent.data.adds.flatMap((add) => {
-                // return makeIncrementalAdd(add, converted)
-                return [add]
+            adds = mobileEvent.data.adds.map((add) => {
+                // TODO when implementing keyboard placeholder we had to flatten the mutations not nest them
+                return [makeIncrementalAdd(add)]
             })
         }
         // eslint-disable-next-line no-console
