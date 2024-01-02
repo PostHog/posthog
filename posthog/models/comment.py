@@ -41,8 +41,8 @@ def log_comment_activity(sender, instance: Comment, created: bool, **kwargs):
             organization_id=None,
             team_id=instance.team_id,
             user=instance.created_by,
-            item_id=instance.item_id,
-            scope="Comment",
+            item_id=instance.id,
+            scope=instance.scope,
             activity="created",
             detail=Detail(
                 name=instance.content,
