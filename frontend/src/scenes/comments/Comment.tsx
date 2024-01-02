@@ -54,7 +54,7 @@ const Comment = ({ comment }: { comment: CommentType }): JSX.Element => {
                                 {
                                     icon: <IconShare />,
                                     label: 'Reply',
-                                    onClick: () => setReplyingComment(comment.source_comment_id ?? comment.id),
+                                    onClick: () => setReplyingComment(comment.source_comment ?? comment.id),
                                 },
                                 {
                                     icon: <IconPencil />,

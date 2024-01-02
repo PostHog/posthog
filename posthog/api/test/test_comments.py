@@ -55,7 +55,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             "item_id": None,
             "item_context": None,
             "scope": "Notebook",
-            "source_comment_id": None,
+            "source_comment": None,
         }
 
     def test_updates_content_and_increments_version(self) -> None:
@@ -85,7 +85,7 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             "item_id": None,
             "item_context": None,
             "scope": "Notebook",
-            "source_comment_id": None,
+            "source_comment": None,
         }
 
     def test_empty_comments_list(self) -> None:
@@ -122,13 +122,13 @@ class TestComments(APIBaseTest, QueryMatchingTest):
 
     def test_lists_comments_thread(self) -> None:
         initial_comment = self._create_comment({"content": "comment notebook-1", "scope": "Notebook", "item_id": "1"})
-        self._create_comment({"content": "comment reply", "source_comment_id": initial_comment["id"]})
-        self._create_comment({"content": "comment other reply", "source_comment_id": initial_comment["id"]})
+        self._create_comment({"content": "comment reply", "source_comment": initial_comment["id"]})
+        self._create_comment({"content": "comment other reply", "source_comment": initial_comment["id"]})
         self._create_comment({"content": "comment elsewhere"})
 
         for url in [
             f"/api/projects/{self.team.id}/comments/{initial_comment['id']}/thread",
-            f"/api/projects/{self.team.id}/comments/?source_comment_id={initial_comment['id']}",
+            f"/api/projects/{self.team.id}/comments/?source_comment={initial_comment['id']}",
         ]:
             response = self.client.get(url)
             assert len(response.json()["results"]) == 2

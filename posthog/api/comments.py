@@ -85,14 +85,14 @@ class CommentViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         if params.get("item_id"):
             queryset = queryset.filter(item_id=params.get("item_id"))
 
-        source_comment_id = params.get("source_comment_id")
+        source_comment = params.get("source_comment")
         if self.action == "thread":
-            # Filter based on the source_comment_id
-            source_comment_id = self.kwargs.get("pk")
+            # Filter based on the source_comment
+            source_comment = self.kwargs.get("pk")
 
-        if source_comment_id:
+        if source_comment:
             # NOTE: Should we also return the source_comment ?
-            queryset = queryset.filter(source_comment_id=source_comment_id)
+            queryset = queryset.filter(source_comment_id=source_comment)
 
         return queryset
 

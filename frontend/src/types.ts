@@ -3263,7 +3263,7 @@ export type CommentType = {
     version: number
     created_at: string
     created_by: UserBasicType | null
-    source_comment_id?: string | null
+    source_comment?: string | null
     scope: ActivityScope
     item_id?: string
     item_context: Record<string, any> | null

@@ -103,7 +103,7 @@ export const commentsLogic = kea<commentsLogicType>([
                         scope: props.scope,
                         item_id: props.item_id,
                         item_context: values.itemContext?.context,
-                        source_comment_id: values.replyingCommentId ?? undefined,
+                        source_comment: values.replyingCommentId ?? undefined,
                     })
 
                     values.itemContext?.callback?.({ sent: true })
@@ -180,11 +180,11 @@ export const commentsLogic = kea<commentsLogicType>([
                 const commentsById: Record<string, CommentWithRepliesType> = {}
 
                 for (const comment of sortedComments ?? []) {
-                    let commentsWithReplies = commentsById[comment.source_comment_id ?? comment.id]
+                    let commentsWithReplies = commentsById[comment.source_comment ?? comment.id]
 
                     if (!commentsWithReplies) {
-                        commentsById[comment.source_comment_id ?? comment.id] = commentsWithReplies = {
-                            id: comment.source_comment_id ?? comment.id,
+                        commentsById[comment.source_comment ?? comment.id] = commentsWithReplies = {
+                            id: comment.source_comment ?? comment.id,
                             comment: undefined,
                             replies: [],
                         }
