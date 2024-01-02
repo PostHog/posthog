@@ -278,10 +278,12 @@ export type fullSnapshotEvent = {
     }
 }
 
-export type incrementalSnapshotEvent = {
-    type: EventType.IncrementalSnapshot
-    data: any // TODO: this will change as we implement incremental snapshots
-}
+export type incrementalSnapshotEvent =
+    | {
+          type: EventType.IncrementalSnapshot
+          data: any // keeps a loose incremental type so that we can accept any rrweb incremental snapshot event type
+      }
+    | MobileIncrementalSnapshotEvent
 
 export type MobileNodeMutation = {
     parentId: number
