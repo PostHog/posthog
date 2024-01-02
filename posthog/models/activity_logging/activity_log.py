@@ -386,7 +386,7 @@ def get_activity_page(activity_query: models.QuerySet, limit: int = 10, page: in
 def load_activity(
     scope: ActivityScope,
     team_id: int,
-    item_id: Optional[int] = None,
+    item_ids: Optional[list[str]] = None,
     limit: int = 10,
     page: int = 1,
 ) -> ActivityPage:
@@ -396,8 +396,8 @@ def load_activity(
         ActivityLog.objects.select_related("user").filter(team_id=team_id, scope=scope).order_by("-created_at")
     )
 
-    if item_id is not None:
-        activity_query = activity_query.filter(item_id=item_id)
+    if item_ids is not None:
+        activity_query = activity_query.filter(item_id__in=item_ids)
 
     return get_activity_page(activity_query, limit, page)
 

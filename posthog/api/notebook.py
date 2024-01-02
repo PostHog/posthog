@@ -371,7 +371,7 @@ class NotebookViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Model
         activity_page = load_activity(
             scope="Notebook",
             team_id=self.team_id,
-            item_id=notebook.id,
+            item_id=[notebook.id, notebook.short_id],
             limit=limit,
             page=page,
         )
