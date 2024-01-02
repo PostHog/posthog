@@ -19,11 +19,11 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
     const { selectConnector, toggleManualLinkFormVisible, onClear } = useActions(sourceModalLogic)
 
     const MenuButton = (config: ConnectorConfigType): JSX.Element => {
-        if (config.name === 'Stripe') {
-            const onClick = (): void => {
-                selectConnector(config)
-            }
+        const onClick = (): void => {
+            selectConnector(config)
+        }
 
+        if (config.name === 'Stripe') {
             return (
                 <LemonButton onClick={onClick} className="w-100" center type="secondary">
                     <img src={stripeLogo} alt={`stripe logo`} height={50} />

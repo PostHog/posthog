@@ -1,9 +1,5 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { router, urlToAction } from 'kea-router'
-import api from 'lib/api'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { urls } from 'scenes/urls'
 
 import { ExternalDataSourceType } from '~/types'
 
@@ -121,37 +117,7 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
             },
         ],
     }),
-    urlToAction(({ actions }) => ({
-        '/data-warehouse/:kind/redirect': ({ kind = '' }, searchParams) => {
-            actions.handleRedirect(kind, searchParams)
-        },
-    })),
     listeners(({ actions }) => ({
-        handleRedirect: async ({ kind, searchParams }) => {
-            switch (kind) {
-                case 'hubspot': {
-                    try {
-                        await api.externalDataSources.create({
-                            source_type: 'Hubspot',
-                            prefix: 'hubspot_',
-                            payload: {
-                                code: searchParams.code,
-                                redirect_uri: getHubspotRedirectUri(),
-                            },
-                        })
-                        lemonToast.success(`Oauth successful.`)
-                        actions.loadSources()
-                    } catch (e) {
-                        lemonToast.error(`Something went wrong. Please try again.`)
-                    } finally {
-                        router.actions.replace(urls.dataWarehouseSettings())
-                    }
-                    return
-                }
-                default:
-                    lemonToast.error(`Something went wrong.`)
-            }
-        },
         onClear: () => {
             actions.selectConnector(null)
             actions.toggleManualLinkFormVisible(false)

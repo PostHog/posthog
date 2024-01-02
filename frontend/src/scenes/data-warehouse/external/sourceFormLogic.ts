@@ -1,14 +1,14 @@
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
 import { ExternalDataSourceCreatePayload, ExternalDataSourceType } from '~/types'
 
 import type { sourceFormLogicType } from './sourceFormLogicType'
-import { sourceModalLogic } from './sourceModalLogic'
+import { getHubspotRedirectUri, sourceModalLogic } from './sourceModalLogic'
 
 export interface SourceFormProps {
     sourceType: ExternalDataSourceType
@@ -81,6 +81,7 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
     }),
     actions({
         onBack: true,
+        handleRedirect: (kind: string, searchParams: any) => ({ kind, searchParams }),
     }),
     listeners(({ actions }) => ({
         onBack: () => {
@@ -89,13 +90,32 @@ export const sourceFormLogic = kea<sourceFormLogicType>([
         },
         submitExternalDataSourceSuccess: () => {
             lemonToast.success('New Data Resource Created')
-            actions.toggleSourceModal()
+            actions.toggleSourceModal(false)
             actions.resetExternalDataSource()
             actions.loadSources()
             router.actions.push(urls.dataWarehouseSettings())
         },
         submitExternalDataSourceFailure: ({ error }) => {
             lemonToast.error(error?.message || 'Something went wrong')
+        },
+        handleRedirect: async ({ kind, searchParams }) => {
+            switch (kind) {
+                case 'hubspot': {
+                    actions.setExternalDataSourceValue('payload', {
+                        code: searchParams.code,
+                        redirect_uri: getHubspotRedirectUri(),
+                    })
+                    actions.setExternalDataSourceValue('source_type', 'Hubspot')
+                    return
+                }
+                default:
+                    lemonToast.error(`Something went wrong.`)
+            }
+        },
+    })),
+    urlToAction(({ actions }) => ({
+        '/data-warehouse/:kind/redirect': ({ kind = '' }, searchParams) => {
+            actions.handleRedirect(kind, searchParams)
         },
     })),
     forms(({ props }) => ({
