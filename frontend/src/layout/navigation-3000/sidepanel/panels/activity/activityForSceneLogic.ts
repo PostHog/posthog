@@ -37,7 +37,6 @@ export const activityForSceneLogic = kea<activityForSceneLogicType>([
                 // Similar to "breadcrumbs"
                 (state, props) => {
                     const activeSceneLogic = sceneLogic.selectors.activeSceneLogic(state, props)
-                    // const activeScene = s.activeScene(state, props)
                     const sceneConfig = s.sceneConfig(state, props)
                     if (activeSceneLogic && 'activityFilters' in activeSceneLogic.selectors) {
                         const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, props)
