@@ -21,10 +21,6 @@ export const activityFiltersForScene = (sceneConfig: SceneConfig | null): Activi
         const pathParts = router.values.currentLocation.pathname.split('/')
         const item_id = pathParts[2]
 
-        // TODO: Check that it looks like an actual id?
-
-        // TODO: Implement custom interceptor for things like "replays/recent?session_id=1234"
-
         return { scope: sceneConfig.activityScope, item_id }
     }
     return null
