@@ -7,6 +7,7 @@ import {
     IncrementalSource,
     metaEvent,
     mutationData,
+    removedNodeMutation,
 } from '@rrweb/types'
 import { captureMessage } from '@sentry/react'
 import { isObject } from 'lib/utils'
@@ -819,6 +820,13 @@ function makeIncrementalAdd(add: MobileAddedNodeMutation): addedNodeMutation | n
         : null
 }
 
+function makeIncrementalRemove(update: MobileAddedNodeMutation): removedNodeMutation {
+    return {
+        parentId: update.parentId,
+        id: update.wireframe.id,
+    }
+}
+
 /**
  * We want to ensure that any events don't use id = 0.
  * They must always represent a valid ID from the dom, so we swap in the body id when the id = 0.
@@ -868,7 +876,7 @@ function makeIncrementalAdd(add: MobileAddedNodeMutation): addedNodeMutation | n
  *         "verticalAlign": "center"
  *       },
  *       "type": "input",
- *       "value": "EditTexttext",
+ *       "value": "some text",
  *       "width": 101,
  *       "x": 0,
  *       "y": 92
@@ -884,36 +892,49 @@ export const makeIncrementalEvent = (
     timestamp: number
     delay?: number
 } => {
+    const converted = mobileEvent as unknown as incrementalSnapshotEvent & {
+        timestamp: number
+        delay?: number
+    }
+    if ('id' in converted.data && converted.data.id === 0) {
+        converted.data.id = BODY_ID
+    }
+
     if (isMobileIncrementalSnapshotEvent(mobileEvent)) {
-        let adds: any[] = []
+        const adds: addedNodeMutation[] = []
+        const removes: removedNodeMutation[] = []
         if ('adds' in mobileEvent.data && Array.isArray(mobileEvent.data.adds)) {
-            adds = mobileEvent.data.adds.map((add) => {
-                // TODO when implementing keyboard placeholder we had to flatten the mutations not nest them
-                return [makeIncrementalAdd(add)]
+            mobileEvent.data.adds.forEach((add) => {
+                const converted = makeIncrementalAdd(add)
+                if (converted) {
+                    // TODO when implementing keyboard placeholder we had to flatten the mutations not nest them
+                    adds.push(converted)
+                }
             })
         }
-        // eslint-disable-next-line no-console
-        console.log(adds)
+        if ('updates' in mobileEvent.data && Array.isArray(mobileEvent.data.updates)) {
+            mobileEvent.data.updates.forEach((update) => {
+                const removal = makeIncrementalRemove(update)
+                if (removal) {
+                    removes.push(removal)
+                }
+                const addition = makeIncrementalAdd(update)
+                if (addition) {
+                    adds.push(addition)
+                }
+            })
+        }
 
-        // TODO wat
-        const converted = mobileEvent as unknown as incrementalSnapshotEvent & {
-            timestamp: number
-            delay?: number
+        converted.data = {
+            source: IncrementalSource.Mutation,
+            attributes: [],
+            texts: [],
+            adds,
+            removes,
         }
-        if ('id' in converted.data && converted.data.id === 0) {
-            converted.data.id = BODY_ID
-        }
-        return converted
-    } else {
-        const converted = mobileEvent as unknown as incrementalSnapshotEvent & {
-            timestamp: number
-            delay?: number
-        }
-        if ('id' in converted.data && converted.data.id === 0) {
-            converted.data.id = BODY_ID
-        }
-        return converted
     }
+
+    return converted
 }
 
 export const makeFullEvent = (
