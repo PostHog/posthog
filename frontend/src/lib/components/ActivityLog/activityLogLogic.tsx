@@ -4,6 +4,7 @@ import { router, urlToAction } from 'kea-router'
 import api, { ActivityLogPaginatedResponse } from 'lib/api'
 import {
     ActivityLogItem,
+    defaultDescriber,
     Describer,
     humanize,
     HumanizedActivityLogItem,
@@ -44,7 +45,7 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
         case ActivityScope.NOTEBOOK:
             return notebookActivityDescriber
         default:
-            return undefined
+            return (logActivity) => defaultDescriber(logActivity)
     }
 }
 

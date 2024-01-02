@@ -182,7 +182,7 @@ export const SidePanelActivity = (): JSX.Element => {
                 </div>
 
                 <div className="flex flex-col flex-1 overflow-hidden" ref={contentRef} onScroll={handleScroll}>
-                    <ScrollableShadows direction="vertical" innerClassName="p-2 space-y-x">
+                    <ScrollableShadows direction="vertical" innerClassName="p-2 space-y-px">
                         {activeTab === SidePanelActivityTab.Unread ? (
                             <>
                                 {importantChangesLoading && !hasNotifications ? (
