@@ -104,7 +104,7 @@ class Migration(AsyncMigrationDefinition):
             str,
         ),
         "TIMESTAMP_UPPER_BOUND": (
-            "2024-01-01",
+            "2025-01-01",
             "Timestamp upper bound for events to backfill",
             str,
         ),
