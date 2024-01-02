@@ -35,7 +35,7 @@ function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
     )
 }
 
-export function notebookActivityDescriber(logItem: ActivityLogItem): HumanizedChange {
+export function notebookActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope !== ActivityScope.NOTEBOOK) {
         console.error('notebook describer received a non-Notebook activity')
         return { description: null }
@@ -79,5 +79,5 @@ export function notebookActivityDescriber(logItem: ActivityLogItem): HumanizedCh
         }
     }
 
-    return defaultDescriber(logItem, nameAndLink(logItem))
+    return defaultDescriber(logItem, asNotification, nameAndLink(logItem))
 }

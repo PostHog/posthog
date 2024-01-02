@@ -9,7 +9,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
-export function personActivityDescriber(logItem: ActivityLogItem): HumanizedChange {
+export function personActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope != 'Person') {
         console.error('person describer received a non-person activity')
         return { description: null }
@@ -82,5 +82,5 @@ export function personActivityDescriber(logItem: ActivityLogItem): HumanizedChan
         }
     }
 
-    return defaultDescriber(logItem)
+    return defaultDescriber(logItem, asNotification)
 }

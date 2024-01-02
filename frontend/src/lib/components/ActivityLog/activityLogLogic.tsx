@@ -45,7 +45,7 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
         case ActivityScope.NOTEBOOK:
             return notebookActivityDescriber
         default:
-            return (logActivity) => defaultDescriber(logActivity)
+            return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
     }
 }
 

@@ -305,5 +305,5 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
         }
     }
 
-    return defaultDescriber(logItem, nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name))
+    return defaultDescriber(logItem, asNotification, nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name))
 }

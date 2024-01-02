@@ -11,7 +11,7 @@ import { ActivityScope } from '~/types'
 
 import { SECRET_FIELD_VALUE } from './utils'
 
-export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChange {
+export function pluginActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope !== ActivityScope.PLUGIN && logItem.scope !== ActivityScope.PLUGIN_CONFIG) {
         console.error('plugin describer received a non-plugin activity')
         return { description: null }
@@ -220,5 +220,5 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChan
         }
     }
 
-    return defaultDescriber(logItem)
+    return defaultDescriber(logItem, asNotification)
 }

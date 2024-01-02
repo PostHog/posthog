@@ -92,7 +92,7 @@ function DescribeType({ logItem }: { logItem: ActivityLogItem }): JSX.Element {
     return <>{typeDescription} definition</>
 }
 
-export function dataManagementActivityDescriber(logItem: ActivityLogItem): HumanizedChange {
+export function dataManagementActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope !== ActivityScope.EVENT_DEFINITION && logItem.scope !== ActivityScope.PROPERTY_DEFINITION) {
         console.error('data management describer received a non-data-management activity')
         return { description: null }
@@ -151,5 +151,5 @@ export function dataManagementActivityDescriber(logItem: ActivityLogItem): Human
         }
     }
 
-    return defaultDescriber(logItem, nameAndLink(logItem))
+    return defaultDescriber(logItem, asNotification, nameAndLink(logItem))
 }
