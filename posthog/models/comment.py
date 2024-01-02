@@ -30,7 +30,7 @@ class Comment(UUIDModel):
 @mutable_receiver(models.signals.post_save, sender=Comment)
 def log_comment_activity(sender, instance: Comment, created: bool, **kwargs):
     if created:
-        # TRICKY: - Commments relate to a "thing" like a flag or insight. When we log the activity we need to know what the "thing" is
+        # TRICKY: - Comments relate to a "thing" like a flag or insight. When we log the activity we need to know what the "thing" is
         # to store the name that should be displayed. Rather than lookup the item every time, we
 
         # TODO: Ensure we got this right, people should get notified when
@@ -42,9 +42,8 @@ def log_comment_activity(sender, instance: Comment, created: bool, **kwargs):
             team_id=instance.team_id,
             user=instance.created_by,
             item_id=instance.item_id,
-            scope=instance.scope,
-            activity="commented",
-            # TODO: Check with Paul if this is right
+            scope="Comment",
+            activity="created",
             detail=Detail(
                 name=instance.content,
                 changes=[Change(type="Comment", field="content", action="created", after=instance.content)],

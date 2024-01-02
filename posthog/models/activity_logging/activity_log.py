@@ -30,6 +30,7 @@ ActivityScope = Literal[
     "Experiment",
     "Survey",
     "EarlyAccessFeature",
+    "Comment",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
@@ -162,7 +163,6 @@ field_exclusions: Dict[ActivityScope, List[str]] = {
         "dashboardtile",
         "caching_states",
     ],
-    "SessionRecordingPlaylist": [],
     "EventDefinition": [
         "eventdefinition_ptr_id",
         "_state",
