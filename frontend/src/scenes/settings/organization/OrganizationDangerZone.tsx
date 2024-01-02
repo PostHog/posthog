@@ -30,10 +30,10 @@ export function DeleteOrganizationModal({
                     </LemonButton>
                     <LemonButton
                         type="secondary"
+                        status="danger"
                         disabled={!isDeletionConfirmed}
                         loading={isDeletionInProgress}
                         data-attr="delete-organization-ok"
-                        status="danger"
                         onClick={currentOrganization ? () => deleteOrganization(currentOrganization) : undefined}
                     >{`Delete ${
                         currentOrganization ? currentOrganization.name : 'the current organization'
@@ -82,7 +82,7 @@ export function OrganizationDangerZone(): JSX.Element {
                     onClick={() => setIsModalVisible(true)}
                     data-attr="delete-organization-button"
                     icon={<IconDelete />}
-                    disabled={isRestricted}
+                    disabledReason={isRestricted && 'Restricted action'}
                 >
                     Delete {currentOrganization?.name || 'the current organization'}
                 </LemonButton>

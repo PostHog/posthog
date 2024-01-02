@@ -120,7 +120,6 @@ export function DateFilter({
                                 key={key}
                                 onClick={() => setDate(values[0] || null, values[1] || null)}
                                 active={isActive}
-                                status="stealth"
                                 fullWidth
                             >
                                 {key === CUSTOM_OPTION_KEY ? CUSTOM_OPTION_VALUE : key}
@@ -143,10 +142,10 @@ export function DateFilter({
                     />
                 )}
                 <LemonDivider />
-                <LemonButton onClick={openDateToNow} active={isDateToNow} status="stealth" fullWidth>
+                <LemonButton onClick={openDateToNow} active={isDateToNow} fullWidth>
                     From custom date until now…
                 </LemonButton>
-                <LemonButton onClick={openFixedRange} active={isFixedRange} status="stealth" fullWidth>
+                <LemonButton onClick={openFixedRange} active={isFixedRange} fullWidth>
                     Custom fixed date range…
                 </LemonButton>
             </div>
@@ -160,8 +159,7 @@ export function DateFilter({
             disabled={disabled}
             className={className}
             size={size ?? 'small'}
-            type={'secondary'}
-            status="stealth"
+            type="secondary"
             dropdown={{
                 onClickOutside: close,
                 visible: isVisible,

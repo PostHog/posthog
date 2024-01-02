@@ -142,13 +142,13 @@ export function Login(): JSX.Element {
                     </div>
                     {precheckResponse.status === 'pending' || !precheckResponse.sso_enforcement ? (
                         <LemonButton
+                            type="primary"
+                            status="alt"
                             htmlType="submit"
                             data-attr="password-login"
                             fullWidth
-                            type="primary"
                             center
                             loading={isLoginSubmitting || precheckResponseLoading}
-                            status="primary-alt"
                             size="large"
                         >
                             Log in

@@ -36,9 +36,7 @@ export function PersonDeleteModal(): JSX.Element | null {
                     <LemonButton
                         status="danger"
                         type="tertiary"
-                        onClick={() => {
-                            deletePerson(personDeleteModal as PersonType, true)
-                        }}
+                        onClick={() => deletePerson(personDeleteModal as PersonType, true)}
                         data-attr="delete-person-with-events"
                     >
                         Delete person and all corresponding events
@@ -53,9 +51,7 @@ export function PersonDeleteModal(): JSX.Element | null {
                     <LemonButton
                         type="secondary"
                         status="danger"
-                        onClick={() => {
-                            deletePerson(personDeleteModal as PersonType, false)
-                        }}
+                        onClick={() => deletePerson(personDeleteModal as PersonType, false)}
                         data-attr="delete-person-no-events"
                     >
                         Delete person

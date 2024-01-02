@@ -270,7 +270,6 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
             <div className="flex items-center gap-2 p-2">
                 <LemonButton
                     noPadding
-                    status="stealth"
                     active={expanded}
                     onClick={() => setExpanded(!expanded)}
                     icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
