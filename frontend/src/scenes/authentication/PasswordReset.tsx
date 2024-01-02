@@ -105,11 +105,11 @@ function ResetForm(): JSX.Element {
             <LemonButton
                 fullWidth
                 type="primary"
+                status="alt"
                 center
                 htmlType="submit"
                 data-attr="password-reset"
                 loading={isRequestPasswordResetSubmitting}
-                status="primary-alt"
                 size="large"
             >
                 Continue
@@ -129,11 +129,11 @@ function ResetSuccess(): JSX.Element {
             <div className="mt-4">
                 <LemonButton
                     type="primary"
+                    status="alt"
                     data-attr="back-to-login"
                     center
                     fullWidth
                     onClick={() => push('/login')}
-                    status="primary-alt"
                     size="large"
                 >
                     Back to login
@@ -158,11 +158,11 @@ function ResetThrottled(): JSX.Element {
             <div className="mt-4">
                 <LemonButton
                     type="primary"
+                    status="alt"
                     data-attr="back-to-login"
                     center
                     fullWidth
                     onClick={() => push('/login')}
-                    status="primary-alt"
                     size="large"
                 >
                     Back to login

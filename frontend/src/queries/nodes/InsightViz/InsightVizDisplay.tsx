@@ -179,7 +179,6 @@ export function InsightVizDisplay({
                             <Tooltip title="Export this table in CSV format" placement="left">
                                 <ExportButton
                                     type="secondary"
-                                    status="primary"
                                     items={[
                                         {
                                             export_format: ExporterFormat.CSV,

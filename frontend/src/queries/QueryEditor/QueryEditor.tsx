@@ -76,7 +76,7 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
                 <LemonButton
                     onClick={saveQuery}
                     type="primary"
-                    status={error ? 'danger' : 'primary'}
+                    status={error ? 'danger' : 'default'}
                     disabled={!props.setQuery || !!error || !inputChanged}
                     fullWidth
                     center

@@ -70,8 +70,7 @@ export function Transformations(): JSX.Element {
                                 <LemonButton
                                     onClick={openReorderModal}
                                     noPadding
-                                    type="tertiary"
-                                    id={`app-reorder`}
+                                    id="app-reorder"
                                     disabledReason={
                                         canConfigurePlugins
                                             ? undefined
@@ -159,7 +158,6 @@ export function Transformations(): JSX.Element {
                                             overlay={
                                                 <>
                                                     <LemonButton
-                                                        status="stealth"
                                                         onClick={() => {
                                                             toggleEnabled({
                                                                 enabled: !pluginConfig.enabled,
@@ -178,7 +176,6 @@ export function Transformations(): JSX.Element {
                                                     </LemonButton>
                                                     {pluginConfig.enabled && (
                                                         <LemonButton
-                                                            status="stealth"
                                                             onClick={openReorderModal}
                                                             id={`app-reorder`}
                                                             disabledReason={
@@ -192,7 +189,6 @@ export function Transformations(): JSX.Element {
                                                         </LemonButton>
                                                     )}
                                                     <LemonButton
-                                                        status="stealth"
                                                         to={urls.pipelineApp(
                                                             pluginConfig.id,
                                                             PipelineAppTabs.Configuration
@@ -203,7 +199,6 @@ export function Transformations(): JSX.Element {
                                                         {canConfigurePlugins ? 'Edit' : 'View'} app configuration
                                                     </LemonButton>
                                                     <LemonButton
-                                                        status="stealth"
                                                         to={urls.pipelineApp(pluginConfig.id, PipelineAppTabs.Metrics)}
                                                         id={`app-${pluginConfig.id}-metrics`}
                                                         fullWidth
@@ -211,7 +206,6 @@ export function Transformations(): JSX.Element {
                                                         View app metrics
                                                     </LemonButton>
                                                     <LemonButton
-                                                        status="stealth"
                                                         to={urls.pipelineApp(pluginConfig.id, PipelineAppTabs.Logs)}
                                                         id={`app-${pluginConfig.id}-logs`}
                                                         fullWidth
@@ -220,7 +214,6 @@ export function Transformations(): JSX.Element {
                                                     </LemonButton>
                                                     {plugins[pluginConfig.plugin].url && (
                                                         <LemonButton
-                                                            status="stealth"
                                                             to={plugins[pluginConfig.plugin].url}
                                                             targetBlank={true}
                                                             id={`app-${pluginConfig.id}-source-code`}

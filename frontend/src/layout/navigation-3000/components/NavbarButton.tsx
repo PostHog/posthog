@@ -114,7 +114,7 @@ export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardR
                 className={clsx('NavbarButton', isUsingNewNav && here && 'NavbarButton--here')}
                 fullWidth
                 type="secondary"
-                stealth={true}
+                status="alt"
                 {...buttonProps}
             >
                 {content}

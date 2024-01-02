@@ -36,9 +36,8 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
 
                         <LemonButton
                             icon={<IconSync />}
-                            type={'secondary'}
-                            status={'primary-alt'}
-                            size={'small'}
+                            type="secondary"
+                            size="small"
                             onClick={loadMoreElementStats}
                             disabledReason={
                                 canLoadMoreElementStats ? undefined : 'Loaded all elements in this data range.'

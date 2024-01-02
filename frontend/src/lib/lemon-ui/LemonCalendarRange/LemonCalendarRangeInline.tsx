@@ -110,7 +110,6 @@ export function LemonCalendarRangeInline({
                                       },
                                       'LemonCalendar__range--boundary'
                                   ),
-                        status: 'primary',
                         type: 'primary',
                     }
                 } else if (rangeStart && rangeEnd && date > rangeStart && date < rangeEnd) {

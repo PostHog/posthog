@@ -75,12 +75,10 @@ export const OnboardingStep = ({
                 <div className="mt-8 flex justify-end gap-x-2">
                     {showSkip && (
                         <LemonButton
-                            type="tertiary"
                             onClick={() => {
                                 onSkip && onSkip()
                                 !hasNextStep ? completeOnboarding() : goToNextStep()
                             }}
-                            status="muted"
                         >
                             Skip {!hasNextStep ? 'and finish' : 'for now'}
                         </LemonButton>
