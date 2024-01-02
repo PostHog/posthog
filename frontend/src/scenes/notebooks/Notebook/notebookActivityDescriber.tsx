@@ -27,9 +27,9 @@ const notebookActionsMapping: Record<
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
     return logItem?.detail?.short_id ? (
-        <Link to={urls.notebook(logItem.detail.short_id)}>{logItem.detail.name || 'unknown'}</Link>
-    ) : logItem?.detail?.name ? (
-        <>{logItem.detail.name}</>
+        <Link to={urls.notebook(logItem.detail.short_id)}>{logItem?.detail.name || 'unknown'}</Link>
+    ) : logItem?.detail.name ? (
+        <>{logItem?.detail.name}</>
     ) : (
         <i>Untitled</i>
     )
@@ -45,7 +45,7 @@ export function notebookActivityDescriber(logItem: ActivityLogItem, asNotificati
         let changes: Description[] = []
         let changeSuffix: Description = <>on {nameAndLink(logItem)}</>
 
-        for (const change of logItem.detail?.changes || []) {
+        for (const change of logItem.detail.changes || []) {
             if (!change?.field || !notebookActionsMapping[change.field]) {
                 continue //  not all notebook fields are describable
             }

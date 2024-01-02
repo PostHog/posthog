@@ -46,7 +46,7 @@ export type ActivityLogItem = {
     created_at: string
     scope: ActivityScope
     item_id?: string
-    detail?: ActivityLogDetail
+    detail: ActivityLogDetail
     unread?: boolean // when used as a notification
     is_system?: boolean // when auto-created e.g. an exported image when sharing an insight
 }
@@ -140,7 +140,7 @@ export function defaultDescriber(
     asNotification = false,
     resource?: string | JSX.Element
 ): HumanizedChange {
-    resource = resource || logItem.detail?.name || `a ${humanizeScope(logItem.scope, true)}`
+    resource = resource || logItem.detail.name || `a ${humanizeScope(logItem.scope, true)}`
 
     if (logItem.activity == 'deleted') {
         return {
@@ -169,7 +169,7 @@ export function defaultDescriber(
                 </>
             )
         }
-        const commentContent = logItem.detail?.changes?.[0].after as string | undefined
+        const commentContent = logItem.detail.changes?.[0].after as string | undefined
 
         return {
             description,

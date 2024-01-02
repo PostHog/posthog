@@ -267,11 +267,11 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
         let changeSuffix: Description = (
             <>
                 on {asNotification && ' the flag '}
-                {nameOrLinkToFlag(logItem?.item_id, logItem.detail?.name)}
+                {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}
             </>
         )
 
-        for (const change of logItem.detail?.changes || []) {
+        for (const change of logItem.detail.changes || []) {
             if (!change?.field) {
                 continue // feature flag updates have to have a "field" to be described
             }

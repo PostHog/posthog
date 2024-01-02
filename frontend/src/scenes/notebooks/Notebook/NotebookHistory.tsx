@@ -20,7 +20,7 @@ import { ActivityScope } from '~/types'
 import { notebookLogic } from './notebookLogic'
 
 const getFieldChange = (logItem: ActivityLogItem, field: string): any => {
-    return logItem.detail?.changes?.find((x) => x.field === field)?.after
+    return logItem.detail.changes?.find((x) => x.field === field)?.after
 }
 
 function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityLogItem) => void }): JSX.Element {
@@ -101,7 +101,7 @@ export function NotebookHistory(): JSX.Element {
     const { setShowHistory, setPreviewContent } = useActions(notebookLogic)
 
     const onRevert = (logItem: ActivityLogItem): void => {
-        const content = logItem.detail?.changes?.find((x) => x.field === 'content')?.after
+        const content = logItem.detail.changes?.find((x) => x.field === 'content')?.after
 
         if (!content) {
             lemonToast.error('Could not revert to this version')

@@ -72,8 +72,8 @@ const dataManagementActionsMapping: Record<
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
     return logItem?.item_id ? (
-        <Link to={urls.eventDefinition(logItem.item_id)}>{logItem?.detail?.name || 'unknown'}</Link>
-    ) : logItem?.detail?.name ? (
+        <Link to={urls.eventDefinition(logItem.item_id)}>{logItem?.detail.name || 'unknown'}</Link>
+    ) : logItem?.detail.name ? (
         <>{logItem?.detail.name}</>
     ) : (
         <>unknown</>
@@ -106,7 +106,7 @@ export function dataManagementActivityDescriber(logItem: ActivityLogItem, asNoti
             </>
         )
 
-        for (const change of logItem.detail?.changes || []) {
+        for (const change of logItem.detail.changes || []) {
             if (!change?.field || !dataManagementActionsMapping[change.field]) {
                 continue //  updates have to have a "field" to be described
             }

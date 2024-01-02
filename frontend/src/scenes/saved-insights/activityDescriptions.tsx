@@ -64,7 +64,7 @@ const insightActionsMapping: Record<
             description: [
                 <>
                     renamed {asNotification && 'the insight '}"{change?.before}" to{' '}
-                    <strong>"{nameOrLinkToInsight(logItem.detail?.short_id, change?.after as string)}"</strong>
+                    <strong>"{nameOrLinkToInsight(logItem?.detail.short_id, change?.after as string)}"</strong>
                 </>,
             ],
             suffix: <></>,
@@ -96,7 +96,7 @@ const insightActionsMapping: Record<
                     {asNotification && ' the insight '}
                 </>,
             ],
-            suffix: <>{nameOrLinkToInsight(logItem.detail?.short_id, logItem.detail?.name)}</>,
+            suffix: <>{nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)}</>,
         }
     },
     short_id: function onShortId(change, _, asNotification) {
@@ -114,7 +114,7 @@ const insightActionsMapping: Record<
             description: [
                 <>
                     renamed {asNotification && ' the insight '}"{change?.before}" to{' '}
-                    <strong>"{nameOrLinkToInsight(logItem.detail?.short_id, change?.after as string)}"</strong>
+                    <strong>"{nameOrLinkToInsight(logItem?.detail.short_id, change?.after as string)}"</strong>
                 </>,
             ],
             suffix: <></>,
@@ -140,7 +140,7 @@ const insightActionsMapping: Record<
                     </div>
                 </>,
             ],
-            suffix: <>{nameOrLinkToInsight(logItem.detail?.short_id, logItem.detail?.name)}</>,
+            suffix: <>{nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)}</>,
         }
     },
     tags: function onTags(change) {
@@ -185,7 +185,7 @@ const insightActionsMapping: Record<
                 prefix={
                     <>
                         added {asNotification && ' the insight '}
-                        {nameOrLinkToInsight(logItem.detail?.short_id, logItem.detail?.name)} to
+                        {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} to
                     </>
                 }
                 listParts={addedDashboards.map((d) => (
@@ -199,7 +199,7 @@ const insightActionsMapping: Record<
                 prefix={
                     <>
                         removed {asNotification && ' the insight '}
-                        {nameOrLinkToInsight(logItem.detail?.short_id, logItem.detail?.name)} from
+                        {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} from
                     </>
                 }
                 listParts={removedDashboards.map((d) => (
@@ -255,7 +255,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
             description: (
                 <>
                     <strong>{userNameForLogItem(logItem)}</strong> created the insight:{' '}
-                    {nameOrLinkToInsight(logItem.detail?.short_id, logItem.detail?.name)}
+                    {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)}
                 </>
             ),
         }
@@ -266,7 +266,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
             description: (
                 <>
                     <strong>{userNameForLogItem(logItem)}</strong> deleted {asNotification ? 'your' : 'the'} insight:{' '}
-                    {logItem.detail?.name}
+                    {logItem.detail.name}
                 </>
             ),
         }
@@ -276,7 +276,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         return {
             description: (
                 <>
-                    <strong>PostHog</strong> exported {asNotification ? 'your' : 'the'} insight: {logItem.detail?.name}{' '}
+                    <strong>PostHog</strong> exported {asNotification ? 'your' : 'the'} insight: {logItem.detail.name}{' '}
                     as an image for the shared insight link.
                 </>
             ),
@@ -288,7 +288,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
             description: (
                 <>
                     <strong>{userNameForLogItem(logItem)}</strong> shared {asNotification ? 'your' : 'the'} insight:{' '}
-                    {logItem.detail?.name}.
+                    {logItem.detail.name}.
                 </>
             ),
         }
@@ -299,7 +299,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
             description: (
                 <>
                     <strong>{userNameForLogItem(logItem)}</strong> deleted shared link for{' '}
-                    {asNotification ? 'your' : 'the'} insight: {logItem.detail?.name}.
+                    {asNotification ? 'your' : 'the'} insight: {logItem.detail.name}.
                 </>
             ),
         }
@@ -311,12 +311,12 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         let changeSuffix: Description = (
             <>
                 on {asNotification && ' the insight '}
-                {nameOrLinkToInsight(logItem.detail?.short_id, logItem.detail?.name)}
+                {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)}
             </>
         )
 
         try {
-            for (const change of logItem.detail?.changes || []) {
+            for (const change of logItem.detail.changes || []) {
                 if (!change?.field || !insightActionsMapping[change.field]) {
                     continue // insight updates have to have a "field" to be described
                 }
@@ -357,7 +357,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         }
     }
     if (logItem.activity === 'exported') {
-        const exportFormat = logItem.detail?.changes?.[0]?.after
+        const exportFormat = logItem.detail.changes?.[0]?.after
         let exportType = 'in an unknown format'
         if (typeof exportFormat === 'string') {
             exportType = exportFormat.split('/')[1]
@@ -367,11 +367,11 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
             description: (
                 <>
                     <strong>{userNameForLogItem(logItem)}</strong> exported{' '}
-                    {nameOrLinkToInsight(logItem.detail?.short_id, logItem.detail?.name)} as a {exportType}
+                    {nameOrLinkToInsight(logItem?.detail.short_id, logItem?.detail.name)} as a {exportType}
                 </>
             ),
         }
     }
 
-    return defaultDescriber(logItem, asNotification, nameOrLinkToInsight(logItem.detail?.short_id))
+    return defaultDescriber(logItem, asNotification, nameOrLinkToInsight(logItem?.detail.short_id))
 }

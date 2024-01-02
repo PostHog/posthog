@@ -19,7 +19,7 @@ export function personActivityDescriber(logItem: ActivityLogItem, asNotification
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> deleted the person: {logItem.detail?.name}
+                    <strong>{userNameForLogItem(logItem)}</strong> deleted the person: {logItem.detail.name}
                 </>
             ),
         }
@@ -39,7 +39,7 @@ export function personActivityDescriber(logItem: ActivityLogItem, asNotification
         }
     }
     if (logItem.activity === 'people_merged_into') {
-        if (logItem.detail?.merge?.source) {
+        if (logItem.detail.merge?.source) {
             return {
                 description: (
                     <SentenceList
@@ -48,7 +48,7 @@ export function personActivityDescriber(logItem: ActivityLogItem, asNotification
                                 <strong>{userNameForLogItem(logItem)}</strong> merged
                             </>
                         }
-                        listParts={logItem.detail?.merge.source.flatMap((di) => (
+                        listParts={logItem.detail.merge.source.flatMap((di) => (
                             <span className={'highlighted-activity'}>
                                 <PersonDisplay person={di} />
                             </span>
@@ -61,7 +61,7 @@ export function personActivityDescriber(logItem: ActivityLogItem, asNotification
     }
 
     if (logItem.activity === 'split_person') {
-        const distinctIds: string[] | undefined = logItem.detail?.changes?.[0].after?.['distinct_ids']
+        const distinctIds: string[] | undefined = logItem.detail.changes?.[0].after?.['distinct_ids']
         if (distinctIds) {
             return {
                 description: (

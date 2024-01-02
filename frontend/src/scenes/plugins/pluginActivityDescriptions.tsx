@@ -21,7 +21,7 @@ export function pluginActivityDescriber(logItem: ActivityLogItem, asNotification
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> installed the app: <b>{logItem.detail?.name}</b>
+                    <strong>{userNameForLogItem(logItem)}</strong> installed the app: <b>{logItem.detail.name}</b>
                 </>
             ),
         }
@@ -31,7 +31,7 @@ export function pluginActivityDescriber(logItem: ActivityLogItem, asNotification
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> uninstalled the app: <b>{logItem.detail?.name}</b>
+                    <strong>{userNameForLogItem(logItem)}</strong> uninstalled the app: <b>{logItem.detail.name}</b>
                 </>
             ),
         }
@@ -39,7 +39,7 @@ export function pluginActivityDescriber(logItem: ActivityLogItem, asNotification
 
     if (logItem.activity == 'enabled') {
         const changes: (string | JSX.Element)[] = []
-        for (const change of logItem.detail?.changes || []) {
+        for (const change of logItem.detail.changes || []) {
             const newValue = change.after === SECRET_FIELD_VALUE ? '<secret_value>' : change.after
             changes.push(
                 <>
@@ -53,8 +53,8 @@ export function pluginActivityDescriber(logItem: ActivityLogItem, asNotification
                     listParts={changes}
                     prefix={
                         <>
-                            <strong>{userNameForLogItem(logItem)}</strong> enabled the app:{' '}
-                            <b>{logItem.detail?.name}</b> with config ID {logItem.item_id}
+                            <strong>{userNameForLogItem(logItem)}</strong> enabled the app: <b>{logItem.detail.name}</b>{' '}
+                            with config ID {logItem.item_id}
                             {changes.length > 0 ? ', with' : '.'}
                         </>
                     }
@@ -67,14 +67,14 @@ export function pluginActivityDescriber(logItem: ActivityLogItem, asNotification
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> disabled the app: <b>{logItem.detail?.name}</b> with
+                    <strong>{userNameForLogItem(logItem)}</strong> disabled the app: <b>{logItem.detail.name}</b> with
                     config ID {logItem.item_id}.
                 </>
             ),
         }
     }
 
-    if (logItem.activity == 'job_triggered' && logItem.detail?.trigger?.job_type == 'Export historical events V2') {
+    if (logItem.activity == 'job_triggered' && logItem.detail.trigger?.job_type == 'Export historical events V2') {
         const [startDate, endDate] = logItem.detail.trigger.payload.dateRange
         return {
             description: (
@@ -86,23 +86,23 @@ export function pluginActivityDescriber(logItem: ActivityLogItem, asNotification
         }
     }
 
-    if (logItem.activity == 'job_triggered' && logItem.detail?.trigger) {
+    if (logItem.activity == 'job_triggered' && logItem.detail.trigger) {
         return {
             description: (
                 <>
                     <strong>{userNameForLogItem(logItem)}</strong> triggered job:{' '}
-                    <code>{logItem.detail?.trigger.job_type}</code> with config ID {logItem.item_id}.
+                    <code>{logItem.detail.trigger.job_type}</code> with config ID {logItem.item_id}.
                 </>
             ),
             extendedDescription: (
                 <>
-                    Payload: <code>{JSON.stringify(logItem.detail?.trigger.payload, null, 2)}</code>
+                    Payload: <code>{JSON.stringify(logItem.detail.trigger.payload, null, 2)}</code>
                 </>
             ),
         }
     }
 
-    if (logItem.activity == 'export_success' && logItem.detail?.trigger) {
+    if (logItem.activity == 'export_success' && logItem.detail.trigger) {
         const { dateFrom, dateTo } = logItem.detail.trigger.payload
         const startDate = dayjs(dateFrom).format('YYYY-MM-DD')
         // :TRICKY: Internally export date range is non-inclusive so transform it to be inclusive
@@ -117,7 +117,7 @@ export function pluginActivityDescriber(logItem: ActivityLogItem, asNotification
         }
     }
 
-    if (logItem.activity == 'export_fail' && logItem.detail?.trigger) {
+    if (logItem.activity == 'export_fail' && logItem.detail.trigger) {
         const { dateFrom, dateTo } = logItem.detail.trigger.payload
         const startDate = dayjs(dateFrom).format('YYYY-MM-DD')
         // :TRICKY: Internally export date range is non-inclusive so transform it to be inclusive
@@ -135,7 +135,7 @@ export function pluginActivityDescriber(logItem: ActivityLogItem, asNotification
 
     if (logItem.activity == 'config_updated') {
         const changes: (string | JSX.Element)[] = []
-        for (const change of logItem.detail?.changes || []) {
+        for (const change of logItem.detail.changes || []) {
             let changeWording: string | JSX.Element = ''
             const changeBefore = change.before === SECRET_FIELD_VALUE ? '<secret_value>' : change.before
             const changeAfter = change.after === SECRET_FIELD_VALUE ? '<secret_value>' : change.after
@@ -168,7 +168,7 @@ export function pluginActivityDescriber(logItem: ActivityLogItem, asNotification
                     listParts={changes}
                     suffix={
                         <>
-                            on app <b>{logItem.detail?.name}</b> with config ID {logItem.item_id}.
+                            on app <b>{logItem.detail.name}</b> with config ID {logItem.item_id}.
                         </>
                     }
                 />
@@ -177,7 +177,7 @@ export function pluginActivityDescriber(logItem: ActivityLogItem, asNotification
     }
 
     if (logItem.activity.startsWith('attachment_')) {
-        for (const change of logItem.detail?.changes || []) {
+        for (const change of logItem.detail.changes || []) {
             let changeWording: string | JSX.Element = ''
 
             if (logItem.activity === 'attachment_created') {
@@ -213,7 +213,7 @@ export function pluginActivityDescriber(logItem: ActivityLogItem, asNotification
                 description: (
                     <>
                         <strong>{userNameForLogItem(logItem)}</strong> {changeWording} on app:{' '}
-                        <b>{logItem.detail?.name}</b> with config ID {logItem.item_id}
+                        <b>{logItem.detail.name}</b> with config ID {logItem.item_id}
                     </>
                 ),
             }
