@@ -10,6 +10,7 @@ import { PipelineAppTabs, PipelineTabs } from '~/types'
 import { appMetricsLogic } from './appMetricsLogic'
 import { appsManagementLogic } from './appsManagementLogic'
 import { pipelineLogic } from './pipelineLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export default {
     title: 'Scenes-App/Pipeline',
@@ -23,7 +24,13 @@ export default {
             },
         }),
     ],
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story', mockDate: '2023-02-18' }, // scene mode
+    parameters: {
+        layout: 'fullscreen',
+        options: { showPanel: false },
+        viewMode: 'story',
+        mockDate: '2023-02-18',
+        featureFlags: [FEATURE_FLAGS.PIPELINE_UI],
+    }, // scene mode
 } as Meta
 
 export function PipelineLandingPage(): JSX.Element {
