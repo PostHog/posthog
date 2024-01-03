@@ -300,7 +300,11 @@ class TrendsQueryBuilder:
             ),
         )
 
-        if self.query.trendsFilter is not None and self.query.trendsFilter.smoothing_intervals is not None:
+        if (
+            self.query.trendsFilter is not None
+            and self.query.trendsFilter.smoothing_intervals is not None
+            and self.query.trendsFilter.smoothing_intervals > 1
+        ):
             smoothing_count = ast.Alias(
                 alias="count",
                 expr=ast.Call(
