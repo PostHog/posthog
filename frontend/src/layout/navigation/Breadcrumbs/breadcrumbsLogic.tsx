@@ -67,20 +67,18 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
             (s) => [
                 // We're effectively passing the selector through to the scene logic, and "recalculating"
                 // this every time it's rendered. Caching will happen within the scene's breadcrumb selector.
-                (state, props) => {
+                (state, props): Breadcrumb[] => {
                     const activeSceneLogic = sceneLogic.selectors.activeSceneLogic(state, props)
                     const activeScene = s.activeScene(state, props)
-                    const sceneConfig = s.sceneConfig(state, props)
                     if (activeSceneLogic && 'breadcrumbs' in activeSceneLogic.selectors) {
                         const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, props)
                         return activeSceneLogic.selectors.breadcrumbs(
                             state,
                             activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
                         )
-                    } else if (sceneConfig?.name) {
-                        return [{ name: sceneConfig.name }]
                     } else if (activeScene) {
-                        return [{ name: identifierToHuman(activeScene) }]
+                        const sceneConfig = s.sceneConfig(state, props)
+                        return [{ name: sceneConfig?.name ?? identifierToHuman(activeScene), key: activeScene }]
                     } else {
                         return []
                     }
