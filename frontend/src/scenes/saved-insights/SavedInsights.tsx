@@ -20,7 +20,6 @@ import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import {
     IconAction,
     IconBarChart,
@@ -33,7 +32,7 @@ import {
     IconSelectEvents,
     IconTableChart,
 } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonButtonWithSideActionProps } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -44,7 +43,6 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from 'lib/lemon-ui/Link'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -141,7 +139,7 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
     [NodeKind.RetentionQuery]: {
         name: 'Retention',
-        description: 'See how many users return on subsequent days after an intial action',
+        description: 'See how many users return on subsequent days after an initial action',
         icon: IconRetention,
         inMenu: true,
     },
@@ -187,13 +185,13 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPerson,
         inMenu: true,
     },
-    [NodeKind.PersonsQuery]: {
+    [NodeKind.ActorsQuery]: {
         name: 'Persons',
         description: 'List of persons matching specified conditions',
         icon: IconPerson,
         inMenu: false,
     },
-    [NodeKind.InsightPersonsQuery]: {
+    [NodeKind.InsightActorsQuery]: {
         name: 'Persons',
         description: 'List of persons matching specified conditions, derived from an insight',
         icon: IconPerson,
@@ -318,16 +316,6 @@ export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element
 }
 
 export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const overrides3000: Partial<LemonButtonWithSideActionProps> =
-        featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test'
-            ? {
-                  size: 'small',
-                  icon: <IconPlusMini />,
-              }
-            : {}
-
     return (
         <LemonButton
             type="primary"
@@ -342,7 +330,8 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
                 'data-attr': 'saved-insights-new-insight-dropdown',
             }}
             data-attr="saved-insights-new-insight-button"
-            {...overrides3000}
+            size="small"
+            icon={<IconPlusMini />}
         >
             New insight
         </LemonButton>
@@ -486,15 +475,14 @@ export function SavedInsights(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton status="stealth" to={urls.insightView(insight.short_id)} fullWidth>
+                                <LemonButton to={urls.insightView(insight.short_id)} fullWidth>
                                     View
                                 </LemonButton>
                                 <LemonDivider />
-                                <LemonButton status="stealth" to={urls.insightEdit(insight.short_id)} fullWidth>
+                                <LemonButton to={urls.insightEdit(insight.short_id)} fullWidth>
                                     Edit
                                 </LemonButton>
                                 <LemonButton
-                                    status="stealth"
                                     onClick={() => renameInsight(insight)}
                                     data-attr={`insight-item-${insight.short_id}-dropdown-rename`}
                                     fullWidth
@@ -502,7 +490,6 @@ export function SavedInsights(): JSX.Element {
                                     Rename
                                 </LemonButton>
                                 <LemonButton
-                                    status="stealth"
                                     onClick={() => duplicateInsight(insight)}
                                     data-attr={`duplicate-insight-from-list-view`}
                                     fullWidth

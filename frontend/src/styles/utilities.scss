@@ -854,6 +854,13 @@ $decorations: underline, overline, line-through, no-underline;
                 row-gap: #{$space * 0.25}rem;
             }
         }
+
+        // Order
+        @for $i from 1 through 12 {
+            .#{$prefix}order-#{$i} {
+                order: #{$i};
+            }
+        }
     }
 }
 
@@ -1129,8 +1136,19 @@ $decorations: underline, overline, line-through, no-underline;
     font-family: var(--font-title);
 }
 
+/** title font, but only when posthog-3000 is active */
+.font-title-3000 {
+    .posthog-3000 & {
+        font-family: var(--font-title);
+    }
+}
+
 .font-mono {
     font-family: var(--font-mono);
+}
+
+.ligatures-none {
+    font-variant-ligatures: none;
 }
 
 .opacity-0 {

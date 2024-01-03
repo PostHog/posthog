@@ -2,7 +2,7 @@ import { actions, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import type { verifyEmailLogicType } from './verifyEmailLogicType'
 

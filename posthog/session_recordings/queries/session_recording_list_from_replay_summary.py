@@ -85,8 +85,12 @@ class LogQuery:
     SELECT distinct log_source_id as session_id
     FROM log_entries
     PREWHERE team_id = %(team_id)s
+            -- regardless of what other filters are applied
+            -- limit by storage TTL
             AND timestamp >= %(clamped_to_storage_ttl)s
+            -- make sure we don't get the occasional unexpected future event
             AND timestamp <= now()
+            -- and then any time filter for the events query
             {events_timestamp_clause}
     WHERE 1=1
     {console_log_clause}
@@ -147,7 +151,7 @@ class LogQuery:
         }
 
 
-class PersonsQuery(EventQuery):
+class ActorsQuery(EventQuery):
     _filter: SessionRecordingsFilter
 
     # we have to implement this from EventQuery but don't need it
@@ -274,10 +278,12 @@ class SessionIdEventsQuery(EventQuery):
             -- regardless of what other filters are applied
             -- limit by storage TTL
             AND e.timestamp >= %(clamped_to_storage_ttl)s
+            -- make sure we don't get the occasional unexpected future event
             AND e.timestamp <= now()
+            -- and then any time filter for the events query
+            {events_timestamp_clause}
         WHERE
             notEmpty(`$session_id`)
-            {events_timestamp_clause}
             {event_filter_where_conditions}
             {prop_filter_clause}
             {provided_session_ids_clause}
@@ -453,7 +459,7 @@ class SessionIdEventsQuery(EventQuery):
         )
 
     def _persons_join_or_subquery(self, event_filters, prop_query):
-        persons_select, persons_select_params = PersonsQuery(filter=self._filter, team=self._team).get_query()
+        persons_select, persons_select_params = ActorsQuery(filter=self._filter, team=self._team).get_query()
         persons_join = ""
         persons_sub_query = ""
         if persons_select:
@@ -626,7 +632,7 @@ class SessionRecordingListFromReplaySummary(EventQuery):
         if events_select:
             events_select = f"AND s.session_id in (select `$session_id` as session_id from ({events_select}) as session_events_sub_query)"
 
-        persons_select, persons_select_params = PersonsQuery(filter=self._filter, team=self._team).get_query()
+        persons_select, persons_select_params = ActorsQuery(filter=self._filter, team=self._team).get_query()
         if persons_select:
             persons_select = (
                 f"AND s.distinct_id in (select distinct_id from ({persons_select}) as session_persons_sub_query)"

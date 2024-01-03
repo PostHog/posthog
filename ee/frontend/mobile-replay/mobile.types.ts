@@ -1,5 +1,5 @@
 // copied from rrweb-snapshot, not included in rrweb types
-import { customEvent, EventType } from '@rrweb/types'
+import { customEvent, EventType, IncrementalSource } from '@rrweb/types'
 
 export enum NodeType {
     Document = 0,
@@ -118,12 +118,15 @@ type wireframeBase = {
     /**
      * @description x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0
      */
-    x: number
-    y: number
+    x?: number
+    y?: number
     /*
-     * @description width and height are the dimensions of the element, the only accepted units is pixels. You can omit the unit.
+     * @description the width dimension of the element, either '100vw' i.e. viewport width. Or a value in pixels. You can omit the unit when specifying pixels.
      */
-    width: number
+    width: number | '100vw'
+    /*
+     * @description the height dimension of the element, the only accepted units is pixels. You can omit the unit.
+     */
     height: number
     childWireframes?: wireframe[]
     type: MobileNodeType
@@ -193,11 +196,11 @@ export type wireframeButton = wireframeInputBase & {
 export type wireframeProgress = wireframeInputBase & {
     inputType: 'progress'
     /**
-     * @description This attribute specifies how much of the task that has been completed. It must be a valid floating point number between 0 and max, or between 0 and 1 if max is omitted. If there is no value attribute, the progress bar is indeterminate; this indicates that an activity is ongoing with no indication of how long it is expected to take.
+     * @description This attribute specifies how much of the task that has been completed. It must be a valid floating point number between 0 and max, or between 0 and 1 if max is omitted. If there is no value attribute, the progress bar is indeterminate; this indicates that an activity is ongoing with no indication of how long it is expected to take. When bar style is rating this is the number of filled stars.
      */
     value?: number
     /**
-     * @description The max attribute, if present, must have a value greater than 0 and be a valid floating point number. The default value is 1.
+     * @description The max attribute, if present, must have a value greater than 0 and be a valid floating point number. The default value is 1. When bar style is rating this is the number of stars.
      */
     max?: number
     style?: MobileStyles & {
@@ -275,9 +278,37 @@ export type fullSnapshotEvent = {
     }
 }
 
-export type incrementalSnapshotEvent = {
+export type incrementalSnapshotEvent =
+    | {
+          type: EventType.IncrementalSnapshot
+          data: any // keeps a loose incremental type so that we can accept any rrweb incremental snapshot event type
+      }
+    | MobileIncrementalSnapshotEvent
+
+export type MobileNodeMutation = {
+    parentId: number
+    wireframe: wireframe
+}
+
+export type MobileAddedNodeMutationData = {
+    source: IncrementalSource.Mutation
+    adds: MobileNodeMutation[]
+}
+
+export type MobileUpdatedNodeMutationData = {
+    source: IncrementalSource.Mutation
+    /**
+     * @description An update is implemented as a remove and then an add, so the updates array contains the ID of the removed node and the wireframe for the added node
+     */
+    updates: MobileNodeMutation[]
+}
+
+export type MobileIncrementalSnapshotEvent = {
     type: EventType.IncrementalSnapshot
-    data: any // TODO: this will change as we implement incremental snapshots
+    /**
+     * @description This sits alongside the RRWeb incremental snapshot event type, mobile replay can send any of the RRWeb incremental snapshot event types, which will be passed unchanged to the player - for example to send touch events. removed node mutations are passed unchanged to the player.
+     */
+    data: MobileAddedNodeMutationData | MobileUpdatedNodeMutationData
 }
 
 export type metaEvent = {
@@ -289,7 +320,34 @@ export type metaEvent = {
     }
 }
 
-export type mobileEvent = fullSnapshotEvent | metaEvent | customEvent | incrementalSnapshotEvent
+// this is a custom event _but_ rrweb only types tag as string, and we want to be more specific
+export type keyboardEvent = {
+    type: EventType.Custom
+    data: {
+        tag: 'keyboard'
+        payload:
+            | {
+                  open: true
+                  styles?: MobileStyles
+                  /**
+                   * @description x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present then the keyboard is at the bottom of the screen
+                   */
+                  x?: number
+                  y?: number
+                  /*
+                   * @description the height dimension of the keyboard, the only accepted units is pixels. You can omit the unit.
+                   */
+                  height: number
+                  /*
+                   * @description the width dimension of the keyboard, the only accepted units is pixels. You can omit the unit. If not present defaults to width of the viewport
+                   */
+                  width?: number
+              }
+            | { open: false }
+    }
+}
+
+export type mobileEvent = fullSnapshotEvent | metaEvent | customEvent | incrementalSnapshotEvent | keyboardEvent
 
 export type mobileEventWithTime = mobileEvent & {
     timestamp: number

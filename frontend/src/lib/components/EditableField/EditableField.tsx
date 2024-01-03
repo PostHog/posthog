@@ -2,6 +2,7 @@ import './EditableField.scss'
 
 import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconEdit, IconMarkdown } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -68,7 +69,10 @@ export function EditableField({
 }: EditableFieldProps): JSX.Element {
     const [localIsEditing, setLocalIsEditing] = useState(mode === 'edit')
     const [localTentativeValue, setLocalTentativeValue] = useState(value)
-    const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>()
+    const [isDisplayTooltipNeeded, setIsDisplayTooltipNeeded] = useState(false)
+    const containerRef = useRef<HTMLDivElement>(null)
+    const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null)
+    const displayRef = useRef<HTMLSpanElement>(null)
     const previousIsEditing = useRef<boolean>()
 
     useEffect(() => {
@@ -92,6 +96,14 @@ export function EditableField({
         previousIsEditing.current = localIsEditing
     }, [localIsEditing])
 
+    useResizeObserver({
+        ref: containerRef,
+        onResize: () => {
+            if (displayRef.current) {
+                setIsDisplayTooltipNeeded(displayRef.current.scrollWidth > displayRef.current.clientWidth)
+            }
+        },
+    })
     const isSaveable = !minLength || localTentativeValue.length >= minLength
 
     const mouseDownOnCancelButton = (e: React.MouseEvent): void => {
@@ -141,6 +153,7 @@ export function EditableField({
             data-attr={dataAttr}
             // eslint-disable-next-line react/forbid-dom-props
             style={style}
+            ref={containerRef}
         >
             <Tooltip
                 placement="right"
@@ -227,7 +240,15 @@ export function EditableField({
                             {localTentativeValue && markdown ? (
                                 <LemonMarkdown lowKeyHeadings>{localTentativeValue}</LemonMarkdown>
                             ) : (
-                                localTentativeValue || <i>{placeholder}</i>
+                                <Tooltip
+                                    title={isDisplayTooltipNeeded ? localTentativeValue : undefined}
+                                    placement="bottomLeft"
+                                    delayMs={0}
+                                >
+                                    <span className="EditableField__display" ref={displayRef}>
+                                        {localTentativeValue || <i>{placeholder}</i>}
+                                    </span>
+                                </Tooltip>
                             )}
                             {(!mode || !!onModeToggle) && (
                                 <div className="EditableField__actions">

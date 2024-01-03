@@ -1,4 +1,4 @@
-import { IconExternal } from '@posthog/icons'
+import { IconExternal, IconHome } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -24,29 +24,6 @@ function SidePanelDocsSkeleton(): JSX.Element {
             <LemonSkeleton className="w-full h-4 opacity-60" />
             <LemonSkeleton className="w-full h-4 opacity-40" />
             <LemonSkeleton className="w-1/2 h-4 opacity-20" />
-        </div>
-    )
-}
-
-function Menu({
-    menu,
-    activeMenuName,
-    onChange,
-}: {
-    menu: Menu[]
-    activeMenuName: string | null
-    onChange: (newValue: string | null) => void
-}): JSX.Element {
-    return (
-        <div className="mr-auto">
-            <LemonSelect
-                placeholder="Navigate"
-                dropdownMatchSelectWidth={false}
-                onChange={onChange}
-                size="small"
-                value={activeMenuName}
-                options={menu.map(({ name }) => ({ label: name, value: name }))}
-            />
         </div>
     )
 }
@@ -131,7 +108,33 @@ export const SidePanelDocs = (): JSX.Element => {
     return (
         <>
             <SidePanelPaneHeader>
-                {menu && <Menu menu={menu} activeMenuName={activeMenuName} onChange={handleMenuChange} />}
+                <LemonButton
+                    size="small"
+                    sideIcon={<IconHome />}
+                    type="secondary"
+                    onClick={() => {
+                        ref.current?.contentWindow?.postMessage(
+                            {
+                                type: 'navigate',
+                                url: '/docs',
+                            },
+                            '*'
+                        )
+                    }}
+                />
+
+                {menu && (
+                    <LemonSelect
+                        placeholder="Navigate"
+                        dropdownMatchSelectWidth={false}
+                        onChange={handleMenuChange}
+                        size="small"
+                        value={activeMenuName}
+                        options={menu.map(({ name }) => ({ label: name, value: name }))}
+                    />
+                )}
+
+                <div className="flex-1" />
                 <LemonButton
                     size="small"
                     sideIcon={<IconExternal />}

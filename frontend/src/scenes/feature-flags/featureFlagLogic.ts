@@ -6,7 +6,7 @@ import api from 'lib/api'
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { sum, toParams } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -42,6 +42,7 @@ import {
     PropertyFilterType,
     PropertyOperator,
     RolloutConditionType,
+    ScheduledChangeType,
     Survey,
     SurveyQuestionType,
     UserBlastRadiusType,
@@ -229,9 +230,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         triggerFeatureFlagUpdate: (payload: Partial<FeatureFlagType>) => ({ payload }),
         generateUsageDashboard: true,
         enrichUsageDashboard: true,
+        setFeatureFlagId: (id: number | null) => ({ id }),
         setCopyDestinationProject: (id: number | null) => ({ id }),
         setScheduleDateMarker: (dateMarker: any) => ({ dateMarker }),
-        setScheduleChangeType: (changeType: string | null) => ({ changeType }),
+        setScheduledChangeField: (changeType: string | null) => ({ changeType }),
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -443,6 +445,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         surveys: [...(state.surveys || []), newSurvey],
                     }
                 },
+                setFeatureFlagId: (state, { id }) => ({ ...state, id }),
             },
         ],
         featureFlagMissing: [false, { setFeatureFlagMissing: () => true }],
@@ -490,10 +493,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 setScheduleDateMarker: (_, { dateMarker }) => dateMarker,
             },
         ],
-        scheduleChangeType: [
-            'add_condition' as string | null,
+        scheduledChangeField: [
+            'active' as string | null,
             {
-                setScheduleChangeType: (_, { changeType }) => changeType,
+                setScheduledChangeField: (_, { changeType }) => changeType,
             },
         ],
     }),
@@ -642,9 +645,40 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         },
         scheduledChanges: {
-            __default: [] as any,
+            __default: [] as ScheduledChangeType[],
             loadScheduledChanges: async () => {
-                return []
+                const { currentTeamId } = values
+                if (currentTeamId) {
+                    const response = await api.featureFlags.getScheduledChanges(currentTeamId, values.featureFlag.id)
+                    return response.results || []
+                }
+            },
+        },
+        scheduledChange: {
+            __default: {} as ScheduledChangeType,
+            createScheduledChange: async () => {
+                const { featureFlag, scheduledChangeField, scheduleDateMarker, currentTeamId } = values
+
+                if (currentTeamId && scheduledChangeField) {
+                    const data = {
+                        record_id: values.featureFlag.id,
+                        model_name: 'FeatureFlag',
+                        operation: scheduledChangeField,
+                        payload: {
+                            field: scheduledChangeField,
+                            value: featureFlag[scheduledChangeField],
+                        },
+                        scheduled_at: scheduleDateMarker.toISOString(),
+                    }
+
+                    return await api.featureFlags.createScheduledChange(currentTeamId, data)
+                }
+            },
+            deleteScheduledChange: async (scheduledChangeId) => {
+                const { currentTeamId } = values
+                if (currentTeamId) {
+                    return await api.featureFlags.deleteScheduledChange(currentTeamId, scheduledChangeId)
+                }
             },
         },
     })),
@@ -833,6 +867,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         action: () => router.actions.push(urls.cohort(newCohort.id)),
                     },
                 })
+            }
+        },
+        createScheduledChangeSuccess: ({ scheduledChange }) => {
+            if (scheduledChange && scheduledChange) {
+                lemonToast.success('Change scheduled successfully')
+                actions.loadScheduledChanges()
+            }
+        },
+        deleteScheduledChangeSuccess: ({ scheduledChange }) => {
+            if (scheduledChange) {
+                lemonToast.success('Change has been deleted')
+                actions.loadScheduledChanges()
             }
         },
     })),
@@ -1058,7 +1104,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.setFeatureFlag(formatPayloads)
             actions.loadRelatedInsights()
             actions.loadAllInsightsForFlag()
-        } else if (props.id !== 'new') {
+        } else if (props.id !== 'new' && props.id !== 'schedule') {
             actions.loadFeatureFlag()
         }
         actions.loadSentryStats()

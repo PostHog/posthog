@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, urlToAction } from 'kea-router'
 import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
 import { RETENTION_FIRST_TIME, STALE_EVENT_SECONDS } from 'lib/constants'
@@ -29,9 +30,10 @@ import {
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 
 export interface WebTileLayout {
-    colSpan?: number
+    colSpan?: number | 'full'
     rowSpan?: number
     className?: string
+    orderLarge?: number
 }
 
 interface BaseTile {
@@ -92,8 +94,9 @@ export enum GeographyTab {
 }
 
 export interface WebAnalyticsStatusCheck {
-    shouldWarnAboutNoPageviews: boolean
-    shouldWarnAboutNoPageleaves: boolean
+    isSendingPageViews: boolean
+    isSendingPageLeaves: boolean
+    isSendingPageLeavesScroll: boolean
 }
 
 export const GEOIP_PLUGIN_URLS = [
@@ -114,11 +117,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         togglePropertyFilter: (
             type: PropertyFilterType.Event | PropertyFilterType.Person,
             key: string,
-            value: string | number
+            value: string | number,
+            tabChange?: {
+                graphsTab?: string
+                sourceTab?: string
+                deviceTab?: string
+                pathTab?: string
+                geographyTab?: string
+            }
         ) => ({
             type,
             key,
             value,
+            tabChange,
         }),
         setGraphsTab: (tab: string) => ({
             tab,
@@ -135,6 +146,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setGeographyTab: (tab: string) => ({ tab }),
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setInterval: (interval: IntervalType) => ({ interval }),
+        setStateFromUrl: (state: {
+            filters: WebAnalyticsPropertyFilters
+            dateFrom: string | null
+            dateTo: string | null
+            interval: IntervalType | null
+            graphsTab: string | null
+            sourceTab: string | null
+            deviceTab: string | null
+            pathTab: string | null
+            geographyTab: string | null
+        }) => ({
+            state,
+        }),
     }),
     reducers({
         webAnalyticsFilters: [
@@ -184,36 +208,47 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         return [...oldPropertyFilters, newFilter]
                     }
                 },
+                setStateFromUrl: (_, { state }) => state.filters,
             },
         ],
-        graphsTab: [
-            GraphsTab.UNIQUE_USERS as string,
+        _graphsTab: [
+            null as string | null,
             {
                 setGraphsTab: (_, { tab }) => tab,
+                setStateFromUrl: (_, { state }) => state.graphsTab,
+                togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.graphsTab || oldTab,
             },
         ],
-        sourceTab: [
-            SourceTab.REFERRING_DOMAIN as string,
+        _sourceTab: [
+            null as string | null,
             {
                 setSourceTab: (_, { tab }) => tab,
+                setStateFromUrl: (_, { state }) => state.sourceTab,
+                togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.sourceTab || oldTab,
             },
         ],
-        deviceTab: [
-            DeviceTab.DEVICE_TYPE as string,
+        _deviceTab: [
+            null as string | null,
             {
                 setDeviceTab: (_, { tab }) => tab,
+                setStateFromUrl: (_, { state }) => state.deviceTab,
+                togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.deviceTab || oldTab,
             },
         ],
-        pathTab: [
-            PathTab.PATH as string,
+        _pathTab: [
+            null as string | null,
             {
                 setPathTab: (_, { tab }) => tab,
+                setStateFromUrl: (_, { state }) => state.pathTab,
+                togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.pathTab || oldTab,
             },
         ],
-        geographyTab: [
-            GeographyTab.MAP as string,
+        _geographyTab: [
+            null as string | null,
             {
                 setGeographyTab: (_, { tab }) => tab,
+                setStateFromUrl: (_, { state }) => state.geographyTab,
+                togglePropertyFilter: (oldTab, { tabChange }) => tabChange?.geographyTab || oldTab,
             },
         ],
         dateFilter: [
@@ -236,30 +271,48 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         interval,
                     }
                 },
+                setStateFromUrl: (_, { state: { dateTo, dateFrom, interval } }) => {
+                    if (!dateFrom && !dateTo) {
+                        dateFrom = initialDateFrom
+                        dateTo = initialDateTo
+                    }
+                    return {
+                        dateTo,
+                        dateFrom,
+                        interval: interval || getDefaultInterval(dateFrom, dateTo),
+                    }
+                },
             },
         ],
     }),
     selectors(({ actions, values }) => ({
+        graphsTab: [(s) => [s._graphsTab], (graphsTab: string | null) => graphsTab || GraphsTab.UNIQUE_USERS],
+        sourceTab: [(s) => [s._sourceTab], (sourceTab: string | null) => sourceTab || SourceTab.REFERRING_DOMAIN],
+        deviceTab: [(s) => [s._deviceTab], (deviceTab: string | null) => deviceTab || DeviceTab.DEVICE_TYPE],
+        pathTab: [(s) => [s._pathTab], (pathTab: string | null) => pathTab || PathTab.PATH],
+        geographyTab: [(s) => [s._geographyTab], (geographyTab: string | null) => geographyTab || GeographyTab.MAP],
         tiles: [
             (s) => [
                 s.webAnalyticsFilters,
                 s.graphsTab,
-                s.pathTab,
-                s.deviceTab,
                 s.sourceTab,
+                s.deviceTab,
+                s.pathTab,
                 s.geographyTab,
                 s.dateFilter,
+                () => values.statusCheck,
                 () => values.isGreaterThanMd,
                 () => values.shouldShowGeographyTile,
             ],
             (
                 webAnalyticsFilters,
                 graphsTab,
-                pathTab,
-                deviceTab,
                 sourceTab,
+                deviceTab,
+                pathTab,
                 geographyTab,
                 { dateFrom, dateTo, interval },
+                statusCheck,
                 isGreaterThanMd: boolean,
                 shouldShowGeographyTile
             ): WebDashboardTile[] => {
@@ -272,7 +325,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 const tiles: (WebDashboardTile | null)[] = [
                     {
                         layout: {
-                            colSpan: 12,
+                            colSpan: 'full',
+                            orderLarge: 0,
                         },
                         query: {
                             kind: NodeKind.WebOverviewQuery,
@@ -282,7 +336,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                     {
                         layout: {
-                            colSpan: 6,
+                            colSpan: 2,
+                            orderLarge: 1,
                         },
                         activeTabId: graphsTab,
                         setTabId: actions.setGraphsTab,
@@ -382,7 +437,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                     {
                         layout: {
-                            colSpan: 6,
+                            colSpan: 2,
+                            orderLarge: 4,
                         },
                         activeTabId: pathTab,
                         setTabId: actions.setPathTab,
@@ -399,6 +455,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         properties: webAnalyticsFilters,
                                         breakdownBy: WebStatsBreakdown.Page,
                                         dateRange,
+                                        includeScrollDepth: statusCheck?.isSendingPageLeavesScroll,
                                     },
                                     embedded: false,
                                 },
@@ -415,6 +472,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         properties: webAnalyticsFilters,
                                         breakdownBy: WebStatsBreakdown.InitialPage,
                                         dateRange,
+                                        includeScrollDepth: statusCheck?.isSendingPageLeavesScroll,
                                     },
                                     embedded: false,
                                 },
@@ -423,7 +481,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                     {
                         layout: {
-                            colSpan: 6,
+                            colSpan: 1,
+                            orderLarge: 2,
                         },
                         activeTabId: sourceTab,
                         setTabId: actions.setSourceTab,
@@ -537,15 +596,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                     {
                         layout: {
-                            colSpan: 6,
+                            colSpan: 1,
+                            orderLarge: 3,
                         },
                         activeTabId: deviceTab,
                         setTabId: actions.setDeviceTab,
                         tabs: [
                             {
                                 id: DeviceTab.DEVICE_TYPE,
-                                title: 'Top Device Types',
-                                linkText: 'Device Type',
+                                title: 'Device types',
+                                linkText: 'Device type',
                                 query: {
                                     kind: NodeKind.InsightVizNode,
                                     source: {
@@ -610,41 +670,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                         ],
                     },
-                    {
-                        title: 'Retention',
-                        layout: {
-                            colSpan: 12,
-                        },
-                        query: {
-                            kind: NodeKind.InsightVizNode,
-                            source: {
-                                kind: NodeKind.RetentionQuery,
-                                properties: webAnalyticsFilters,
-                                dateRange,
-                                filterTestAccounts: true,
-                                retentionFilter: {
-                                    retention_type: RETENTION_FIRST_TIME,
-                                    retention_reference: 'total',
-                                    total_intervals: isGreaterThanMd ? 8 : 5,
-                                    period: RetentionPeriod.Week,
-                                },
-                            },
-                            vizSpecificOptions: {
-                                [InsightType.RETENTION]: {
-                                    hideLineGraph: true,
-                                    hideSizeColumn: !isGreaterThanMd,
-                                    useSmallLayout: !isGreaterThanMd,
-                                },
-                            },
-                            embedded: true,
-                        },
-                    },
+
                     shouldShowGeographyTile
                         ? {
                               layout: {
-                                  colSpan: 12,
+                                  colSpan: 'full',
                               },
-                              activeTabId: geographyTab,
+                              activeTabId: geographyTab || GeographyTab.MAP,
                               setTabId: actions.setGeographyTab,
                               tabs: [
                                   {
@@ -725,6 +757,35 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               ],
                           }
                         : null,
+                    {
+                        title: 'Retention',
+                        layout: {
+                            colSpan: 2,
+                        },
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.RetentionQuery,
+                                properties: webAnalyticsFilters,
+                                dateRange,
+                                filterTestAccounts: true,
+                                retentionFilter: {
+                                    retention_type: RETENTION_FIRST_TIME,
+                                    retention_reference: 'total',
+                                    total_intervals: isGreaterThanMd ? 8 : 5,
+                                    period: RetentionPeriod.Week,
+                                },
+                            },
+                            vizSpecificOptions: {
+                                [InsightType.RETENTION]: {
+                                    hideLineGraph: true,
+                                    hideSizeColumn: !isGreaterThanMd,
+                                    useSmallLayout: !isGreaterThanMd,
+                                },
+                            },
+                            embedded: true,
+                        },
+                    },
                 ]
                 return tiles.filter(isNotNil)
             },
@@ -760,7 +821,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         statusCheck: {
             __default: null as WebAnalyticsStatusCheck | null,
             loadStatusCheck: async (): Promise<WebAnalyticsStatusCheck> => {
-                const [pageviewResult, pageleaveResult] = await Promise.allSettled([
+                const [pageviewResult, pageleaveResult, pageleaveScroll] = await Promise.allSettled([
                     api.eventDefinitions.list({
                         event_type: EventDefinitionType.Event,
                         search: '$pageview',
@@ -768,6 +829,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     api.eventDefinitions.list({
                         event_type: EventDefinitionType.Event,
                         search: '$pageleave',
+                    }),
+                    api.propertyDefinitions.list({
+                        event_names: ['$pageleave'],
+                        properties: ['$prev_pageview_max_content_percentage'],
                     }),
                 ])
 
@@ -783,12 +848,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         ? pageleaveResult.value.results.find((r) => r.name === '$pageleave')
                         : undefined
 
-                const shouldWarnAboutNoPageviews = !pageviewEntry || isDefinitionStale(pageviewEntry)
-                const shouldWarnAboutNoPageleaves = !pageleaveEntry || isDefinitionStale(pageleaveEntry)
+                const pageleaveScrollEntry =
+                    pageleaveScroll.status === 'fulfilled'
+                        ? pageleaveScroll.value.results.find((r) => r.name === '$prev_pageview_max_content_percentage')
+                        : undefined
+
+                const isSendingPageViews = !!pageviewEntry && !isDefinitionStale(pageviewEntry)
+                const isSendingPageLeaves = !!pageleaveEntry && !isDefinitionStale(pageleaveEntry)
+                const isSendingPageLeavesScroll = !!pageleaveScrollEntry && !isDefinitionStale(pageleaveScrollEntry)
 
                 return {
-                    shouldWarnAboutNoPageviews,
-                    shouldWarnAboutNoPageleaves,
+                    isSendingPageViews,
+                    isSendingPageLeaves,
+                    isSendingPageLeavesScroll,
                 }
             },
         },
@@ -837,6 +909,77 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     windowValues({
         isGreaterThanMd: (window: Window) => window.innerWidth > 768,
     }),
+
+    actionToUrl(({ values }) => {
+        const stateToUrl = (): string => {
+            const {
+                webAnalyticsFilters,
+                dateFilter: { dateTo, dateFrom, interval },
+                sourceTab,
+                deviceTab,
+                pathTab,
+                geographyTab,
+                graphsTab,
+            } = values
+
+            const urlParams = new URLSearchParams()
+            if (webAnalyticsFilters.length > 0) {
+                urlParams.set('filters', JSON.stringify(webAnalyticsFilters))
+            }
+            if (dateFrom !== initialDateFrom || dateTo !== initialDateTo || interval !== initialInterval) {
+                urlParams.set('date_from', dateFrom ?? '')
+                urlParams.set('date_to', dateTo ?? '')
+                urlParams.set('interval', interval ?? '')
+            }
+            if (deviceTab) {
+                urlParams.set('device_tab', deviceTab)
+            }
+            if (sourceTab) {
+                urlParams.set('source_tab', sourceTab)
+            }
+            if (graphsTab) {
+                urlParams.set('graphs_tab', graphsTab)
+            }
+            if (pathTab) {
+                urlParams.set('path_tab', pathTab)
+            }
+            if (geographyTab) {
+                urlParams.set('geography_tab', geographyTab)
+            }
+            return `/web?${urlParams.toString()}`
+        }
+
+        return {
+            setWebAnalyticsFilters: stateToUrl,
+            togglePropertyFilter: stateToUrl,
+            setDates: stateToUrl,
+            setInterval: stateToUrl,
+            setDeviceTab: stateToUrl,
+            setSourceTab: stateToUrl,
+            setGraphsTab: stateToUrl,
+            setPathTab: stateToUrl,
+            setGeographyTab: stateToUrl,
+        }
+    }),
+
+    urlToAction(({ actions }) => ({
+        '/web': (
+            _,
+            { filters, date_from, date_to, interval, device_tab, source_tab, graphs_tab, path_tab, geography_tab }
+        ) => {
+            actions.setStateFromUrl({
+                filters: filters || initialWebAnalyticsFilter,
+                dateFrom: date_from || null,
+                dateTo: date_to || null,
+                interval: interval || null,
+                deviceTab: device_tab || null,
+                sourceTab: source_tab || null,
+                graphsTab: graphs_tab || null,
+                pathTab: path_tab || null,
+                geographyTab: geography_tab || null,
+            })
+        },
+    })),
 ])
 
 const isDefinitionStale = (definition: EventDefinition | PropertyDefinition): boolean => {

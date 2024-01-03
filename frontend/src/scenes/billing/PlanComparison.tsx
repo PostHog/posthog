@@ -3,7 +3,6 @@ import './PlanComparison.scss'
 import { LemonButton, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconCheckmark, IconClose, IconWarning } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -113,7 +112,6 @@ export const PlanComparison = ({
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
     const { redirectPath, billing } = useValues(billingLogic)
     const { width, ref: planComparisonRef } = useResizeObserver()
-    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     const upgradeButtons = plans?.map((plan) => {
         return (
@@ -121,7 +119,7 @@ export const PlanComparison = ({
                 <LemonButton
                     to={getUpgradeProductLink(product, plan.plan_key || '', redirectPath, includeAddons)}
                     type={plan.current_plan ? 'secondary' : 'primary'}
-                    status={is3000 ? 'primary-alt' : 'primary'}
+                    status={plan.current_plan ? 'default' : 'alt'}
                     fullWidth
                     center
                     disableClientSideRouting
@@ -187,7 +185,7 @@ export const PlanComparison = ({
                                 <span className="font-bold">{product.name}</span>
                             </p>
                         )}
-                        <p className={clsx('ml-0 text-xs mt-1', !is3000 && 'text-muted')}>Priced per {product.unit}</p>
+                        <p className="ml-0 text-xs mt-1">Priced per {product.unit}</p>
                     </th>
                     {plans?.map((plan) => (
                         <td key={`${plan.plan_key}-tiers-td`}>{getProductTiers(plan, product)}</td>
@@ -251,8 +249,7 @@ export const PlanComparison = ({
                             className={clsx(
                                 'PlanTable__th__feature',
                                 width && width < 600 && 'PlanTable__th__feature--reduced_padding',
-                                i == fullyFeaturedPlan?.features?.length - 1 && 'PlanTable__th__last-feature',
-                                !is3000 && 'text-muted'
+                                i == fullyFeaturedPlan?.features?.length - 1 && 'PlanTable__th__last-feature'
                             )}
                         >
                             <Tooltip title={feature.description}>{feature.name}</Tooltip>

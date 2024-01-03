@@ -1,13 +1,13 @@
 import { TZLabel } from '@posthog/apps-common'
-import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { IconCalendar, IconPinFilled, IconPinOutline } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { SavedSessionRecordingPlaylistsEmptyState } from 'scenes/session-recordings/saved-playlists/SavedSessionRecordingPlaylistsEmptyState'
 import { urls } from 'scenes/urls'
 
@@ -40,7 +40,6 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
     const logic = savedSessionRecordingPlaylistsLogic({ tab })
     const { playlists, playlistsLoading, filters, sorting, pagination } = useValues(logic)
     const { setSavedPlaylistsFilters, updatePlaylist, duplicatePlaylist, deletePlaylist } = useActions(logic)
-    const { meFirstMembers } = useValues(membersLogic)
 
     const columns: LemonTableColumns<SessionRecordingPlaylistType> = [
         {
@@ -50,7 +49,6 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                 return (
                     <LemonButton
                         size="small"
-                        status="primary-alt"
                         onClick={() => updatePlaylist(short_id, { pinned: !pinned })}
                         icon={pinned ? <IconPinFilled /> : <IconPinOutline />}
                     />
@@ -89,7 +87,6 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                         overlay={
                             <>
                                 <LemonButton
-                                    status="stealth"
                                     onClick={() => duplicatePlaylist(playlist)}
                                     fullWidth
                                     data-attr="duplicate-playlist"
@@ -131,7 +128,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                             active={filters.pinned}
                             size="small"
                             type="secondary"
-                            status="stealth"
+                            status="alt"
                             center
                             onClick={() => setSavedPlaylistsFilters({ pinned: !filters.pinned })}
                             icon={filters.pinned ? <IconPinFilled /> : <IconPinOutline />}
@@ -159,20 +156,9 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                     </div>
                     <div className="flex items-center gap-2">
                         <span>Created by:</span>
-                        <LemonSelect
-                            size="small"
-                            options={[
-                                { value: 'All users' as number | 'All users', label: 'All Users' },
-                                ...meFirstMembers.map((x) => ({
-                                    value: x.user.id,
-                                    label: x.user.first_name,
-                                })),
-                            ]}
-                            value={filters.createdBy}
-                            onChange={(v: any): void => {
-                                setSavedPlaylistsFilters({ createdBy: v })
-                            }}
-                            dropdownMatchSelectWidth={false}
+                        <MemberSelect
+                            value={filters.createdBy === 'All users' ? null : filters.createdBy}
+                            onChange={(user) => setSavedPlaylistsFilters({ createdBy: user?.id || 'All users' })}
                         />
                     </div>
                 </div>

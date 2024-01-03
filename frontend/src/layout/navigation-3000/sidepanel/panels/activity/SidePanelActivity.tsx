@@ -1,7 +1,9 @@
+import { IconNotification } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLog'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { IconWithCount } from 'lib/lemon-ui/icons'
 import { useEffect, useRef } from 'react'
 import { urls } from 'scenes/urls'
 
@@ -13,6 +15,16 @@ import {
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 
 const SCROLL_TRIGGER_OFFSET = 100
+
+export const SidePanelActivityIcon = (props: { className?: string }): JSX.Element => {
+    const { unreadCount } = useValues(notificationsLogic)
+
+    return (
+        <IconWithCount count={unreadCount} {...props}>
+            <IconNotification />
+        </IconWithCount>
+    )
+}
 
 export const SidePanelActivity = (): JSX.Element => {
     const {
@@ -89,11 +101,7 @@ export const SidePanelActivity = (): JSX.Element => {
 
                             {hasUnread ? (
                                 <div className="flex justify-end mb-2">
-                                    <LemonButton
-                                        type="secondary"
-                                        onClick={() => markAllAsRead()}
-                                        loading={importantChangesLoading}
-                                    >
+                                    <LemonButton type="secondary" onClick={() => markAllAsRead()}>
                                         Mark all as read
                                     </LemonButton>
                                 </div>

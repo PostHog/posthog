@@ -140,7 +140,7 @@ export function ProjectTeamMembers(): JSX.Element | null {
         {
             key: 'user_profile_picture',
             render: function ProfilePictureRender(_, member) {
-                return <ProfilePicture name={member.user.first_name} email={member.user.email} />
+                return <ProfilePicture user={member.user} />
             },
             width: 32,
         },

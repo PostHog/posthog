@@ -55,6 +55,7 @@ class TrendsQueryBuilder:
         event_query = self._get_events_subquery(True)
 
         event_query.select = [ast.Alias(alias="person_id", expr=ast.Field(chain=["e", "person", "id"]))]
+        event_query.distinct = True
         event_query.group_by = None
 
         return event_query

@@ -200,6 +200,7 @@ export interface PluginsServerConfig {
     DROP_EVENTS_BY_TOKEN: string
     POE_EMBRACE_JOIN_FOR_TEAMS: string
     POE_DEFERRED_WRITES_ENABLED: boolean
+    POE_DEFERRED_WRITES_USE_FLAT_OVERRIDES: boolean
     RELOAD_PLUGIN_JITTER_MAX_MS: number
     RUSTY_HOOK_FOR_TEAMS: string
     RUSTY_HOOK_URL: string
@@ -295,7 +296,7 @@ export interface PluginServerCapabilities {
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
     personOverrides?: boolean
-    transpileFrontendApps?: boolean // TODO: move this away from pod startup, into a graphile job
+    appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     http?: boolean
     mmdb?: boolean

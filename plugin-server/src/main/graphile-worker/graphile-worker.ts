@@ -129,6 +129,9 @@ export class GraphileWorker {
         if (this.started && !this.paused && !this.runner) {
             status.info('🔄', 'Creating new Graphile worker runner...')
             this.consumerPool = await this.createPool()
+            // KLUDGE: maxContiguousErrors is not configurable programmatically,
+            // it is set to 300 via package.json, which leads the worker to retry
+            // for 10 minutes (300 * pollInterval) before giving up and killing the pod.
             this.runner = await run({
                 // graphile's types refer to a local node_modules version of Pool
                 pgPool: this.consumerPool as Pool as any,
@@ -145,6 +148,14 @@ export class GraphileWorker {
                 parsedCronItems: this.crontab,
             })
             status.info('✅', 'Graphile worker runner created.')
+            this.runner.events?.on('worker:stop', ({ error }) => {
+                if (this.started) {
+                    status.error('💀', `Graphile worker loop stopped unexpectedly`)
+                    process.emit('uncaughtException', error ?? new Error(`Graphile worker loop stopped with no error`))
+                } else {
+                    status.info('🛑', 'Graphile worker loop stopped')
+                }
+            })
             return
         }
 

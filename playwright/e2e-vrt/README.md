@@ -35,7 +35,7 @@ We're using Playwright to run visual regression tests against Storybook. To crea
 
     - Suggested Storybook container elements:
         - `#root` for components and
-        - `.main-app-content` for scenes
+        - `main` for scenes
 
 3. Generate the reference images (you need to have Storybook running locally, i.e. on the Docker host machine):
 

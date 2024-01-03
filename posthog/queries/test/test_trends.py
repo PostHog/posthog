@@ -38,6 +38,7 @@ from posthog.models.instance_setting import (
     set_instance_setting,
 )
 from posthog.models.person.util import create_person_distinct_id
+from posthog.queries.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.queries.trends.trends import Trends
 from posthog.test.base import (
     APIBaseTest,
@@ -1323,7 +1324,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # empty has: 1 seconds
         self.assertEqual(
             [resp["breakdown_value"] for resp in daily_response],
-            ["value2", "value1", ""],
+            ["value2", "value1", "$$_posthog_breakdown_null_$$"],
         )
         self.assertEqual([resp["aggregated_value"] for resp in daily_response], [12.5, 10, 1])
 
@@ -4737,7 +4738,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
             assert len(response) == 26
             assert response[0]["label"] == "Other"
-            assert response[0]["breakdown_value"] == "$$_posthog_breakdown_other_$$"
+            assert response[0]["breakdown_value"] == BREAKDOWN_OTHER_STRING_LABEL
 
             response = Trends().run(
                 Filter(
@@ -4760,7 +4761,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
             assert len(response) == 51
             assert response[0]["label"] == "Other"
-            assert response[0]["breakdown_value"] == "$$_posthog_breakdown_other_$$"
+            assert response[0]["breakdown_value"] == BREAKDOWN_OTHER_STRING_LABEL
 
             response = Trends().run(
                 Filter(
@@ -7629,7 +7630,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         assert len(daily_response) == 3
         assert daily_response[0]["breakdown_value"] == "red"
         assert daily_response[1]["breakdown_value"] == "blue"
-        assert daily_response[2]["breakdown_value"] == ""
+        assert daily_response[2]["breakdown_value"] == "$$_posthog_breakdown_null_$$"
         assert daily_response[0]["days"] == [
             "2020-01-01",
             "2020-01-02",
@@ -7699,7 +7700,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         assert len(daily_response) == 3
         assert daily_response[0]["breakdown_value"] == "red"
         assert daily_response[1]["breakdown_value"] == "blue"
-        assert daily_response[2]["breakdown_value"] == ""
+        assert daily_response[2]["breakdown_value"] == "$$_posthog_breakdown_null_$$"
         assert daily_response[0]["aggregated_value"] == 2.0  # red
         assert daily_response[1]["aggregated_value"] == 1.0  # blue
         assert daily_response[2]["aggregated_value"] == 1.0  # none
@@ -7726,7 +7727,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         assert len(daily_response) == 3
         assert daily_response[0]["breakdown_value"] == "red"
         assert daily_response[1]["breakdown_value"] == "blue"
-        assert daily_response[2]["breakdown_value"] == ""
+        assert daily_response[2]["breakdown_value"] == "$$_posthog_breakdown_null_$$"
         assert daily_response[0]["aggregated_value"] == 2.0  # red
         assert daily_response[1]["aggregated_value"] == 1.0  # blue
         assert daily_response[2]["aggregated_value"] == 1.0  # none

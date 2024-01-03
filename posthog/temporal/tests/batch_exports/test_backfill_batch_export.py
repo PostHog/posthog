@@ -261,7 +261,7 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted_after_
     """
     start_at = dt.datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt.timezone.utc)
     end_at = dt.datetime(2023, 1, 1, 0, 10, 0, tzinfo=dt.timezone.utc)
-    now = dt.datetime.utcnow()
+    now = dt.datetime.now(dt.timezone.utc)
 
     desc = await temporal_schedule.describe()
 

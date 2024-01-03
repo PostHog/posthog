@@ -20,7 +20,7 @@ export const formatAggregationAxisValue = (
     value: number | string
 ): string => {
     value = Number(value)
-    let formattedValue = humanFriendlyNumber(value)
+    let formattedValue = humanFriendlyNumber(value, trendsFilter?.decimal_places)
     if (trendsFilter?.aggregation_axis_format) {
         switch (trendsFilter?.aggregation_axis_format) {
             case 'duration':

@@ -1,7 +1,6 @@
+import { IconNotebook } from '@posthog/icons'
 import { LemonDivider, LemonDropdown, ProfilePicture } from '@posthog/lemon-ui'
 import { BuiltLogic, useActions, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconPlus, IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
@@ -17,7 +16,6 @@ import {
 import { notebooksModel, openNotebook } from '~/models/notebooksModel'
 import { NotebookListItemType, NotebookTarget } from '~/types'
 
-import { IconNotebook } from '../IconNotebook'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { notebookLogicType } from '../Notebook/notebookLogicType'
 
@@ -57,8 +55,7 @@ function NotebooksChoiceList(props: {
                             sideIcon={
                                 notebook.created_by ? (
                                     <ProfilePicture
-                                        name={notebook.created_by?.first_name}
-                                        email={notebook.created_by?.email}
+                                        user={notebook.created_by}
                                         size="md"
                                         title={`Created by ${notebook.created_by?.first_name} <${notebook.created_by?.email}>`}
                                     />
@@ -262,9 +259,5 @@ export function NotebookSelectButton({ children, onNotebookOpened, ...props }: N
         </LemonButton>
     )
 
-    return (
-        <FlaggedFeature flag={FEATURE_FLAGS.NOTEBOOKS} match>
-            {nodeLogic ? button : <NotebookSelectPopover {...props}>{button}</NotebookSelectPopover>}
-        </FlaggedFeature>
-    )
+    return nodeLogic ? button : <NotebookSelectPopover {...props}>{button}</NotebookSelectPopover>
 }

@@ -65,7 +65,6 @@ export const Overview = (): JSX.Element => {
             <span className="flex items-center gap-2">
                 <LemonButton
                     icon={<LemonProgressCircle progress={progress} />}
-                    status="primary"
                     sideIcon={<IconGear />}
                     type="secondary"
                     size="small"
@@ -75,7 +74,6 @@ export const Overview = (): JSX.Element => {
 
                 <LemonButton
                     icon={<LemonProgressCircle progress={progress} size={20} />}
-                    status="primary"
                     sideIcon={<IconGear />}
                     type="secondary"
                 >
@@ -84,7 +82,6 @@ export const Overview = (): JSX.Element => {
 
                 <LemonButton
                     icon={<LemonProgressCircle progress={progress} size={24} />}
-                    status="primary"
                     sideIcon={<IconGear />}
                     type="secondary"
                     size="large"

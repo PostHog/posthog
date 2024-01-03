@@ -191,6 +191,10 @@ export function capitalizeFirstLetter(string: string): string {
     return string.charAt(0).toUpperCase() + string.slice(1)
 }
 
+export function fullName(props: { first_name?: string; last_name?: string }): string {
+    return `${props.first_name || ''} ${props.last_name || ''}`.trim()
+}
+
 export const genericOperatorMap: Record<string, string> = {
     exact: '= equals',
     is_not: "≠ doesn't equal",
@@ -431,8 +435,13 @@ export function slugify(text: string): string {
         .replace(/--+/g, '-')
 }
 
+export const DEFAULT_DECIMAL_PLACES = 2
+
 /** Format number with comma as the thousands separator. */
-export function humanFriendlyNumber(d: number, precision: number = 2): string {
+export function humanFriendlyNumber(d: number, precision: number = DEFAULT_DECIMAL_PLACES): string {
+    if (isNaN(precision) || precision < 0) {
+        precision = DEFAULT_DECIMAL_PLACES
+    }
     return d.toLocaleString('en-US', { maximumFractionDigits: precision })
 }
 

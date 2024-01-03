@@ -87,13 +87,7 @@ export function ElementInfo(): JSX.Element | null {
                     <ActionsListView actions={activeMeta.actions.map((a) => a.action)} />
                 )}
 
-                <LemonButton
-                    size="small"
-                    type={'secondary'}
-                    status={'primary-alt'}
-                    onClick={() => createAction(element)}
-                    icon={<IconPlus />}
-                >
+                <LemonButton size="small" type="secondary" onClick={() => createAction(element)} icon={<IconPlus />}>
                     Create a new action
                 </LemonButton>
             </div>

@@ -89,7 +89,7 @@ export function TopBar(): JSX.Element | null {
                     {breadcrumbs.length > 1 && (
                         <div className="TopBar3000__trail">
                             {breadcrumbs.slice(0, -1).map((breadcrumb) => (
-                                <React.Fragment key={breadcrumb.name || '…'}>
+                                <React.Fragment key={breadcrumb.key}>
                                     <Breadcrumb breadcrumb={breadcrumb} />
                                     <div className="TopBar3000__separator" />
                                 </React.Fragment>
@@ -200,7 +200,7 @@ function Here({ breadcrumb }: HereProps): JSX.Element {
     const joinedKey = Array.isArray(breadcrumb.key) ? breadcrumb.key.map(String).join(':') : String(breadcrumb.key)
 
     return (
-        <h1 className="TopBar3000__here">
+        <h1 className="TopBar3000__here" data-attr="top-bar-name">
             {breadcrumb.name == null ? (
                 <LemonSkeleton className="w-40 h-4" />
             ) : breadcrumb.onRename ? (

@@ -4,8 +4,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { ProductKey } from '~/types'
+import { AvailableFeature, ProductKey } from '~/types'
 
 import { OnboardingBillingStep } from './OnboardingBillingStep'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
@@ -65,7 +66,7 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
             const OtherProductsStep = <OnboardingOtherProductsStep stepKey={OnboardingStepKey.OTHER_PRODUCTS} />
             steps = [...steps, OtherProductsStep]
         }
-        if (featureFlags[FEATURE_FLAGS.INVITE_TEAM_MEMBER_ONBOARDING] == 'test') {
+        if (featureFlags[FEATURE_FLAGS.INVITE_TEAM_MEMBER_ONBOARDING] === 'test') {
             const inviteTeammatesStep = <OnboardingInviteTeammates stepKey={OnboardingStepKey.INVITE_TEAMMATES} />
             steps = [...steps, inviteTeammatesStep]
         }
@@ -109,7 +110,7 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
     )
 }
 const SessionReplayOnboarding = (): JSX.Element => {
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
     const configOptions: ProductConfigOption[] = [
         {
             type: 'toggle',
@@ -129,7 +130,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
         },
     ]
 
-    if (featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SAMPLING] === true) {
+    if (hasAvailableFeature(AvailableFeature.RECORDING_DURATION_MINIMUM)) {
         configOptions.push({
             type: 'select',
             title: 'Minimum session duration (seconds)',

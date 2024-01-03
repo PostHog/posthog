@@ -119,6 +119,102 @@
             },
             "required": ["data", "timestamp", "type"],
             "type": "object"
+        },
+        {
+            "additionalProperties": false,
+            "properties": {
+                "data": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MobileAddedNodeMutationData"
+                        },
+                        {
+                            "$ref": "#/definitions/MobileUpdatedNodeMutationData"
+                        }
+                    ],
+                    "description": "This sits alongside the RRWeb incremental snapshot event type, mobile replay can send any of the RRWeb incremental snapshot event types, which will be passed unchanged to the player - for example to send touch events. removed node mutations are passed unchanged to the player."
+                },
+                "delay": {
+                    "type": "number"
+                },
+                "timestamp": {
+                    "type": "number"
+                },
+                "type": {
+                    "$ref": "#/definitions/EventType.IncrementalSnapshot"
+                }
+            },
+            "required": ["data", "timestamp", "type"],
+            "type": "object"
+        },
+        {
+            "additionalProperties": false,
+            "properties": {
+                "data": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "payload": {
+                            "anyOf": [
+                                {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "height": {
+                                            "type": "number"
+                                        },
+                                        "open": {
+                                            "const": true,
+                                            "type": "boolean"
+                                        },
+                                        "styles": {
+                                            "$ref": "#/definitions/MobileStyles"
+                                        },
+                                        "width": {
+                                            "type": "number"
+                                        },
+                                        "x": {
+                                            "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present then the keyboard is at the bottom of the screen",
+                                            "type": "number"
+                                        },
+                                        "y": {
+                                            "type": "number"
+                                        }
+                                    },
+                                    "required": ["open", "height"],
+                                    "type": "object"
+                                },
+                                {
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "open": {
+                                            "const": false,
+                                            "type": "boolean"
+                                        }
+                                    },
+                                    "required": ["open"],
+                                    "type": "object"
+                                }
+                            ]
+                        },
+                        "tag": {
+                            "const": "keyboard",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["tag", "payload"],
+                    "type": "object"
+                },
+                "delay": {
+                    "type": "number"
+                },
+                "timestamp": {
+                    "type": "number"
+                },
+                "type": {
+                    "$ref": "#/definitions/EventType.Custom"
+                }
+            },
+            "required": ["data", "timestamp", "type"],
+            "type": "object"
         }
     ],
     "definitions": {
@@ -137,6 +233,39 @@
         "EventType.Meta": {
             "const": 4,
             "type": "number"
+        },
+        "IncrementalSource.Mutation": {
+            "const": 0,
+            "type": "number"
+        },
+        "MobileAddedNodeMutationData": {
+            "additionalProperties": false,
+            "properties": {
+                "adds": {
+                    "items": {
+                        "$ref": "#/definitions/MobileNodeMutation"
+                    },
+                    "type": "array"
+                },
+                "source": {
+                    "$ref": "#/definitions/IncrementalSource.Mutation"
+                }
+            },
+            "required": ["source", "adds"],
+            "type": "object"
+        },
+        "MobileNodeMutation": {
+            "additionalProperties": false,
+            "properties": {
+                "parentId": {
+                    "type": "number"
+                },
+                "wireframe": {
+                    "$ref": "#/definitions/wireframe"
+                }
+            },
+            "required": ["parentId", "wireframe"],
+            "type": "object"
         },
         "MobileNodeType": {
             "enum": ["text", "image", "rectangle", "placeholder", "web_view", "input", "div", "radio_group"],
@@ -184,6 +313,23 @@
                     "type": "string"
                 }
             },
+            "type": "object"
+        },
+        "MobileUpdatedNodeMutationData": {
+            "additionalProperties": false,
+            "properties": {
+                "source": {
+                    "$ref": "#/definitions/IncrementalSource.Mutation"
+                },
+                "updates": {
+                    "description": "An update is implemented as a remove and then an add, so the updates array contains the ID of the removed node and the wireframe for the added node",
+                    "items": {
+                        "$ref": "#/definitions/MobileNodeMutation"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["source", "updates"],
             "type": "object"
         },
         "wireframe": {
@@ -248,7 +394,15 @@
                     "type": "string"
                 },
                 "width": {
-                    "type": "number"
+                    "anyOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "const": "100vw",
+                            "type": "string"
+                        }
+                    ]
                 },
                 "x": {
                     "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
@@ -258,7 +412,7 @@
                     "type": "number"
                 }
             },
-            "required": ["disabled", "height", "id", "inputType", "type", "width", "x", "y"],
+            "required": ["disabled", "height", "id", "inputType", "type", "width"],
             "type": "object"
         },
         "wireframeCheckBox": {
@@ -298,7 +452,15 @@
                     "$ref": "#/definitions/MobileNodeType"
                 },
                 "width": {
-                    "type": "number"
+                    "anyOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "const": "100vw",
+                            "type": "string"
+                        }
+                    ]
                 },
                 "x": {
                     "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
@@ -308,7 +470,7 @@
                     "type": "number"
                 }
             },
-            "required": ["checked", "disabled", "height", "id", "inputType", "type", "width", "x", "y"],
+            "required": ["checked", "disabled", "height", "id", "inputType", "type", "width"],
             "type": "object"
         },
         "wireframeDiv": {
@@ -333,7 +495,15 @@
                     "$ref": "#/definitions/MobileNodeType"
                 },
                 "width": {
-                    "type": "number"
+                    "anyOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "const": "100vw",
+                            "type": "string"
+                        }
+                    ]
                 },
                 "x": {
                     "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
@@ -343,7 +513,7 @@
                     "type": "number"
                 }
             },
-            "required": ["height", "id", "type", "width", "x", "y"],
+            "required": ["height", "id", "type", "width"],
             "type": "object"
         },
         "wireframeImage": {
@@ -372,7 +542,15 @@
                     "$ref": "#/definitions/MobileNodeType"
                 },
                 "width": {
-                    "type": "number"
+                    "anyOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "const": "100vw",
+                            "type": "string"
+                        }
+                    ]
                 },
                 "x": {
                     "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
@@ -382,7 +560,7 @@
                     "type": "number"
                 }
             },
-            "required": ["height", "id", "type", "width", "x", "y"],
+            "required": ["height", "id", "type", "width"],
             "type": "object"
         },
         "wireframeInput": {
@@ -418,7 +596,15 @@
                     "type": "string"
                 },
                 "width": {
-                    "type": "number"
+                    "anyOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "const": "100vw",
+                            "type": "string"
+                        }
+                    ]
                 },
                 "x": {
                     "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
@@ -428,7 +614,7 @@
                     "type": "number"
                 }
             },
-            "required": ["disabled", "height", "id", "inputType", "type", "width", "x", "y"],
+            "required": ["disabled", "height", "id", "inputType", "type", "width"],
             "type": "object"
         },
         "wireframeInputComponent": {
@@ -484,7 +670,15 @@
                     "$ref": "#/definitions/MobileNodeType"
                 },
                 "width": {
-                    "type": "number"
+                    "anyOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "const": "100vw",
+                            "type": "string"
+                        }
+                    ]
                 },
                 "x": {
                     "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
@@ -494,7 +688,7 @@
                     "type": "number"
                 }
             },
-            "required": ["height", "id", "type", "width", "x", "y"],
+            "required": ["height", "id", "type", "width"],
             "type": "object"
         },
         "wireframeProgress": {
@@ -521,7 +715,7 @@
                     "type": "string"
                 },
                 "max": {
-                    "description": "The max attribute, if present, must have a value greater than 0 and be a valid floating point number. The default value is 1.",
+                    "description": "The max attribute, if present, must have a value greater than 0 and be a valid floating point number. The default value is 1. When bar style is rating this is the number of stars.",
                     "type": "number"
                 },
                 "style": {
@@ -531,11 +725,19 @@
                     "$ref": "#/definitions/MobileNodeType"
                 },
                 "value": {
-                    "description": "This attribute specifies how much of the task that has been completed. It must be a valid floating point number between 0 and max, or between 0 and 1 if max is omitted. If there is no value attribute, the progress bar is indeterminate; this indicates that an activity is ongoing with no indication of how long it is expected to take.",
+                    "description": "This attribute specifies how much of the task that has been completed. It must be a valid floating point number between 0 and max, or between 0 and 1 if max is omitted. If there is no value attribute, the progress bar is indeterminate; this indicates that an activity is ongoing with no indication of how long it is expected to take. When bar style is rating this is the number of filled stars.",
                     "type": "number"
                 },
                 "width": {
-                    "type": "number"
+                    "anyOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "const": "100vw",
+                            "type": "string"
+                        }
+                    ]
                 },
                 "x": {
                     "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
@@ -545,7 +747,7 @@
                     "type": "number"
                 }
             },
-            "required": ["disabled", "height", "id", "inputType", "type", "width", "x", "y"],
+            "required": ["disabled", "height", "id", "inputType", "type", "width"],
             "type": "object"
         },
         "wireframeRadio": {
@@ -585,7 +787,15 @@
                     "$ref": "#/definitions/MobileNodeType"
                 },
                 "width": {
-                    "type": "number"
+                    "anyOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "const": "100vw",
+                            "type": "string"
+                        }
+                    ]
                 },
                 "x": {
                     "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
@@ -595,7 +805,7 @@
                     "type": "number"
                 }
             },
-            "required": ["checked", "disabled", "height", "id", "inputType", "type", "width", "x", "y"],
+            "required": ["checked", "disabled", "height", "id", "inputType", "type", "width"],
             "type": "object"
         },
         "wireframeRadioGroup": {
@@ -620,7 +830,15 @@
                     "$ref": "#/definitions/MobileNodeType"
                 },
                 "width": {
-                    "type": "number"
+                    "anyOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "const": "100vw",
+                            "type": "string"
+                        }
+                    ]
                 },
                 "x": {
                     "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
@@ -630,7 +848,7 @@
                     "type": "number"
                 }
             },
-            "required": ["height", "id", "type", "width", "x", "y"],
+            "required": ["height", "id", "type", "width"],
             "type": "object"
         },
         "wireframeRectangle": {
@@ -655,7 +873,15 @@
                     "$ref": "#/definitions/MobileNodeType"
                 },
                 "width": {
-                    "type": "number"
+                    "anyOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "const": "100vw",
+                            "type": "string"
+                        }
+                    ]
                 },
                 "x": {
                     "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
@@ -665,7 +891,7 @@
                     "type": "number"
                 }
             },
-            "required": ["height", "id", "type", "width", "x", "y"],
+            "required": ["height", "id", "type", "width"],
             "type": "object"
         },
         "wireframeSelect": {
@@ -707,7 +933,15 @@
                     "type": "string"
                 },
                 "width": {
-                    "type": "number"
+                    "anyOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "const": "100vw",
+                            "type": "string"
+                        }
+                    ]
                 },
                 "x": {
                     "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
@@ -717,7 +951,7 @@
                     "type": "number"
                 }
             },
-            "required": ["disabled", "height", "id", "inputType", "type", "width", "x", "y"],
+            "required": ["disabled", "height", "id", "inputType", "type", "width"],
             "type": "object"
         },
         "wireframeText": {
@@ -745,7 +979,15 @@
                     "$ref": "#/definitions/MobileNodeType"
                 },
                 "width": {
-                    "type": "number"
+                    "anyOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "const": "100vw",
+                            "type": "string"
+                        }
+                    ]
                 },
                 "x": {
                     "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
@@ -755,7 +997,7 @@
                     "type": "number"
                 }
             },
-            "required": ["height", "id", "text", "type", "width", "x", "y"],
+            "required": ["height", "id", "text", "type", "width"],
             "type": "object"
         },
         "wireframeTextArea": {
@@ -791,7 +1033,15 @@
                     "type": "string"
                 },
                 "width": {
-                    "type": "number"
+                    "anyOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "const": "100vw",
+                            "type": "string"
+                        }
+                    ]
                 },
                 "x": {
                     "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
@@ -801,7 +1051,7 @@
                     "type": "number"
                 }
             },
-            "required": ["disabled", "height", "id", "inputType", "type", "width", "x", "y"],
+            "required": ["disabled", "height", "id", "inputType", "type", "width"],
             "type": "object"
         },
         "wireframeToggle": {
@@ -840,7 +1090,15 @@
                     "$ref": "#/definitions/MobileNodeType"
                 },
                 "width": {
-                    "type": "number"
+                    "anyOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "const": "100vw",
+                            "type": "string"
+                        }
+                    ]
                 },
                 "x": {
                     "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
@@ -850,7 +1108,7 @@
                     "type": "number"
                 }
             },
-            "required": ["checked", "disabled", "height", "id", "inputType", "type", "width", "x", "y"],
+            "required": ["checked", "disabled", "height", "id", "inputType", "type", "width"],
             "type": "object"
         },
         "wireframeWebView": {
@@ -878,7 +1136,15 @@
                     "type": "string"
                 },
                 "width": {
-                    "type": "number"
+                    "anyOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "const": "100vw",
+                            "type": "string"
+                        }
+                    ]
                 },
                 "x": {
                     "description": "x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0",
@@ -888,7 +1154,7 @@
                     "type": "number"
                 }
             },
-            "required": ["height", "id", "type", "width", "x", "y"],
+            "required": ["height", "id", "type", "width"],
             "type": "object"
         }
     }
