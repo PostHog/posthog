@@ -31,7 +31,6 @@ import tronHog from 'public/hedgehog/tron-hog.png'
 import warningHog from 'public/hedgehog/warning-hog.png'
 import xRayHog from 'public/hedgehog/x-ray-hog.png'
 import xRayHog2 from 'public/hedgehog/x-ray-hogs-02.png'
-import builderHogWavingSmiling from 'public/hedgehog/builder-hog-waving-smiling.png'
 import { ImgHTMLAttributes } from 'react'
 
 type HedgehogProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'>
@@ -140,7 +139,4 @@ export const MicrophoneHog = (props: HedgehogProps): JSX.Element => {
 }
 export const PhonePairHogs = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={phonePairHogs} {...props} />
-}
-export const BuilderHogWavingSmiling = (props: HedgehogProps): JSX.Element => {
-    return <SquaredHedgehog src={builderHogWavingSmiling} {...props} />
 }

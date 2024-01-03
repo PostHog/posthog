@@ -42,9 +42,9 @@ export function Billing(): JSX.Element {
         isActivateLicenseSubmitting,
         isUnlicensedDebug,
         over20kAnnual,
-        perksCTADismissed,
+        isAnnualPlan,
     } = useValues(billingLogic)
-    const { reportBillingV2Shown, setPerksCTADismissed } = useActions(billingLogic)
+    const { reportBillingV2Shown } = useActions(billingLogic)
     const { preflight } = useValues(preflightLogic)
     const cloudOrDev = preflight?.cloud || preflight?.is_debug
     const { openSupportForm } = useActions(supportLogic)
@@ -163,7 +163,12 @@ export function Billing(): JSX.Element {
                 </>
             )}
 
-            <div className="flex flex-row justify-between flex-wrap">
+            <div
+                className={clsx('flex justify-between', {
+                    'flex-col gap-4': size === 'small',
+                    'flex-row': size !== 'small',
+                })}
+            >
                 <div>
                     <div
                         className={clsx('flex flex-wrap gap-4 pb-4 w-fit', {
@@ -278,9 +283,9 @@ export function Billing(): JSX.Element {
                         </div>
                     )}
                 </div>
-                {!isOnboarding && over20kAnnual && !perksCTADismissed && (
-                    <div className="bg-glass-bg-3000-light flex flex-row gap-2 relative pl-6 p-4 border rounded min-w-120">
-                        <div className="flex flex-col pl-2">
+                {!isOnboarding && !isAnnualPlan && over20kAnnual && (
+                    <div className="bg-glass-bg-3000-light flex flex-row gap-2 relative pl-6 p-4 border rounded min-w-120 w-fit">
+                        <div className="flex flex-col pl-2 ">
                             <h3>You've unlocked enterprise-grade perks:</h3>
                             <ul className="pl-4">
                                 <li className="flex gap-2 items-center">
@@ -317,9 +322,6 @@ export function Billing(): JSX.Element {
                             <div className="pt-1 self-start flex flex-row gap-1 mt-2">
                                 <LemonButton type="secondary" to="mailto:sales@posthog.com">
                                     Let's chat
-                                </LemonButton>
-                                <LemonButton type="tertiary" onClick={() => setPerksCTADismissed(true)}>
-                                    Dismiss
                                 </LemonButton>
                             </div>
                         </div>
