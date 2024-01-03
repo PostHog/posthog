@@ -498,7 +498,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 plugins.push(CorsPlugin)
             }
 
-            plugins.push(CanvasReplayerPlugin(values.sessionPlayerData.snapshotsByWindowId[windowId]))
+            if (values.featureFlags[FEATURE_FLAGS.SESSION_REPLAY_CANVAS]) {
+                plugins.push(CanvasReplayerPlugin(values.sessionPlayerData.snapshotsByWindowId[windowId]))
+            }
 
             cache.debug?.('tryInitReplayer', {
                 windowId,

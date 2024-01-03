@@ -5,6 +5,7 @@ import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authoriz
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FlagSelector } from 'lib/components/FlagSelector'
 import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -16,8 +17,8 @@ import { AvailableFeature } from '~/types'
 
 export function ReplayGeneral(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
-
     const { currentTeam } = useValues(teamLogic)
+    const hasCanvasRecording = useFeatureFlag('SESSION_REPLAY_CANVAS')
 
     return (
         <div className="space-y-4">
@@ -73,6 +74,32 @@ export function ReplayGeneral(): JSX.Element {
                     logs will be shown in the recording player to help you debug any issues.
                 </p>
             </div>
+            {hasCanvasRecording && (
+                <div className="space-y-2">
+                    <LemonSwitch
+                        data-attr="opt-in-capture-canvas-switch"
+                        onChange={(checked) => {
+                            updateCurrentTeam({
+                                session_recording_config: {
+                                    ...currentTeam?.session_recording_config,
+                                    recordCanvas: checked,
+                                },
+                            })
+                        }}
+                        label="Capture canvas elements"
+                        bordered
+                        checked={
+                            currentTeam?.session_recording_config
+                                ? !!currentTeam?.session_recording_config?.recordCanvas
+                                : false
+                        }
+                    />
+                    <p>
+                        This setting controls if browser canvas elements will be captured as part of recordings. There
+                        is no way to mask canvas elements right now so please make sure they are free of PII.
+                    </p>
+                </div>
+            )}
             <div className="space-y-2">
                 <NetworkCaptureSettings />
             </div>

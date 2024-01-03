@@ -357,6 +357,7 @@ export interface TeamType extends TeamBasicType {
         | { recordHeaders?: boolean; recordBody?: boolean }
         | undefined
         | null
+    session_recording_config: { recordCanvas?: boolean } | undefined | null
     autocapture_exceptions_opt_in: boolean
     surveys_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
