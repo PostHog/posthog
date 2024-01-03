@@ -26,3 +26,15 @@
         margin-top: 1rem;
     }
 }
+
+.unsubscribed-product-landing-page {
+    header {
+        background: var(--primary-alt-highlight);
+        border-top: solid 1px var(--border);
+        border-bottom: solid 1px var(--border);
+    }
+
+    .features {
+        border-top: solid 1px var(--border);
+    }
+}
