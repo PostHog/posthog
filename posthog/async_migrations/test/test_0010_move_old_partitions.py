@@ -69,6 +69,8 @@ class Test0010MoveOldPartitions(AsyncMigrationBaseTest):
     def test_completes_successfully(self):
         self.assertTrue(run_migration())
 
+        print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+        print(MIGRATION_DEFINITION.operations)
         # create table + 3 move operations
         self.assertEqual(len(MIGRATION_DEFINITION.operations), 5)
 
