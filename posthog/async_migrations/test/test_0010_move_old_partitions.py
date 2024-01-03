@@ -70,7 +70,7 @@ class Test0010MoveOldPartitions(AsyncMigrationBaseTest):
         self.assertTrue(run_migration())
 
         # create table + 3 move operations
-        self.assertEqual(len(MIGRATION_DEFINITION.operations), 4)
+        self.assertEqual(len(MIGRATION_DEFINITION.operations), 5)
 
         self.assertTrue(
             "ALTER TABLE sharded_events MOVE PARTITION '190001' TO TABLE events_backup"
