@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 
 import { PluginType } from '~/types'
 
-export type PluginImageSize = 'small' | 'medium' | 'large' | 
+export type PluginImageSize = 'small' | 'medium' | 'large'
 
 export function PluginImage({
     plugin,
