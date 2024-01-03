@@ -66,7 +66,7 @@ export const OnboardingStep = ({
                 </div>
             }
         >
-            <div className="max-w-md">
+            <div className="max-w-md" id={stepKey}>
                 {hedgehog && <div className="-mt-20 absolute right-4 h-16">{hedgehogToRender}</div>}
 
                 <h1 className="font-bold">{title}</h1>
