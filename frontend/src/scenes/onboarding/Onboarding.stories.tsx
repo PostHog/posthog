@@ -51,11 +51,6 @@ export const _OnboardingSDKs = (): JSX.Element => {
     }, [])
     return <App />
 }
-_OnboardingSDKs.parameters = {
-    testOptions: {
-        waitForSelector: '#sdks',
-    },
-}
 
 export const _OnboardingBilling = (): JSX.Element => {
     useStorybookMocks({
@@ -74,11 +69,6 @@ export const _OnboardingBilling = (): JSX.Element => {
     }, [])
     return <App />
 }
-_OnboardingBilling.parameters = {
-    testOptions: {
-        waitForSelector: '#billing',
-    },
-}
 
 export const _OnboardingOtherProducts = (): JSX.Element => {
     useStorybookMocks({
@@ -96,9 +86,4 @@ export const _OnboardingOtherProducts = (): JSX.Element => {
         router.actions.push(urls.onboarding(ProductKey.SESSION_REPLAY, OnboardingStepKey.OTHER_PRODUCTS))
     }, [])
     return <App />
-}
-_OnboardingOtherProducts.parameters = {
-    testOptions: {
-        waitForSelector: '#other_products',
-    },
 }
