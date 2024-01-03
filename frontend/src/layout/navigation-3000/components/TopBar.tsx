@@ -89,7 +89,7 @@ export function TopBar(): JSX.Element | null {
                     {breadcrumbs.length > 1 && (
                         <div className="TopBar3000__trail">
                             {breadcrumbs.slice(0, -1).map((breadcrumb) => (
-                                <React.Fragment key={breadcrumb.key}>
+                                <React.Fragment key={joinBreadcrumbKey(breadcrumb.key)}>
                                     <Breadcrumb breadcrumb={breadcrumb} />
                                     <div className="TopBar3000__separator" />
                                 </React.Fragment>
@@ -115,7 +115,7 @@ function Breadcrumb({ breadcrumb, here }: BreadcrumbProps): JSX.Element {
     const { tentativelyRename, finishRenaming } = useActions(breadcrumbsLogic)
     const [popoverShown, setPopoverShown] = useState(false)
 
-    const joinedKey = Array.isArray(breadcrumb.key) ? breadcrumb.key.map(String).join(':') : String(breadcrumb.key)
+    const joinedKey = joinBreadcrumbKey(breadcrumb.key)
 
     let nameElement: JSX.Element
     if (breadcrumb.name != null && breadcrumb.onRename) {
@@ -157,7 +157,7 @@ function Breadcrumb({ breadcrumb, here }: BreadcrumbProps): JSX.Element {
             onClick={() => {
                 breadcrumb.popover && setPopoverShown(!popoverShown)
             }}
-            data-attr={`breadcrumb-${breadcrumb.key}`}
+            data-attr={`breadcrumb-${joinedKey}`}
             to={breadcrumb.path}
         >
             {nameElement}
@@ -197,7 +197,7 @@ function Here({ breadcrumb }: HereProps): JSX.Element {
     const { renameState } = useValues(breadcrumbsLogic)
     const { tentativelyRename, finishRenaming } = useActions(breadcrumbsLogic)
 
-    const joinedKey = Array.isArray(breadcrumb.key) ? breadcrumb.key.map(String).join(':') : String(breadcrumb.key)
+    const joinedKey = joinBreadcrumbKey(breadcrumb.key)
 
     return (
         <h1 className="TopBar3000__here" data-attr="top-bar-name">
@@ -239,4 +239,8 @@ function Here({ breadcrumb }: HereProps): JSX.Element {
             )}
         </h1>
     )
+}
+
+function joinBreadcrumbKey(key: IBreadcrumb['key']): string {
+    return Array.isArray(key) ? key.map(String).join(':') : String(key)
 }
