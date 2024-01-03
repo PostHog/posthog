@@ -40,13 +40,13 @@ export function Login2FA(): JSX.Element {
                         />
                     </Field>
                     <LemonButton
+                        type="primary"
+                        status="alt"
                         htmlType="submit"
                         data-attr="2fa-login"
                         fullWidth
-                        type="primary"
                         center
                         loading={isTwofactortokenSubmitting}
-                        status="primary-alt"
                         size="large"
                     >
                         Login

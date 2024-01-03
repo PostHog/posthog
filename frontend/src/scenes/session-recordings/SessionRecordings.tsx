@@ -73,9 +73,8 @@ export function SessionsRecordings(): JSX.Element {
                                 />
                                 <LemonButton
                                     fullWidth={false}
-                                    data-attr={'session-recordings-filters-save-as-playlist'}
+                                    data-attr="session-recordings-filters-save-as-playlist"
                                     type="primary"
-                                    status="primary"
                                     onClick={(e) =>
                                         guardAvailableFeature(
                                             AvailableFeature.RECORDINGS_PLAYLISTS,

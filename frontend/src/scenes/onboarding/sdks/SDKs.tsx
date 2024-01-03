@@ -70,7 +70,6 @@ export function SDKs({
                     {sdks?.map((sdk) => (
                         <React.Fragment key={`sdk-${sdk.key}`}>
                             <LemonButton
-                                status={selectedSDK?.key === sdk.key ? 'primary' : 'muted'}
                                 active={selectedSDK?.key === sdk.key}
                                 onClick={selectedSDK?.key !== sdk.key ? () => setSelectedSDK(sdk) : undefined}
                                 fullWidth

@@ -7,16 +7,19 @@ import {
     IncrementalSource,
     metaEvent,
     mutationData,
+    removedNodeMutation,
 } from '@rrweb/types'
 import { captureMessage } from '@sentry/react'
+import { isObject } from 'lib/utils'
 
 import {
     attributes,
     elementNode,
     fullSnapshotEvent as MobileFullSnapshotEvent,
-    incrementalSnapshotEvent as MobileIncrementalSnapshotEvent,
     keyboardEvent,
     metaEvent as MobileMetaEvent,
+    MobileIncrementalSnapshotEvent,
+    MobileNodeMutation,
     MobileNodeType,
     NodeType,
     serializedNodeWithId,
@@ -84,15 +87,7 @@ const BODY_ID = 5
 const KEYBOARD_ID = 6
 
 function isKeyboardEvent(x: unknown): x is keyboardEvent {
-    return (
-        typeof x === 'object' &&
-        x !== null &&
-        'data' in x &&
-        typeof x.data === 'object' &&
-        x.data !== null &&
-        'tag' in x.data &&
-        x.data.tag === 'keyboard'
-    )
+    return isObject(x) && 'data' in x && isObject(x.data) && 'tag' in x.data && x.data.tag === 'keyboard'
 }
 
 export const makeCustomEvent = (
@@ -775,19 +770,19 @@ function chooseConverter<T extends wireframe>(
     return converterMapping[converterType]
 }
 
+function convertWireframe(wireframe: wireframe): serializedNodeWithId | null {
+    const children = convertWireframesFor(wireframe.childWireframes)
+    const converter = chooseConverter(wireframe)
+    return converter?.(wireframe, children) || null
+}
+
 function convertWireframesFor(wireframes: wireframe[] | undefined): serializedNodeWithId[] {
     if (!wireframes) {
         return []
     }
 
     return wireframes.reduce((acc, wireframe) => {
-        const children = convertWireframesFor(wireframe.childWireframes)
-        const converter = chooseConverter(wireframe)
-        if (!converter) {
-            console.error(`No converter for wireframe type ${wireframe.type}`)
-            return acc
-        }
-        const convertedEl = converter(wireframe, children)
+        const convertedEl = convertWireframe(wireframe)
         if (convertedEl !== null) {
             acc.push(convertedEl)
         }
@@ -795,15 +790,56 @@ function convertWireframesFor(wireframes: wireframe[] | undefined): serializedNo
     }, [] as serializedNodeWithId[])
 }
 
+function isMobileIncrementalSnapshotEvent(x: unknown): x is MobileIncrementalSnapshotEvent {
+    const isIncrementalSnapshot = isObject(x) && 'type' in x && x.type === EventType.IncrementalSnapshot
+    if (!isIncrementalSnapshot) {
+        return false
+    }
+    const hasData = isObject(x) && 'data' in x
+    const data = hasData ? x.data : null
+
+    const hasMutationSource = isObject(data) && 'source' in data && data.source === IncrementalSource.Mutation
+
+    const adds = isObject(data) && 'adds' in data && Array.isArray(data.adds) ? data.adds : null
+    const updates = isObject(data) && 'updates' in data && Array.isArray(data.updates) ? data.updates : null
+
+    const hasUpdatedWireframe = !!updates && updates.length > 0 && isObject(updates[0]) && 'wireframe' in updates[0]
+    const hasAddedWireframe = !!adds && adds.length > 0 && isObject(adds[0]) && 'wireframe' in adds[0]
+
+    return hasMutationSource && (hasAddedWireframe || hasUpdatedWireframe)
+}
+
+function makeIncrementalAdd(add: MobileNodeMutation): addedNodeMutation | null {
+    const converted = convertWireframe(add.wireframe)
+    return converted
+        ? {
+              parentId: add.parentId,
+              nextId: null,
+              node: converted,
+          }
+        : null
+}
+
+function makeIncrementalRemove(update: MobileNodeMutation): removedNodeMutation {
+    return {
+        parentId: update.parentId,
+        id: update.wireframe.id,
+    }
+}
+
 /**
- * We've not implemented mutations, until then this is almost an index function.
+ * We want to ensure that any events don't use id = 0.
+ * They must always represent a valid ID from the dom, so we swap in the body id when the id = 0.
  *
- * But, we want to ensure that any mouse/touch events don't use id = 0.
- * They must always represent a valid ID from the dom, so we swap in the body id.
+ * For "removes", we don't need to do anything, the id of the element to be removed remains valid. We won't try and remove other elements that we added during transformation in order to show that element.
+ *
+ * "adds" are converted from wireframes to nodes and converted to incrementalSnapshotEvent.adds
+ *
+ * "updates" are converted to a remove and an add.
  *
  */
 export const makeIncrementalEvent = (
-    mobileEvent: MobileIncrementalSnapshotEvent & {
+    mobileEvent: (MobileIncrementalSnapshotEvent | incrementalSnapshotEvent) & {
         timestamp: number
         delay?: number
     }
@@ -818,6 +854,42 @@ export const makeIncrementalEvent = (
     if ('id' in converted.data && converted.data.id === 0) {
         converted.data.id = BODY_ID
     }
+
+    if (isMobileIncrementalSnapshotEvent(mobileEvent)) {
+        const adds: addedNodeMutation[] = []
+        const removes: removedNodeMutation[] = []
+        if ('adds' in mobileEvent.data && Array.isArray(mobileEvent.data.adds)) {
+            mobileEvent.data.adds.forEach((add) => {
+                const converted = makeIncrementalAdd(add)
+                if (converted) {
+                    // TODO when implementing keyboard placeholder we had to flatten the mutations not nest them
+                    adds.push(converted)
+                }
+            })
+        }
+        if ('updates' in mobileEvent.data && Array.isArray(mobileEvent.data.updates)) {
+            mobileEvent.data.updates.forEach((update) => {
+                const removal = makeIncrementalRemove(update)
+                if (removal) {
+                    removes.push(removal)
+                }
+                const addition = makeIncrementalAdd(update)
+                if (addition) {
+                    adds.push(addition)
+                }
+            })
+        }
+
+        converted.data = {
+            source: IncrementalSource.Mutation,
+            attributes: [],
+            texts: [],
+            adds,
+            // TODO: this assumes that removes are processed before adds 🤞
+            removes,
+        }
+    }
+
     return converted
 }
 

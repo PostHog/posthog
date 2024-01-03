@@ -94,7 +94,6 @@ export function RunsTab(): JSX.Element {
                                         setDateRangeVisible(!dateRangeVisible)
                                     }}
                                     type="secondary"
-                                    status="stealth"
                                     size="small"
                                 >
                                     {runsDateRange.from.format('MMMM D, YYYY')} -{' '}
@@ -245,7 +244,7 @@ export function RunsTab(): JSX.Element {
                                 <>
                                     No runs yet. Your exporter runs every <b>{batchExportConfig.interval}</b>.
                                     <br />
-                                    <LemonButton type="primary" onClick={() => openBackfillModal()}>
+                                    <LemonButton type="primary" onClick={openBackfillModal}>
                                         Create historic export
                                     </LemonButton>
                                 </>
@@ -449,7 +448,7 @@ export function BatchExportScene(): JSX.Element {
                                     },
                                 ]}
                             >
-                                <LemonButton icon={<IconEllipsis />} status="stealth" size="small" />
+                                <LemonButton icon={<IconEllipsis />} size="small" />
                             </LemonMenu>
                             <LemonDivider vertical />
                             <LemonButton type="secondary" onClick={() => openBackfillModal()}>

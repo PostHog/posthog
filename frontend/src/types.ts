@@ -41,7 +41,7 @@ import { NodeKind } from './queries/schema'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
-// Keep this in sync with backend constants (constants.py)
+// Keep this in sync with backend constants/features/{product_name}.yml
 export enum AvailableFeature {
     EVENTS = 'events',
     TRACKED_USERS = 'tracked_users',
@@ -92,6 +92,9 @@ export enum AvailableFeature {
     SURVEYS_TEXT_HTML = 'surveys_text_html',
     SURVEYS_MULTIPLE_QUESTIONS = 'surveys_multiple_questions',
     DATA_PIPELINES = 'data_pipelines',
+    SESSION_REPLAY_SAMPLING = 'session_replay_sampling',
+    RECORDING_DURATION_MINIMUM = 'replay_recording_duration_minimum',
+    FEATURE_FLAG_BASED_RECORDING = 'replay_feature_flag_based_recording',
 }
 
 export enum ProductKey {

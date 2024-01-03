@@ -243,14 +243,12 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
                 <LemonButton
                     size="small"
                     icon={<IconEdit />}
-                    status="muted"
                     tooltip="Edit this annotation"
                     onClick={() => openModalToEditAnnotation(annotation, insightId)}
                 />
                 <LemonButton
                     size="small"
                     icon={<IconDelete />}
-                    status="muted"
                     tooltip="Delete this annotation"
                     onClick={() => deleteAnnotation(annotation)}
                 />

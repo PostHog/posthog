@@ -93,9 +93,8 @@ export function UnitPicker(): JSX.Element {
             />
             <LemonButtonWithDropdown
                 onClick={() => setIsVisible(!isVisible)}
-                size={'small'}
-                type={'secondary'}
-                status="stealth"
+                size="small"
+                type="secondary"
                 data-attr="chart-aggregation-axis-format"
                 fullWidth
                 dropdown={{
@@ -108,7 +107,6 @@ export function UnitPicker(): JSX.Element {
                                 <LemonButton
                                     key={index}
                                     onClick={() => handleChange({ format: value })}
-                                    status="stealth"
                                     active={value === localAxisFormat}
                                     fullWidth
                                 >
@@ -120,7 +118,6 @@ export function UnitPicker(): JSX.Element {
                                 <LemonDivider />
                                 <LemonButton
                                     onClick={() => setCustomUnitModal('prefix')}
-                                    status="stealth"
                                     active={!!trendsFilter?.aggregation_axis_prefix}
                                     fullWidth
                                 >
@@ -131,7 +128,6 @@ export function UnitPicker(): JSX.Element {
                                 </LemonButton>
                                 <LemonButton
                                     onClick={() => setCustomUnitModal('postfix')}
-                                    status="stealth"
                                     active={!!trendsFilter?.aggregation_axis_postfix}
                                     fullWidth
                                 >

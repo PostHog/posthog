@@ -56,7 +56,6 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                         overlay={
                             <>
                                 <LemonButton
-                                    status="stealth"
                                     onClick={() => {
                                         if (id === undefined) {
                                             console.error('Dashboard template id not defined')
@@ -70,7 +69,6 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                                     Edit
                                 </LemonButton>
                                 <LemonButton
-                                    status="stealth"
                                     onClick={() => {
                                         if (id === undefined) {
                                             console.error('Dashboard template id not defined')

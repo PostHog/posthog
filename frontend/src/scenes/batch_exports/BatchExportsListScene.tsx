@@ -74,7 +74,6 @@ export function BatchExportsList(): JSX.Element {
                                         <LemonButton
                                             to={urls.batchExport(batchExport.id)}
                                             key={run.id}
-                                            status="stealth"
                                             className="flex gap-1"
                                             noPadding
                                         >
@@ -122,7 +121,7 @@ export function BatchExportsList(): JSX.Element {
                                 },
                                 {
                                     label: batchExport.paused ? 'Resume' : 'Pause',
-                                    status: batchExport.paused ? 'primary' : 'danger',
+                                    status: batchExport.paused ? 'default' : 'danger',
                                     onClick: () => {
                                         batchExport.paused ? unpause(batchExport) : pause(batchExport)
                                     },
@@ -130,7 +129,7 @@ export function BatchExportsList(): JSX.Element {
                             ]
                             return (
                                 <LemonMenu items={menuItems} placement="left">
-                                    <LemonButton size="small" status="stealth" noPadding icon={<IconEllipsis />} />
+                                    <LemonButton size="small" noPadding icon={<IconEllipsis />} />
                                 </LemonMenu>
                             )
                         },

@@ -321,9 +321,8 @@ export const NetworkRequestTiming = ({
         <div className={'flex flex-col space-y-2'}>
             <div className={'flex flex-row justify-end'}>
                 <LemonButton
-                    type={'secondary'}
-                    size={'xsmall'}
-                    status={'stealth'}
+                    type="secondary"
+                    size="xsmall"
                     onClick={() => setTimelineMode(!timelineMode)}
                     data-attr={`switch-timing-to-${timelineMode ? 'table' : 'timeline'}-view`}
                 >

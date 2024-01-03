@@ -43,11 +43,7 @@ export function SideBarApps(): JSX.Element {
                                           hideSideBarMobile()
                                       },
                                       overlay: (
-                                          <LemonButton
-                                              status="stealth"
-                                              onClick={() => openAppSourceEditor(id, pluginId)}
-                                              fullWidth
-                                          >
+                                          <LemonButton onClick={() => openAppSourceEditor(id, pluginId)} fullWidth>
                                               Edit source code
                                           </LemonButton>
                                       ),
