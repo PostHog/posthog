@@ -247,7 +247,7 @@ export function FeatureFlagReleaseConditions({
                                     type="number"
                                     className="mx-2"
                                     onChange={(value): void => {
-                                        updateConditionSet(index, value)
+                                        updateConditionSet(index, value || 100)
                                     }}
                                     value={group.rollout_percentage != null ? group.rollout_percentage : 100}
                                     min={0}
