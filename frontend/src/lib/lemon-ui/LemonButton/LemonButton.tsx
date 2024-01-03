@@ -210,7 +210,8 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         !!icon && `LemonButton--has-icon`,
                         !!sideIcon && `LemonButton--has-side-icon`,
                         truncate && 'LemonButton--truncate',
-                        className
+                        className,
+                        'h-full'
                     )}
                     onClick={!disabled ? onClick : undefined}
                     // We are using the ARIA disabled instead of native HTML because of this:
