@@ -8,6 +8,7 @@ import { loadSchedule } from './plugins/loadSchedule'
 import { runPluginTask, runProcessEvent } from './plugins/run'
 import { setupPlugins } from './plugins/setup'
 import { teardownPlugins } from './plugins/teardown'
+import { populatePluginCapabilities } from './vm/lazy'
 
 type TaskRunner = (hub: Hub, args: any) => Promise<any> | any
 
@@ -87,6 +88,9 @@ export const workerTasks: Record<string, TaskRunner> = {
     },
     resetAvailableFeaturesCache: (hub, args: { organization_id: string }) => {
         hub.organizationManager.resetAvailableFeatureCache(args.organization_id)
+    },
+    populatePluginCapabilities: async (hub, args: { plugin_id: string }) => {
+        await populatePluginCapabilities(hub, Number(args.plugin_id))
     },
     // Exported only for tests
     _testsRunProcessEvent: async (hub, args: { event: PluginEvent }) => {

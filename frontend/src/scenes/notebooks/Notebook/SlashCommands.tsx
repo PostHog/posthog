@@ -461,7 +461,6 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
                 {TEXT_CONTROLS.map((item, index) => (
                     <LemonButton
                         key={item.title}
-                        status="primary-alt"
                         size="small"
                         active={selectedIndex === -1 && selectedHorizontalIndex === index}
                         onClick={() => void execute(item)}
@@ -476,7 +475,6 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
                 <LemonButton
                     key={item.title}
                     fullWidth
-                    status="primary-alt"
                     icon={item.icon}
                     active={index === selectedIndex}
                     onClick={() => void execute(item)}

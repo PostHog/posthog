@@ -253,11 +253,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
 
                                                 {hasMenu ? (
                                                     <LemonMenu items={menuItems} placement="bottom-end">
-                                                        <LemonButton
-                                                            icon={<IconEllipsis />}
-                                                            status="stealth"
-                                                            size="small"
-                                                        />
+                                                        <LemonButton icon={<IconEllipsis />} size="small" />
                                                     </LemonMenu>
                                                 ) : null}
                                             </div>
@@ -306,7 +302,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                         <LemonButton
                                             size="xsmall"
                                             type="secondary"
-                                            status="primary"
                                             icon={<IconPlus />}
                                             onClick={(e) => {
                                                 e.stopPropagation()
@@ -319,7 +314,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                             key={i}
                                             size="xsmall"
                                             type="secondary"
-                                            status="primary"
                                             icon={x.icon ?? <IconPlus />}
                                             onClick={(e) => {
                                                 e.stopPropagation()

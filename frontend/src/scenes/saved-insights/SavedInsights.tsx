@@ -475,15 +475,14 @@ export function SavedInsights(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton status="stealth" to={urls.insightView(insight.short_id)} fullWidth>
+                                <LemonButton to={urls.insightView(insight.short_id)} fullWidth>
                                     View
                                 </LemonButton>
                                 <LemonDivider />
-                                <LemonButton status="stealth" to={urls.insightEdit(insight.short_id)} fullWidth>
+                                <LemonButton to={urls.insightEdit(insight.short_id)} fullWidth>
                                     Edit
                                 </LemonButton>
                                 <LemonButton
-                                    status="stealth"
                                     onClick={() => renameInsight(insight)}
                                     data-attr={`insight-item-${insight.short_id}-dropdown-rename`}
                                     fullWidth
@@ -491,7 +490,6 @@ export function SavedInsights(): JSX.Element {
                                     Rename
                                 </LemonButton>
                                 <LemonButton
-                                    status="stealth"
                                     onClick={() => duplicateInsight(insight)}
                                     data-attr={`duplicate-insight-from-list-view`}
                                     fullWidth

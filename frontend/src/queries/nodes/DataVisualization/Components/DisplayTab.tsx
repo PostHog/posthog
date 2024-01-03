@@ -32,7 +32,7 @@ export const DisplayTab = (): JSX.Element => {
                         <LemonButton
                             key="delete"
                             icon={<IconDelete />}
-                            status="primary-alt"
+                            status="danger"
                             title="Delete Y-series"
                             noPadding
                             onClick={() => removeGoalLine(goalLineIndex)}
@@ -40,13 +40,7 @@ export const DisplayTab = (): JSX.Element => {
                     </div>
                 ))}
             </div>
-            <LemonButton
-                className="mt-1"
-                type="tertiary"
-                onClick={() => addGoalLine()}
-                icon={<IconPlusMini />}
-                fullWidth
-            >
+            <LemonButton className="mt-1" onClick={() => addGoalLine()} icon={<IconPlusMini />} fullWidth>
                 Add goal line
             </LemonButton>
         </div>

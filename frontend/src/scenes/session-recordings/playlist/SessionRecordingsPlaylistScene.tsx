@@ -83,7 +83,6 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                             overlay={
                                 <>
                                     <LemonButton
-                                        status="stealth"
                                         onClick={() => duplicatePlaylist()}
                                         fullWidth
                                         data-attr="duplicate-playlist"
@@ -91,7 +90,6 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                         Duplicate
                                     </LemonButton>
                                     <LemonButton
-                                        status="stealth"
                                         onClick={() =>
                                             updatePlaylist({
                                                 short_id: playlist.short_id,

@@ -186,7 +186,6 @@ export function PluginDrawer(): JSX.Element {
                             {editingPlugin.plugin_type === 'source' && canGloballyManagePlugins(user?.organization) ? (
                                 <div>
                                     <LemonButton
-                                        status={editingSource ? 'muted' : 'primary'}
                                         icon={<IconCode />}
                                         onClick={() => setEditingSource(!editingSource)}
                                         data-attr="plugin-edit-source"

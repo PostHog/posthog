@@ -17,7 +17,6 @@ export function FunnelsCue(): JSX.Element | null {
             type="info"
             action={{
                 onClick: displayAsFunnel,
-                status: 'primary',
                 children: 'Try this insight as a funnel',
             }}
             onClose={() => optOut(true)}

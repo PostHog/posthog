@@ -71,7 +71,6 @@ export function PlayerInspectorControls(): JSX.Element {
                                         )
                                     ) : undefined
                                 }
-                                status={tab === tabId ? 'primary' : 'primary-alt'}
                                 active={tab === tabId}
                                 onClick={() => setTab(tabId)}
                             >
@@ -137,7 +136,6 @@ export function PlayerInspectorControls(): JSX.Element {
                             key={filter.key}
                             size="small"
                             noPadding
-                            status="primary-alt"
                             active={filter.enabled}
                             onClick={() => {
                                 // "alone" should always be a select-to-true action
@@ -154,7 +152,6 @@ export function PlayerInspectorControls(): JSX.Element {
                     <LemonButton
                         size="small"
                         noPadding
-                        status="primary-alt"
                         onClick={() => setTimestampMode(timestampMode === 'absolute' ? 'relative' : 'absolute')}
                         tooltipPlacement="left"
                         tooltip={
@@ -172,9 +169,7 @@ export function PlayerInspectorControls(): JSX.Element {
                     <LemonButton
                         size="small"
                         noPadding
-                        status="primary-alt"
                         active={syncScroll}
-                        type="tertiary"
                         onClick={() => {
                             // If the user has syncScrolling on but it is paused due to interacting with the Inspector, we want to resume it
                             if (syncScroll && syncScrollingPaused) {

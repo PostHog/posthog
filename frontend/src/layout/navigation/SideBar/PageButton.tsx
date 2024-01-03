@@ -32,7 +32,6 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
             ? activeScene === identifier || sceneBreadcrumbKeys.includes(identifier)
             : activeScene === Scene.Dashboard && identifier === lastDashboardId)
 
-    const buttonStatus = isActive ? 'primary' : 'stealth'
     title = title || sceneConfigurations[identifier]?.name || identifier
 
     return (
@@ -41,7 +40,6 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
                 {sideAction ? (
                     <LemonButton
                         fullWidth
-                        status={buttonStatus}
                         active={isActive}
                         onClick={hideSideBarMobile}
                         sideAction={{
@@ -58,7 +56,6 @@ export function PageButton({ title, sideAction, identifier, highlight, ...button
                 ) : (
                     <LemonButton
                         fullWidth
-                        status={buttonStatus}
                         active={isActive}
                         data-attr={`menu-item-${identifier.toString().toLowerCase()}`}
                         onClick={hideSideBarMobile}

@@ -30,7 +30,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
                     </div>
                 }
             >
-                <LemonButton size="small" noPadding type="secondary" status="primary-alt" sideIcon={null}>
+                <LemonButton size="small" noPadding type="secondary" sideIcon={null}>
                     <span className="p-1">@{member?.user.first_name ?? '(Member)'}</span>
                 </LemonButton>
             </Tooltip>
