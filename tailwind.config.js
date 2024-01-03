@@ -39,10 +39,10 @@ const config = {
             ],
             mono: ['ui-monospace', 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', 'monospace'],
         },
-        fontSize: {
-            xxs: ['0.625rem', '0.75rem'], // 10px (12px of line height)
-        },
         extend: {
+            fontSize: {
+                xxs: ['0.625rem', '0.75rem'], // 10px (12px of line height)
+            },
             screens: {
                 // Sync with vars.scss
                 sm: '576px',
