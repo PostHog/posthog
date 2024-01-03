@@ -8,9 +8,4 @@ class Migration(migrations.Migration):
         ("posthog", "0190_experiment"),
     ]
 
-    operations = [
-        migrations.RenameModel(
-            old_name="SpecialMigration",
-            new_name="AsyncMigration",
-        ),
-    ]
+    operations = []

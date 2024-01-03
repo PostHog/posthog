@@ -42,9 +42,8 @@ export const navigationLogic = kea<navigationLogicType>([
     }),
     loaders({
         navigationStatus: [
-            { system_status_ok: true, async_migrations_ok: true } as {
+            { system_status_ok: true } as {
                 system_status_ok: boolean
-                async_migrations_ok: boolean
             },
             {
                 loadNavigationStatus: async () => {
@@ -137,7 +136,6 @@ export const navigationLogic = kea<navigationLogicType>([
                 return status.system_status_ok
             },
         ],
-        asyncMigrationsOk: [(s) => [s.navigationStatus], (status) => status.async_migrations_ok],
         projectNoticeVariantWithClosability: [
             (s) => [
                 organizationLogic.selectors.currentOrganization,

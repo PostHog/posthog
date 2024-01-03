@@ -8,9 +8,7 @@ import { SystemStatusRow, SystemStatusSubrows } from '~/types'
 import { RenderMetricValue } from './RenderMetricValue'
 import { systemStatusLogic } from './systemStatusLogic'
 
-const METRIC_KEY_TO_INTERNAL_LINK = {
-    async_migrations_ok: '/instance/async_migrations',
-}
+const METRIC_KEY_TO_INTERNAL_LINK = {}
 
 function RenderMetric(_: any, systemStatusRow: SystemStatusRow): JSX.Element {
     return (

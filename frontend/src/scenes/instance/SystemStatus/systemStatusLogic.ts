@@ -23,7 +23,6 @@ export type InstanceStatusTabName = 'overview' | 'metrics' | 'settings' | 'staff
 /**
  * We allow the specific instance settings that can be edited via the /instance/status page.
  * Even if some settings are editable in the frontend according to the API, we may don't want to expose them here.
- * For example: async migrations settings are handled in their own page.
  */
 const EDITABLE_INSTANCE_SETTINGS = [
     'RECORDINGS_TTL_WEEKS',

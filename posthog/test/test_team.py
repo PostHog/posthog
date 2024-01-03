@@ -12,13 +12,11 @@ from posthog.models import (
     User,
 )
 from posthog.models.instance_setting import override_instance_config
-from posthog.models.team import get_team_in_cache, util
+from posthog.models.team import get_team_in_cache
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.utils import PersonOnEventsMode
 
 from .base import BaseTest
-
-util.can_enable_actor_on_events = True
 
 
 class TestModelCache(TestCase):

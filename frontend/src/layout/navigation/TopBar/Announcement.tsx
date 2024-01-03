@@ -1,6 +1,6 @@
 import './Announcement.scss'
 
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { NewFeatureBanner } from 'lib/introductions/NewFeatureBanner'
@@ -29,11 +29,7 @@ export function Announcement(): JSX.Element | null {
     } else if (shownAnnouncementType === AnnouncementType.AttentionRequired) {
         message = (
             <div>
-                <strong>Attention required!</strong> Your instance has uncompleted migrations that are required for the
-                next release.
-                <LemonButton to="/instance/async_migrations" data-attr="site-banner-async-migrations">
-                    Click here to fix
-                </LemonButton>
+                <strong>Attention required!</strong>
             </div>
         )
     } else if (shownAnnouncementType === AnnouncementType.CloudFlag && cloudAnnouncement) {

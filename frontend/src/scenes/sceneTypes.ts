@@ -47,7 +47,6 @@ export enum Scene {
     ProjectHomepage = 'ProjectHomepage',
     ProjectCreateFirst = 'ProjectCreate',
     SystemStatus = 'SystemStatus',
-    AsyncMigrations = 'AsyncMigrations',
     DeadLetterQueue = 'DeadLetterQueue',
     Billing = 'Billing',
     Apps = 'Apps',

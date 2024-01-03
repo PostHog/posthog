@@ -225,40 +225,6 @@ def send_email_change_emails(now_iso: str, user_name: str, old_address: str, new
     message_new_address.send(send_async=False)
 
 
-@app.task(
-    autoretry_for=(Exception,),
-    max_retries=3,
-    retry_backoff=True,
-)
-def send_async_migration_complete_email(migration_key: str, time: str) -> None:
-    message = EmailMessage(
-        campaign_key=f"async_migration_complete_{migration_key}",
-        subject=f"Async migration {migration_key} completed",
-        template_name="async_migration_status",
-        template_context={
-            "migration_status_update": f"Async migration {migration_key} completed successfully at {time}."
-        },
-    )
-
-    send_message_to_all_staff_users(message)
-
-
-@app.task(
-    autoretry_for=(Exception,),
-    max_retries=3,
-    retry_backoff=True,
-)
-def send_async_migration_errored_email(migration_key: str, time: str, error: str) -> None:
-    message = EmailMessage(
-        campaign_key=f"async_migration_error_{migration_key}",
-        subject=f"Async migration {migration_key} errored",
-        template_name="async_migration_error",
-        template_context={"migration_key": migration_key, "time": time, "error": error},
-    )
-
-    send_message_to_all_staff_users(message)
-
-
 def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_created_to: datetime) -> List[User]:
     # Get all users for organization that haven't ingested any events
     users = []

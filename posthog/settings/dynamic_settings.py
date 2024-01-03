@@ -51,36 +51,6 @@ CONSTANCE_CONFIG = {
         "Whether to use query path using group_properties on events or the old query",
         bool,
     ),
-    "AUTO_START_ASYNC_MIGRATIONS": (
-        get_from_env("AUTO_START_ASYNC_MIGRATIONS", False, type_cast=str_to_bool),
-        "Whether the earliest unapplied async migration should be triggered automatically on server startup.",
-        bool,
-    ),
-    "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT": (
-        get_from_env("ASYNC_MIGRATION_ROLLBACK_TIMEOUT", 30, type_cast=int),
-        "The timeout for completing the full rollback of an async migration.",
-        int,
-    ),
-    "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK": (
-        get_from_env("ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK", False, type_cast=str_to_bool),
-        "Used to disable automatic rollback of failed async migrations.",
-        bool,
-    ),
-    "ASYNC_MIGRATIONS_AUTO_CONTINUE": (
-        get_from_env("ASYNC_MIGRATIONS_AUTO_CONTINUE", True, type_cast=str_to_bool),
-        "Whether to resume the migration, when celery worker crashed.",
-        bool,
-    ),
-    "ASYNC_MIGRATIONS_BLOCK_UPGRADE": (
-        get_from_env("ASYNC_MIGRATIONS_BLOCK_UPGRADE", True, type_cast=str_to_bool),
-        "(Advanced) Whether having an async migration running, errored or required should prevent upgrades.",
-        bool,
-    ),
-    "ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION": (
-        get_from_env("ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION", False, type_cast=str_to_bool),
-        "(Advanced) Whether to ignore async migrations posthog version restrictions",
-        bool,
-    ),
     "STRICT_CACHING_TEAMS": (
         get_from_env("STRICT_CACHING_TEAMS", ""),
         "Whether to always try to find cached data for historical intervals on trends",
@@ -133,11 +103,6 @@ CONSTANCE_CONFIG = {
         "Reply address to which email clients should send responses.",
         str,
     ),
-    "ASYNC_MIGRATIONS_OPT_OUT_EMAILS": (
-        get_from_env("ASYNC_MIGRATIONS_OPT_OUT_EMAILS", False, type_cast=str_to_bool),
-        "Used to disable emails from async migrations service",
-        bool,
-    ),
     "SLACK_APP_CLIENT_ID": (
         get_from_env("SLACK_APP_CLIENT_ID", default=""),
         "Used to enable the 'Add to Slack' button across all projects",
@@ -157,11 +122,6 @@ CONSTANCE_CONFIG = {
         get_from_env("PARALLEL_DASHBOARD_ITEM_CACHE", default=5),
         "user to determine how many insight cache updates to run at a time",
         int,
-    ),
-    "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS": (
-        get_from_env("ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS", default=False),
-        "Used to enable the running of experimental async migrations",
-        bool,
     ),
     "RATE_LIMIT_ENABLED": (
         get_from_env("RATE_LIMIT_ENABLED", False, type_cast=str_to_bool),
@@ -198,13 +158,7 @@ CONSTANCE_CONFIG = {
 SETTINGS_ALLOWING_API_OVERRIDE = (
     "RECORDINGS_TTL_WEEKS",
     "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS",
-    "AUTO_START_ASYNC_MIGRATIONS",
     "AGGREGATE_BY_DISTINCT_IDS_TEAMS",
-    "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT",
-    "ASYNC_MIGRATIONS_DISABLE_AUTO_ROLLBACK",
-    "ASYNC_MIGRATIONS_AUTO_CONTINUE",
-    "ASYNC_MIGRATIONS_BLOCK_UPGRADE",
-    "ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION",
     "EMAIL_ENABLED",
     "EMAIL_HOST",
     "EMAIL_PORT",
@@ -214,7 +168,6 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "EMAIL_USE_SSL",
     "EMAIL_DEFAULT_FROM",
     "EMAIL_REPLY_TO",
-    "ASYNC_MIGRATIONS_OPT_OUT_EMAILS",
     "PERSON_ON_EVENTS_ENABLED",
     "PERSON_ON_EVENTS_V2_ENABLED",
     "HOGQL_INSIGHTS_OVERRIDE",
@@ -224,7 +177,6 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SLACK_APP_CLIENT_SECRET",
     "SLACK_APP_SIGNING_SECRET",
     "PARALLEL_DASHBOARD_ITEM_CACHE",
-    "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
     "RATE_LIMIT_ENABLED",
     "RATE_LIMITING_ALLOW_LIST_TEAMS",
     "SENTRY_AUTH_TOKEN",

@@ -6,7 +6,6 @@ import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { navigationLogic } from '../navigationLogic'
 import type { announcementLogicType } from './announcementLogicType'
 
 export enum AnnouncementType {
@@ -26,16 +25,7 @@ const ShowAttentionRequiredBanner = false
 export const announcementLogic = kea<announcementLogicType>([
     path(['layout', 'navigation', 'TopBar', 'announcementLogic']),
     connect({
-        values: [
-            featureFlagLogic,
-            ['featureFlags'],
-            preflightLogic,
-            ['preflight'],
-            userLogic,
-            ['user'],
-            navigationLogic,
-            ['asyncMigrationsOk'],
-        ],
+        values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight'], userLogic, ['user']],
     }),
     actions({
         hideAnnouncement: (type: AnnouncementType | null) => ({ type }),
@@ -95,15 +85,14 @@ export const announcementLogic = kea<announcementLogicType>([
             },
         ],
         relevantAnnouncementType: [
-            (s) => [s.cloudAnnouncement, s.preflight, s.user, s.asyncMigrationsOk],
-            (cloudAnnouncement, preflight, user, asyncMigrationsOk): AnnouncementType | null => {
+            (s) => [s.cloudAnnouncement, s.preflight, s.user],
+            (cloudAnnouncement, preflight, user): AnnouncementType | null => {
                 if (preflight?.demo) {
                     return AnnouncementType.Demo
                 } else if (cloudAnnouncement) {
                     return AnnouncementType.CloudFlag
                 } else if (
                     ShowAttentionRequiredBanner &&
-                    !asyncMigrationsOk &&
                     (user?.is_staff || (user?.organization?.membership_level ?? 0) >= OrganizationMembershipLevel.Admin)
                 ) {
                     return AnnouncementType.AttentionRequired

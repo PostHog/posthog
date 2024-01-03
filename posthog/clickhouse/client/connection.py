@@ -55,7 +55,7 @@ def default_client():
         # assuming that this exists and we have permissions to access it. This
         # feels like a reasonably safe assumption as e.g. we already reference
         # `system.numbers` in multiple places within queries. We also assume
-        # access to various other tables e.g. to handle async migrations.
+        # access to various other tables.
         database="system",
         secure=settings.CLICKHOUSE_SECURE,
         user=settings.CLICKHOUSE_USER,

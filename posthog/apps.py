@@ -6,7 +6,7 @@ from django.apps import AppConfig
 from django.conf import settings
 from posthoganalytics.client import Client
 
-from posthog.settings import SELF_CAPTURE, SKIP_ASYNC_MIGRATIONS_SETUP
+from posthog.settings import SELF_CAPTURE
 from posthog.utils import (
     get_git_branch,
     get_git_commit,
@@ -58,10 +58,3 @@ class PostHogConfig(AppConfig):
         # load feature flag definitions if not already loaded
         if not posthoganalytics.disabled and posthoganalytics.feature_flag_definitions() is None:
             posthoganalytics.default_client.load_feature_flags()
-
-        from posthog.async_migrations.setup import setup_async_migrations
-
-        if SKIP_ASYNC_MIGRATIONS_SETUP:
-            logger.warning("Skipping async migrations setup. This is unsafe in production!")
-        else:
-            setup_async_migrations()

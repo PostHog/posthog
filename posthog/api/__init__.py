@@ -9,7 +9,6 @@ from . import (
     activity_log,
     annotation,
     app_metrics,
-    async_migration,
     authentication,
     dead_letter_queue,
     early_access_feature,
@@ -274,7 +273,6 @@ router.register(r"users", user.UserViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")
 router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, "dead_letter_queue")
-router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "async_migrations")
 router.register(r"instance_settings", instance_settings.InstanceSettingsViewset, "instance_settings")
 router.register(r"kafka_inspector", kafka_inspector.KafkaInspectorViewSet, "kafka_inspector")
 

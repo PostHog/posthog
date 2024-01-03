@@ -1,10 +1,7 @@
-from datetime import timedelta
 from typing import Any, List
 
 from posthog.temporal.common.client import sync_connect
 from posthog.batch_exports.service import batch_export_delete_schedule
-from posthog.cache_utils import cache_for
-from posthog.models.async_migration import is_async_migration_complete
 
 
 def delete_bulky_postgres_data(team_ids: List[int]):
@@ -45,22 +42,3 @@ def delete_batch_exports(team_ids: List[int]):
         batch_export.destination.delete()
 
         batch_export_delete_schedule(temporal, str(schedule_id))
-
-
-can_enable_actor_on_events = False
-
-
-# :TRICKY: Avoid overly eagerly checking whether the migration is complete.
-# We instead cache negative responses for a minute and a positive one forever.
-def actor_on_events_ready() -> bool:
-    global can_enable_actor_on_events
-
-    if can_enable_actor_on_events:
-        return True
-    can_enable_actor_on_events = _actor_on_events_ready()
-    return can_enable_actor_on_events
-
-
-@cache_for(timedelta(minutes=1))
-def _actor_on_events_ready() -> bool:
-    return is_async_migration_complete("0007_persons_and_groups_on_events_backfill")

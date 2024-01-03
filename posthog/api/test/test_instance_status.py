@@ -91,7 +91,6 @@ class TestInstanceStatus(APIBaseTest):
     @patch("posthog.api.instance_status.is_plugin_server_alive")
     # patched at the module level because it is locally imported in the target code
     @patch("posthog.clickhouse.system_status.dead_letter_queue_ratio_ok_cached")
-    @patch("posthog.api.instance_status.async_migrations_ok")
     def test_navigation_ok(self, *mocks):
         for mock in mocks:
             mock.return_value = True
@@ -101,7 +100,6 @@ class TestInstanceStatus(APIBaseTest):
             response,
             {
                 "system_status_ok": True,
-                "async_migrations_ok": True,
             },
         )
 
@@ -110,7 +108,6 @@ class TestInstanceStatus(APIBaseTest):
     @patch("posthog.api.instance_status.is_plugin_server_alive")
     # patched at the module level because it is locally imported in the target code
     @patch("posthog.clickhouse.system_status.dead_letter_queue_ratio_ok_cached")
-    @patch("posthog.api.instance_status.async_migrations_ok")
     def test_navigation_not_ok(self, *mocks):
         for mock in mocks:
             mock.return_value = False
@@ -121,7 +118,6 @@ class TestInstanceStatus(APIBaseTest):
             response,
             {
                 "system_status_ok": False,
-                "async_migrations_ok": False,
             },
         )
 
@@ -141,7 +137,6 @@ class TestInstanceStatus(APIBaseTest):
             response,
             {
                 "system_status_ok": True,
-                "async_migrations_ok": True,
             },
         )
 

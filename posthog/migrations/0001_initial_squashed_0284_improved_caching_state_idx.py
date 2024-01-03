@@ -594,56 +594,6 @@ class Migration(migrations.Migration):
                 ("delete_verified_at", models.DateTimeField(blank=True, null=True)),
             ],
         ),
-        # NOTE: We need to create the AsyncMigration as SpecialMigration first
-        # as this is what the original migration did, and then changed it to
-        # AsyncMigration. Renames appear to not change e.g. the underlying seq
-        # id name.
-        migrations.CreateModel(
-            name="SpecialMigration",
-            fields=[
-                ("id", models.BigAutoField(primary_key=True, serialize=False)),
-                ("name", models.CharField(max_length=50)),
-                (
-                    "description",
-                    models.CharField(blank=True, max_length=400, null=True),
-                ),
-                ("progress", models.PositiveSmallIntegerField(default=0)),
-                ("status", models.PositiveSmallIntegerField(default=0)),
-                (
-                    "current_operation_index",
-                    models.PositiveSmallIntegerField(default=0),
-                ),
-                ("current_query_id", models.CharField(default="", max_length=100)),
-                ("celery_task_id", models.CharField(default="", max_length=100)),
-                ("started_at", models.DateTimeField(blank=True, null=True)),
-                ("finished_at", models.DateTimeField(blank=True, null=True)),
-                (
-                    "posthog_min_version",
-                    models.CharField(blank=True, max_length=20, null=True),
-                ),
-                (
-                    "posthog_max_version",
-                    models.CharField(blank=True, max_length=20, null=True),
-                ),
-                ("parameters", models.JSONField(default=dict)),
-            ],
-        ),
-        migrations.AddConstraint(
-            model_name="specialmigration",
-            constraint=models.UniqueConstraint(fields=("name",), name="unique name"),
-        ),
-        migrations.RenameModel(
-            old_name="SpecialMigration",
-            new_name="AsyncMigration",
-        ),
-        migrations.CreateModel(
-            name="AsyncMigrationError",
-            fields=[
-                ("id", models.BigAutoField(primary_key=True, serialize=False)),
-                ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("description", models.TextField()),
-            ],
-        ),
         migrations.CreateModel(
             name="Cohort",
             fields=[
@@ -3376,11 +3326,6 @@ class Migration(migrations.Migration):
             model_name="cohort",
             name="team",
             field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
-        ),
-        migrations.AddField(
-            model_name="asyncmigrationerror",
-            name="async_migration",
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.asyncmigration"),
         ),
         migrations.AddField(
             model_name="asyncdeletion",

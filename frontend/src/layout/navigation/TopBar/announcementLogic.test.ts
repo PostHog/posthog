@@ -8,7 +8,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { navigationLogic } from '../navigationLogic'
 import { announcementLogic, AnnouncementType, DEFAULT_CLOUD_ANNOUNCEMENT } from './announcementLogic'
 
 describe('announcementLogic', () => {
@@ -18,7 +17,7 @@ describe('announcementLogic', () => {
         initKeaTests()
         logic = announcementLogic()
         logic.mount()
-        await expectLogic(logic).toMount([featureFlagLogic, preflightLogic, userLogic, navigationLogic])
+        await expectLogic(logic).toMount([featureFlagLogic, preflightLogic, userLogic])
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CLOUD_ANNOUNCEMENT], {
             [FEATURE_FLAGS.CLOUD_ANNOUNCEMENT]: true,
         })

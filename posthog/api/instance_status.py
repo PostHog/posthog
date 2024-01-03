@@ -10,7 +10,6 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.async_migrations.status import async_migrations_ok
 from posthog.cloud_utils import is_cloud
 from posthog.gitsha import GIT_SHA
 from posthog.permissions import SingleTenancyOrAdmin
@@ -98,13 +97,6 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                     "key": "pg_version",
                     "metric": "Postgres version",
                     "value": f"{postgres_version // 10000}.{(postgres_version // 100) % 100}.{postgres_version % 100}",
-                }
-            )
-            metrics.append(
-                {
-                    "key": "async_migrations_ok",
-                    "metric": "Async migrations up-to-date",
-                    "value": async_migrations_ok(),
                 }
             )
 
@@ -210,7 +202,6 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                         and dead_letter_queue_ratio_ok_cached()
                     )
                 ),
-                "async_migrations_ok": async_migrations_ok(),
             }
         )
 

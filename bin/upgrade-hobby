@@ -69,9 +69,6 @@ rm docker-compose.yml.tmpl
 
 docker-compose pull
 
-echo "Checking if async migrations are up to date"
-sudo -E docker-compose run asyncmigrationscheck
-
 echo "Stopping the stack!"
 docker-compose stop
 

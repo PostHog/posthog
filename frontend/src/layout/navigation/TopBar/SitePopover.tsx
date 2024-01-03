@@ -12,7 +12,6 @@ import {
     IconOffline,
     IconPlus,
     IconSettings,
-    IconUpdate,
 } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
@@ -161,33 +160,6 @@ function SystemStatus(): JSX.Element {
     )
 }
 
-function AsyncMigrations(): JSX.Element {
-    const { closeSitePopover } = useActions(navigationLogic)
-    const { asyncMigrationsOk } = useValues(navigationLogic)
-
-    return (
-        <LemonRow
-            status={asyncMigrationsOk ? 'success' : 'warning'}
-            icon={asyncMigrationsOk ? <IconCheckmark /> : <IconUpdate />}
-            fullWidth
-        >
-            <>
-                <div className="SitePopover__main-info">
-                    {asyncMigrationsOk ? 'Async migrations up-to-date' : 'Pending async migrations'}
-                </div>
-                <Link
-                    to={urls.asyncMigrations()}
-                    onClick={closeSitePopover}
-                    className="SitePopover__side-link"
-                    data-attr="async-migrations-status-badge"
-                >
-                    Manage
-                </Link>
-            </>
-        </LemonRow>
-    )
-}
-
 function InstanceSettings(): JSX.Element | null {
     const { closeSitePopover } = useActions(navigationLogic)
     const { user } = useValues(userLogic)
@@ -275,7 +247,6 @@ export function SitePopoverOverlay(): JSX.Element {
             {(!(preflight?.cloud || preflight?.demo) || user?.is_staff) && (
                 <SitePopoverSection title="PostHog instance" className="font-title-3000">
                     <SystemStatus />
-                    <AsyncMigrations />
                     <InstanceSettings />
                 </SitePopoverSection>
             )}

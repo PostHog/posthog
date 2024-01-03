@@ -102,17 +102,6 @@ services:
         volumes:
             - object_storage:/data
 
-    asyncmigrationscheck:
-        extends:
-            file: docker-compose.base.yml
-            service: asyncmigrationscheck
-        image: $REGISTRY_URL:$POSTHOG_APP_TAG
-        environment:
-            SENTRY_DSN: $SENTRY_DSN
-            SITE_URL: https://$DOMAIN
-            SECRET_KEY: $POSTHOG_SECRET
-            SKIP_ASYNC_MIGRATIONS_SETUP: 0
-
     # Temporal containers
     temporal:
         extends:

@@ -307,9 +307,6 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         instanceLevel: true,
         name: 'Instance status & settings',
     },
-    [Scene.AsyncMigrations]: {
-        instanceLevel: true,
-    },
     [Scene.DeadLetterQueue]: {
         instanceLevel: true,
     },
@@ -513,9 +510,6 @@ export const routes: Record<string, Scene> = {
     [urls.instanceStaffUsers()]: Scene.SystemStatus,
     [urls.instanceKafkaInspector()]: Scene.SystemStatus,
     [urls.instanceMetrics()]: Scene.SystemStatus,
-    [urls.asyncMigrations()]: Scene.AsyncMigrations,
-    [urls.asyncMigrationsFuture()]: Scene.AsyncMigrations,
-    [urls.asyncMigrationsSettings()]: Scene.AsyncMigrations,
     [urls.deadLetterQueue()]: Scene.DeadLetterQueue,
     [urls.toolbarLaunch()]: Scene.ToolbarLaunch,
     [urls.site(':url')]: Scene.Site,

@@ -38,7 +38,7 @@ class TestInstanceSettings(APIBaseTest):
 
         # Check an editable attribute
         for item in json_response["results"]:
-            if item["key"] == "AUTO_START_ASYNC_MIGRATIONS":
+            if item["key"] == "RECORDINGS_TTL_WEEKS":
                 self.assertEqual(item["editable"], True)
 
             if item["key"] == "EMAIL_HOST_PASSWORD":
@@ -46,17 +46,17 @@ class TestInstanceSettings(APIBaseTest):
                 self.assertEqual(item["value"], "")
 
     def test_can_retrieve_setting(self):
-        response = self.client.get(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS")
+        response = self.client.get(f"/api/instance_settings/RECORDINGS_TTL_WEEKS")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         json_response = response.json()
 
-        self.assertEqual(json_response["key"], "AUTO_START_ASYNC_MIGRATIONS")
-        self.assertEqual(json_response["value"], False)
+        self.assertEqual(json_response["key"], "RECORDINGS_TTL_WEEKS")
+        self.assertEqual(json_response["value"], 3)
         self.assertEqual(
             json_response["description"],
-            "Whether the earliest unapplied async migration should be triggered automatically on server startup.",
+            "Number of weeks recordings will be kept before removing them (for all projects). Storing recordings for a shorter timeframe can help reduce Clickhouse disk usage.",
         )
-        self.assertEqual(json_response["value_type"], "bool")
+        self.assertEqual(json_response["value_type"], "int")
         self.assertEqual(json_response["editable"], True)
 
     def test_retrieve_secret_setting(self):
@@ -90,7 +90,7 @@ class TestInstanceSettings(APIBaseTest):
             self.permission_denied_response("You are not a staff user, contact your instance admin."),
         )
 
-        response = self.client.get(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS")
+        response = self.client.get(f"/api/instance_settings/RECORDINGS_TTL_WEEKS")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
             response.json(),
@@ -98,16 +98,16 @@ class TestInstanceSettings(APIBaseTest):
         )
 
     def test_update_setting(self):
-        response = self.client.get(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS")
+        response = self.client.get(f"/api/instance_settings/PERSON_ON_EVENTS_ENABLED")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["value"], False)
 
-        response = self.client.patch(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS", {"value": True})
+        response = self.client.patch(f"/api/instance_settings/PERSON_ON_EVENTS_ENABLED", {"value": True})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["value"], True)
 
-        self.assertEqual(get_instance_setting_helper("AUTO_START_ASYNC_MIGRATIONS").value, True)
-        self.assertEqual(get_instance_setting("AUTO_START_ASYNC_MIGRATIONS"), True)
+        self.assertEqual(get_instance_setting_helper("PERSON_ON_EVENTS_ENABLED").value, True)
+        self.assertEqual(get_instance_setting("PERSON_ON_EVENTS_ENABLED"), True)
 
     def test_updating_email_settings(self):
         set_instance_setting("EMAIL_HOST", "localhost")
@@ -130,12 +130,12 @@ class TestInstanceSettings(APIBaseTest):
 
     def test_update_integer_setting(self):
         response = self.client.patch(
-            f"/api/instance_settings/ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT",
-            {"value": 48343943943},
+            f"/api/instance_settings/RECORDINGS_TTL_WEEKS",
+            {"value": 4},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["value"], 48343943943)
-        self.assertEqual(get_instance_setting("ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT"), 48343943943)
+        self.assertEqual(response.json()["value"], 4)
+        self.assertEqual(get_instance_setting("RECORDINGS_TTL_WEEKS"), 4)
 
     def test_cant_update_setting_that_is_not_overridable(self):
         response = self.client.patch(f"/api/instance_settings/MATERIALIZED_COLUMNS_ENABLED", {"value": False})
@@ -155,12 +155,12 @@ class TestInstanceSettings(APIBaseTest):
         self.user.is_staff = False
         self.user.save()
 
-        response = self.client.get(f"/api/instance_settings/AUTO_START_ASYNC_MIGRATIONS", {"value": True})
+        response = self.client.get(f"/api/instance_settings/RECORDINGS_TTL_WEEKS", {"value": 4})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(
             response.json(),
             self.permission_denied_response("You are not a staff user, contact your instance admin."),
         )
 
-        self.assertEqual(get_instance_setting_helper("AUTO_START_ASYNC_MIGRATIONS").value, False)
-        self.assertEqual(get_instance_setting("AUTO_START_ASYNC_MIGRATIONS"), False)
+        self.assertEqual(get_instance_setting_helper("RECORDINGS_TTL_WEEKS").value, 3)
+        self.assertEqual(get_instance_setting("RECORDINGS_TTL_WEEKS"), 3)

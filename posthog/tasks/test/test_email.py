@@ -10,8 +10,6 @@ from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import OrganizationInvite, OrganizationMembership
 from posthog.models.plugin import Plugin, PluginConfig
 from posthog.tasks.email import (
-    send_async_migration_complete_email,
-    send_async_migration_errored_email,
     send_canary_email,
     send_email_verification,
     send_fatal_plugin_error,
@@ -147,26 +145,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
     def test_send_canary_email(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         send_canary_email("test@posthog.com")
-
-        assert len(mocked_email_messages) == 1
-        assert mocked_email_messages[0].send.call_count == 1
-        assert mocked_email_messages[0].html_body
-
-    def test_send_async_migration_complete_email(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
-
-        User.objects.create(email="staff-user@posthog.com", password="password", is_staff=True)
-        send_async_migration_complete_email("migration_1", "20:00")
-
-        assert len(mocked_email_messages) == 1
-        assert mocked_email_messages[0].send.call_count == 1
-        assert mocked_email_messages[0].html_body
-
-    def test_send_async_migration_errored_email(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
-
-        User.objects.create(email="staff-user@posthog.com", password="password", is_staff=True)
-        send_async_migration_errored_email("migration_1", "20:00", "It exploded!")
 
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1

@@ -37,11 +37,6 @@
                 "value": "12.0.9"
             },
             {
-                "key": "async_migrations_ok",
-                "metric": "Async migrations up-to-date",
-                "value": true
-            },
-            {
                 "key": "clickhouse_alive",
                 "metric": "Clickhouse database alive",
                 "value": true

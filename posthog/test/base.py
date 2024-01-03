@@ -212,9 +212,7 @@ class TestMixin:
 
     def setUp(self):
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
-            from posthog.models.team import util
-
-            util.can_enable_actor_on_events = True
+            pass
 
         if not self.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(self)

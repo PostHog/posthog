@@ -203,8 +203,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         "check dashboard items",
     )
 
-    sender.add_periodic_task(crontab(minute="*/15"), check_async_migration_health.s())
-
     if settings.INGESTION_LAG_METRIC_TEAM_IDS:
         sender.add_periodic_task(60, ingestion_lag.s(), name="ingestion lag")
 
@@ -961,13 +959,6 @@ def sync_all_organization_available_features():
     )
 
     sync_all_organization_available_features()
-
-
-@app.task(ignore_result=False, track_started=True, max_retries=0)
-def check_async_migration_health():
-    from posthog.tasks.async_migrations import check_async_migration_health
-
-    check_async_migration_health()
 
 
 @app.task(ignore_result=True)

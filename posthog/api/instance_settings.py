@@ -15,7 +15,6 @@ from posthog.settings import (
     CONSTANCE_CONFIG,
     SECRET_SETTINGS,
     SETTINGS_ALLOWING_API_OVERRIDE,
-    SKIP_ASYNC_MIGRATIONS_SETUP,
 )
 from posthog.utils import str_to_bool
 
@@ -121,12 +120,6 @@ class InstanceSettingsSerializer(serializers.Serializer):
             from posthog.tasks.email import send_canary_email
 
             send_canary_email.apply_async(kwargs={"user_email": self.context["request"].user.email})
-        elif instance.key.startswith("ASYNC_MIGRATION"):
-            from posthog.async_migrations.setup import setup_async_migrations
-
-            if not SKIP_ASYNC_MIGRATIONS_SETUP:
-                setup_async_migrations()
-
         return instance
 
 

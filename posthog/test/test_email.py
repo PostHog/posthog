@@ -72,7 +72,7 @@ class TestEmail(BaseTest):
 
     def test_applies_default_utm_tags(self) -> None:
         with override_instance_config("EMAIL_HOST", "localhost"):
-            template = "async_migration_error"
+            template = "member_join"
             message = EmailMessage("test_campaign", "Subject", template)
 
             assert (
