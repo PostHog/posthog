@@ -44,4 +44,10 @@
     .text-green {
         color: #45c93d;
     }
+
+    .subfeatures {
+        li {
+            background: var(--primary-alt-highlight);
+        }
+    }
 }

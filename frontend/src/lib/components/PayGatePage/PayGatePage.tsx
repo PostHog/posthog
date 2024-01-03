@@ -1,6 +1,6 @@
 import './PayGatePage.scss'
 
-import { IconCheckCircle, IconOpenSidebar } from '@posthog/icons'
+import { IconBrackets, IconCheckCircle, IconOpenSidebar, IconPeople, IconToggle } from '@posthog/icons'
 import { useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { identifierToHuman } from 'lib/utils'
@@ -40,16 +40,14 @@ const AbTestingFeatures = [
 
 const AbTestingSubfeatures = [
     {
-        name: 'Built on Feature Flags',
+        name: 'Built on feature flags',
         description: 'All the benefits of feature flags with added functionality around stat-sig experiments',
-        // icon: <IconToggle />,
-        icon: 'https://posthog.com/images/products/ab-testing/ab-testing.png',
+        icon: <IconToggle />,
     },
     {
         name: 'JSON payloads',
         description: 'Modify website content per-variant without additional deployments',
-        // icon: <IconBrackets />,
-        icon: 'https://posthog.com/images/products/ab-testing/ab-testing.png',
+        icon: <IconBrackets />,
     },
     {
         name: 'Split testing',
@@ -60,14 +58,12 @@ const AbTestingSubfeatures = [
     {
         name: 'Multivariate testing',
         description: 'Test up to 9 variants against a control',
-        icon: 'https://posthog.com/images/products/ab-testing/ab-testing.png',
         // icon: <MultivariateTesting />,
     },
     {
         name: 'Dynamic cohort support',
         description: 'Add new users to an experiment automatically by setting a user property',
-        icon: 'https://posthog.com/images/products/ab-testing/ab-testing.png',
-        // icon: <IconPeople />,
+        icon: <IconPeople />,
     },
 ]
 
@@ -91,10 +87,8 @@ export const Feature = ({ name, description, image }: FeatureProps): JSX.Element
 
 export const Subfeature = ({ name, description, icon }: ''): JSX.Element => {
     return (
-        <li className={`bg-accent dark:bg-accent-dark rounded-lg p-4 sm:p-6 sm:pb-8`}>
-            <span className="inline-block w-10 h-10 mb-4 opacity-50">
-                <img src={icon} />
-            </span>
+        <li className={`rounded-lg p-4 sm:p-6 sm:pb-8`}>
+            <span className="inline-block text-xl mb-2 opacity-75">{icon}</span>
             <h3 className={`text-[17px] mb-1 leading-tight`}>{name}</h3>
             <p className={`m-0 text-[15px]`}>
                 <div dangerouslySetInnerHTML={{ __html: description }} />
@@ -199,7 +193,7 @@ export function PayGatePage({
                         <ul className="space-y-1">
                             {AbTestingPaidFeatures.map((feature, index) => (
                                 <li key={index} className="flex gap-1.5 items-center leading-0">
-                                    <span className="text-greeen">
+                                    <span className="text-green">
                                         <IconCheckCircle className="text-2xl fill-current" />
                                     </span>
                                     <span>{feature}</span>
@@ -210,13 +204,13 @@ export function PayGatePage({
                 </div>
                 <div className="features p-8 py-12">
                     <h3 className="mb-4">Features</h3>
-                    <ul className="list-none p-0 grid grid-cols-3 gap-8">
+                    <ul className="list-none p-0 grid grid-cols-3 gap-8 mb-8">
                         {AbTestingFeatures.map((feature, index) => {
                             return <Feature {...feature} key={index} />
                         })}
                     </ul>
 
-                    <ul className={`list-none p-0 grid grid-cols-2 md:grid-cols-3 gap-4`}>
+                    <ul className={`subfeatures list-none p-0 grid grid-cols-2 md:grid-cols-3 gap-4`}>
                         {AbTestingSubfeatures.map((subfeature, index) => {
                             return <Subfeature {...subfeature} key={index} />
                         })}
