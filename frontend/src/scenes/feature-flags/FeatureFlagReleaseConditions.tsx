@@ -250,6 +250,7 @@ export function FeatureFlagReleaseConditions({
                             <div className="flex items-center gap-1">
                                 Roll out to{' '}
                                 <LemonInput
+                                    data-attr="rollout-percentage"
                                     type="number"
                                     className="mx-2"
                                     onChange={(value): void => {
