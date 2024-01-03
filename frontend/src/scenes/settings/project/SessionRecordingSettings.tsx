@@ -335,7 +335,7 @@ export function ReplayCostControl(): JSX.Element {
             <>
                 <div className={'flex flex-col space-y-2'}>
                     <LemonLabel className="text-base">Enable recordings using feature flag</LemonLabel>
-                    <div className={'flex flex-row justify-start space-x-2'}>
+                    <div className={'flex flex-row justify-start'}>
                         <FlagSelector
                             value={currentTeam?.session_recording_linked_flag?.id ?? undefined}
                             onChange={(id, key) => {
@@ -346,7 +346,9 @@ export function ReplayCostControl(): JSX.Element {
                         />
                         {currentTeam?.session_recording_linked_flag && (
                             <LemonButton
-                                disabledReason="Please contact support to enable this feature."
+                                disabledReason={
+                                    !costControlFeaturesEnabled && 'Please contact support to enable this feature.'
+                                }
                                 className="ml-2"
                                 icon={<IconCancel />}
                                 size="small"
