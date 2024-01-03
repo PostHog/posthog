@@ -1,8 +1,9 @@
 import { CanvasArg, type canvasMutationData, type canvasMutationParam, eventWithTime } from '@rrweb/types'
 import { EventType, IncrementalSource, Replayer } from 'rrweb'
+// TODO: figure out how to import this method
+import canvasMutation from 'rrweb/es/rrweb/packages/rrweb/src/replay/canvas'
 import { ReplayPlugin } from 'rrweb/typings/types'
 
-import canvasMutation from './canvas-mutation'
 import { deserializeCanvasArg } from './deserialize-canvas-args'
 
 export function CanvasReplayerPlugin(events: eventWithTime[]): ReplayPlugin {
