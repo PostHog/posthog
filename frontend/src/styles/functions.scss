@@ -1,11 +1,16 @@
+@use 'sass:math';
+
 @function escape-number($value) {
-    $int: floor($value);
+    $int: math.floor($value);
     $fract: $value - $int;
-    @if ($fract == 0) {
+
+    @if $fract == 0 {
         @return $int;
     }
-    @while ($fract != floor($fract)) {
+
+    @while $fract != math.floor($fract) {
         $fract: $fract * 10;
     }
-    @return $int + '\\.'+ $fract;
+
+    @return $int + '\\.'+ $fract; /* stylelint-disable-line scss/operator-no-unspaced */
 }

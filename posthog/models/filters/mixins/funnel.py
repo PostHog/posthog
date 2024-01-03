@@ -264,7 +264,11 @@ class FunnelTrendsPersonsMixin(BaseParamMixin):
     @cached_property
     def entrance_period_start(self) -> Optional[datetime.datetime]:
         entrance_period_start_raw = self._data.get(ENTRANCE_PERIOD_START)
-        return relative_date_parse(entrance_period_start_raw) if entrance_period_start_raw else None
+        return (
+            relative_date_parse(entrance_period_start_raw, self.team.timezone_info)  # type: ignore
+            if entrance_period_start_raw
+            else None
+        )
 
     @cached_property
     def drop_off(self) -> Optional[bool]:

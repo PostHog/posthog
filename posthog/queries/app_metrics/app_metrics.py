@@ -13,7 +13,10 @@ from posthog.models.app_metrics.sql import (
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.filters.mixins.base import IntervalType
 from posthog.models.team.team import Team
-from posthog.queries.app_metrics.serializers import AppMetricsErrorsRequestSerializer, AppMetricsRequestSerializer
+from posthog.queries.app_metrics.serializers import (
+    AppMetricsErrorsRequestSerializer,
+    AppMetricsRequestSerializer,
+)
 from posthog.queries.util import format_ch_timestamp, get_time_in_seconds_for_period
 from posthog.utils import relative_date_parse
 
@@ -27,7 +30,10 @@ class TeamPluginsDeliveryRateQuery:
     def run(self):
         results = sync_execute(
             self.QUERY,
-            {"team_id": self.team.pk, "from_date": format_clickhouse_timestamp(datetime.now() - timedelta(hours=24))},
+            {
+                "team_id": self.team.pk,
+                "from_date": format_clickhouse_timestamp(datetime.now() - timedelta(hours=24)),
+            },
         )
         return dict(results)
 
@@ -60,15 +66,17 @@ class AppMetricsQuery:
 
     def query(self):
         job_id = self.filter.validated_data.get("job_id")
+        category = self.filter.validated_data.get("category")
         query = self.QUERY.format(
             job_id_clause="AND job_id = %(job_id)s" if job_id is not None else "",
+            category_clause="AND category = %(category)s" if category is not None else "",
             interval_function=self.interval_function,
         )
 
         return query, {
             "team_id": self.team.pk,
             "plugin_config_id": self.plugin_config_id,
-            "category": self.filter.validated_data.get("category"),
+            "category": category,
             "job_id": job_id,
             "date_from": format_ch_timestamp(self.date_from),
             "date_to": format_ch_timestamp(self.date_to),
@@ -79,12 +87,20 @@ class AppMetricsQuery:
 
     @property
     def date_from(self):
-        return relative_date_parse(self.filter.validated_data.get("date_from"))
+        return relative_date_parse(
+            self.filter.validated_data.get("date_from"),
+            self.team.timezone_info,
+            always_truncate=True,
+        )
 
     @property
     def date_to(self):
         date_to_string = self.filter.validated_data.get("date_to")
-        return relative_date_parse(date_to_string) if date_to_string is not None else now()
+        return (
+            relative_date_parse(date_to_string, self.team.timezone_info, always_truncate=True)
+            if date_to_string is not None
+            else now()
+        )
 
     @property
     def interval(self) -> IntervalType:
@@ -115,7 +131,12 @@ class AppMetricsErrorsQuery(AppMetricsQuery):
 class AppMetricsErrorDetailsQuery:
     QUERY = QUERY_APP_METRICS_ERROR_DETAILS
 
-    def __init__(self, team: Team, plugin_config_id: int, filter: AppMetricsErrorsRequestSerializer):
+    def __init__(
+        self,
+        team: Team,
+        plugin_config_id: int,
+        filter: AppMetricsErrorsRequestSerializer,
+    ):
         self.team = team
         self.plugin_config_id = plugin_config_id
         self.filter = filter
@@ -126,12 +147,16 @@ class AppMetricsErrorDetailsQuery:
 
     def query(self):
         job_id = self.filter.validated_data.get("job_id")
-        query = self.QUERY.format(job_id_clause="AND job_id = %(job_id)s" if job_id is not None else "")
+        category = self.filter.validated_data.get("category")
+        query = self.QUERY.format(
+            job_id_clause="AND job_id = %(job_id)s" if job_id is not None else "",
+            category_clause="AND category = %(category)s" if category is not None else "",
+        )
 
         return query, {
             "team_id": self.team.pk,
             "plugin_config_id": self.plugin_config_id,
-            "category": self.filter.validated_data.get("category"),
+            "category": category,
             "job_id": job_id,
             "error_type": self.filter.validated_data.get("error_type"),
         }

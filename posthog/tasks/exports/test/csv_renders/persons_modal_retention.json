@@ -1,6 +1,6 @@
 {
     "csv_rows": [
-        "person,Day 0,Day 1,Day 2,Day 3,Day 4,Day 5,Day 6,Day 7,Day 8,Day 9,Day 10",
+        "person,Week 0,Week 1,Week 2,Week 3,Week 4,Week 5,Week 6,Week 7,Week 8,Week 9,Week 10",
         "talent1974@yahoo.com,1,1,1,1,1,1,1,1,1,1,0",
         "few2035@protonmail.com,1,1,1,1,1,1,1,1,1,0,0",
         ""
@@ -47,6 +47,43 @@
             }
         ],
         "next": null,
-        "missing_persons": 0
+        "missing_persons": 0,
+        "filters": {
+            "breakdown_attribution_type": "first_touch",
+            "breakdown_normalize_url": false,
+            "breakdown_values": [0],
+            "date_from": "-11d",
+            "display": "ActionsTable",
+            "insight": "RETENTION",
+            "limit": 100,
+            "period": "Week",
+            "retention_type": "retention_first_time",
+            "returning_entity": {
+                "id": "$pageview",
+                "type": "events",
+                "order": null,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "sampling_factor": "",
+            "target_entity": {
+                "id": "$pageview",
+                "type": "events",
+                "order": null,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_hogql": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "total_intervals": 11
+        }
     }
 }

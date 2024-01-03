@@ -1,20 +1,23 @@
+import { IconInfo } from '@posthog/icons'
+import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { InfoCircleOutlined } from '@ant-design/icons'
+import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
     dateOptionPlurals,
     dateOptions,
     retentionOptionDescriptions,
     retentionOptions,
 } from 'scenes/retention/constants'
-import { FilterType, EditorFilterProps, RetentionType } from '~/types'
-import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
+
 import { groupsModel } from '~/models/groupsModel'
+import { EditorFilterProps, FilterType, RetentionType } from '~/types'
+
+import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-import { Link } from 'lib/lemon-ui/Link'
-import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Element {
     const { showGroupsOptions } = useValues(groupsModel)
@@ -52,7 +55,7 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
                                 updateInsightFilter({ target_entity: undefined })
                             }
                         }}
-                        typeKey="retention-table"
+                        typeKey={`${keyForInsightLogicProps('new')(insightProps)}-target_entity`}
                     />
                 </span>
                 <LemonSelect
@@ -63,7 +66,7 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
                             <>
                                 {value}
                                 <Tooltip placement="right" title={retentionOptionDescriptions[key]}>
-                                    <InfoCircleOutlined className="info-indicator" />
+                                    <IconInfo className="info-indicator" />
                                 </Tooltip>
                             </>
                         ),
@@ -112,7 +115,7 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
                                 updateInsightFilter({ returning_entity: undefined })
                             }
                         }}
-                        typeKey="retention-table-returning"
+                        typeKey={`${keyForInsightLogicProps('new')(insightProps)}-returning_entity`}
                     />
                 </span>
                 on any of the next {dateOptionPlurals[period ?? 'Day']}.

@@ -1,12 +1,16 @@
+import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { actionToUrl, urlToAction } from 'kea-router'
 import api from 'lib/api'
-import { kea } from 'kea'
-import type { systemStatusLogicType } from './systemStatusLogicType'
-import { userLogic } from 'scenes/userLogic'
-import { SystemStatus, SystemStatusRow, SystemStatusQueriesResult, InstanceSetting } from '~/types'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isUserLoggedIn } from 'lib/utils'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { InstanceSetting, SystemStatus, SystemStatusQueriesResult, SystemStatusRow } from '~/types'
+
+import type { systemStatusLogicType } from './systemStatusLogicType'
 
 export enum ConfigMode {
     View = 'view',
@@ -17,7 +21,7 @@ export enum ConfigMode {
 export type InstanceStatusTabName = 'overview' | 'metrics' | 'settings' | 'staff_users' | 'kafka_inspector'
 
 /**
- * We whitelist the specific instance settings that can be edited via the /instance/status page.
+ * We allow the specific instance settings that can be edited via the /instance/status page.
  * Even if some settings are editable in the frontend according to the API, we may don't want to expose them here.
  * For example: async migrations settings are handled in their own page.
  */
@@ -49,9 +53,9 @@ const EDITABLE_INSTANCE_SETTINGS = [
 ]
 
 // Note: This logic does some heavy calculations - avoid connecting it outside of system status pages!
-export const systemStatusLogic = kea<systemStatusLogicType>({
-    path: ['scenes', 'instance', 'SystemStatus', 'systemStatusLogic'],
-    actions: {
+export const systemStatusLogic = kea<systemStatusLogicType>([
+    path(['scenes', 'instance', 'SystemStatus', 'systemStatusLogic']),
+    actions({
         setTab: (tab: InstanceStatusTabName) => ({ tab }),
         setOpenSections: (sections: string[]) => ({ sections }),
         setInstanceConfigMode: (mode: ConfigMode) => ({ mode }),
@@ -60,8 +64,8 @@ export const systemStatusLogic = kea<systemStatusLogicType>({
         saveInstanceConfig: true,
         setUpdatedInstanceConfigCount: (count: number | null) => ({ count }),
         increaseUpdatedInstanceConfigCount: true,
-    },
-    loaders: () => ({
+    }),
+    loaders(() => ({
         systemStatus: [
             null as SystemStatus | null,
             {
@@ -93,8 +97,8 @@ export const systemStatusLogic = kea<systemStatusLogicType>({
                 loadQueries: async () => (await api.get('api/instance_status/queries')).results,
             },
         ],
-    }),
-    reducers: {
+    })),
+    reducers({
         tab: [
             'overview' as InstanceStatusTabName,
             {
@@ -143,9 +147,8 @@ export const systemStatusLogic = kea<systemStatusLogicType>({
                 increaseUpdatedInstanceConfigCount: (state) => (state ?? 0) + 1,
             },
         ],
-    },
-
-    selectors: () => ({
+    }),
+    selectors(() => ({
         overview: [
             (s) => [s.systemStatus],
             (status: SystemStatus | null): SystemStatusRow[] => (status ? status.overview : []),
@@ -155,9 +158,8 @@ export const systemStatusLogic = kea<systemStatusLogicType>({
             (instanceSettings): InstanceSetting[] =>
                 instanceSettings.filter((item) => item.editable && EDITABLE_INSTANCE_SETTINGS.includes(item.key)),
         ],
-    }),
-
-    listeners: ({ actions, values }) => ({
+    })),
+    listeners(({ actions, values }) => ({
         setTab: ({ tab }: { tab: InstanceStatusTabName }) => {
             if (tab === 'metrics') {
                 actions.loadQueries()
@@ -193,19 +195,11 @@ export const systemStatusLogic = kea<systemStatusLogicType>({
                 lemonToast.success('Instance settings updated')
             }
         },
-    }),
-
-    events: ({ actions }) => ({
-        afterMount: () => {
-            actions.loadSystemStatus()
-        },
-    }),
-
-    actionToUrl: ({ values }) => ({
+    })),
+    actionToUrl(({ values }) => ({
         setTab: () => '/instance/' + (values.tab === 'overview' ? 'status' : values.tab),
-    }),
-
-    urlToAction: ({ actions, values }) => ({
+    })),
+    urlToAction(({ actions, values }) => ({
         '/instance(/:tab)': ({ tab }: { tab?: InstanceStatusTabName }) => {
             const currentTab =
                 tab && ['metrics', 'settings', 'staff_users', 'kafka_inspector'].includes(tab) ? tab : 'overview'
@@ -213,5 +207,10 @@ export const systemStatusLogic = kea<systemStatusLogicType>({
                 actions.setTab(currentTab)
             }
         },
-    }),
-})
+    })),
+    events(({ actions }) => ({
+        afterMount: () => {
+            actions.loadSystemStatus()
+        },
+    })),
+])

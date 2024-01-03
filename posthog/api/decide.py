@@ -1,32 +1,36 @@
-from random import random
 import re
+from random import random
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
-from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
-from posthog.metrics import LABEL_TEAM_ID
-from posthog.models.feature_flag.flag_analytics import increment_request_count
-from posthog.models.filters.mixins.utils import process_bool
 
 import structlog
+from django.conf import settings
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from django.conf import settings
+from prometheus_client import Counter
 from rest_framework import status
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
-from prometheus_client import Counter
-
 
 from posthog.api.geoip import get_geoip_properties
+from posthog.api.survey import SURVEY_TARGETING_FLAG_PREFIX
 from posthog.api.utils import get_project_id, get_token
+from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.logging.timing import timed
+from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_all_feature_flags
+from posthog.models.feature_flag.flag_analytics import increment_request_count
+from posthog.models.filters.mixins.utils import process_bool
 from posthog.models.utils import execute_with_timeout
 from posthog.plugins.site import get_decide_site_apps
-from posthog.utils import cors_response, get_ip_address, label_for_team_id_to_track, load_data_from_request
-
+from posthog.utils import (
+    get_ip_address,
+    label_for_team_id_to_track,
+    load_data_from_request,
+)
+from posthog.utils_cors import cors_response
 
 FLAG_EVALUATION_COUNTER = Counter(
     "flag_evaluation_total",
@@ -149,7 +153,6 @@ def get_decide(request: HttpRequest):
             feature_flags = None
             errors = False
             if not disable_flags:
-
                 distinct_id = data.get("distinct_id")
                 if distinct_id is None:
                     return cors_response(
@@ -211,20 +214,53 @@ def get_decide(request: HttpRequest):
             response["capturePerformance"] = True if team.capture_performance_opt_in else False
             response["autocapture_opt_out"] = True if team.autocapture_opt_out else False
             response["autocaptureExceptions"] = (
-                {"endpoint": "/e/", "errors_to_ignore": team.autocapture_exceptions_errors_to_ignore or []}
+                {
+                    "endpoint": "/e/",
+                    "errors_to_ignore": team.autocapture_exceptions_errors_to_ignore or [],
+                }
                 if team.autocapture_exceptions_opt_in
                 else False
             )
+
+            if str(team.id) not in settings.NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS:
+                if (
+                    "*" in settings.NEW_ANALYTICS_CAPTURE_TEAM_IDS
+                    or str(team.id) in settings.NEW_ANALYTICS_CAPTURE_TEAM_IDS
+                ):
+                    if random() < settings.NEW_ANALYTICS_CAPTURE_SAMPLING_RATE:
+                        response["analytics"] = {"endpoint": settings.NEW_ANALYTICS_CAPTURE_ENDPOINT}
+
+            if (
+                settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS
+                and str(team.id) not in settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS
+            ):
+                response["elementsChainAsString"] = True
 
             if team.session_recording_opt_in and (
                 on_permitted_recording_domain(team, request) or not team.recording_domains
             ):
                 capture_console_logs = True if team.capture_console_log_opt_in else False
+                sample_rate = team.session_recording_sample_rate or None
+                if sample_rate == "1.00":
+                    sample_rate = None
+
+                minimum_duration = team.session_recording_minimum_duration_milliseconds or None
+
+                linked_flag = team.session_recording_linked_flag or None
+                if isinstance(linked_flag, Dict):
+                    linked_flag = linked_flag.get("key")
+
                 response["sessionRecording"] = {
                     "endpoint": "/s/",
                     "consoleLogRecordingEnabled": capture_console_logs,
                     "recorderVersion": "v2",
+                    "sampleRate": sample_rate,
+                    "minimumDurationMilliseconds": minimum_duration,
+                    "linkedFlag": linked_flag,
+                    "networkPayloadCapture": team.session_recording_network_payload_capture_config or None,
                 }
+
+            response["surveys"] = True if team.surveys_opt_in else False
 
             site_apps = []
             # errors mean the database is unavailable, bail in this case
@@ -243,11 +279,12 @@ def get_decide(request: HttpRequest):
 
             if feature_flags:
                 # Billing analytics for decide requests with feature flags
-
-                # Sample no. of decide requests with feature flags
-                if settings.DECIDE_BILLING_SAMPLING_RATE and random() < settings.DECIDE_BILLING_SAMPLING_RATE:
-                    count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
-                    increment_request_count(team.pk, count)
+                # Don't count if all requests are for survey targeting flags only.
+                if not all(flag.startswith(SURVEY_TARGETING_FLAG_PREFIX) for flag in feature_flags.keys()):
+                    # Sample no. of decide requests with feature flags
+                    if settings.DECIDE_BILLING_SAMPLING_RATE and random() < settings.DECIDE_BILLING_SAMPLING_RATE:
+                        count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
+                        increment_request_count(team.pk, count)
 
         else:
             # no auth provided

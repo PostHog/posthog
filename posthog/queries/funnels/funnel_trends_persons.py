@@ -50,7 +50,11 @@ class ClickhouseFunnelTrendsActors(ClickhouseFunnelTrends, ActorBaseQuery):
         # Expects multiple rows for same person, first event time, steps taken.
         self.params.update(self.funnel_order.params)
 
-        _, reached_to_step_count_condition, did_not_reach_to_step_count_condition = self.get_steps_reached_conditions()
+        (
+            _,
+            reached_to_step_count_condition,
+            did_not_reach_to_step_count_condition,
+        ) = self.get_steps_reached_conditions()
 
         return (
             FUNNEL_PERSONS_BY_STEP_SQL.format(

@@ -1,34 +1,34 @@
-import { kea } from 'kea'
+import { CheckboxValueType } from 'antd/lib/checkbox/Group'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { LOGS_PORTION_LIMIT } from 'lib/constants'
+
 import api from '~/lib/api'
 import { PluginLogEntry, PluginLogEntryType } from '~/types'
+
 import { teamLogic } from '../../teamLogic'
 import type { pluginLogsLogicType } from './pluginLogsLogicType'
-import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 
 export interface PluginLogsProps {
     pluginConfigId: number
 }
 
-export const LOGS_PORTION_LIMIT = 50
-
-export const pluginLogsLogic = kea<pluginLogsLogicType>({
-    props: {} as PluginLogsProps,
-    key: ({ pluginConfigId }: PluginLogsProps) => pluginConfigId,
-    path: (key) => ['scenes', 'plugins', 'plugin', 'pluginLogsLogic', key],
-    connect: {
+export const pluginLogsLogic = kea<pluginLogsLogicType>([
+    props({} as PluginLogsProps),
+    key(({ pluginConfigId }: PluginLogsProps) => pluginConfigId),
+    path((key) => ['scenes', 'plugins', 'plugin', 'pluginLogsLogic', key]),
+    connect({
         values: [teamLogic, ['currentTeamId']],
-    },
-
-    actions: {
+    }),
+    actions({
         clearPluginLogsBackground: true,
         markLogsEnd: true,
         setPluginLogsTypes: (typeFilters: CheckboxValueType[]) => ({
             typeFilters,
         }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
-    },
-
-    loaders: ({ props: { pluginConfigId }, values, actions, cache }) => ({
+    }),
+    loaders(({ props: { pluginConfigId }, values, actions, cache }) => ({
         pluginLogs: {
             __default: [] as PluginLogEntry[],
             loadPluginLogs: async () => {
@@ -83,16 +83,8 @@ export const pluginLogsLogic = kea<pluginLogsLogicType>({
                 return [...results, ...values.pluginLogsBackground]
             },
         },
-    }),
-    listeners: ({ actions }) => ({
-        setPluginLogsTypes: () => {
-            actions.loadPluginLogs()
-        },
-        setSearchTerm: () => {
-            actions.loadPluginLogs()
-        },
-    }),
-    reducers: {
+    })),
+    reducers({
         pluginLogsTypes: [
             Object.values(PluginLogEntryType).filter((type) => type !== 'DEBUG'),
             {
@@ -124,9 +116,8 @@ export const pluginLogsLogic = kea<pluginLogsLogicType>({
                 markLogsEnd: () => false,
             },
         ],
-    },
-
-    selectors: ({ selectors }) => ({
+    }),
+    selectors(({ selectors }) => ({
         leadingEntry: [
             () => [selectors.pluginLogs, selectors.pluginLogsBackground],
             (pluginLogs: PluginLogEntry[], pluginLogsBackground: PluginLogEntry[]): PluginLogEntry | null => {
@@ -151,14 +142,24 @@ export const pluginLogsLogic = kea<pluginLogsLogicType>({
                 return null
             },
         ],
-    }),
-
-    events: ({ actions, cache }) => ({
+    })),
+    listeners(({ actions }) => ({
+        setPluginLogsTypes: () => {
+            actions.loadPluginLogs()
+        },
+        setSearchTerm: async ({ searchTerm }, breakpoint) => {
+            if (searchTerm) {
+                await breakpoint(1000)
+            }
+            actions.loadPluginLogs()
+        },
+    })),
+    events(({ actions, cache }) => ({
         afterMount: () => {
             actions.loadPluginLogs()
         },
         beforeUnmount: () => {
             clearInterval(cache.pollingInterval)
         },
-    }),
-})
+    })),
+])

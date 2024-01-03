@@ -16,7 +16,7 @@ export const savedInsights = {
     },
 }
 
-function interceptInsightLoad(insightType: string): string {
+export function interceptInsightLoad(insightType: string): string {
     cy.intercept('GET', /api\/projects\/\d+\/insights\/trend\/\?.*/).as('loadNewTrendsInsight')
     cy.intercept('POST', /api\/projects\/\d+\/insights\/funnel\/?/).as('loadNewFunnelInsight')
     cy.intercept('GET', /api\/projects\/\d+\/insights\/retention\/\?.*/).as('loadNewRetentionInsight')
@@ -55,7 +55,7 @@ function interceptInsightLoad(insightType: string): string {
 
 export const insight = {
     applyFilter: (): void => {
-        cy.get('[data-attr=insight-filters-add-filter-group]').click()
+        cy.get('[data-attr$=add-filter-group]').click()
         cy.get('[data-attr=property-select-toggle-0]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
         cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
@@ -64,9 +64,9 @@ export const insight = {
     },
     editName: (insightName: string): void => {
         if (insightName) {
-            cy.get('[data-attr="insight-name"] [data-attr="edit-prop-name"]').click()
-            cy.get('[data-attr="insight-name"] input').type(insightName)
-            cy.get('[data-attr="insight-name"] [title="Save"]').click()
+            cy.get('[data-attr="top-bar-name"] button').click()
+            cy.get('[data-attr="top-bar-name"] input').clear().type(insightName)
+            cy.get('[data-attr="top-bar-name"] [title="Save"]').click()
         }
     },
     save: (): void => {
@@ -103,9 +103,9 @@ export const insight = {
 
         cy.get('[data-attr="insight-save-button"]').click() // Save the insight
         cy.url().should('not.include', '/new') // wait for insight to complete and update URL
-        cy.get('[data-attr="edit-prop-name"]').click({ force: true }) // Rename insight, out of view, must force
-        cy.get('[data-attr="insight-name"] input').type(insightName)
-        cy.get('[data-attr="insight-name"] [title="Save"]').click()
+        cy.get('[data-attr="top-bar-name"] button').click()
+        cy.get('[data-attr="top-bar-name"] input').clear().type(insightName)
+        cy.get('[data-attr="top-bar-name"] [title="Save"]').click()
     },
     addInsightToDashboard: (dashboardName: string, options: { visitAfterAdding: boolean }): void => {
         cy.intercept('PATCH', /api\/projects\/\d+\/insights\/\d+\/.*/).as('patchInsight')
@@ -116,7 +116,7 @@ export const insight = {
             // force clicks rather than mess around scrolling rows that exist into view
             cy.contains('button', 'Add to dashboard').click({ force: true })
             cy.wait('@patchInsight').then(() => {
-                cy.contains('Added').should('exist')
+                cy.contains('Remove from dashboard').should('exist')
                 if (options?.visitAfterAdding) {
                     cy.contains('a', dashboardName).click({ force: true })
                 }
@@ -155,17 +155,18 @@ export const dashboards = {
     createDashboardFromDefaultTemplate: (dashboardName: string): void => {
         cy.get('[data-attr="new-dashboard"]').click()
         cy.get('[data-attr="create-dashboard-from-template"]').click()
-        cy.get('[data-attr="dashboard-name"]').contains('Product analytics').should('exist')
-        cy.get('[data-attr="dashboard-name"] button').click()
-        cy.get('[data-attr="dashboard-name"] input').clear().type(dashboardName).blur()
+        cy.get('[data-attr="top-bar-name"]').contains('Product analytics').should('exist')
+        cy.get('[data-attr="top-bar-name"] button').click()
+        cy.get('[data-attr="top-bar-name"] input').clear().type(dashboardName).blur()
         cy.contains(dashboardName).should('exist')
     },
     createAndGoToEmptyDashboard: (dashboardName: string): void => {
         cy.get('[data-attr="new-dashboard"]').click()
         cy.get('[data-attr="create-dashboard-blank"]').click()
-        cy.get('[data-attr="dashboard-name"]').should('exist')
-        cy.get('[data-attr="dashboard-name"] button').click()
-        cy.get('[data-attr="dashboard-name"] input').clear().type(dashboardName).blur()
+        cy.get('[data-attr="top-bar-name"]').should('exist')
+        cy.get('[data-attr="top-bar-name"] button').click()
+        cy.get('[data-attr="top-bar-name"] input').clear().type(dashboardName)
+        cy.get('[data-attr="top-bar-name"] [title="Save"]').click()
         cy.contains(dashboardName).should('exist')
     },
     visitDashboard: (dashboardName: string): void => {
@@ -185,10 +186,10 @@ export const dashboard = {
         cy.get('[data-attr=toast-close-button]').click({ multiple: true })
 
         if (insightName) {
-            cy.get('[data-attr="insight-name"] [data-attr="edit-prop-name"]').click()
-            cy.get('[data-attr="insight-name"] input').type(insightName)
-            cy.get('[data-attr="insight-name"] [title="Save"]').click()
-            cy.get('h1.page-title').should('have.text', insightName)
+            cy.get('[data-attr="top-bar-name"] button').click()
+            cy.get('[data-attr="top-bar-name"] input').clear().type(insightName)
+            cy.get('[data-attr="top-bar-name"] [title="Save"]').click()
+            cy.get('[data-attr="top-bar-name"]').should('have.text', insightName)
         }
 
         cy.get('[data-attr=insight-save-button]').contains('Save & add to dashboard').click()

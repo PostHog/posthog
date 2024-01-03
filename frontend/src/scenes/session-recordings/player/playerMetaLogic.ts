@@ -1,20 +1,22 @@
+import { eventWithTime } from '@rrweb/types'
 import { connect, kea, key, listeners, path, props, selectors } from 'kea'
-import type { playerMetaLogicType } from './playerMetaLogicType'
+import { ceilMsToClosestSecond, findLastIndex, objectsEqual } from 'lib/utils'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import {
-    SessionRecordingLogicProps,
     sessionRecordingPlayerLogic,
+    SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { eventWithTime } from '@rrweb/types'
+
 import { PersonType } from '~/types'
-import { ceilMsToClosestSecond, findLastIndex, objectsEqual } from 'lib/utils'
+
 import { sessionRecordingsListPropertiesLogic } from '../playlist/sessionRecordingsListPropertiesLogic'
+import type { playerMetaLogicType } from './playerMetaLogicType'
 
 export const playerMetaLogic = kea<playerMetaLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playerMetaLogic', key]),
-    props({} as SessionRecordingLogicProps),
-    key((props: SessionRecordingLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
-    connect((props: SessionRecordingLogicProps) => ({
+    props({} as SessionRecordingPlayerLogicProps),
+    key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
+    connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [
             sessionRecordingDataLogic(props),
             [
@@ -84,8 +86,9 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         currentWindowIndex: [
             (s) => [s.windowIds, s.currentSegment],
             (windowIds, currentSegment) => {
-                const index = windowIds.findIndex((windowId) => windowId === currentSegment?.windowId ?? -1)
-
+                const index = windowIds.findIndex((windowId) =>
+                    currentSegment?.windowId ? windowId === currentSegment?.windowId : -1
+                )
                 return index === -1 ? 0 : index
             },
         ],

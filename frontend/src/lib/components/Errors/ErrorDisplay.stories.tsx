@@ -1,11 +1,13 @@
-import { ComponentMeta } from '@storybook/react'
+import { Meta } from '@storybook/react'
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
+
 import { EventType, RecordingEventType } from '~/types'
 
-export default {
+const meta: Meta<typeof ErrorDisplay> = {
     title: 'Components/Errors/Error Display',
     component: ErrorDisplay,
-} as ComponentMeta<typeof ErrorDisplay>
+}
+export default meta
 
 function errorEvent(properties: Record<string, any>): EventType | RecordingEventType {
     return {
@@ -42,7 +44,6 @@ function errorEvent(properties: Record<string, any>): EventType | RecordingEvent
                 customer: 'the-customer',
                 instance: 'https://app.posthog.com',
             },
-            posthog_version: '1.43.0',
             $exception_message: 'ResizeObserver loop limit exceeded',
             $exception_type: 'Error',
             $exception_personURL: 'https://app.posthog.com/person/the-person-id',

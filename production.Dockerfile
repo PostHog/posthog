@@ -1,7 +1,7 @@
 #
 # This Dockerfile is used for self-hosted production builds.
 #
-# PostHog has sunset support for self-hosted K8s deployments. 
+# PostHog has sunset support for self-hosted K8s deployments.
 # See: https://posthog.com/blog/sunsetting-helm-support-posthog
 #
 # Note: for PostHog Cloud remember to update ‘Dockerfile.cloud’ as appropriate.
@@ -26,15 +26,32 @@ WORKDIR /code
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 COPY package.json pnpm-lock.yaml ./
-RUN corepack enable && pnpm --version && \
+RUN corepack enable && \
     mkdir /tmp/pnpm-store && \
     pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
     rm -rf /tmp/pnpm-store
 
 COPY frontend/ frontend/
+COPY ee/frontend/ ee/frontend/
 COPY ./bin/ ./bin/
 COPY babel.config.js tsconfig.json webpack.config.js ./
 RUN pnpm build
+
+
+#
+# ---------------------------------------------------------
+#
+FROM node:18.12.1-bullseye-slim AS plugin-transpiler-build
+WORKDIR /code
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+COPY plugin-transpiler/ plugin-transpiler/
+WORKDIR /code/plugin-transpiler
+RUN corepack enable && \
+    mkdir /tmp/pnpm-store && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    pnpm build && \
+    rm -rf /tmp/pnpm-store
 
 
 #
@@ -168,6 +185,10 @@ RUN groupadd -g 1000 posthog && \
     chown posthog:posthog /code
 USER posthog
 
+# Add the commit hash
+ARG COMMIT_HASH
+RUN echo $COMMIT_HASH > /code/commit.txt
+
 # Add in the compiled plugin-server & its runtime dependencies from the plugin-server-build stage.
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/dist /code/plugin-server/dist
 COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/node_modules /code/plugin-server/node_modules
@@ -192,6 +213,7 @@ COPY --chown=posthog:posthog ./bin ./bin/
 COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/
+COPY --chown=posthog:posthog hogvm hogvm/
 
 # Setup ENV.
 ENV NODE_ENV=production \
@@ -202,7 +224,7 @@ ENV NODE_ENV=production \
 # Expose container port and run entry point script.
 EXPOSE 8000
 
-# Expose the port from which we serve OpenMetrics data.
+# Expose the port from which we serve OpenMetrics data.
 EXPOSE 8001
 
 CMD ["./bin/docker"]

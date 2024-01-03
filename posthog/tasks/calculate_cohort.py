@@ -62,9 +62,31 @@ def calculate_cohort_from_list(cohort_id: int, items: List[str]) -> None:
 
 @shared_task(ignore_result=True, max_retries=1)
 def insert_cohort_from_insight_filter(cohort_id: int, filter_data: Dict[str, Any]) -> None:
-    from posthog.api.cohort import insert_cohort_actors_into_ch, insert_cohort_people_into_pg
+    from posthog.api.cohort import (
+        insert_cohort_actors_into_ch,
+        insert_cohort_people_into_pg,
+    )
 
     cohort = Cohort.objects.get(pk=cohort_id)
 
     insert_cohort_actors_into_ch(cohort, filter_data)
     insert_cohort_people_into_pg(cohort=cohort)
+
+
+@shared_task(ignore_result=True, max_retries=1)
+def insert_cohort_from_query(cohort_id: int) -> None:
+    from posthog.api.cohort import (
+        insert_cohort_query_actors_into_ch,
+        insert_cohort_people_into_pg,
+    )
+
+    cohort = Cohort.objects.get(pk=cohort_id)
+    insert_cohort_query_actors_into_ch(cohort)
+    insert_cohort_people_into_pg(cohort=cohort)
+
+
+@shared_task(ignore_result=True, max_retries=1)
+def insert_cohort_from_feature_flag(cohort_id: int, flag_key: str, team_id: int) -> None:
+    from posthog.api.cohort import get_cohort_actors_for_feature_flag
+
+    get_cohort_actors_for_feature_flag(cohort_id, flag_key, team_id, batchsize=10_000)

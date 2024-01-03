@@ -24,7 +24,7 @@ Let's get you developing the plugin server in no time:
 
 1. Prepare for running functional tests. See notes below.
 
-## Functional tests
+### Running Functional Tests
 
 Functional tests are provided located in `functional_tests`. They provide tests
 for high level functionality of the plugin-server, i.e. functionality that any
@@ -47,8 +47,21 @@ testing:
 
 1. run docker `docker compose -f docker-compose.dev.yml up` (in posthog folder)
 1. setup the test DBs `pnpm setup:test`
-1. start the plugin-server with `CLICKHOUSE_DATABASE='default' DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog pnpm start:dev`
-1. run the tests with `CLICKHOUSE_DATABASE='default' DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog pnpm functional_tests --watch`
+1. start the plugin-server:
+    ```bash
+    APP_METRICS_FLUSH_FREQUENCY_MS=0 \
+        CLICKHOUSE_DATABASE='default' \
+        DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog \
+        PLUGINS_DEFAULT_LOG_LEVEL=0 \
+        RELOAD_PLUGIN_JITTER_MAX_MS=0 \
+        pnpm start:dev
+    ```
+1. run the tests:
+    ```bash
+    CLICKHOUSE_DATABASE='default' \
+        DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog \
+        pnpm functional_tests --watch
+    ```
 
 ## CLI flags
 
@@ -112,9 +125,6 @@ There's a multitude of settings you can use to control the plugin server. Use th
 | KAFKA_MAX_MESSAGE_BATCH_SIZE               | Kafka producer batch max size in bytes before flushing                                                                                                                                                         | `900000`                              |
 | LOG_LEVEL                                  | minimum log level                                                                                                                                                                                              | `'info'`                              |
 | SENTRY_DSN                                 | Sentry ingestion URL                                                                                                                                                                                           | `null`                                |
-| STATSD_HOST                                | StatsD host - integration disabled if this is not provided                                                                                                                                                     | `null`                                |
-| STATSD_PORT                                | StatsD port                                                                                                                                                                                                    | `8125`                                |
-| STATSD_PREFIX                              | StatsD prefix                                                                                                                                                                                                  | `'plugin-server.'`                    |
 | DISABLE_MMDB                               | whether to disable MMDB IP location capabilities                                                                                                                                                               | `false`                               |
 | INTERNAL_MMDB_SERVER_PORT                  | port of the internal server used for IP location (0 means random)                                                                                                                                              | `0`                                   |
 | DISTINCT_ID_LRU_SIZE                       | size of persons distinct ID LRU cache                                                                                                                                                                          | `10000`                               |
@@ -180,6 +190,31 @@ New functions called here are:
 
 > Note:
 > An `organization_id` is tied to a _company_ and its _installed plugins_, a `team_id` is tied to a _project_ and its _plugin configs_ (enabled/disabled+extra config).
+
+### Patching node-rdkafka
+
+We carry a node-rdkafka patch that adds cooperative rebalancing. To generate this patch:
+
+    # setup a local node-rdkafka clone
+    git clone git@github.com:PostHog/node-rdkafka.git
+    cd node-rdkafka
+    git remote add blizzard git@github.com:Blizzard/node-rdkafka.git
+    git fetch blizzard
+
+    # generate the diff
+    git diff blizzard/master > ~/node-rdkafka.diff
+
+    # in the plugin-server directory, this will output a temporary working directory
+    pnpm patch node-rdkafka@2.17.0
+
+    # enter the temporary directory from the previous command
+    cd /private/var/folders/b7/bmmghlpx5qdd6gpyvmz1k1_m0000gn/T/6082767a6879b3b4e11182f944f5cca3
+
+    # if asked, skip any missing files
+    patch -p1 < ~/node-rdkafka.diff
+
+    # in the plugin-server directory, target the temporary directory from the previous command
+    pnpm patch-commit /private/var/folders/b7/bmmghlpx5qdd6gpyvmz1k1_m0000gn/T/6082767a6879b3b4e11182f944f5cca3
 
 ## Questions?
 

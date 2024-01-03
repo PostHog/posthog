@@ -81,7 +81,7 @@ describe('plugins', () => {
         expect(pluginConfig.vm).toBeDefined()
         const vm = await pluginConfig.vm!.resolveInternalVm
         expect(Object.keys(vm!.methods).sort()).toEqual([
-            'exportEvents',
+            'composeWebhook',
             'getSettings',
             'onEvent',
             'processEvent',
@@ -627,87 +627,6 @@ describe('plugins', () => {
         expect(pluginConfig.plugin!.capabilities!.scheduled_tasks).toEqual([])
     })
 
-    test('plugin with frontend source transpiles it', async () => {
-        getPluginRows.mockReturnValueOnce([
-            { ...mockPluginSourceCode(), source__frontend_tsx: `export const scene = {}` },
-        ])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
-        await setupPlugins(hub)
-        const {
-            rows: [{ transpiled }],
-        } = await hub.db.postgresQuery(
-            `SELECT transpiled FROM posthog_pluginsourcefile WHERE plugin_id = $1 AND filename = $2`,
-            [60, 'frontend.tsx'],
-            ''
-        )
-        expect(transpiled).toEqual(`"use strict";
-export function getFrontendApp (require) { let exports = {}; "use strict";
-
-Object.defineProperty(exports, "__esModule", {
-  value: true
-});
-exports.scene = void 0;
-var scene = {};
-exports.scene = scene;; return exports; }`)
-    })
-
-    test('plugin with frontend source with error', async () => {
-        getPluginRows.mockReturnValueOnce([
-            { ...mockPluginSourceCode(), source__frontend_tsx: `export const scene = {}/` },
-        ])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
-        await setupPlugins(hub)
-        const {
-            rows: [plugin],
-        } = await hub.db.postgresQuery(
-            `SELECT * FROM posthog_pluginsourcefile WHERE plugin_id = $1 AND filename = $2`,
-            [60, 'frontend.tsx'],
-            ''
-        )
-        expect(plugin.transpiled).toEqual(null)
-        expect(plugin.status).toEqual('ERROR')
-        expect(plugin.error).toContain(`SyntaxError: /frontend.tsx: Unexpected token (1:24)`)
-        expect(plugin.error).toContain(`export const scene = {}/`)
-    })
-
-    test('getTranspilationLock returns just once', async () => {
-        getPluginRows.mockReturnValueOnce([
-            {
-                ...mockPluginSourceCode(),
-                source__index_ts: `function processEvent (event, meta) { event.properties={"x": 1}; return event }`,
-                source__frontend_tsx: `export const scene = {}`,
-            },
-        ])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
-
-        await setupPlugins(hub)
-        const getStatus = async () =>
-            (
-                await hub.db.postgresQuery(
-                    `SELECT status FROM posthog_pluginsourcefile WHERE plugin_id = $1 AND filename = $2`,
-                    [60, 'frontend.tsx'],
-                    ''
-                )
-            )?.rows?.[0]?.status || null
-
-        expect(await getStatus()).toEqual('TRANSPILED')
-        expect(await hub.db.getPluginTranspilationLock(60, 'frontend.tsx')).toEqual(false)
-        expect(await hub.db.getPluginTranspilationLock(60, 'frontend.tsx')).toEqual(false)
-
-        await hub.db.postgresQuery(
-            'UPDATE posthog_pluginsourcefile SET transpiled = NULL, status = NULL WHERE filename = $1',
-            ['frontend.tsx'],
-            ''
-        )
-
-        expect(await hub.db.getPluginTranspilationLock(60, 'frontend.tsx')).toEqual(true)
-        expect(await hub.db.getPluginTranspilationLock(60, 'frontend.tsx')).toEqual(false)
-        expect(await getStatus()).toEqual('LOCKED')
-    })
-
     test('reloading plugins after config changes', async () => {
         const makePlugin = (id: number, updated_at = '2020-11-02'): any => ({
             ...plugin60,
@@ -810,27 +729,6 @@ exports.scene = scene;; return exports; }`)
         expect(newPluginConfig.plugin).not.toBe(pluginConfig.plugin)
         expect(setPluginCapabilities.mock.calls.length).toBe(1)
         expect(newPluginConfig.plugin!.capabilities).toEqual(pluginConfig.plugin!.capabilities)
-    })
-
-    test.skip('exportEvents automatically sets metrics', async () => {
-        getPluginRows.mockReturnValueOnce([
-            mockPluginWithSourceFiles(`
-            export function exportEvents() {}
-        `),
-        ])
-        getPluginConfigRows.mockReturnValueOnce([pluginConfig39])
-        getPluginAttachmentRows.mockReturnValueOnce([pluginAttachment1])
-
-        await setupPlugins(hub)
-        const pluginConfig = hub.pluginConfigs.get(39)!
-
-        expect(pluginConfig.plugin!.metrics).toEqual({
-            events_delivered_successfully: 'sum',
-            events_seen: 'sum',
-            other_errors: 'sum',
-            retry_errors: 'sum',
-            undelivered_events: 'sum',
-        })
     })
 
     describe('loadSchedule()', () => {

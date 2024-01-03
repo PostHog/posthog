@@ -1,6 +1,8 @@
 import json
+import os
 import re
-from typing import Any, Dict, List, Optional, Set, cast
+import subprocess
+from typing import Any, Dict, List, Optional, Set, cast, Literal
 
 import requests
 from dateutil.relativedelta import relativedelta
@@ -32,7 +34,11 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.organization import Organization
-from posthog.models.plugin import PluginSourceFile, update_validated_data_from_url, validate_plugin_job_payload
+from posthog.models.plugin import (
+    PluginSourceFile,
+    update_validated_data_from_url,
+    validate_plugin_job_payload,
+)
 from posthog.models.utils import UUIDT, generate_random_token
 from posthog.permissions import (
     OrganizationMemberPermissions,
@@ -66,7 +72,10 @@ def get_plugin_config_changes(old_config: Dict[str, Any], new_config: Dict[str, 
     for i, change in enumerate(config_changes):
         if change.field in secret_fields:
             config_changes[i] = Change(
-                type="PluginConfig", action=change.action, before=SECRET_FIELD_VALUE, after=SECRET_FIELD_VALUE
+                type="PluginConfig",
+                action=change.action,
+                before=SECRET_FIELD_VALUE,
+                after=SECRET_FIELD_VALUE,
             )
 
     return config_changes
@@ -87,10 +96,16 @@ def log_enabled_change_activity(new_plugin_config: PluginConfig, old_enabled: bo
 
 
 def log_config_update_activity(
-    new_plugin_config: PluginConfig, old_config: Dict[str, Any], secret_fields: Set[str], old_enabled: bool, user: User
+    new_plugin_config: PluginConfig,
+    old_config: Dict[str, Any],
+    secret_fields: Set[str],
+    old_enabled: bool,
+    user: User,
 ):
     config_changes = get_plugin_config_changes(
-        old_config=old_config, new_config=new_plugin_config.config, secret_fields=secret_fields
+        old_config=old_config,
+        new_config=new_plugin_config.config,
+        secret_fields=secret_fields,
     )
 
     if len(config_changes) > 0:
@@ -113,7 +128,12 @@ def _update_plugin_attachment(plugin_config: PluginConfig, key: str, file: Optio
         plugin_attachment = PluginAttachment.objects.get(team=plugin_config.team, plugin_config=plugin_config, key=key)
         if file:
             activity = "attachment_updated"
-            change = Change(type="PluginConfig", action="changed", before=plugin_attachment.file_name, after=file.name)
+            change = Change(
+                type="PluginConfig",
+                action="changed",
+                before=plugin_attachment.file_name,
+                after=file.name,
+            )
 
             plugin_attachment.content_type = file.content_type
             plugin_attachment.file_name = file.name
@@ -124,7 +144,12 @@ def _update_plugin_attachment(plugin_config: PluginConfig, key: str, file: Optio
             plugin_attachment.delete()
 
             activity = "attachment_deleted"
-            change = Change(type="PluginConfig", action="deleted", before=plugin_attachment.file_name, after=None)
+            change = Change(
+                type="PluginConfig",
+                action="deleted",
+                before=plugin_attachment.file_name,
+                after=None,
+            )
     except ObjectDoesNotExist:
         if file:
             PluginAttachment.objects.create(
@@ -155,6 +180,24 @@ def _update_plugin_attachment(plugin_config: PluginConfig, key: str, file: Optio
 def _fix_formdata_config_json(request: request.Request, validated_data: dict):
     if not validated_data.get("config", None) and cast(dict, request.POST).get("config", None):
         validated_data["config"] = json.loads(request.POST["config"])
+
+
+def transpile(input_string: str, type: Literal["site", "frontend"] = "site") -> Optional[str]:
+    from posthog.settings.base_variables import BASE_DIR
+
+    transpiler_path = os.path.join(BASE_DIR, "plugin-transpiler/dist/index.js")
+    if type not in ["site", "frontend"]:
+        raise Exception('Invalid type. Must be "site" or "frontend".')
+
+    process = subprocess.Popen(
+        ["node", transpiler_path, "--type", type], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    stdout, stderr = process.communicate(input=input_string.encode())
+
+    if process.returncode != 0:
+        error = stderr.decode()
+        raise Exception(error)
+    return stdout.decode()
 
 
 class PlainRenderer(renderers.BaseRenderer):
@@ -284,8 +327,8 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 Q(**self.parents_query_dict)
                 | Q(is_global=True)
                 | Q(
-                    id__in=PluginConfig.objects.filter(
-                        team__organization_id=self.organization_id, enabled=True
+                    id__in=PluginConfig.objects.filter(  # If a config exists the org can see the plugin
+                        team__organization_id=self.organization_id
                     ).values_list("plugin_id", flat=True)
                 )
             )
@@ -298,6 +341,13 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         plugins = requests.get(url)
         return Response(json.loads(plugins.text))
 
+    @action(methods=["GET"], detail=False)
+    def unused(self, request: request.Request, **kwargs):
+        ids = Plugin.objects.exclude(
+            id__in=PluginConfig.objects.filter(enabled=True).values_list("plugin_id", flat=True)
+        ).values_list("id", flat=True)
+        return Response(ids)
+
     @action(methods=["GET"], detail=True)
     def check_for_updates(self, request: request.Request, **kwargs):
         plugin = self.get_plugin_with_permissions(reason="installation")
@@ -305,7 +355,8 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
         # use update to not trigger the post_save signal and avoid telling the plugin server to reload vms
         Plugin.objects.filter(id=plugin.id).update(
-            latest_tag=latest_url.get("tag", latest_url.get("version", None)), latest_tag_checked_at=now()
+            latest_tag=latest_url.get("tag", latest_url.get("version", None)),
+            latest_tag_checked_at=now(),
         )
         plugin.refresh_from_db()
 
@@ -324,25 +375,47 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         plugin = self.get_plugin_with_permissions(reason="source editing")
         sources: Dict[str, PluginSourceFile] = {}
         performed_changes = False
-        for source in PluginSourceFile.objects.filter(plugin=plugin):
-            sources[source.filename] = source
-        for key, value in request.data.items():
+        for plugin_source_file in PluginSourceFile.objects.filter(plugin=plugin):
+            sources[plugin_source_file.filename] = plugin_source_file
+        for key, source in request.data.items():
+            transpiled = None
+            error = None
+            status = None
+            try:
+                if key == "site.ts":
+                    transpiled = transpile(source, type="site")
+                    status = PluginSourceFile.Status.TRANSPILED
+                elif key == "frontend.tsx":
+                    transpiled = transpile(source, type="frontend")
+                    status = PluginSourceFile.Status.TRANSPILED
+            except Exception as e:
+                error = str(e)
+                status = PluginSourceFile.Status.ERROR
+
             if key not in sources:
                 performed_changes = True
                 sources[key], created = PluginSourceFile.objects.update_or_create(
-                    plugin=plugin, filename=key, defaults={"source": value}
+                    plugin=plugin,
+                    filename=key,
+                    defaults={
+                        "source": source,
+                        "transpiled": transpiled,
+                        "status": status,
+                        "error": error,
+                    },
                 )
-            elif sources[key].source != value:
+            elif sources[key].source != source or sources[key].transpiled != transpiled or sources[key].error != error:
                 performed_changes = True
-                if value is None:
+                if source is None:
                     sources[key].delete()
                     del sources[key]
                 else:
-                    sources[key].source = value
-                    sources[key].status = None
-                    sources[key].transpiled = None
-                    sources[key].error = None
+                    sources[key].source = source
+                    sources[key].transpiled = transpiled
+                    sources[key].status = status
+                    sources[key].error = error
                     sources[key].save()
+
         response: Dict[str, str] = {}
         for _, source in sources.items():
             response[source.filename] = source.source
@@ -372,7 +445,10 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def upgrade(self, request: request.Request, **kwargs):
         plugin = self.get_plugin_with_permissions(reason="upgrading")
         serializer = PluginSerializer(plugin, context=self.get_serializer_context())
-        if plugin.plugin_type not in (Plugin.PluginType.SOURCE, Plugin.PluginType.LOCAL):
+        if plugin.plugin_type not in (
+            Plugin.PluginType.SOURCE,
+            Plugin.PluginType.LOCAL,
+        ):
             validated_data: Dict[str, Any] = {}
             plugin_json = update_validated_data_from_url(validated_data, plugin.url)
             with transaction.atomic():
@@ -423,7 +499,12 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         limit = int(request.query_params.get("limit", "10"))
         page = int(request.query_params.get("page", "1"))
 
-        activity_page = load_all_activity(scope_list=["Plugin", "PluginConfig"], team_id=request.user.team.id, limit=limit, page=page)  # type: ignore
+        activity_page = load_all_activity(
+            scope_list=["Plugin", "PluginConfig"],
+            team_id=request.user.team.id,  # type: ignore
+            limit=limit,
+            page=page,
+        )
 
         return activity_page_response(activity_page, limit, page, request)
 
@@ -450,6 +531,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
     config = serializers.SerializerMethodField()
     plugin_info = serializers.SerializerMethodField()
     delivery_rate_24h = serializers.SerializerMethodField()
+    error = serializers.SerializerMethodField()
 
     class Meta:
         model = PluginConfig
@@ -464,8 +546,19 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             "plugin_info",
             "delivery_rate_24h",
             "created_at",
+            "updated_at",
+            "name",
+            "description",
+            "deleted",
         ]
-        read_only_fields = ["id", "team_id", "plugin_info", "delivery_rate_24h", "created_at"]
+        read_only_fields = [
+            "id",
+            "team_id",
+            "plugin_info",
+            "error",
+            "delivery_rate_24h",
+            "created_at",
+        ]
 
     def get_config(self, plugin_config: PluginConfig):
         attachments = PluginAttachment.objects.filter(plugin_config=plugin_config).only(
@@ -513,6 +606,12 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         else:
             return None
 
+    def get_error(self, plugin_config: PluginConfig) -> None:
+        # Reporting the single latest error is no longer supported: use app
+        # metrics (for fatal errors) or plugin log entries (for all errors) for
+        # error details instead.
+        return None
+
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:
         if not can_configure_plugins(self.context["get_organization"]()):
             raise ValidationError("Plugin configuration is not available for the current organization!")
@@ -540,9 +639,19 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         _update_plugin_attachments(self.context["request"], plugin_config)
         return plugin_config
 
-    def update(self, plugin_config: PluginConfig, validated_data: Dict, *args: Any, **kwargs: Any) -> PluginConfig:  # type: ignore
+    def update(  # type: ignore
+        self,
+        plugin_config: PluginConfig,
+        validated_data: Dict,
+        *args: Any,
+        **kwargs: Any,
+    ) -> PluginConfig:
         _fix_formdata_config_json(self.context["request"], validated_data)
         validated_data.pop("plugin", None)
+        # One can delete apps in the UI, plugin-server doesn't use that field
+        # if deleted is set to true we always want to disable the app
+        if "deleted" in validated_data and validated_data["deleted"] is True:
+            validated_data["enabled"] = False
 
         # Keep old value for secret fields if no new value in the request
         secret_fields = _get_secret_fields_for_plugin(plugin_config.plugin)
@@ -581,7 +690,10 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     def get_queryset(self):
         if not can_configure_plugins(self.team.organization_id):
             return self.queryset.none()
-        return super().get_queryset().order_by("order", "plugin_id")
+        queryset = super().get_queryset()
+        if self.action == "list":
+            queryset = queryset.filter(deleted=False)
+        return queryset.order_by("order", "plugin_id")
 
     def get_serializer_context(self) -> Dict[str, Any]:
         context = super().get_serializer_context()
@@ -624,7 +736,15 @@ class PluginConfigViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                     activity="order_changed",
                     detail=Detail(
                         name=plugin_config.plugin.name,
-                        changes=[Change(type="Plugin", before=old_order, after=order, action="changed", field="order")],
+                        changes=[
+                            Change(
+                                type="Plugin",
+                                before=old_order,
+                                after=order,
+                                action="changed",
+                                field="order",
+                            )
+                        ],
                     ),
                 )
 
@@ -718,3 +838,38 @@ def _get_secret_fields_for_plugin(plugin: Plugin) -> Set[str]:
 
 class LegacyPluginConfigViewSet(PluginConfigViewSet):
     legacy_team_compatibility = True
+
+
+class PipelineTransformationsViewSet(PluginViewSet):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.filter(Q(capabilities__has_key="methods") & Q(capabilities__methods__contains=["processEvent"]))
+
+
+class PipelineTransformationsConfigsViewSet(PluginConfigViewSet):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.filter(
+            Q(plugin__capabilities__has_key="methods") & Q(plugin__capabilities__methods__contains=["processEvent"])
+        )
+
+
+class PipelineDestinationsViewSet(PluginViewSet):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.filter(
+            Q(capabilities__has_key="methods")
+            & (Q(capabilities__methods__contains=["onEvent"]) | Q(capabilities__methods__contains=["composeWebhook"]))
+        )
+
+
+class PipelineDestinationsConfigsViewSet(PluginConfigViewSet):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        return queryset.filter(
+            Q(plugin__capabilities__has_key="methods")
+            & (
+                Q(plugin__capabilities__methods__contains=["onEvent"])
+                | Q(plugin__capabilities__methods__contains=["composeWebhook"])
+            )
+        )

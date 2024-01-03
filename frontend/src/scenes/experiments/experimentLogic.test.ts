@@ -1,10 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
+import { userLogic } from 'scenes/userLogic'
+
+import { useAvailableFeatures } from '~/mocks/features'
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AvailableFeature } from '~/types'
+
 import { experimentLogic } from './experimentLogic'
-import { useMocks } from '~/mocks/jest'
-import { useAvailableFeatures } from '~/mocks/features'
-import { userLogic } from 'scenes/userLogic'
 
 const RUNNING_EXP_ID = 45
 const RUNNING_FUNNEL_EXP_ID = 46

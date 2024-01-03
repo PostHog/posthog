@@ -1,13 +1,14 @@
-import { Tooltip } from 'antd'
+import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { IconSad } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { humanFriendlyDuration, humanFriendlyMilliseconds } from 'lib/utils'
 import { RefCallback, useEffect, useState } from 'react'
 import useResizeObserver from 'use-resize-observer'
+
 import { isInteractionNode, isQueryNode, isSessionNode, TimeToSeeNode, TimeToSeeSessionNode } from '../types'
 import { sessionNodeFacts, SpanData, traceLogic } from './traceLogic'
 
@@ -173,7 +174,7 @@ function TraceOverview({
                                         <SpanBarWrapper
                                             ref={ref}
                                             // don't set duration container width back onto the element that is generating it
-                                            durationContainerWidth={!!ref ? undefined : parentSpanWidth}
+                                            durationContainerWidth={ref ? undefined : parentSpanWidth}
                                             maxSpan={maxTimePoint}
                                             spanData={spanData}
                                         />

@@ -138,7 +138,6 @@ def print_and_execute_query(sql: str, name: str, dry_run: bool, timeout=180, que
 
 
 def run_backfill(options):
-
     if not options["team_id"]:
         logger.error("You must specify --team-id to run this script")
         exit(1)
@@ -149,12 +148,20 @@ def run_backfill(options):
         print("Dry run. Queries to run:", end="\n\n")
 
     print_and_execute_query(GROUPS_DICTIONARY_SQL, "GROUPS_DICTIONARY_SQL", dry_run)
-    print_and_execute_query(PERSON_DISTINCT_IDS_DICTIONARY_SQL, "PERSON_DISTINCT_IDS_DICTIONARY_SQL", dry_run)
+    print_and_execute_query(
+        PERSON_DISTINCT_IDS_DICTIONARY_SQL,
+        "PERSON_DISTINCT_IDS_DICTIONARY_SQL",
+        dry_run,
+    )
     print_and_execute_query(PERSONS_DICTIONARY_SQL, "PERSONS_DICTIONARY_SQL", dry_run)
 
     tag_queries(kind="backfill", id=backfill_query_id)
     print_and_execute_query(
-        BACKFILL_SQL, "BACKFILL_SQL", dry_run, 0, {"team_id": options["team_id"], "id": backfill_query_id}
+        BACKFILL_SQL,
+        "BACKFILL_SQL",
+        dry_run,
+        0,
+        {"team_id": options["team_id"], "id": backfill_query_id},
     )
     reset_query_tags()
 
@@ -177,11 +184,17 @@ class Command(BaseCommand):
     help = "Backfill persons and groups data on events for a given team"
 
     def add_arguments(self, parser):
-
-        parser.add_argument("--team-id", default=None, type=str, help="Specify a team to backfill data for.")
+        parser.add_argument(
+            "--team-id",
+            default=None,
+            type=str,
+            help="Specify a team to backfill data for.",
+        )
 
         parser.add_argument(
-            "--live-run", action="store_true", help="Opts out of default 'dry run' mode and actually runs the queries."
+            "--live-run",
+            action="store_true",
+            help="Opts out of default 'dry run' mode and actually runs the queries.",
         )
 
     def handle(self, *args, **options):

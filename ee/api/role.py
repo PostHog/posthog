@@ -42,7 +42,15 @@ class RoleSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Role
-        fields = ["id", "name", "feature_flags_access_level", "created_at", "created_by", "members", "associated_flags"]
+        fields = [
+            "id",
+            "name",
+            "feature_flags_access_level",
+            "created_at",
+            "created_by",
+            "members",
+            "associated_flags",
+        ]
         read_only_fields = ["id", "created_at", "created_by"]
 
     def validate_name(self, name):
@@ -55,7 +63,8 @@ class RoleSerializer(serializers.ModelSerializer):
         validated_data["organization"] = organization
         try:
             default_flags_org_setting = OrganizationResourceAccess.objects.get(
-                organization=organization, resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS
+                organization=organization,
+                resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS,
             ).access_level
         except OrganizationResourceAccess.DoesNotExist:
             default_flags_org_setting = OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT

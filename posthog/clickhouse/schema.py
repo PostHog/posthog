@@ -2,8 +2,18 @@
 import re
 
 from posthog.clickhouse.dead_letter_queue import *
+from posthog.clickhouse.log_entries import (
+    KAFKA_LOG_ENTRIES_TABLE_SQL,
+    LOG_ENTRIES_TABLE_MV_SQL,
+    LOG_ENTRIES_TABLE_SQL,
+)
 from posthog.clickhouse.plugin_log_entries import *
 from posthog.models.app_metrics.sql import *
+from posthog.models.channel_type.sql import (
+    CHANNEL_DEFINITION_TABLE_SQL,
+    CHANNEL_DEFINITION_DATA_SQL,
+    CHANNEL_DEFINITION_DICTIONARY_SQL,
+)
 from posthog.models.cohort.sql import *
 from posthog.models.event.sql import *
 from posthog.models.group.sql import *
@@ -27,15 +37,16 @@ from posthog.models.person_overrides.sql import (
     PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL,
     PERSON_OVERRIDES_CREATE_TABLE_SQL,
 )
-from posthog.models.session_recording_event.sql import *
-from posthog.models.session_replay_event.sql import (
-    KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
+from posthog.session_recordings.sql.session_recording_event_sql import *
+from posthog.session_recordings.sql.session_replay_event_sql import (
     DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
-    SESSION_REPLAY_EVENTS_TABLE_SQL,
+    KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
     SESSION_REPLAY_EVENTS_TABLE_MV_SQL,
+    SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 
 CREATE_MERGETREE_TABLE_QUERIES = (
+    LOG_ENTRIES_TABLE_SQL,
     CREATE_COHORTPEOPLE_TABLE_SQL,
     PERSON_STATIC_COHORT_TABLE_SQL,
     DEAD_LETTER_QUEUE_TABLE_SQL,
@@ -51,6 +62,7 @@ CREATE_MERGETREE_TABLE_QUERIES = (
     APP_METRICS_DATA_TABLE_SQL,
     PERFORMANCE_EVENTS_TABLE_SQL,
     SESSION_REPLAY_EVENTS_TABLE_SQL,
+    CHANNEL_DEFINITION_TABLE_SQL,
 )
 CREATE_DISTRIBUTED_TABLE_QUERIES = (
     WRITABLE_EVENTS_TABLE_SQL,
@@ -64,6 +76,7 @@ CREATE_DISTRIBUTED_TABLE_QUERIES = (
     DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 CREATE_KAFKA_TABLE_QUERIES = (
+    KAFKA_LOG_ENTRIES_TABLE_SQL,
     KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL,
     KAFKA_EVENTS_TABLE_JSON_SQL,
     KAFKA_GROUPS_TABLE_SQL,
@@ -79,6 +92,7 @@ CREATE_KAFKA_TABLE_QUERIES = (
     KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL,
 )
 CREATE_MV_TABLE_QUERIES = (
+    LOG_ENTRIES_TABLE_MV_SQL,
     DEAD_LETTER_QUEUE_TABLE_MV_SQL,
     EVENTS_TABLE_JSON_MV_SQL,
     GROUPS_TABLE_MV_SQL,
@@ -101,7 +115,9 @@ CREATE_TABLE_QUERIES = (
     + CREATE_MV_TABLE_QUERIES
 )
 
-CREATE_DICTIONARY_QUERIES = (PERSON_OVERRIDES_CREATE_DICTIONARY_SQL,)
+CREATE_DICTIONARY_QUERIES = (PERSON_OVERRIDES_CREATE_DICTIONARY_SQL, CHANNEL_DEFINITION_DICTIONARY_SQL)
+
+CREATE_DATA_QUERIES = (CHANNEL_DEFINITION_DATA_SQL,)
 
 build_query = lambda query: query if isinstance(query, str) else query()
 get_table_name = lambda query: re.findall(r"[\.\s]`?([a-z0-9_]+)`?\s+ON CLUSTER", build_query(query))[0]

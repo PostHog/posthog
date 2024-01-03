@@ -1,15 +1,17 @@
-import clsx from 'clsx'
-import { useEffect, useState } from 'react'
-import { WelcomeLogo } from 'scenes/authentication/WelcomeLogo'
-import { CSSTransition } from 'react-transition-group'
 import './BridgePage.scss'
-import { LaptopHog4, LaptopHogEU } from '../hedgehogs'
+
+import clsx from 'clsx'
 import { useValues } from 'kea'
+import { useEffect, useState } from 'react'
+import { CSSTransition } from 'react-transition-group'
+import { WelcomeLogo } from 'scenes/authentication/WelcomeLogo'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
 import { Region } from '~/types'
 
+import { LaptopHog4, LaptopHogEU } from '../hedgehogs'
+
 export type BridgePageCommonProps = {
-    className?: string
     children?: React.ReactNode
     footer?: React.ReactNode
     header?: React.ReactNode
@@ -18,7 +20,6 @@ export type BridgePageCommonProps = {
     sideLogo?: boolean
     fixedWidth?: boolean
     leftContainerContent?: JSX.Element
-    fullScreen?: boolean
 }
 
 interface NoHedgehogProps extends BridgePageCommonProps {
@@ -36,7 +37,6 @@ type BridgePageProps = NoHedgehogProps | YesHedgehogProps
 
 export function BridgePage({
     children,
-    className,
     header,
     footer,
     view,
@@ -46,7 +46,6 @@ export function BridgePage({
     fixedWidth = true,
     leftContainerContent,
     hedgehog = false,
-    fullScreen = true,
 }: BridgePageProps): JSX.Element {
     const [messageShowing, setMessageShowing] = useState(false)
     const { preflight } = useValues(preflightLogic)
@@ -59,14 +58,7 @@ export function BridgePage({
     }, [])
 
     return (
-        <div
-            className={clsx(
-                'BridgePage',
-                fixedWidth && 'BridgePage--fixed-width',
-                fullScreen && 'h-screen overflow-hidden',
-                className
-            )}
-        >
+        <div className={clsx('BridgePage', fixedWidth && 'BridgePage--fixed-width')}>
             <div className="BridgePage__main">
                 {leftContainerContent || hedgehog ? (
                     <div className="BridgePage__left-wrapper">
@@ -108,7 +100,7 @@ export function BridgePage({
                     <div className="BridgePage__content">{children}</div>
                 </div>
             </div>
-            <div className="BridgePage__footer">{footer}</div>
+            {footer && <div className="BridgePage__footer">{footer}</div>}
         </div>
     )
 }

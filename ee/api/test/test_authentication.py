@@ -31,7 +31,10 @@ GOOGLE_MOCK_SETTINGS = {
     "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET": "google_secret",
 }
 
-GITHUB_MOCK_SETTINGS = {"SOCIAL_AUTH_GITHUB_KEY": "github_key", "SOCIAL_AUTH_GITHUB_SECRET": "github_secret"}
+GITHUB_MOCK_SETTINGS = {
+    "SOCIAL_AUTH_GITHUB_KEY": "github_key",
+    "SOCIAL_AUTH_GITHUB_SECRET": "github_secret",
+}
 
 CURRENT_FOLDER = os.path.dirname(__file__)
 
@@ -51,7 +54,10 @@ class TestEELoginPrecheckAPI(APILicensedTest):
         with self.settings(**GOOGLE_MOCK_SETTINGS):
             response = self.client.post("/api/login/precheck", {"email": "spain@witw.app"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"sso_enforcement": "google-oauth2", "saml_available": False})
+        self.assertEqual(
+            response.json(),
+            {"sso_enforcement": "google-oauth2", "saml_available": False},
+        )
 
     def test_login_precheck_with_unverified_domain(self):
         OrganizationDomain.objects.create(
@@ -117,14 +123,20 @@ class TestEEAuthenticationAPI(APILicensedTest):
 
         # Can log in with password with SSO configured but not enforced
         with self.settings(**GOOGLE_MOCK_SETTINGS):
-            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+            response = self.client.post(
+                "/api/login",
+                {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD},
+            )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"success": True})
 
         # Forcing SSO disables regular API password login
         self.create_enforced_domain()
         with self.settings(**GOOGLE_MOCK_SETTINGS):
-            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+            response = self.client.post(
+                "/api/login",
+                {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD},
+            )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
@@ -144,7 +156,10 @@ class TestEEAuthenticationAPI(APILicensedTest):
         self.organization.save()
 
         with self.settings(**GOOGLE_MOCK_SETTINGS):
-            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+            response = self.client.post(
+                "/api/login",
+                {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD},
+            )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
@@ -158,7 +173,11 @@ class TestEEAuthenticationAPI(APILicensedTest):
 
     def test_cannot_reset_password_with_enforced_sso(self):
         self.create_enforced_domain()
-        with self.settings(**GOOGLE_MOCK_SETTINGS, EMAIL_HOST="localhost", SITE_URL="https://my.posthog.net"):
+        with self.settings(
+            **GOOGLE_MOCK_SETTINGS,
+            EMAIL_HOST="localhost",
+            SITE_URL="https://my.posthog.net",
+        ):
             response = self.client.post("/api/reset/", {"email": "i_dont_exist@posthog.com"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -182,7 +201,10 @@ class TestEEAuthenticationAPI(APILicensedTest):
 
         # Enforcement is ignored
         with self.settings(**GOOGLE_MOCK_SETTINGS):
-            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+            response = self.client.post(
+                "/api/login",
+                {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD},
+            )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"success": True})
 
@@ -247,7 +269,6 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
     # SAML Metadata
 
     def test_can_get_saml_metadata(self):
-
         self.client.force_login(self.user)
 
         OrganizationMembership.objects.filter(organization=self.organization, user=self.user).update(
@@ -307,7 +328,10 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         with self.assertRaises(AuthFailed) as e:
             self.client.get("/login/saml/?email=hellohello@gmail.com")
 
-        self.assertEqual(str(e.exception), "Authentication failed: SAML not configured for this user.")
+        self.assertEqual(
+            str(e.exception),
+            "Authentication failed: SAML not configured for this user.",
+        )
 
     def test_cannot_initiate_saml_flow_for_unverified_domain(self):
         """
@@ -320,13 +344,15 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         with self.assertRaises(AuthFailed) as e:
             self.client.get("/login/saml/?email=hellohello@gmail.com")
 
-        self.assertEqual(str(e.exception), "Authentication failed: SAML not configured for this user.")
+        self.assertEqual(
+            str(e.exception),
+            "Authentication failed: SAML not configured for this user.",
+        )
 
     # Finish SAML flow (i.e. actual log in)
 
     @freeze_time("2021-08-25T22:09:14.252Z")  # Ensures the SAML timestamp validation passes
     def test_can_login_with_saml(self):
-
         user = User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
 
         response = self.client.get("/login/saml/?email=engineering@posthog.com")
@@ -336,12 +362,19 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
         _session.save()
 
-        with open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r", encoding="utf_8") as f:
+        with open(
+            os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"),
+            "r",
+            encoding="utf_8",
+        ) as f:
             saml_response = f.read()
 
         response = self.client.post(
             "/complete/saml/",
-            {"SAMLResponse": saml_response, "RelayState": str(self.organization_domain.id)},
+            {
+                "SAMLResponse": saml_response,
+                "RelayState": str(self.organization_domain.id),
+            },
             follow=True,
             format="multipart",
         )
@@ -373,7 +406,9 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         _session.save()
 
         with open(
-            os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response_alt_attribute_names"), "r", encoding="utf_8"
+            os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response_alt_attribute_names"),
+            "r",
+            encoding="utf_8",
         ) as f:
             saml_response = f.read()
 
@@ -381,7 +416,10 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
         response = self.client.post(
             "/complete/saml/",
-            {"SAMLResponse": saml_response, "RelayState": str(self.organization_domain.id)},
+            {
+                "SAMLResponse": saml_response,
+                "RelayState": str(self.organization_domain.id),
+            },
             format="multipart",
             follow=True,
         )
@@ -434,7 +472,11 @@ YotAcSbU3p5bzd11wpyebYHB"""
         _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
         _session.save()
 
-        with open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r", encoding="utf_8") as f:
+        with open(
+            os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"),
+            "r",
+            encoding="utf_8",
+        ) as f:
             saml_response = f.read()
 
         user_count = User.objects.count()
@@ -442,7 +484,10 @@ YotAcSbU3p5bzd11wpyebYHB"""
         with self.assertRaises(AuthFailed) as e:
             response = self.client.post(
                 "/complete/saml/",
-                {"SAMLResponse": saml_response, "RelayState": str(self.organization_domain.id)},
+                {
+                    "SAMLResponse": saml_response,
+                    "RelayState": str(self.organization_domain.id),
+                },
                 format="multipart",
                 follow=True,
             )
@@ -467,14 +512,21 @@ YotAcSbU3p5bzd11wpyebYHB"""
         _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
         _session.save()
 
-        with open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r", encoding="utf_8") as f:
+        with open(
+            os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"),
+            "r",
+            encoding="utf_8",
+        ) as f:
             saml_response = f.read()
 
         user_count = User.objects.count()
 
         response = self.client.post(
             "/complete/saml/",
-            {"SAMLResponse": saml_response, "RelayState": str(self.organization_domain.id)},
+            {
+                "SAMLResponse": saml_response,
+                "RelayState": str(self.organization_domain.id),
+            },
             format="multipart",
             follow=True,
         )
@@ -499,7 +551,9 @@ YotAcSbU3p5bzd11wpyebYHB"""
         _session.save()
 
         with open(
-            os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response_no_first_name"), "r", encoding="utf_8"
+            os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response_no_first_name"),
+            "r",
+            encoding="utf_8",
         ) as f:
             saml_response = f.read()
 
@@ -508,12 +562,18 @@ YotAcSbU3p5bzd11wpyebYHB"""
         with self.assertRaises(ValidationError) as e:
             response = self.client.post(
                 "/complete/saml/",
-                {"SAMLResponse": saml_response, "RelayState": str(self.organization_domain.id)},
+                {
+                    "SAMLResponse": saml_response,
+                    "RelayState": str(self.organization_domain.id),
+                },
                 format="multipart",
                 follow=True,
             )
 
-        self.assertEqual(str(e.exception), "{'name': ['This field is required and was not provided by the IdP.']}")
+        self.assertEqual(
+            str(e.exception),
+            "{'name': ['This field is required and was not provided by the IdP.']}",
+        )
 
         self.assertEqual(User.objects.count(), user_count)
 
@@ -532,19 +592,27 @@ YotAcSbU3p5bzd11wpyebYHB"""
         _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
         _session.save()
 
-        with open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r", encoding="utf_8") as f:
+        with open(
+            os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"),
+            "r",
+            encoding="utf_8",
+        ) as f:
             saml_response = f.read()
 
         with self.assertRaises(AuthFailed) as e:
             response = self.client.post(
                 "/complete/saml/",
-                {"SAMLResponse": saml_response, "RelayState": str(self.organization_domain.id)},
+                {
+                    "SAMLResponse": saml_response,
+                    "RelayState": str(self.organization_domain.id),
+                },
                 follow=True,
                 format="multipart",
             )
 
         self.assertEqual(
-            str(e.exception), "Authentication failed: Authentication request is invalid. Invalid RelayState."
+            str(e.exception),
+            "Authentication failed: Authentication request is invalid. Invalid RelayState.",
         )
 
         # Assert user is not logged in
@@ -552,14 +620,16 @@ YotAcSbU3p5bzd11wpyebYHB"""
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_saml_can_be_enforced(self):
-
         User.objects.create_and_join(
-            organization=self.organization, email="engineering@posthog.com", password=self.CONFIG_PASSWORD
+            organization=self.organization,
+            email="engineering@posthog.com",
+            password=self.CONFIG_PASSWORD,
         )
 
         # Can log in regularly with SAML configured
         response = self.client.post(
-            "/api/login", {"email": "engineering@posthog.com", "password": self.CONFIG_PASSWORD}
+            "/api/login",
+            {"email": "engineering@posthog.com", "password": self.CONFIG_PASSWORD},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"success": True})
@@ -568,7 +638,8 @@ YotAcSbU3p5bzd11wpyebYHB"""
         self.organization_domain.sso_enforcement = "saml"
         self.organization_domain.save()
         response = self.client.post(
-            "/api/login", {"email": "engineering@posthog.com", "password": self.CONFIG_PASSWORD}
+            "/api/login",
+            {"email": "engineering@posthog.com", "password": self.CONFIG_PASSWORD},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
@@ -601,7 +672,8 @@ YotAcSbU3p5bzd11wpyebYHB"""
         with self.assertRaises(AuthFailed) as e:
             response = self.client.get("/login/saml/?email=engineering@posthog.com")
         self.assertEqual(
-            str(e.exception), "Authentication failed: Your organization does not have the required license to use SAML."
+            str(e.exception),
+            "Authentication failed: Your organization does not have the required license to use SAML.",
         )
 
         # Attempting to use SAML fails
@@ -609,17 +681,25 @@ YotAcSbU3p5bzd11wpyebYHB"""
         _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
         _session.save()
 
-        with open(os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"), "r", encoding="utf_8") as f:
+        with open(
+            os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"),
+            "r",
+            encoding="utf_8",
+        ) as f:
             saml_response = f.read()
 
         with self.assertRaises(AuthFailed) as e:
             response = self.client.post(
                 "/complete/saml/",
-                {"SAMLResponse": saml_response, "RelayState": str(self.organization_domain.id)},
+                {
+                    "SAMLResponse": saml_response,
+                    "RelayState": str(self.organization_domain.id),
+                },
                 follow=True,
                 format="multipart",
             )
 
         self.assertEqual(
-            str(e.exception), "Authentication failed: Your organization does not have the required license to use SAML."
+            str(e.exception),
+            "Authentication failed: Your organization does not have the required license to use SAML.",
         )

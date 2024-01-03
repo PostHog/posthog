@@ -4,8 +4,12 @@ from typing import Any, Dict, Optional, Tuple, Union
 from rest_framework import exceptions, mixins, permissions, serializers, viewsets
 
 from posthog.cloud_utils import is_cloud
-from posthog.models.instance_setting import get_instance_setting as get_instance_setting_raw
-from posthog.models.instance_setting import set_instance_setting as set_instance_setting_raw
+from posthog.models.instance_setting import (
+    get_instance_setting as get_instance_setting_raw,
+)
+from posthog.models.instance_setting import (
+    set_instance_setting as set_instance_setting_raw,
+)
 from posthog.permissions import IsStaffUser
 from posthog.settings import (
     CONSTANCE_CONFIG,
@@ -35,7 +39,14 @@ class InstanceSettingHelper:
     is_secret: bool = False
 
     def __init__(self, **kwargs):
-        for field in ("key", "value", "value_type", "description", "editable", "is_secret"):
+        for field in (
+            "key",
+            "value",
+            "value_type",
+            "description",
+            "editable",
+            "is_secret",
+        ):
             setattr(self, field, kwargs.get(field, None))
 
 
@@ -83,7 +94,9 @@ class InstanceSettingsSerializer(serializers.Serializer):
 
             # TODO: Move to top-level imports once CH is moved out of `ee`
             from posthog.client import sync_execute
-            from posthog.models.session_recording_event.sql import UPDATE_RECORDINGS_TABLE_TTL_SQL
+            from posthog.session_recordings.sql.session_recording_event_sql import (
+                UPDATE_RECORDINGS_TABLE_TTL_SQL,
+            )
 
             sync_execute(UPDATE_RECORDINGS_TABLE_TTL_SQL(), {"weeks": new_value_parsed})
 
@@ -95,7 +108,9 @@ class InstanceSettingsSerializer(serializers.Serializer):
 
             # TODO: Move to top-level imports once CH is moved out of `ee`
             from posthog.client import sync_execute
-            from posthog.models.performance.sql import UPDATE_PERFORMANCE_EVENTS_TABLE_TTL_SQL
+            from posthog.models.performance.sql import (
+                UPDATE_PERFORMANCE_EVENTS_TABLE_TTL_SQL,
+            )
 
             sync_execute(UPDATE_PERFORMANCE_EVENTS_TABLE_TTL_SQL(), {"weeks": new_value_parsed})
 
@@ -116,7 +131,10 @@ class InstanceSettingsSerializer(serializers.Serializer):
 
 
 class InstanceSettingsViewset(
-    viewsets.GenericViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.UpdateModelMixin
+    viewsets.GenericViewSet,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
 ):
     permission_classes = [permissions.IsAuthenticated, IsStaffUser]
     serializer_class = InstanceSettingsSerializer

@@ -3,7 +3,6 @@ import json
 import re
 import time
 from datetime import datetime
-from random import random
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import structlog
@@ -33,14 +32,14 @@ from posthog.kafka_client.topics import (
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
 )
 from posthog.logging.timing import timed
-from posthog.metrics import LABEL_RESOURCE_TYPE
+from posthog.metrics import LABEL_RESOURCE_TYPE, KLUDGES_COUNTER
 from posthog.models.utils import UUIDT
 from posthog.session_recordings.session_recording_helpers import (
-    legacy_preprocess_session_recording_events_for_clickhouse,
     preprocess_replay_events_for_blob_ingestion,
     split_replay_events,
 )
-from posthog.utils import cors_response, get_ip_address
+from posthog.utils import get_ip_address
+from posthog.utils_cors import cors_response
 
 logger = structlog.get_logger(__name__)
 
@@ -59,7 +58,10 @@ LOG_RATE_LIMITER = Limiter(
 # events that are ingested via a separate path than analytics events. They have
 # fewer restrictions on e.g. the order they need to be processed in.
 SESSION_RECORDING_DEDICATED_KAFKA_EVENTS = ("$snapshot_items",)
-SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event") + SESSION_RECORDING_DEDICATED_KAFKA_EVENTS
+SESSION_RECORDING_EVENT_NAMES = (
+    "$snapshot",
+    "$performance_event",
+) + SESSION_RECORDING_DEDICATED_KAFKA_EVENTS
 
 EVENTS_RECEIVED_COUNTER = Counter(
     "capture_events_received_total",
@@ -72,7 +74,6 @@ EVENTS_DROPPED_OVER_QUOTA_COUNTER = Counter(
     "Events dropped by capture due to quota-limiting, per resource_type and token.",
     labelnames=[LABEL_RESOURCE_TYPE, "token"],
 )
-
 
 PARTITION_KEY_CAPACITY_EXCEEDED_COUNTER = Counter(
     "capture_partition_key_capacity_exceeded_total",
@@ -153,7 +154,9 @@ def _kafka_topic(event_name: str, data: Dict) -> str:
             return settings.KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 
 
-def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
+def log_event(
+    data: Dict, event_name: str, partition_key: Optional[str], headers: Optional[List] = None
+) -> FutureRecordMetadata:
     kafka_topic = _kafka_topic(event_name, data)
 
     logger.debug("logging_event", event_name=event_name, kafka_topic=kafka_topic)
@@ -165,7 +168,7 @@ def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
         else:
             producer = KafkaProducer()
 
-        future = producer.produce(topic=kafka_topic, data=data, key=partition_key)
+        future = producer.produce(topic=kafka_topic, data=data, key=partition_key, headers=headers)
         statsd.incr("posthog_cloud_plugin_server_ingestion")
         return future
     except Exception as e:
@@ -179,6 +182,7 @@ def _datetime_from_seconds_or_millis(timestamp: str) -> datetime:
         timestamp_number = float(timestamp) / 1000
     else:
         timestamp_number = int(timestamp)
+        KLUDGES_COUNTER.labels(kludge="sent_at_seconds_timestamp").inc()
 
     return datetime.fromtimestamp(timestamp_number, timezone.utc)
 
@@ -191,12 +195,15 @@ def _get_sent_at(data, request) -> Tuple[Optional[datetime], Any]:
             sent_at = data["sent_at"]
         elif request.POST.get("sent_at"):  # when urlencoded body and not JSON (in some test)
             sent_at = request.POST["sent_at"]
+            if sent_at:
+                KLUDGES_COUNTER.labels(kludge="sent_at_post_field").inc()
         else:
             return None, None
 
         if re.match(r"^\d+(?:\.\d+)?$", sent_at):
             return _datetime_from_seconds_or_millis(sent_at), None
 
+        KLUDGES_COUNTER.labels(kludge="sent_at_not_timestamp").inc()
         return parser.isoparse(sent_at), None
     except Exception as error:
         statsd.incr("capture_endpoint_invalid_sent_at")
@@ -206,7 +213,9 @@ def _get_sent_at(data, request) -> Tuple[Optional[datetime], Any]:
             cors_response(
                 request,
                 generate_exception_response(
-                    "capture", f"Malformed request data, invalid sent at: {error}", code="invalid_payload"
+                    "capture",
+                    f"Malformed request data, invalid sent at: {error}",
+                    code="invalid_payload",
                 ),
             ),
         )
@@ -256,11 +265,11 @@ def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
     if not settings.EE_AVAILABLE:
         return events
 
-    from ee.billing.quota_limiting import QuotaResource, list_limited_team_tokens
+    from ee.billing.quota_limiting import QuotaResource, list_limited_team_attributes
 
     results = []
-    limited_tokens_events = list_limited_team_tokens(QuotaResource.EVENTS)
-    limited_tokens_recordings = list_limited_team_tokens(QuotaResource.RECORDINGS)
+    limited_tokens_events = list_limited_team_attributes(QuotaResource.EVENTS)
+    limited_tokens_recordings = list_limited_team_attributes(QuotaResource.RECORDINGS)
 
     for event in events:
         if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
@@ -322,7 +331,12 @@ def get_event(request):
             invalid_token_reason = _check_token_shape(token)
         except Exception as e:
             invalid_token_reason = "exception"
-            logger.warning("capture_token_shape_exception", token=token, reason="exception", exception=e)
+            logger.warning(
+                "capture_token_shape_exception",
+                token=token,
+                reason="exception",
+                exception=e,
+            )
 
         if invalid_token_reason:
             TOKEN_SHAPE_INVALID_COUNTER.labels(reason=invalid_token_reason).inc()
@@ -347,6 +361,7 @@ def get_event(request):
             if data.get("batch"):  # posthog-python and posthog-ruby
                 data = data["batch"]
                 assert data is not None
+                KLUDGES_COUNTER.labels(kludge="data_is_batch_field").inc()
             elif "engage" in request.path_info:  # JS identify call
                 data["event"] = "$identify"  # make sure it has an event name
 
@@ -366,25 +381,15 @@ def get_event(request):
             # NOTE: Whilst we are testing this code we want to track exceptions but allow the events through if anything goes wrong
             capture_exception(e)
 
-        consumer_destination = "v2" if random() <= settings.REPLAY_EVENTS_NEW_CONSUMER_RATIO else "v1"
-
         try:
+            # split the replay events off as they are passed to kafka separately
             replay_events, other_events = split_replay_events(events)
-            processed_replay_events = replay_events
-
-            if len(replay_events) > 0:
-                # Legacy solution stays in place
-                processed_replay_events = legacy_preprocess_session_recording_events_for_clickhouse(replay_events)
-
-                # Mark all events so that they are only consumed by one consumer
-                for event in processed_replay_events:
-                    event["properties"]["$snapshot_consumer"] = consumer_destination
-
-            events = processed_replay_events + other_events
+            events = other_events
 
         except ValueError as e:
             return cors_response(
-                request, generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload")
+                request,
+                generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload"),
             )
 
         # We don't use the site_url anymore, but for safe roll-outs keeping it here for now
@@ -395,7 +400,8 @@ def get_event(request):
             processed_events = list(preprocess_events(events))
         except ValueError as e:
             return cors_response(
-                request, generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload")
+                request,
+                generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload"),
             )
 
     futures: List[FutureRecordMetadata] = []
@@ -404,7 +410,18 @@ def get_event(request):
         span.set_tag("event.count", len(processed_events))
         for event, event_uuid, distinct_id in processed_events:
             try:
-                futures.append(capture_internal(event, distinct_id, ip, site_url, now, sent_at, event_uuid, token))
+                futures.append(
+                    capture_internal(
+                        event,
+                        distinct_id,
+                        ip,
+                        site_url,
+                        now,
+                        sent_at,
+                        event_uuid,
+                        token,
+                    )
+                )
             except Exception as exc:
                 capture_exception(exc, {"data": data})
                 statsd.incr("posthog_cloud_raw_endpoint_failure", tags={"endpoint": "capture"})
@@ -453,14 +470,9 @@ def get_event(request):
 
     try:
         if replay_events:
-            # The new flow we only enable if the dedicated kafka is enabled
             alternative_replay_events = preprocess_replay_events_for_blob_ingestion(
                 replay_events, settings.SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES
             )
-
-            # Mark all events so that they are only consumed by one consumer
-            for event in alternative_replay_events:
-                event["properties"]["$snapshot_consumer"] = consumer_destination
 
             futures = []
 
@@ -469,7 +481,18 @@ def get_event(request):
             if alternative_replay_events:
                 processed_events = list(preprocess_events(alternative_replay_events))
                 for event, event_uuid, distinct_id in processed_events:
-                    futures.append(capture_internal(event, distinct_id, ip, site_url, now, sent_at, event_uuid, token))
+                    futures.append(
+                        capture_internal(
+                            event,
+                            distinct_id,
+                            ip,
+                            site_url,
+                            now,
+                            sent_at,
+                            event_uuid,
+                            token,
+                        )
+                    )
 
                 start_time = time.monotonic()
                 for future in futures:
@@ -538,12 +561,12 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, event_uuid=
     # Setting the partition key to None means using random partitioning.
     kafka_partition_key = None
 
-    if event["event"] in ("$snapshot", "$performance_event"):
-        # We only need locality for snapshot events, not performance events, so
-        # we only set the partition key for snapshot events.
-        if event["event"] == "$snapshot":
-            kafka_partition_key = event["properties"]["$session_id"]
-        return log_event(parsed_event, event["event"], partition_key=kafka_partition_key)
+    if event["event"] in SESSION_RECORDING_EVENT_NAMES:
+        kafka_partition_key = event["properties"]["$session_id"]
+        headers = [
+            ("token", token),
+        ]
+        return log_event(parsed_event, event["event"], partition_key=kafka_partition_key, headers=headers)
 
     candidate_partition_key = f"{token}:{distinct_id}"
 
@@ -591,7 +614,10 @@ def is_randomly_partitioned(candidate_partition_key: str) -> bool:
                 return True
 
             PARTITION_KEY_CAPACITY_EXCEEDED_COUNTER.labels(partition_key=candidate_partition_key.split(":")[0]).inc()
-            statsd.incr("partition_key_capacity_exceeded", tags={"partition_key": candidate_partition_key})
+            statsd.incr(
+                "partition_key_capacity_exceeded",
+                tags={"partition_key": candidate_partition_key},
+            )
             logger.warning(
                 "Partition key %s overridden as bucket capacity of %s tokens exceeded",
                 candidate_partition_key,

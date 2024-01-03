@@ -2,7 +2,10 @@ import re
 from typing import Dict, get_args
 
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema, extend_schema_field  # # noqa: F401 for easy import
+from drf_spectacular.utils import (
+    extend_schema,  # noqa: F401
+    extend_schema_field,
+)  # # noqa: F401 for easy import
 from rest_framework import fields, serializers
 
 from posthog.models.entity import MathType
@@ -20,16 +23,26 @@ class ValueField(serializers.Field):
 
 class PropertyItemSerializer(serializers.Serializer):
     key = serializers.CharField(
-        help_text="Key of the property you're filtering on. For example `email` or `$current_url`", required=True
+        help_text="Key of the property you're filtering on. For example `email` or `$current_url`",
+        required=True,
     )
     value = ValueField(
         help_text='Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`',
         required=True,
     )
     operator = serializers.ChoiceField(
-        choices=get_args(OperatorType), required=False, allow_blank=True, default="exact", allow_null=True
+        choices=get_args(OperatorType),
+        required=False,
+        allow_blank=True,
+        default="exact",
+        allow_null=True,
     )
-    type = serializers.ChoiceField(choices=get_args(PropertyType), default="event", required=False, allow_blank=True)
+    type = serializers.ChoiceField(
+        choices=get_args(PropertyType),
+        default="event",
+        required=False,
+        allow_blank=True,
+    )
 
 
 property_help_text = "Filter events by event property, person property, cohort, groups and more."
@@ -132,7 +145,10 @@ class FilterEventSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Name of the event to filter on. For example `$pageview` or `user sign up`.")
     properties = PropertySerializer(many=True, required=False)
     math = serializers.ChoiceField(
-        help_text=math_help_text, choices=get_args(MathType), default="total", required=False
+        help_text=math_help_text,
+        choices=get_args(MathType),
+        default="total",
+        required=False,
     )
 
 
@@ -140,7 +156,10 @@ class FilterActionSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="ID of the action to filter on. For example `2841`.")
     properties = PropertySerializer(many=True, required=False)
     math = serializers.ChoiceField(
-        help_text=math_help_text, choices=get_args(MathType), default="total", required=False
+        help_text=math_help_text,
+        choices=get_args(MathType),
+        default="total",
+        required=False,
     )
 
 
@@ -166,7 +185,10 @@ def custom_postprocessing_hook(result, generator, request, public):
         paths[path] = {}
         for method, definition in methods.items():
             definition["tags"] = [d for d in definition["tags"] if d not in ["projects"]]
-            match = re.search(r"((\/api\/(organizations|projects)/{(.*?)}\/)|(\/api\/))(?P<one>[a-zA-Z0-9-_]*)\/", path)
+            match = re.search(
+                r"((\/api\/(organizations|projects)/{(.*?)}\/)|(\/api\/))(?P<one>[a-zA-Z0-9-_]*)\/",
+                path,
+            )
             if match:
                 definition["tags"].append(match.group("one"))
             for tag in definition["tags"]:

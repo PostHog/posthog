@@ -1,7 +1,8 @@
-import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
-import type { objectTagsLogicType } from './objectTagsLogicType'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import equal from 'fast-deep-equal'
+import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
+import type { objectTagsLogicType } from './objectTagsLogicType'
 
 export interface ObjectTagsLogicProps {
     id: number

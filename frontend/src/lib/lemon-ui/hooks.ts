@@ -6,7 +6,7 @@ import { useLayoutEffect, useRef, useState } from 'react'
  * @private
  */
 export function useSliderPositioning<C extends HTMLElement, S extends HTMLElement>(
-    currentValue: string | number | null | undefined,
+    currentValue: React.Key | null | undefined,
     transitionMs: number
 ): {
     containerRef: React.RefObject<C>
@@ -20,13 +20,11 @@ export function useSliderPositioning<C extends HTMLElement, S extends HTMLElemen
     const selectionRef = useRef<S>(null)
     const [[selectionWidth, selectionOffset], setSelectionWidthAndOffset] = useState<[number, number]>([0, 0])
     const [transitioning, setTransitioning] = useState(false)
-    const { width: containerWidth } = useResizeObserver({ ref: containerRef })
+    const { width: containerWidth = 0 } = useResizeObserver({ ref: containerRef })
 
     useLayoutEffect(() => {
-        if (containerRef.current && selectionRef.current) {
-            const { left: containerLeft } = containerRef.current.getBoundingClientRect()
-            const { width, left: selectedOptionleft } = selectionRef.current.getBoundingClientRect()
-            setSelectionWidthAndOffset([width, selectedOptionleft - containerLeft])
+        if (selectionRef.current) {
+            setSelectionWidthAndOffset([selectionRef.current.offsetWidth, selectionRef.current.offsetLeft])
             if (hasRenderedInitiallyRef.current) {
                 setTransitioning(true)
                 const transitioningTimeout = setTimeout(() => setTransitioning(false), transitionMs)

@@ -1,13 +1,13 @@
-import { Radio, Space, RadioChangeEvent } from 'antd'
-import { dashboardLogic, DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/dashboard/dashboardLogic'
-import { useActions, useValues } from 'kea'
-import { humanFriendlyDuration } from 'lib/utils'
+import { LemonButton, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
+import { Radio, RadioChangeEvent } from 'antd'
 import clsx from 'clsx'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
-import { LemonButtonWithSideAction, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { humanFriendlyDuration } from 'lib/utils'
+import { DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 export const LastRefreshText = (): JSX.Element => {
     const { lastRefreshed } = useValues(dashboardLogic)
@@ -33,10 +33,9 @@ export function DashboardReloadAction(): JSX.Element {
 
     return (
         <>
-            <LemonButtonWithSideAction
+            <LemonButton
                 onClick={() => refreshAllDashboardItemsManual()}
                 type="secondary"
-                status="muted"
                 icon={itemsLoading ? <Spinner textColored /> : <IconRefresh />}
                 size="small"
                 data-attr="dashboard-items-action-refresh"
@@ -57,24 +56,19 @@ export function DashboardReloadAction(): JSX.Element {
                                     data-attr="auto-refresh-picker"
                                     id="auto-refresh-picker"
                                 >
-                                    <div
-                                        id="auto-refresh-check"
-                                        key="auto-refresh-check"
-                                        onClick={(e) => {
-                                            e.preventDefault()
-                                            e.stopPropagation()
-                                            setAutoRefresh(!autoRefresh.enabled, autoRefresh.interval)
-                                        }}
+                                    <Tooltip
+                                        title="Auto-refresh will only work while this tab is open"
+                                        placement="topRight"
                                     >
-                                        <Tooltip title={`Refresh dashboard automatically`} placement="bottomLeft">
+                                        <div>
                                             <LemonSwitch
                                                 onChange={(checked) => setAutoRefresh(checked, autoRefresh.interval)}
                                                 label={'Auto refresh'}
                                                 checked={autoRefresh.enabled}
                                                 fullWidth={true}
                                             />
-                                        </Tooltip>
-                                    </div>
+                                        </div>
+                                    </Tooltip>
                                     <LemonDivider />
                                     <div className={'flex flex-col'}>
                                         <div role="heading" className="text-muted mb-2">
@@ -87,7 +81,7 @@ export function DashboardReloadAction(): JSX.Element {
                                             value={autoRefresh.interval}
                                             style={{ width: '100%' }}
                                         >
-                                            <Space direction="vertical" style={{ width: '100%' }}>
+                                            <div className="flex flex-col gap-2">
                                                 {intervalOptions.map(({ label, value }) => (
                                                     <Radio
                                                         key={value}
@@ -98,7 +92,7 @@ export function DashboardReloadAction(): JSX.Element {
                                                         {label}
                                                     </Radio>
                                                 ))}
-                                            </Space>
+                                            </div>
                                         </Radio.Group>
                                     </div>
                                 </div>
@@ -122,7 +116,7 @@ export function DashboardReloadAction(): JSX.Element {
                         <LastRefreshText />
                     )}
                 </span>
-            </LemonButtonWithSideAction>
+            </LemonButton>
         </>
     )
 }

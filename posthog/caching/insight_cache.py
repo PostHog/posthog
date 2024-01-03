@@ -42,7 +42,9 @@ def schedule_cache_updates():
 
     if len(representative_by_cache_key) > 0:
         logger.warn(
-            "Scheduled caches to be updated", candidates=len(to_update), tasks_created=len(representative_by_cache_key)
+            "Scheduled caches to be updated",
+            candidates=len(to_update),
+            tasks_created=len(representative_by_cache_key),
         )
     else:
         logger.warn("No caches were found to be updated")
@@ -120,7 +122,12 @@ def update_cache(caching_state_id: UUID):
         statsd.incr("caching_state_update_success")
         statsd.incr("caching_state_update_rows_updated", rows_updated)
         statsd.timing("caching_state_update_success_timing", duration)
-        logger.warn("Re-calculated insight cache", rows_updated=rows_updated, duration=duration, **metadata)
+        logger.warn(
+            "Re-calculated insight cache",
+            rows_updated=rows_updated,
+            duration=duration,
+            **metadata,
+        )
     else:
         logger.warn(
             "Failed to re-calculate insight cache",
@@ -137,11 +144,18 @@ def update_cache(caching_state_id: UUID):
             update_cache_task.apply_async(args=[caching_state_id], countdown=timedelta(minutes=10).total_seconds())
 
         InsightCachingState.objects.filter(pk=caching_state.pk).update(
-            refresh_attempt=caching_state.refresh_attempt + 1, last_refresh_queued_at=now()
+            refresh_attempt=caching_state.refresh_attempt + 1,
+            last_refresh_queued_at=now(),
         )
 
 
-def update_cached_state(team_id: int, cache_key: str, timestamp: datetime, result: Any, ttl: Optional[int] = None):
+def update_cached_state(
+    team_id: int,
+    cache_key: str,
+    timestamp: datetime,
+    result: Any,
+    ttl: Optional[int] = None,
+):
     cache.set(cache_key, result, ttl if ttl is not None else settings.CACHED_RESULTS_TTL)
     insight_cache_write_counter.inc()
 
@@ -156,6 +170,9 @@ def _extract_insight_dashboard(caching_state: InsightCachingState) -> Tuple[Insi
     if caching_state.dashboard_tile is not None:
         assert caching_state.dashboard_tile.insight is not None
 
-        return caching_state.dashboard_tile.insight, caching_state.dashboard_tile.dashboard
+        return (
+            caching_state.dashboard_tile.insight,
+            caching_state.dashboard_tile.dashboard,
+        )
     else:
         return caching_state.insight, None

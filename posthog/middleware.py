@@ -13,7 +13,11 @@ from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import CsrfViewMiddleware
 from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
-from django_prometheus.middleware import Metrics, PrometheusAfterMiddleware, PrometheusBeforeMiddleware
+from django_prometheus.middleware import (
+    Metrics,
+    PrometheusAfterMiddleware,
+    PrometheusBeforeMiddleware,
+)
 from rest_framework import status
 from statshog.defaults.django import statsd
 
@@ -26,12 +30,10 @@ from posthog.exceptions import generate_exception_response
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, User, Team
 from posthog.rate_limit import DecideRateThrottle
-from posthog.settings import SITE_URL
-from posthog.settings.statsd import STATSD_HOST
+from posthog.settings import SITE_URL, DEBUG
 from posthog.user_permissions import UserPermissions
-from posthog.utils import cors_response
-
 from .auth import PersonalAPIKeyAuthentication
+from .utils_cors import cors_response
 
 ALWAYS_ALLOWED_ENDPOINTS = [
     "decide",
@@ -44,6 +46,10 @@ ALWAYS_ALLOWED_ENDPOINTS = [
     "static",
     "_health",
 ]
+
+if DEBUG:
+    # /i/ is the new root path for capture endpoints
+    ALWAYS_ALLOWED_ENDPOINTS.append("i")
 
 default_cookie_options = {
     "max_age": 365 * 24 * 60 * 60,  # one year
@@ -112,6 +118,8 @@ class CsrfOrKeyViewMiddleware(CsrfViewMiddleware):
         result = super().process_view(request, callback, callback_args, callback_kwargs)  # None if request accepted
         # if super().process_view did not find a valid CSRF token, try looking for a personal API key
         if result is not None and PersonalAPIKeyAuthentication.find_key_with_source(request) is not None:
+            return self._accept(request)
+        if DEBUG and request.path.split("/")[1] in ALWAYS_ALLOWED_ENDPOINTS:
             return self._accept(request)
         return result
 
@@ -252,7 +260,10 @@ class CHQueries:
             response: HttpResponse = self.get_response(request)
 
             if "api/" in request.path and "capture" not in request.path:
-                statsd.incr("http_api_request_response", tags={"id": route_id, "status_code": response.status_code})
+                statsd.incr(
+                    "http_api_request_response",
+                    tags={"id": route_id, "status_code": response.status_code},
+                )
 
             return response
         finally:
@@ -267,7 +278,13 @@ class CHQueries:
 
 
 class QueryTimeCountingMiddleware:
-    ALLOW_LIST_ROUTES = ["dashboard", "insight", "property_definitions", "properties", "person"]
+    ALLOW_LIST_ROUTES = [
+        "dashboard",
+        "insight",
+        "property_definitions",
+        "properties",
+        "person",
+    ]
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -310,7 +327,8 @@ class ShortCircuitMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
         self.decide_throttler = DecideRateThrottle(
-            replenish_rate=settings.DECIDE_BUCKET_REPLENISH_RATE, bucket_capacity=settings.DECIDE_BUCKET_CAPACITY
+            replenish_rate=settings.DECIDE_BUCKET_REPLENISH_RATE,
+            bucket_capacity=settings.DECIDE_BUCKET_CAPACITY,
         )
 
     def __call__(self, request: HttpRequest):
@@ -374,13 +392,6 @@ class CaptureMiddleware:
         # List of middlewares we want to run, that would've been shortcircuited otherwise
         self.CAPTURE_MIDDLEWARE = middlewares
 
-        if STATSD_HOST is not None:
-            # import here to avoid log-spew about failure to connect to statsd,
-            # as this connection is created on import
-            from django_statsd.middleware import StatsdMiddlewareTimer
-
-            self.CAPTURE_MIDDLEWARE.append(StatsdMiddlewareTimer())
-
     def __call__(self, request: HttpRequest):
         if request.path in (
             "/e",
@@ -415,7 +426,12 @@ class CaptureMiddleware:
                 resolver_match = resolve(request.path)
                 request.resolver_match = resolver_match
                 for middleware in self.CAPTURE_MIDDLEWARE:
-                    middleware.process_view(request, resolver_match.func, resolver_match.args, resolver_match.kwargs)
+                    middleware.process_view(
+                        request,
+                        resolver_match.func,
+                        resolver_match.args,
+                        resolver_match.kwargs,
+                    )
 
                 response: HttpResponse = get_event(request)
 
@@ -503,15 +519,15 @@ class PrometheusAfterMiddlewareWithTeamIds(PrometheusAfterMiddleware):
     def label_metric(self, metric, request, response=None, **labels):
         new_labels = labels
         if metric._name in PROMETHEUS_EXTENDED_METRICS:
-            if (
-                request
-                and getattr(request, "user", None)
-                and request.user.is_authenticated
-                and hasattr(request.user, "current_team_id")
-            ):
-                team_id = request.user.current_team_id
-            else:
-                team_id = None
+            team_id = None
+            if request and getattr(request, "user", None) and request.user.is_authenticated:
+                if request.resolver_match.kwargs.get("parent_lookup_team_id"):
+                    team_id = request.resolver_match.kwargs["parent_lookup_team_id"]
+                    if team_id == "@current":
+                        if hasattr(request.user, "current_team_id"):
+                            team_id = request.user.current_team_id
+                        else:
+                            team_id = None
 
             new_labels = {LABEL_TEAM_ID: team_id}
             new_labels.update(labels)
@@ -535,10 +551,9 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
             return response
 
         if request.path.startswith("/logout"):
-            # clears the cookies that were previously set
+            # clears the cookies that were previously set, except for ph_current_instance as that is used for the website login button
             response.delete_cookie("ph_current_project_token", domain=default_cookie_options["domain"])
             response.delete_cookie("ph_current_project_name", domain=default_cookie_options["domain"])
-            response.delete_cookie("ph_current_instance", domain=default_cookie_options["domain"])
         if request.user and request.user.is_authenticated and request.user.team:
             response.set_cookie(
                 key="ph_current_project_token",
@@ -563,7 +578,7 @@ class PostHogTokenCookieMiddleware(SessionMiddleware):
             )
 
             response.set_cookie(
-                key="ph_current_instance",  # clarify which project is active (orgs can have multiple projects)
+                key="ph_current_instance",
                 value=SITE_URL,
                 max_age=365 * 24 * 60 * 60,
                 expires=default_cookie_options["expires"],

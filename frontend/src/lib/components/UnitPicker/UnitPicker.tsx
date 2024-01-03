@@ -1,11 +1,11 @@
-import { AggregationAxisFormat, INSIGHT_UNIT_OPTIONS, axisLabel } from 'scenes/insights/aggregationAxisFormat'
+import { useActions, useValues } from 'kea'
+import { CustomUnitModal } from 'lib/components/UnitPicker/CustomUnitModal'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { useMemo, useRef, useState } from 'react'
-import { useActions, useValues } from 'kea'
-import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { CustomUnitModal } from 'lib/components/UnitPicker/CustomUnitModal'
+import { useMemo, useRef, useState } from 'react'
+import { AggregationAxisFormat, INSIGHT_UNIT_OPTIONS } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -82,8 +82,7 @@ export function UnitPicker(): JSX.Element {
     }, [localAxisFormat, trendsFilter])
 
     return (
-        <>
-            <span>{axisLabel(display)}</span>
+        <div className="flex-1 mb-2.5 mx-2">
             <CustomUnitModal
                 formativeElement={customUnitModal}
                 isOpen={customUnitModal !== null}
@@ -94,10 +93,10 @@ export function UnitPicker(): JSX.Element {
             />
             <LemonButtonWithDropdown
                 onClick={() => setIsVisible(!isVisible)}
-                size={'small'}
-                type={'secondary'}
-                status="stealth"
+                size="small"
+                type="secondary"
                 data-attr="chart-aggregation-axis-format"
+                fullWidth
                 dropdown={{
                     onClickOutside: () => setIsVisible(false),
                     additionalRefs: [customUnitModalRef],
@@ -108,7 +107,6 @@ export function UnitPicker(): JSX.Element {
                                 <LemonButton
                                     key={index}
                                     onClick={() => handleChange({ format: value })}
-                                    status="stealth"
                                     active={value === localAxisFormat}
                                     fullWidth
                                 >
@@ -120,23 +118,21 @@ export function UnitPicker(): JSX.Element {
                                 <LemonDivider />
                                 <LemonButton
                                     onClick={() => setCustomUnitModal('prefix')}
-                                    status="stealth"
                                     active={!!trendsFilter?.aggregation_axis_prefix}
                                     fullWidth
                                 >
                                     Custom prefix
-                                    {!!trendsFilter?.aggregation_axis_prefix
+                                    {trendsFilter?.aggregation_axis_prefix
                                         ? `: ${trendsFilter?.aggregation_axis_prefix}...`
                                         : '...'}
                                 </LemonButton>
                                 <LemonButton
                                     onClick={() => setCustomUnitModal('postfix')}
-                                    status="stealth"
                                     active={!!trendsFilter?.aggregation_axis_postfix}
                                     fullWidth
                                 >
                                     Custom postfix
-                                    {!!trendsFilter?.aggregation_axis_postfix
+                                    {trendsFilter?.aggregation_axis_postfix
                                         ? `: ${trendsFilter?.aggregation_axis_postfix}...`
                                         : '...'}
                                 </LemonButton>
@@ -150,6 +146,6 @@ export function UnitPicker(): JSX.Element {
             >
                 {displayValue}
             </LemonButtonWithDropdown>
-        </>
+        </div>
     )
 }

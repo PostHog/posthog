@@ -1,10 +1,11 @@
-import { initKeaTests } from '~/test/init'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { expectLogic, partial } from 'kea-test-utils'
-import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { DataTableNode, NodeKind } from '~/queries/schema'
+import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { query } from '~/queries/query'
+import { DataTableNode, NodeKind } from '~/queries/schema'
+import { initKeaTests } from '~/test/init'
 
 jest.mock('~/queries/query')
 
@@ -41,7 +42,8 @@ describe('dataTableLogic', () => {
     it('gets the response from dataNodeLogic', async () => {
         const dataTableQuery: DataTableNode = getDataTableQuery()
         logic = dataTableLogic({
-            key: testUniqueKey,
+            dataKey: testUniqueKey,
+            vizKey: testUniqueKey,
             query: dataTableQuery,
         })
         const randomResponse = {}
@@ -65,7 +67,8 @@ describe('dataTableLogic', () => {
     it('rejects if passed anything other than a DataTableNode', async () => {
         expect(() => {
             dataTableLogic({
-                key: testUniqueKey,
+                dataKey: testUniqueKey,
+                vizKey: testUniqueKey,
                 query: {
                     kind: NodeKind.EventsQuery,
                     select: ['*', 'event', 'timestamp'],
@@ -76,7 +79,8 @@ describe('dataTableLogic', () => {
 
     it('extracts sourceKind and orderBy', async () => {
         logic = dataTableLogic({
-            key: testUniqueKey,
+            dataKey: testUniqueKey,
+            vizKey: testUniqueKey,
             query: getDataTableQuery(),
         })
         logic.mount()
@@ -87,7 +91,8 @@ describe('dataTableLogic', () => {
 
         // change props
         dataTableLogic({
-            key: testUniqueKey,
+            dataKey: testUniqueKey,
+            vizKey: testUniqueKey,
             query: getDataTableQuery({ orderBy: ['event'] }),
         })
 
@@ -98,7 +103,8 @@ describe('dataTableLogic', () => {
 
         // change props
         dataTableLogic({
-            key: testUniqueKey,
+            dataKey: testUniqueKey,
+            vizKey: testUniqueKey,
             query: {
                 kind: NodeKind.DataTableNode,
                 source: {
@@ -115,7 +121,8 @@ describe('dataTableLogic', () => {
 
     it('updates local columns if query changed', async () => {
         logic = dataTableLogic({
-            key: testUniqueKey,
+            dataKey: testUniqueKey,
+            vizKey: testUniqueKey,
             query: getDataTableQuery(),
         })
         logic.mount()
@@ -125,7 +132,8 @@ describe('dataTableLogic', () => {
 
         // change props
         dataTableLogic({
-            key: testUniqueKey,
+            dataKey: testUniqueKey,
+            vizKey: testUniqueKey,
             query: getDataTableQuery({ select: ['*', 'event', 'timestamp', 'properties.foobar'] }),
         })
 
@@ -180,7 +188,8 @@ describe('dataTableLogic', () => {
             hasMore: true,
         })
         logic = dataTableLogic({
-            key: testUniqueKey,
+            dataKey: testUniqueKey,
+            vizKey: testUniqueKey,
             query: {
                 kind: NodeKind.DataTableNode,
                 source: {
@@ -211,7 +220,8 @@ describe('dataTableLogic', () => {
 
     it('respects allowSorting', async () => {
         logic = dataTableLogic({
-            key: testUniqueKey,
+            dataKey: testUniqueKey,
+            vizKey: testUniqueKey,
             query: getDataTableQuery({ allowSorting: false }),
         })
         logic.mount()
@@ -221,7 +231,8 @@ describe('dataTableLogic', () => {
 
         // change props
         dataTableLogic({
-            key: testUniqueKey,
+            dataKey: testUniqueKey,
+            vizKey: testUniqueKey,
             query: getDataTableQuery({ allowSorting: true }),
         })
 
@@ -232,7 +243,8 @@ describe('dataTableLogic', () => {
 
     it('defaults to showing the open editor button', async () => {
         logic = dataTableLogic({
-            key: testUniqueKey,
+            dataKey: testUniqueKey,
+            vizKey: testUniqueKey,
             query: getDataTableQuery(),
         })
         logic.mount()
@@ -245,7 +257,8 @@ describe('dataTableLogic', () => {
 
     it('query can set whether showing the open editor button', async () => {
         logic = dataTableLogic({
-            key: testUniqueKey,
+            dataKey: testUniqueKey,
+            vizKey: testUniqueKey,
             query: getDataTableQuery({ showOpenEditorButton: false }),
         })
         logic.mount()
@@ -258,7 +271,8 @@ describe('dataTableLogic', () => {
 
     it('context can set whether showing the open editor button', async () => {
         logic = dataTableLogic({
-            key: testUniqueKey,
+            dataKey: testUniqueKey,
+            vizKey: testUniqueKey,
             query: getDataTableQuery(),
             context: {
                 showOpenEditorButton: false,

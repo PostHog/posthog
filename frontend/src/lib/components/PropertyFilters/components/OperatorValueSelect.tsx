@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { PropertyDefinition, PropertyFilterType, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
+import { LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
+import { dayjs } from 'lib/dayjs'
 import {
     allOperatorsMapping,
     chooseOperatorMap,
@@ -9,9 +9,11 @@ import {
     isOperatorRange,
     isOperatorRegex,
 } from 'lib/utils'
+import { useEffect, useState } from 'react'
+
+import { PropertyDefinition, PropertyFilterType, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
+
 import { PropertyValue } from './PropertyValue'
-import { dayjs } from 'lib/dayjs'
-import { LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
 
 export interface OperatorValueSelectProps {
     type?: PropertyFilterType
@@ -126,7 +128,7 @@ export function OperatorValueSelect({
                 />
             </div>
             {!isOperatorFlag(currentOperator || PropertyOperator.Exact) && type && propkey && (
-                <div className="flex-1" style={{ minWidth: '10rem' }} data-attr="taxonomic-value-select">
+                <div className="flex-1 min-w-40" data-attr="taxonomic-value-select">
                     <PropertyValue
                         type={type}
                         key={propkey}

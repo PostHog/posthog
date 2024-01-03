@@ -1,24 +1,19 @@
-import { PageHeader } from 'lib/components/PageHeader'
-import { SceneExport } from 'scenes/sceneTypes'
 import './ToolbarLaunch.scss'
-import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
-import { IconFlag, IconGroupedEvents, IconHeatmap, IconMagnifier } from 'lib/lemon-ui/icons'
+
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { PageHeader } from 'lib/components/PageHeader'
+import { IconFlag, IconGroupedEvents, IconHeatmap, IconMagnifier } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
-import { useActions, useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
+import { Link } from 'lib/lemon-ui/Link'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 export const scene: SceneExport = {
     component: ToolbarLaunch,
 }
 
 function ToolbarLaunch(): JSX.Element {
-    const { user, userLoading } = useValues(userLogic)
-    const { updateUser } = useActions(userLogic)
-
     const features: FeatureHighlightProps[] = [
         {
             title: 'Heatmaps',
@@ -47,21 +42,6 @@ function ToolbarLaunch(): JSX.Element {
             <PageHeader title="Toolbar" caption="The toolbar launches PostHog right in your app or website." />
             <LemonDivider />
 
-            <div className="my-4">
-                <LemonSwitch
-                    data-attr="toolbar-authorized-toggle"
-                    label="Enable the PostHog toolbar"
-                    onChange={() =>
-                        updateUser({
-                            toolbar_mode: user?.toolbar_mode === 'disabled' ? 'toolbar' : 'disabled',
-                        })
-                    }
-                    checked={user?.toolbar_mode !== 'disabled'}
-                    disabled={userLoading}
-                    bordered
-                />
-            </div>
-
             <h2 className="subtitle" id="urls">
                 Authorized URLs for Toolbar
             </h2>
@@ -72,7 +52,7 @@ function ToolbarLaunch(): JSX.Element {
             <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} addText={'Add authorized URL'} />
 
             <div className="footer-caption text-muted mt-4 text-center">
-                Make sure you're using the <Link to={`${urls.projectSettings()}#snippet`}>HTML snippet</Link> or the
+                Make sure you're using the <Link to={`${urls.settings('project')}#snippet`}>HTML snippet</Link> or the
                 latest <code>posthog-js</code> version.
             </div>
 

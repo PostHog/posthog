@@ -1,13 +1,15 @@
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
-import recordingMetaJson from '../__mocks__/recording_meta.json'
-import recordingEventsJson from '../__mocks__/recording_events_query'
-import recordingSnapshotsJson from '../__mocks__/recording_snapshots.json'
+
 import { useMocks } from '~/mocks/jest'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { initKeaTests } from '~/test/init'
+
+import recordingEventsJson from '../__mocks__/recording_events_query'
+import recordingMetaJson from '../__mocks__/recording_meta.json'
+import { snapshotsAsJSONLines } from '../__mocks__/recording_snapshots'
 
 const playerProps = { sessionRecordingId: '1', playerKey: 'playlist' }
 
@@ -18,7 +20,8 @@ describe('playerMetaLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team/session_recordings/:id': recordingMetaJson,
-                '/api/projects/:team/session_recordings/:id/snapshots/': recordingSnapshotsJson,
+                '/api/projects/:team/session_recordings/:id/snapshots/': (_, res, ctx) =>
+                    res(ctx.text(snapshotsAsJSONLines())),
             },
             post: {
                 '/api/projects/:team/query': recordingEventsJson,

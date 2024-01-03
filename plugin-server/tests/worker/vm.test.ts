@@ -1,12 +1,11 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
-import * as fetch from 'node-fetch'
+import fetch from 'node-fetch'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { Hub, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
 import { PluginConfig, PluginConfigVMResponse } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { delay, UUIDT } from '../../src/utils/utils'
-import { MAXIMUM_RETRIES } from '../../src/worker/vm/upgrades/export-events'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
 import { plugin60 } from '../helpers/plugins'
@@ -57,9 +56,9 @@ describe('vm tests', () => {
         const indexJs = ''
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
-        expect(Object.keys(vm).sort()).toEqual(['methods', 'tasks', 'vm', 'vmResponseVariable'])
+        expect(Object.keys(vm).sort()).toEqual(['methods', 'tasks', 'usedImports', 'vm', 'vmResponseVariable'])
         expect(Object.keys(vm.methods).sort()).toEqual([
-            'exportEvents',
+            'composeWebhook',
             'getSettings',
             'onEvent',
             'processEvent',
@@ -123,7 +122,7 @@ describe('vm tests', () => {
         })
         expect(fetch).not.toHaveBeenCalled()
         await vm.methods.teardownPlugin!()
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=hoho')
+        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=hoho', undefined)
     })
 
     test('processEvent', async () => {
@@ -377,7 +376,7 @@ describe('vm tests', () => {
                 event: 'export',
             }
             await vm.methods.onEvent!(event)
-            expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=export')
+            expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=export', undefined)
         })
 
         test('export default', async () => {
@@ -396,7 +395,7 @@ describe('vm tests', () => {
                 event: 'default export',
             }
             await vm.methods.onEvent!(event)
-            expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=default export')
+            expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=default export', undefined)
         })
     })
 
@@ -724,7 +723,7 @@ describe('vm tests', () => {
         }
 
         await vm.methods.processEvent!(event)
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched')
+        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched', undefined)
 
         expect(event.properties).toEqual({ count: 2, query: 'bla', results: [true, true] })
     })
@@ -746,7 +745,7 @@ describe('vm tests', () => {
         }
 
         await vm.methods.processEvent!(event)
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched')
+        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched', undefined)
 
         expect(event.properties).toEqual({ count: 2, query: 'bla', results: [true, true] })
     })
@@ -767,7 +766,7 @@ describe('vm tests', () => {
         }
 
         await vm.methods.processEvent!(event)
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched')
+        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched', undefined)
 
         expect(event.properties).toEqual({ count: 2, query: 'bla', results: [true, true] })
     })
@@ -1052,349 +1051,23 @@ describe('vm tests', () => {
             event: 'onEvent',
         }
         await vm.methods.onEvent!(event)
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=onEvent')
-    })
-
-    describe('exportEvents', () => {
-        beforeEach(() => {
-            jest.spyOn(hub.appMetrics, 'queueMetric')
-        })
-
-        test('normal operation', async () => {
-            const indexJs = `
-                async function exportEvents (events, meta) {
-                    await fetch('https://export.com/results.json?query=' + events[0].event + '&events=' + events.length)
-                }
-            `
-            await resetTestDatabase(indexJs)
-            const vm = await createReadyPluginConfigVm(
-                hub,
-                {
-                    ...pluginConfig39,
-                    config: {
-                        ...pluginConfig39.config,
-                        exportEventsBufferBytes: '10000',
-                        exportEventsBufferSeconds: '1',
-                        exportEventsToIgnore: `${defaultEvent.event},otherEvent`,
-                    },
-                },
-                indexJs
-            )
-
-            await vm.methods.onEvent!(defaultEvent)
-            await vm.methods.onEvent!({ ...defaultEvent, event: 'otherEvent' })
-            await vm.methods.onEvent!({ ...defaultEvent, event: 'otherEvent2' })
-            await vm.methods.onEvent!({ ...defaultEvent, event: 'otherEvent3' })
-            await delay(1010)
-            expect(fetch).toHaveBeenCalledWith('https://export.com/results.json?query=otherEvent2&events=2')
-            expect(hub.appMetrics.queueMetric).toHaveBeenCalledWith({
-                teamId: pluginConfig39.team_id,
-                pluginConfigId: pluginConfig39.id,
-                category: 'exportEvents',
-                successes: 2,
-                successesOnRetry: 0,
-            })
-
-            // adds exportEventsWithRetry job and onEvent function
-            expect(Object.keys(vm.tasks.job)).toEqual(expect.arrayContaining(['exportEventsWithRetry']))
-            expect(Object.keys(vm.tasks.schedule)).toEqual(['runEveryMinute'])
-            expect(
-                Object.keys(vm.methods)
-                    .filter((m) => !!vm.methods[m as keyof typeof vm.methods])
-                    .sort()
-            ).toEqual(expect.arrayContaining(['exportEvents', 'onEvent', 'teardownPlugin']))
-        })
-
-        test('retries', async () => {
-            jest.spyOn(hub, 'enqueuePluginJob').mockImplementation(() => null)
-            const indexJs = `
-                async function exportEvents (events, meta) {
-                    meta.global.ranTimes = (meta.global.ranTimes || 0) + 1;
-                    if (meta.global.ranTimes < 3) {
-                        throw new RetryError('Try again')
-                    } else {
-                        await fetch('https://export.com/results.json?query=' + events[0].event + '&events=' + events.length)
-                    }
-                }
-            `
-            await resetTestDatabase(indexJs)
-            const vm = await createReadyPluginConfigVm(
-                hub,
-                {
-                    ...pluginConfig39,
-                    config: {
-                        ...pluginConfig39.config,
-                        exportEventsBufferBytes: '10000',
-                        exportEventsBufferSeconds: '1',
-                        exportEventsToIgnore: '',
-                    },
-                },
-                indexJs
-            )
-            const event: ProcessedPluginEvent = {
-                ...defaultEvent,
-                uuid: new UUIDT().toString(),
-                event: 'exported',
-            }
-
-            // first ones will fail and be retried
-            await vm.methods.onEvent!(event)
-            await vm.methods.onEvent!(event)
-            await vm.methods.onEvent!(event)
-            await delay(1010)
-
-            // get the enqueued job
-            expect(hub.enqueuePluginJob).toHaveBeenCalledWith({
-                payload: { batch: [event, event, event], batchId: expect.any(Number), retriesPerformedSoFar: 1 },
-                pluginConfigId: 39,
-                pluginConfigTeam: 2,
-                timestamp: expect.any(Number),
-                type: 'exportEventsWithRetry',
-            })
-
-            const jobPayload = hub.enqueuePluginJob.mock.calls[0][0].payload
-
-            // run the job directly
-            await vm.tasks.job['exportEventsWithRetry'].exec(jobPayload)
-
-            // enqueued again
-            expect(hub.enqueuePluginJob).toHaveBeenCalledTimes(2)
-            expect(hub.enqueuePluginJob).toHaveBeenLastCalledWith({
-                payload: { batch: jobPayload.batch, batchId: jobPayload.batchId, retriesPerformedSoFar: 2 },
-                pluginConfigId: 39,
-                pluginConfigTeam: 2,
-                timestamp: expect.any(Number),
-                type: 'exportEventsWithRetry',
-            })
-            const jobPayload2 = hub.enqueuePluginJob.mock.calls[1][0].payload
-
-            // run the job a second time
-            await vm.tasks.job['exportEventsWithRetry'].exec(jobPayload2)
-
-            // now it passed
-            expect(fetch).toHaveBeenCalledWith('https://export.com/results.json?query=exported&events=3')
-            expect(hub.appMetrics.queueMetric).toHaveBeenCalledWith({
-                teamId: pluginConfig39.team_id,
-                pluginConfigId: pluginConfig39.id,
-                category: 'exportEvents',
-                successes: 0,
-                successesOnRetry: 3,
-            })
-        })
-
-        test('max retries', async () => {
-            jest.spyOn(hub, 'enqueuePluginJob').mockImplementation(() => null)
-            const indexJs = `
-                async function exportEvents (events, meta) {
-                    meta.global.ranTimes = (meta.global.ranTimes || 0) + 1;
-                    await fetch('https://test.com/?rantimes=' + meta.global.ranTimes)
-                    throw new RetryError('Try again')
-                }
-            `
-            await resetTestDatabase(indexJs)
-            const vm = await createReadyPluginConfigVm(
-                hub,
-                {
-                    ...pluginConfig39,
-                    config: {
-                        ...pluginConfig39.config,
-                        exportEventsBufferBytes: '10000',
-                        exportEventsBufferSeconds: '1',
-                        exportEventsToIgnore: '',
-                    },
-                },
-                indexJs
-            )
-
-            await vm.methods.onEvent!(defaultEvent)
-            await vm.methods.onEvent!(defaultEvent)
-            await vm.methods.onEvent!(defaultEvent)
-            await delay(1010)
-
-            // won't retry after the nth time where n = MAXIMUM_RETRIES
-            for (let i = 2; i < 20; i++) {
-                const lastPayload =
-                    hub.enqueuePluginJob.mock.calls[hub.enqueuePluginJob.mock.calls.length - 1][0].payload
-                await vm.tasks.job['exportEventsWithRetry'].exec(lastPayload)
-                expect(hub.enqueuePluginJob).toHaveBeenCalledTimes(i > MAXIMUM_RETRIES ? MAXIMUM_RETRIES : i)
-            }
-        })
-
-        test('works with onEvent', async () => {
-            // the exportEvents upgrade patches onEvent, testing that the old one still works
-            const indexJs = `
-                async function exportEvents (events, meta) {
-                    await fetch('https://export.com/results.json?query=' + events[0].event + '&events=' + events.length)
-                }
-                async function onEvent (event, meta) {
-                    await fetch('https://onevent.com/')
-                }
-            `
-            await resetTestDatabase(indexJs)
-            const vm = await createReadyPluginConfigVm(
-                hub,
-                {
-                    ...pluginConfig39,
-                    config: {
-                        ...pluginConfig39.config,
-                        exportEventsBufferBytes: '10000',
-                        exportEventsBufferSeconds: '1',
-                        exportEventsToIgnore: defaultEvent.event,
-                    },
-                },
-                indexJs
-            )
-            const event: ProcessedPluginEvent = {
-                ...defaultEvent,
-                event: 'exported',
-            }
-            await vm.methods.onEvent!(event)
-            await vm.methods.onEvent!(defaultEvent)
-            await vm.methods.onEvent!(event)
-            await delay(1010)
-            expect(fetch).toHaveBeenCalledTimes(4)
-            expect(fetch).toHaveBeenCalledWith('https://onevent.com/')
-            expect(fetch).toHaveBeenCalledWith('https://export.com/results.json?query=exported&events=2')
-        })
-
-        test('buffers bytes with exportEventsBufferBytes', async () => {
-            const indexJs = `
-                async function exportEvents (events, meta) {
-                    // console.log(meta.config)
-                    await fetch('https://export.com/?length=' + JSON.stringify(events).length + '&count=' + events.length)
-                }
-            `
-            await resetTestDatabase(indexJs)
-            const vm = await createReadyPluginConfigVm(
-                hub,
-                {
-                    ...pluginConfig39,
-                    config: {
-                        ...pluginConfig39.config,
-                        exportEventsBufferBytes: '1000',
-                        exportEventsBufferSeconds: '1',
-                        exportEventsToIgnore: defaultEvent.event,
-                    },
-                },
-                indexJs
-            )
-            const event: ProcessedPluginEvent = {
-                uuid: new UUIDT().toString(),
-                distinct_id: 'my_id',
-                ip: '127.0.0.1',
-                team_id: 3,
-                timestamp: new Date().toISOString(),
-                event: 'exported',
-                properties: {},
-            }
-            for (let i = 0; i < 100; i++) {
-                await vm.methods.onEvent!(event)
-            }
-            await delay(1010)
-
-            // This tests that the requests were broken up correctly according to the exportEventsBufferBytes config
-            // If you add data to the event above you should see more requests, and vice versa
-            expect(fetch).toHaveBeenCalledTimes(20)
-            expect((fetch as any).mock.calls).toEqual([
-                ['https://export.com/?length=866&count=5'],
-                ['https://export.com/?length=866&count=5'],
-                ['https://export.com/?length=866&count=5'],
-                ['https://export.com/?length=866&count=5'],
-                ['https://export.com/?length=866&count=5'],
-                ['https://export.com/?length=866&count=5'],
-                ['https://export.com/?length=866&count=5'],
-                ['https://export.com/?length=866&count=5'],
-                ['https://export.com/?length=866&count=5'],
-                ['https://export.com/?length=866&count=5'],
-                ['https://export.com/?length=866&count=5'],
-                ['https://export.com/?length=866&count=5'],
-                ['https://export.com/?length=866&count=5'],
-                ['https://export.com/?length=866&count=5'],
-                ['https://export.com/?length=866&count=5'],
-                ['https://export.com/?length=866&count=5'],
-                ['https://export.com/?length=866&count=5'],
-                ['https://export.com/?length=866&count=5'],
-                ['https://export.com/?length=866&count=5'],
-                ['https://export.com/?length=866&count=5'],
-            ])
-        })
-
-        test('buffers bytes with very tiny exportEventsBufferBytes', async () => {
-            const indexJs = `
-                async function exportEvents (events, meta) {
-                    // console.log(meta.config)
-                    await fetch('https://export.com/?length=' + JSON.stringify(events).length + '&count=' + events.length)
-                }
-            `
-            await resetTestDatabase(indexJs)
-            const vm = await createReadyPluginConfigVm(
-                hub,
-                {
-                    ...pluginConfig39,
-                    config: {
-                        ...pluginConfig39.config,
-                        exportEventsBufferBytes: '1',
-                        exportEventsBufferSeconds: '1',
-                        exportEventsToIgnore: defaultEvent.event,
-                    },
-                },
-                indexJs
-            )
-            const event: ProcessedPluginEvent = {
-                uuid: new UUIDT().toString(),
-                distinct_id: 'my_id',
-                ip: '127.0.0.1',
-                team_id: 3,
-                timestamp: new Date().toISOString(),
-                event: 'exported',
-                properties: {},
-            }
-            for (let i = 0; i < 100; i++) {
-                await vm.methods.onEvent!(event)
-            }
-            await delay(1010)
-
-            expect(fetch).toHaveBeenCalledTimes(100)
-            expect((fetch as any).mock.calls).toEqual(
-                Array.from(Array(100)).map(() => ['https://export.com/?length=174&count=1'])
-            )
-        })
-
-        test('flushes on teardown', async () => {
-            const indexJs = `
-                async function exportEvents (events, meta) {
-                    await fetch('https://export.com/results.json?query=' + events[0].event + '&events=' + events.length)
-                }
-            `
-            await resetTestDatabase(indexJs)
-            const vm = await createReadyPluginConfigVm(
-                hub,
-                {
-                    ...pluginConfig39,
-                    config: {
-                        ...pluginConfig39.config,
-                        exportEventsBufferBytes: '10000',
-                        exportEventsBufferSeconds: '1000',
-                        exportEventsToIgnore: '',
-                    },
-                },
-                indexJs
-            )
-            await vm.methods.onEvent!(defaultEvent)
-            expect(fetch).not.toHaveBeenCalledWith('https://export.com/results.json?query=default event&events=1')
-
-            await vm.methods.teardownPlugin!()
-            expect(fetch).toHaveBeenCalledWith('https://export.com/results.json?query=default event&events=1')
-        })
+        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=onEvent', undefined)
     })
 
     test('imports', async () => {
         const indexJs = `
-            import jwt from 'jsonwebtoken'
+            const urlImport = require('url');
             async function processEvent (event, meta) {
                 event.properties = {
                     imports: {
-                        jsonwebtoken: 'sign' in jwt,
+                        // Injected because it was imported
+                        url: 'URL' in urlImport,
+
+                        // Available via plugin host imports because it was imported
+                        urlViaPluginHostImports: 'URL' in __pluginHostImports.url,
+
+                        // Not in plugin host imports because it was not imported
+                        cryptoUndefined: __pluginHostImports.crypto === undefined,
                     },
                 }
                 return event
@@ -1405,7 +1078,9 @@ describe('vm tests', () => {
         const event = await vm.methods.processEvent!({ ...defaultEvent })
 
         expect(event?.properties?.imports).toEqual({
-            jsonwebtoken: true,
+            url: true,
+            urlViaPluginHostImports: true,
+            cryptoUndefined: true,
         })
     })
 })

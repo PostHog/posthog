@@ -16,7 +16,10 @@ class TestSubscription(APILicensedTest):
     dashboard: Dashboard = None  # type: ignore
     insight: Insight = None  # type: ignore
 
-    insight_filter_dict = {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}]}
+    insight_filter_dict = {
+        "events": [{"id": "$pageview"}],
+        "properties": [{"key": "$browser", "value": "Mac OS X"}],
+    }
 
     @classmethod
     def setUpTestData(cls):
@@ -24,7 +27,9 @@ class TestSubscription(APILicensedTest):
 
         cls.dashboard = Dashboard.objects.create(team=cls.team, name="example dashboard", created_by=cls.user)
         cls.insight = Insight.objects.create(
-            filters=Filter(data=cls.insight_filter_dict).to_dict(), team=cls.team, created_by=cls.user
+            filters=Filter(data=cls.insight_filter_dict).to_dict(),
+            team=cls.team,
+            created_by=cls.user,
         )
 
     def _create_subscription(self, **kwargs):
@@ -96,7 +101,10 @@ class TestSubscription(APILicensedTest):
         mock_subscription_tasks.handle_subscription_value_change.delay.reset_mock()
         response = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{data['id']}",
-            {"target_value": "test@posthog.com,new_user@posthog.com", "invite_message": "hi new user"},
+            {
+                "target_value": "test@posthog.com,new_user@posthog.com",
+                "invite_message": "hi new user",
+            },
         )
         updated_data = response.json()
         assert updated_data["target_value"] == "test@posthog.com,new_user@posthog.com"

@@ -1,10 +1,10 @@
-import { StatsD } from 'hot-shots'
 import LRU from 'lru-cache'
 import LRUCache from 'lru-cache'
 
 import { ONE_HOUR } from '../../config/constants'
 import { GroupTypeIndex, PluginsServerConfig, PropertyDefinitionTypeEnum, PropertyType, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
+import { PostgresUse } from '../../utils/db/postgres'
 
 export const NULL_IN_DATABASE = Symbol('NULL_IN_DATABASE')
 export const NULL_AFTER_PROPERTY_TYPE_DETECTION = Symbol('NULL_AFTER_PROPERTY_TYPE_DETECTION')
@@ -26,17 +26,16 @@ type PropertyDefinitionsCacheValue = PropertyType | typeof NULL_IN_DATABASE | ty
  */
 export class PropertyDefinitionsCache {
     readonly propertyDefinitionsCache: Map<TeamId, LRU<string, PropertyDefinitionsCacheValue>>
-    private readonly statsd?: StatsD
     private readonly lruCacheSize: number
 
-    constructor(serverConfig: PluginsServerConfig, statsd?: StatsD) {
+    constructor(serverConfig: PluginsServerConfig) {
         this.lruCacheSize = serverConfig.EVENT_PROPERTY_LRU_SIZE
-        this.statsd = statsd
         this.propertyDefinitionsCache = new Map()
     }
 
     async initialize(teamId: number, db: DB): Promise<void> {
-        const properties = await db.postgresQuery(
+        const properties = await db.postgres.query(
+            PostgresUse.COMMON_WRITE,
             'SELECT name, property_type, type, group_type_index FROM posthog_propertydefinition WHERE team_id = $1',
             [teamId],
             'fetchPropertyDefinitions'
@@ -56,10 +55,6 @@ export class PropertyDefinitionsCache {
         }
 
         this.propertyDefinitionsCache.set(teamId, teamPropertyDefinitionsCache)
-
-        this.statsd?.gauge('propertyDefinitionsCache.length', teamPropertyDefinitionsCache.length ?? 0, {
-            team_id: teamId.toString(),
-        })
     }
 
     has(teamId: number): boolean {
@@ -89,10 +84,6 @@ export class PropertyDefinitionsCache {
             this.key(property, type, groupTypeIndex),
             detectedPropertyType ?? NULL_AFTER_PROPERTY_TYPE_DETECTION
         )
-
-        this.statsd?.gauge('propertyDefinitionsCache.length', teamCache?.length ?? 0, {
-            team_id: teamId.toString(),
-        })
     }
 
     get(teamId: number): LRUCache<string, string | symbol> | undefined {

@@ -13,7 +13,15 @@ from posthog.models.organization import OrganizationMembership
 class UserBasicSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["id", "uuid", "distinct_id", "first_name", "email", "is_email_verified"]
+        fields = [
+            "id",
+            "uuid",
+            "distinct_id",
+            "first_name",
+            "last_name",
+            "email",
+            "is_email_verified",
+        ]
 
 
 class TeamBasicSerializer(serializers.ModelSerializer):
@@ -31,6 +39,7 @@ class TeamBasicSerializer(serializers.ModelSerializer):
             "api_token",
             "name",
             "completed_snippet_onboarding",
+            "has_completed_onboarding_for",
             "ingested_event",
             "is_demo",
             "timezone",

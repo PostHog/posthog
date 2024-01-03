@@ -1,31 +1,26 @@
-import { kea } from 'kea'
+import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+
 import { UserType } from '~/types'
+
 import type { staffUsersLogicType } from './staffUsersLogicType'
 
-export const staffUsersLogic = kea<staffUsersLogicType>({
-    path: ['scenes', 'instance', 'SystemStatus', 'staffUsersLogic'],
-    connect: {
+export const staffUsersLogic = kea<staffUsersLogicType>([
+    path(['scenes', 'instance', 'SystemStatus', 'staffUsersLogic']),
+    connect({
         values: [userLogic, ['user']],
         actions: [userLogic, ['loadUser']],
-    },
-    actions: {
+    }),
+    actions({
         setStaffUsersToBeAdded: (userUuids: string[]) => ({ userUuids }),
         addStaffUsers: true,
         deleteStaffUser: (userUuid: string) => ({ userUuid }),
-    },
-    reducers: {
-        staffUsersToBeAdded: [
-            [] as string[],
-            {
-                setStaffUsersToBeAdded: (_, { userUuids }) => userUuids,
-            },
-        ],
-    },
-    loaders: ({ actions, values }) => ({
+    }),
+    loaders(({ actions, values }) => ({
         allUsers: [
             [] as UserType[],
             {
@@ -64,12 +59,20 @@ export const staffUsersLogic = kea<staffUsersLogicType>({
                 },
             },
         ],
+    })),
+    reducers({
+        staffUsersToBeAdded: [
+            [] as string[],
+            {
+                setStaffUsersToBeAdded: (_, { userUuids }) => userUuids,
+            },
+        ],
     }),
-    selectors: {
+    selectors({
         staffUsers: [(s) => [s.allUsers], (allUsers): UserType[] => allUsers.filter((user) => user.is_staff)],
         nonStaffUsers: [(s) => [s.allUsers], (allUsers): UserType[] => allUsers.filter((user) => !user.is_staff)],
-    },
-    events: ({ actions }) => ({
-        afterMount: [actions.loadAllUsers],
     }),
-})
+    events(({ actions }) => ({
+        afterMount: [actions.loadAllUsers],
+    })),
+])

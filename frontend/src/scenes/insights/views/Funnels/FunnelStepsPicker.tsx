@@ -1,15 +1,16 @@
+import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { LemonSelect, LemonSelectOptions, LemonSelectOption } from '@posthog/lemon-ui'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
 import { seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 
 export function FunnelStepsPicker(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { series, isFunnelWithEnoughSteps, funnelsFilter } = useValues(funnelDataLogic(insightProps))
-    const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
+    const { series, isFunnelWithEnoughSteps, funnelsFilter } = useValues(insightVizDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+
     const onChange = (funnel_from_step?: number, funnel_to_step?: number): void => {
         updateInsightFilter({ funnel_from_step, funnel_to_step })
     }

@@ -1,14 +1,12 @@
 .insight-empty-state {
     display: flex;
     flex-direction: column;
-    justify-content: center;
+    flex-grow: 1;
     align-items: center;
-    padding-top: 2rem;
-    padding-bottom: 2rem;
-    color: var(--muted);
+    justify-content: center;
     padding: 1rem;
     font-size: 1.1em;
-    flex-grow: 1;
+    color: var(--muted);
 
     &.error {
         .illustration-main,
@@ -33,8 +31,8 @@
     }
 
     h2 {
-        font-weight: 600;
         font-size: 1.5rem;
+        font-weight: 600;
         line-height: 1.6rem;
         color: var(--primary-alt);
     }
@@ -49,17 +47,19 @@
         .illustration-main {
             display: flex;
             justify-content: center;
-            font-size: 4rem;
             height: auto;
+            margin-bottom: 0.75rem;
+            font-size: 4rem;
             line-height: 1em;
             text-align: center;
-            margin-bottom: 0.75rem;
 
             .ant-empty {
                 height: 6rem;
                 margin: 0;
+
                 .ant-empty-image {
                     height: 100%;
+
                     svg {
                         width: 4rem;
                     }

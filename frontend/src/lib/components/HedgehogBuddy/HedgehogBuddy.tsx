@@ -1,27 +1,25 @@
+import './HedgehogBuddy.scss'
+
+import { useActions, useValues } from 'kea'
+import { dayjs } from 'lib/dayjs'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { range, sampleOne, shouldIgnoreInput } from 'lib/utils'
 import { MutableRefObject, useEffect, useRef, useState } from 'react'
 
-import { capitalizeFirstLetter, range, sampleOne } from 'lib/utils'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { useActions, useValues } from 'kea'
-import { hedgehogbuddyLogic } from './hedgehogbuddyLogic'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { HedgehogAccessories } from './HedgehogAccessories'
+import { hedgehogBuddyLogic } from './hedgehogBuddyLogic'
 import {
+    AccessoryInfo,
+    baseSpriteAccessoriesPath,
+    baseSpritePath,
     SHADOW_HEIGHT,
     SPRITE_SHEET_WIDTH,
     SPRITE_SIZE,
-    standardAnimations,
     standardAccessories,
-    AccessoryInfo,
-    accessoryGroups,
-    baseSpritePath,
-    baseSpriteAccessoriesPath,
+    standardAnimations,
 } from './sprites/sprites'
-import { FlaggedFeature } from '../FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { HedgehogBuddyAccessory } from './components/AccessoryButton'
-import './HedgehogBuddy.scss'
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 const xFrames = SPRITE_SHEET_WIDTH / SPRITE_SIZE
 const boundaryPadding = 20
@@ -33,15 +31,6 @@ const COLLISION_DETECTION_DISTANCE_INCREMENT = SPRITE_SIZE / 2
 const randomChoiceList: string[] = Object.keys(standardAnimations).reduce((acc: string[], key: string) => {
     return [...acc, ...range(standardAnimations[key].randomChance || 0).map(() => key)]
 }, [])
-
-const shouldIgnoreInput = (e: KeyboardEvent): boolean => {
-    return (
-        ['input', 'textarea'].includes((e.target as HTMLElement).tagName.toLowerCase()) ||
-        (e.target as HTMLElement).isContentEditable ||
-        (e.target as HTMLElement).parentElement?.isContentEditable ||
-        false
-    )
-}
 
 export class HedgehogActor {
     animations = standardAnimations
@@ -273,7 +262,7 @@ export class HedgehogActor {
                     // Only calculate block bounding rects once we need to
                     blocksWithBoundingRects = Array.from(
                         document.querySelectorAll(
-                            '.border, .border-t, .LemonButton--primary, .LemonButton--secondary, .LemonInput, .LemonSelect, .LemonTable'
+                            '.border, .border-t, .LemonButton--primary, .LemonButton--secondary:not(.LemonButton--status-alt:not(.LemonButton--active)), .LemonInput, .LemonSelect, .LemonTable'
                         )
                     ).map((block) => [block, block.getBoundingClientRect()])
                 }
@@ -316,7 +305,10 @@ export class HedgehogActor {
             <div
                 className="HedgehogBuddy"
                 data-content={preloadContent}
-                onMouseDown={() => {
+                onMouseDown={(e) => {
+                    if (e.button !== 0) {
+                        return
+                    }
                     let moved = false
                     const onMouseMove = (e: any): void => {
                         moved = true
@@ -390,16 +382,17 @@ export function HedgehogBuddy({
     onClick: _onClick,
     onPositionChange,
     popoverOverlay,
+    isDarkModeOn,
 }: {
     actorRef?: MutableRefObject<HedgehogActor | undefined>
     onClose: () => void
     onClick?: () => void
     onPositionChange?: (actor: HedgehogActor) => void
     popoverOverlay?: React.ReactNode
+    // passed in as this might need to be the app's global dark mode setting or the toolbar's local one
+    isDarkModeOn: boolean
 }): JSX.Element {
     const actorRef = useRef<HedgehogActor>()
-
-    const { isDarkModeOn } = useValues(themeLogic)
 
     if (!actorRef.current) {
         actorRef.current = new HedgehogActor()
@@ -409,7 +402,8 @@ export function HedgehogBuddy({
     }
 
     const actor = actorRef.current
-    const { accessories } = useValues(hedgehogbuddyLogic)
+    const { accessories } = useValues(hedgehogBuddyLogic)
+    const { addAccessory } = useActions(hedgehogBuddyLogic)
 
     useEffect(() => {
         return actor.setupKeyboardListeners()
@@ -426,6 +420,14 @@ export function HedgehogBuddy({
     useEffect(() => {
         actor.darkMode = isDarkModeOn
     }, [isDarkModeOn])
+
+    // NOTE: Temporary - turns on christmas clothes for the holidays
+    useEffect(() => {
+        if (accessories.length === 0 && dayjs().month() === 11) {
+            addAccessory(standardAccessories['xmas_hat'])
+            addAccessory(standardAccessories['xmas_scarf'])
+        }
+    }, [])
 
     useEffect(() => {
         let timer: any = null
@@ -475,51 +477,11 @@ export function HedgehogBuddy({
             overlay={
                 popoverOverlay || (
                     <div className="HedgehogBuddyPopover p-2 max-w-140">
-                        <h3>Hi, I'm Max!</h3>
-                        <p>
-                            Don't mind me. I'm just here to keep you company.
-                            <br />
-                            You can move me around by clicking and dragging or control me with WASD / arrow keys.
-                        </p>
+                        <HedgehogAccessories isDarkModeOn={isDarkModeOn} />
 
-                        {accessoryGroups.map((group) => (
-                            <div key={group}>
-                                <h4>{capitalizeFirstLetter(group)}</h4>
-
-                                <div className="flex gap-2 my-2 overflow-y-auto">
-                                    {Object.keys(standardAccessories)
-                                        .filter((acc) => standardAccessories[acc].group === group)
-                                        .map((acc) => (
-                                            <HedgehogBuddyAccessory
-                                                key={acc}
-                                                accessoryKey={acc}
-                                                accessory={standardAccessories[acc]}
-                                            />
-                                        ))}
-                                </div>
-                            </div>
-                        ))}
-
-                        <FlaggedFeature flag={FEATURE_FLAGS.HEDGEHOG_MODE_DEBUG}>
-                            <>
-                                <LemonDivider />
-                                <div className="flex gap-2 my-2 overflow-y-auto">
-                                    {Object.keys(standardAnimations).map((x) => (
-                                        <LemonButton
-                                            key={x}
-                                            type="secondary"
-                                            size="small"
-                                            onClick={() => actor.setAnimation(x)}
-                                        >
-                                            {capitalizeFirstLetter(x)}
-                                        </LemonButton>
-                                    ))}
-                                </div>
-                            </>
-                        </FlaggedFeature>
                         <LemonDivider />
                         <div className="flex justify-end gap-2">
-                            <LemonButton type="secondary" status="danger" onClick={() => disappear()}>
+                            <LemonButton type="secondary" status="danger" onClick={disappear}>
                                 Good bye!
                             </LemonButton>
                             <LemonButton type="secondary" onClick={() => setPopoverVisible(false)}>
@@ -533,11 +495,4 @@ export function HedgehogBuddy({
             {actor.render({ onClick })}
         </Popover>
     )
-}
-
-export function HedgehogBuddyWithLogic(): JSX.Element {
-    const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
-    const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
-
-    return hedgehogModeEnabled ? <HedgehogBuddy onClose={() => setHedgehogModeEnabled(false)} /> : <></>
 }

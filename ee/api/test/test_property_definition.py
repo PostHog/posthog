@@ -30,7 +30,9 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
     def test_errors_on_invalid_property_type(self):
         with pytest.raises(IntegrityError):
             EnterprisePropertyDefinition.objects.create(
-                team=self.team, name="a timestamp", property_type="not an allowed option"
+                team=self.team,
+                name="a timestamp",
+                property_type="not an allowed option",
             )
 
     def test_retrieve_existing_property_definition(self):
@@ -147,7 +149,10 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(set(response_data["tags"]), {"official", "internal"})
 
         property.refresh_from_db()
-        self.assertEqual(set(property.tagged_items.values_list("tag__name", flat=True)), {"official", "internal"})
+        self.assertEqual(
+            set(property.tagged_items.values_list("tag__name", flat=True)),
+            {"official", "internal"},
+        )
 
         activity_log: Optional[ActivityLog] = ActivityLog.objects.first()
         assert activity_log is not None
@@ -181,7 +186,8 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         property = PropertyDefinition.objects.create(team=self.team, name="property")
 
         response = self.client.patch(
-            f"/api/projects/@current/property_definitions/{str(property.id)}/", {"property_type": "Numeric"}
+            f"/api/projects/@current/property_definitions/{str(property.id)}/",
+            {"property_type": "Numeric"},
         )
 
         response_data = response.json()
@@ -199,7 +205,8 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         )
 
         response = self.client.patch(
-            f"/api/projects/@current/property_definitions/{str(property.id)}/", {"property_type": "DateTime"}
+            f"/api/projects/@current/property_definitions/{str(property.id)}/",
+            {"property_type": "DateTime"},
         )
 
         response_data = response.json()
@@ -210,23 +217,49 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
     def test_update_property_description_without_license(self):
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
         response = self.client.patch(
-            f"/api/projects/@current/property_definitions/{str(property.id)}/", data={"description": "test"}
+            f"/api/projects/@current/property_definitions/{str(property.id)}/",
+            data={"description": "test"},
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn("Self-hosted licenses are no longer available for purchase.", response.json()["detail"])
+        self.assertIn(
+            "Self-hosted licenses are no longer available for purchase.",
+            response.json()["detail"],
+        )
 
     def test_update_property_tags_without_license(self):
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
         response = self.client.patch(
-            f"/api/projects/@current/property_definitions/{str(property.id)}/", data={"tags": ["test"]}
+            f"/api/projects/@current/property_definitions/{str(property.id)}/",
+            data={"tags": ["test"]},
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn("Self-hosted licenses are no longer available for purchase.", response.json()["detail"])
+        self.assertIn(
+            "Self-hosted licenses are no longer available for purchase.",
+            response.json()["detail"],
+        )
 
     def test_can_update_property_type_without_license(self):
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
         response = self.client.patch(
-            f"/api/projects/@current/property_definitions/{str(property.id)}/", data={"property_type": "DateTime"}
+            f"/api/projects/@current/property_definitions/{str(property.id)}/",
+            data={"property_type": "DateTime"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(response_data["property_type"], "DateTime")
+
+    def test_can_update_property_type_and_unchanged_keys_without_license(self):
+        property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
+        response = self.client.patch(
+            f"/api/projects/@current/property_definitions/{str(property.id)}/",
+            data={
+                "id": property.id,
+                "name": "enterprise property",
+                "is_numerical": False,
+                "property_type": "DateTime",
+                "is_seen_on_filtered_events": None,
+                "tags": [],
+            },
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -239,7 +272,10 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
             data={"property_type": "DateTime", "tags": ["test"]},
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn("Self-hosted licenses are no longer available for purchase.", response.json()["detail"])
+        self.assertIn(
+            "Self-hosted licenses are no longer available for purchase.",
+            response.json()["detail"],
+        )
 
     def test_with_expired_license(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -247,10 +283,14 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         )
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="description test")
         response = self.client.patch(
-            f"/api/projects/@current/property_definitions/{str(property.id)}/", data={"description": "test"}
+            f"/api/projects/@current/property_definitions/{str(property.id)}/",
+            data={"description": "test"},
         )
         self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
-        self.assertIn("Self-hosted licenses are no longer available for purchase.", response.json()["detail"])
+        self.assertIn(
+            "Self-hosted licenses are no longer available for purchase.",
+            response.json()["detail"],
+        )
 
     def test_filter_property_definitions(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
@@ -271,11 +311,14 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         from ee.models.license import License, LicenseManager
 
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            key="key_123", plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
+            key="key_123",
+            plan="enterprise",
+            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
         )
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="description test")
         response = self.client.patch(
-            f"/api/projects/@current/property_definitions/{str(property.id)}/", data={"tags": ["a", "b", "a"]}
+            f"/api/projects/@current/property_definitions/{str(property.id)}/",
+            data={"tags": ["a", "b", "a"]},
         )
 
         self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])
@@ -312,7 +355,10 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified_at"] is None
 
         # Verify the event
-        self.client.patch(f"/api/projects/@current/property_definitions/{event.id}", {"verified": True})
+        self.client.patch(
+            f"/api/projects/@current/property_definitions/{event.id}",
+            {"verified": True},
+        )
         response = self.client.get(f"/api/projects/@current/property_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -321,7 +367,10 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified_at"] == "2021-08-25T22:09:14.252000Z"
 
         # Unverify the event
-        self.client.patch(f"/api/projects/@current/property_definitions/{event.id}", {"verified": False})
+        self.client.patch(
+            f"/api/projects/@current/property_definitions/{event.id}",
+            {"verified": False},
+        )
         response = self.client.get(f"/api/projects/@current/property_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -342,7 +391,10 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["verified_at"] is None
 
         with freeze_time("2021-08-25T22:09:14.252Z"):
-            self.client.patch(f"/api/projects/@current/property_definitions/{event.id}", {"verified": True})
+            self.client.patch(
+                f"/api/projects/@current/property_definitions/{event.id}",
+                {"verified": True},
+            )
             response = self.client.get(f"/api/projects/@current/property_definitions/{event.id}")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -352,7 +404,10 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         assert response.json()["updated_at"] == "2021-08-25T22:09:14.252000Z"
 
         with freeze_time("2021-10-26T22:09:14.252Z"):
-            self.client.patch(f"/api/projects/@current/property_definitions/{event.id}", {"verified": True})
+            self.client.patch(
+                f"/api/projects/@current/property_definitions/{event.id}",
+                {"verified": True},
+            )
             response = self.client.get(f"/api/projects/@current/property_definitions/{event.id}")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 

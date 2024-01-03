@@ -1,6 +1,8 @@
 import { LemonModal } from '@posthog/lemon-ui'
 import { capitalizeFirstLetter } from 'lib/utils'
+
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2PlanType } from '~/types'
+
 import { getTierDescription } from './BillingProduct'
 
 export const ProductPricingModal = ({
@@ -41,7 +43,7 @@ export const ProductPricingModal = ({
                         <span className="text-gray">/{product.unit}</span>
                     </p>
                     {isFirstTierFree && (
-                        <p className="text-gray">{getTierDescription(tiers[0], 0, product, 'month')} free</p>
+                        <p className="text-gray">{getTierDescription(tiers, 0, product, 'month')} free</p>
                     )}
                     <div>
                         <h4 className="font-bold">Volume discounts</h4>
@@ -53,7 +55,7 @@ export const ProductPricingModal = ({
                                         className="flex justify-between border-b border-border border-dashed py-1 gap-x-8"
                                     >
                                         <p className="col-span-1 mb-0">
-                                            {getTierDescription(tier, i, product, 'month')}
+                                            {getTierDescription(tiers, i, product, 'month')}
                                         </p>
                                         <p className="font-bold mb-0 ">
                                             {isFirstTierFree && i === 0

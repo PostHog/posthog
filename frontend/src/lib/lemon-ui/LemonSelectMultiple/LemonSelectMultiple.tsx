@@ -1,8 +1,9 @@
-import { Select } from 'antd'
-import { range } from 'lib/utils'
-import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import './LemonSelectMultiple.scss'
+
+import { Select } from 'antd'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
+import { range } from 'lib/utils'
 import { ReactNode } from 'react'
 
 export interface LemonSelectMultipleOption {
@@ -18,20 +19,20 @@ export interface LemonSelectMultipleOptionItem extends LemonSelectMultipleOption
 
 export type LemonSelectMultipleOptions = Record<string, LemonSelectMultipleOption>
 
-export interface LemonSelectMultipleProps {
+export type LemonSelectMultipleProps = {
     selectClassName?: string
     options?: LemonSelectMultipleOptions | LemonSelectMultipleOptionItem[]
-    value?: string[] | null | LabelInValue[]
+    value?: string | string[] | null
     disabled?: boolean
     loading?: boolean
     placeholder?: string
     labelInValue?: boolean
-    onChange?: ((newValue: string[]) => void) | ((newValue: LabelInValue[]) => void)
     onSearch?: (value: string) => void
     onFocus?: () => void
     onBlur?: () => void
     filterOption?: boolean
     mode?: 'single' | 'multiple' | 'multiple-custom'
+    onChange?: ((newValue: string) => void) | ((newValue: string[]) => void)
     'data-attr'?: string
 }
 
@@ -82,12 +83,13 @@ export function LemonSelectMultiple({
                 showAction={['focus']}
                 onChange={(v) => {
                     if (onChange) {
-                        if (labelInValue) {
-                            const typedValues = v as LabelInValue[]
-                            const typedOnChange = onChange as (newValue: LabelInValue[]) => void
+                        // TRICKY: V is typed poorly and will be a string if the "mode" is undefined
+                        if (!v || typeof v === 'string') {
+                            const typedValues = v as string | null
+                            const typedOnChange = onChange as (newValue: string | null) => void
                             typedOnChange(typedValues)
                         } else {
-                            const typedValues = v as string[]
+                            const typedValues = v.map((token) => token.toString().trim())
                             const typedOnChange = onChange as (newValue: string[]) => void
                             typedOnChange(typedValues)
                         }

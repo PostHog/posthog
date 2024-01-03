@@ -1,20 +1,19 @@
 import { connect, kea, key, listeners, path, props } from 'kea'
+import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
+import { beforeUnload, router, urlToAction } from 'kea-router'
+import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { isEmail, isURL } from 'lib/utils'
+import { getInsightId } from 'scenes/insights/utils'
+import { integrationsLogic } from 'scenes/settings/project/integrationsLogic'
+
 import { SubscriptionType } from '~/types'
 
-import api from 'lib/api'
-import { loaders } from 'kea-loaders'
-import { forms } from 'kea-forms'
-
-import { isEmail, isURL } from 'lib/utils'
-import { dayjs } from 'lib/dayjs'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { beforeUnload, router, urlToAction } from 'kea-router'
-import { subscriptionsLogic } from './subscriptionsLogic'
-
 import type { subscriptionLogicType } from './subscriptionLogicType'
-import { getInsightId } from 'scenes/insights/utils'
+import { subscriptionsLogic } from './subscriptionsLogic'
 import { SubscriptionBaseProps, urlForSubscription } from './utils'
-import { integrationsLogic } from 'scenes/project/Settings/integrationsLogic'
 
 const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     frequency: 'weekly',

@@ -1,6 +1,6 @@
 import { Progress } from 'antd'
-import zxcvbn from 'zxcvbn'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import zxcvbn from 'zxcvbn'
 
 export default function PasswordStrength({
     password = '',

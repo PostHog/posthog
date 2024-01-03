@@ -29,11 +29,17 @@ class FeatureFlagRoleAccessPermissions(BasePermission):
             )
             if resource_access.access_level == OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT:
                 return True
-        except OrganizationResourceAccess.DoesNotExist:  # no organization resource access for this means full default edit access
+        except (
+            OrganizationResourceAccess.DoesNotExist
+        ):  # no organization resource access for this means full default edit access
             return True
         try:
             feature_flag: FeatureFlag = FeatureFlag.objects.get(id=view.parents_query_dict["feature_flag_id"])
-            if feature_flag.created_by.uuid == request.user.uuid:
+            if (
+                hasattr(feature_flag, "created_by")
+                and feature_flag.created_by
+                and feature_flag.created_by.uuid == request.user.uuid
+            ):
                 return True
         except FeatureFlag.DoesNotExist:
             raise exceptions.NotFound("Feature flag not found.")

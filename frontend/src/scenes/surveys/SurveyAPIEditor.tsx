@@ -1,6 +1,8 @@
-import { Survey } from '~/types'
-import { NewSurvey } from './surveyLogic'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+
+import { Survey } from '~/types'
+
+import { NewSurvey } from './constants'
 
 export function SurveyAPIEditor({ survey }: { survey: Survey | NewSurvey }): JSX.Element {
     // Make sure this is synced to SurveyAPISerializer
@@ -8,7 +10,7 @@ export function SurveyAPIEditor({ survey }: { survey: Survey | NewSurvey }): JSX
         id: survey.id,
         name: survey.name,
         description: survey.description,
-        type: survey.type,
+        type: 'api',
         linked_flag_key: survey.linked_flag ? survey.linked_flag.key : null,
         targeting_flag_key: survey.targeting_flag ? survey.targeting_flag.key : null,
         questions: survey.questions,
@@ -18,11 +20,8 @@ export function SurveyAPIEditor({ survey }: { survey: Survey | NewSurvey }): JSX
     }
 
     return (
-        <div className="flex flex-col">
-            <h4 className="text-center">API survey response</h4>
-            <CodeSnippet wrap language={Language.JSON}>
-                {JSON.stringify(apiSurvey, null, 2)}
-            </CodeSnippet>
-        </div>
+        <CodeSnippet wrap language={Language.JSON}>
+            {JSON.stringify(apiSurvey, null, 2)}
+        </CodeSnippet>
     )
 }

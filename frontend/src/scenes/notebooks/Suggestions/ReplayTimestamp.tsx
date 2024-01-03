@@ -1,12 +1,14 @@
-import { NotebookNodeType } from '~/types'
-import { firstChildOfType, hasChildOfType } from '../Notebook/Editor'
-import { buildTimestampCommentContent, formatTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
-import { sessionRecordingPlayerProps } from '../Nodes/NotebookNodeRecording'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { useValues } from 'kea'
-import { InsertionSuggestion, InsertionSuggestionViewProps } from './InsertionSuggestion'
-import { Node, NotebookEditor } from '../Notebook/utils'
 import { LemonButton } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+
+import { NotebookNodeType } from '~/types'
+
+import { sessionRecordingPlayerProps } from '../Nodes/NotebookNodeRecording'
+import { buildTimestampCommentContent, formatTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
+import { firstChildOfType, hasChildOfType } from '../Notebook/Editor'
+import { Node, NotebookEditor } from '../Notebook/utils'
+import { InsertionSuggestion, InsertionSuggestionViewProps } from './InsertionSuggestion'
 
 const insertTimestamp = ({
     editor,
@@ -22,7 +24,7 @@ const insertTimestamp = ({
             sessionRecordingPlayerLogic.findMounted(sessionRecordingPlayerProps(sessionRecordingId))?.values
                 .currentPlayerTime || 0
 
-        editor.insertContent([buildTimestampCommentContent(currentPlayerTime, sessionRecordingId)])
+        editor.insertContent([buildTimestampCommentContent({ playbackTime: currentPlayerTime, sessionRecordingId })])
     }
 }
 
@@ -33,13 +35,7 @@ const Component = ({ previousNode, editor }: InsertionSuggestionViewProps): JSX.
 
     return (
         <div className="NotebookRecordingTimestamp opacity-50">
-            <LemonButton
-                size="small"
-                noPadding
-                type="secondary"
-                status="primary-alt"
-                onClick={() => insertTimestamp({ previousNode, editor })}
-            >
+            <LemonButton size="small" noPadding active onClick={() => insertTimestamp({ previousNode, editor })}>
                 <span className="p-1">{formatTimestamp(currentPlayerTime)}</span>
             </LemonButton>
         </div>
@@ -48,7 +44,7 @@ const Component = ({ previousNode, editor }: InsertionSuggestionViewProps): JSX.
 
 export default InsertionSuggestion.create({
     shouldShow: ({ previousNode }) => {
-        return !!previousNode
+        return previousNode
             ? previousNode.type.name === NotebookNodeType.Recording ||
                   hasChildOfType(previousNode, NotebookNodeType.ReplayTimestamp)
             : false

@@ -10,9 +10,8 @@ import {
     TrendsQuery,
 } from '~/queries/schema'
 import { BaseMathType, FunnelVizType, InsightType, PathType, RetentionPeriod } from '~/types'
-import { ShownAsValue } from 'lib/constants'
 
-const trendsQueryDefault: TrendsQuery = {
+export const trendsQueryDefault: TrendsQuery = {
     kind: NodeKind.TrendsQuery,
     series: [
         {
@@ -25,7 +24,7 @@ const trendsQueryDefault: TrendsQuery = {
     trendsFilter: {},
 }
 
-const funnelsQueryDefault: FunnelsQuery = {
+export const funnelsQueryDefault: FunnelsQuery = {
     kind: NodeKind.FunnelsQuery,
     series: [
         {
@@ -88,7 +87,6 @@ const lifecycleQueryDefault: LifecycleQuery = {
             math: BaseMathType.TotalCount,
         },
     ],
-    lifecycleFilter: { shown_as: ShownAsValue.LIFECYCLE },
 }
 
 export const nodeKindToDefaultQuery: Record<InsightNodeKind, InsightQueryNode> = {

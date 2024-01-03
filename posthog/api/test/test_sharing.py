@@ -19,7 +19,10 @@ from posthog.test.base import APIBaseTest
 @parameterized.expand(
     [
         ["http://localhost:8000/something", "http://localhost:8000/something.png"],
-        ["http://localhost:8000/something?query=string", "http://localhost:8000/something.png?query=string"],
+        [
+            "http://localhost:8000/something?query=string",
+            "http://localhost:8000/something.png?query=string",
+        ],
         [
             "http://localhost:8000/something?query=string&another=one",
             "http://localhost:8000/something.png?query=string&another=one",
@@ -28,7 +31,10 @@ from posthog.test.base import APIBaseTest
             "http://localhost:8000/something?query=string&another=one#withhash",
             "http://localhost:8000/something.png?query=string&another=one#withhash",
         ],
-        ["http://localhost:8000/something#withhash", "http://localhost:8000/something.png#withhash"],
+        [
+            "http://localhost:8000/something#withhash",
+            "http://localhost:8000/something.png#withhash",
+        ],
     ]
 )
 def test_shared_image_alternative(url: str, expected_url: str) -> None:
@@ -39,7 +45,10 @@ class TestSharing(APIBaseTest):
     dashboard: Dashboard = None  # type: ignore
     insight: Insight = None  # type: ignore
 
-    insight_filter_dict = {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}]}
+    insight_filter_dict = {
+        "events": [{"id": "$pageview"}],
+        "properties": [{"key": "$browser", "value": "Mac OS X"}],
+    }
 
     @classmethod
     def setUpTestData(cls):
@@ -47,7 +56,9 @@ class TestSharing(APIBaseTest):
 
         cls.dashboard = Dashboard.objects.create(team=cls.team, name="example dashboard", created_by=cls.user)
         cls.insight = Insight.objects.create(
-            filters=Filter(data=cls.insight_filter_dict).to_dict(), team=cls.team, created_by=cls.user
+            filters=Filter(data=cls.insight_filter_dict).to_dict(),
+            team=cls.team,
+            created_by=cls.user,
         )
 
     @freeze_time("2022-01-01")
@@ -59,14 +70,19 @@ class TestSharing(APIBaseTest):
         assert SharingConfiguration.objects.count() == 0
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
-        assert data == {"access_token": data["access_token"], "created_at": None, "enabled": False}
+        assert data == {
+            "access_token": data["access_token"],
+            "created_at": None,
+            "enabled": False,
+        }
 
     @freeze_time("2022-01-01")
     @patch("posthog.api.exports.exporter.export_asset.delay")
     def test_does_not_change_token_when_toggling_enabled_state(self, patched_exporter_task: Mock):
         assert SharingConfiguration.objects.count() == 0
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing", {"enabled": True}
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True},
         )
         initial_data = response.json()
         assert SharingConfiguration.objects.count() == 1
@@ -78,7 +94,8 @@ class TestSharing(APIBaseTest):
         }
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing", {"enabled": False}
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": False},
         )
         assert response.json() == {
             "access_token": initial_data["access_token"],
@@ -89,7 +106,8 @@ class TestSharing(APIBaseTest):
     @patch("posthog.api.exports.exporter.export_asset.delay")
     def test_can_edit_enabled_state(self, patched_exporter_task: Mock):
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing", {"enabled": True}
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True},
         )
         data = response.json()
         assert response.status_code == status.HTTP_200_OK
@@ -105,14 +123,16 @@ class TestSharing(APIBaseTest):
         assert ActivityLog.objects.count() == 0
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{self.insight.id}/sharing", {"enabled": True}
+            f"/api/projects/{self.team.id}/insights/{self.insight.id}/sharing",
+            {"enabled": True},
         )
         data = response.json()
         assert response.status_code == status.HTTP_200_OK
         assert data["enabled"]
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{self.insight.id}/sharing", {"enabled": False}
+            f"/api/projects/{self.team.id}/insights/{self.insight.id}/sharing",
+            {"enabled": False},
         )
         data = response.json()
         assert response.status_code == status.HTTP_200_OK
@@ -128,7 +148,10 @@ class TestSharing(APIBaseTest):
     def test_exports_image_when_sharing(self, patched_exporter_task: Mock):
         assert ExportedAsset.objects.count() == 0
 
-        self.client.patch(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing", {"enabled": True})
+        self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True},
+        )
 
         assert ExportedAsset.objects.count() == 1
         asset = ExportedAsset.objects.first()
@@ -172,7 +195,8 @@ class TestSharing(APIBaseTest):
         )
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing", {"enabled": True}
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing",
+            {"enabled": True},
         )
 
         assert response.status_code == 200
@@ -180,10 +204,15 @@ class TestSharing(APIBaseTest):
     @patch("posthog.api.exports.exporter.export_asset.delay")
     def test_should_not_get_deleted_item(self, _patched_exporter_task: Mock):
         dashboard = Dashboard.objects.create(
-            team=self.team, name="example dashboard", created_by=self.user, share_token="my_test_token", is_shared=True
+            team=self.team,
+            name="example dashboard",
+            created_by=self.user,
+            share_token="my_test_token",
+            is_shared=True,
         )
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing", {"enabled": True}
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing",
+            {"enabled": True},
         )
         response = self.client.get(f"/shared_dashboard/my_test_token")
         assert response.status_code == 200
@@ -201,7 +230,11 @@ class TestSharing(APIBaseTest):
     @patch("posthog.models.exported_asset.object_storage.read_bytes")
     @patch("posthog.api.sharing.asset_for_token")
     def test_can_get_shared_dashboard_asset_with_no_content_but_content_location(
-        self, url: str, patched_asset_for_token, patched_object_storage, _patched_exporter_task: Mock
+        self,
+        url: str,
+        patched_asset_for_token,
+        patched_object_storage,
+        _patched_exporter_task: Mock,
     ) -> None:
         asset = ExportedAsset.objects.create(
             team_id=self.team.id,
@@ -234,7 +267,8 @@ class TestSharing(APIBaseTest):
         assert ExportedAsset.objects.count() == 0
 
         share_response = self.client.patch(
-            f"/api/projects/{self.team.id}/{type}/{target.pk}/sharing", {"enabled": True}
+            f"/api/projects/{self.team.id}/{type}/{target.pk}/sharing",
+            {"enabled": True},
         )
         access_token = share_response.json()["access_token"]
 
@@ -258,7 +292,8 @@ class TestSharing(APIBaseTest):
         target = self.insight if type == "insights" else self.dashboard
 
         share_response = self.client.patch(
-            f"/api/projects/{self.team.id}/{type}/{target.pk}/sharing", {"enabled": True}
+            f"/api/projects/{self.team.id}/{type}/{target.pk}/sharing",
+            {"enabled": True},
         )
         access_token = share_response.json()["access_token"]
 
@@ -300,7 +335,8 @@ class TestSharing(APIBaseTest):
         time_in_the_past = now() - timedelta(hours=4)
         with freeze_time(time_in_the_past):
             share_response = self.client.patch(
-                f"/api/projects/{self.team.id}/{type}/{target.pk}/sharing", {"enabled": True}
+                f"/api/projects/{self.team.id}/{type}/{target.pk}/sharing",
+                {"enabled": True},
             )
             # enabling creates an asset
             assert ExportedAsset.objects.count() == 1

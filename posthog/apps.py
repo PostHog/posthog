@@ -7,8 +7,12 @@ from django.conf import settings
 from posthoganalytics.client import Client
 
 from posthog.settings import SELF_CAPTURE, SKIP_ASYNC_MIGRATIONS_SETUP
-from posthog.utils import get_git_branch, get_git_commit, get_machine_id, get_self_capture_api_token
-from posthog.version import VERSION
+from posthog.utils import (
+    get_git_branch,
+    get_git_commit,
+    get_machine_id,
+    get_self_capture_api_token,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -41,7 +45,7 @@ class PostHogConfig(AppConfig):
                 phcloud_client.capture(
                     get_machine_id(),
                     "development server launched",
-                    {"posthog_version": VERSION, "git_rev": get_git_commit(), "git_branch": get_git_branch()},
+                    {"git_rev": get_git_commit(), "git_branch": get_git_branch()},
                 )
 
             local_api_key = get_self_capture_api_token(None)

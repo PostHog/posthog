@@ -1,60 +1,73 @@
-import { capitalizeFirstLetter, isGroupType, percentage } from 'lib/utils'
-import { RetentionTableAppearanceType } from 'scenes/retention/types'
+import './RetentionTable.scss'
+
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { dayjs } from 'lib/dayjs'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import './RetentionTable.scss'
-import { urls } from 'scenes/urls'
-import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
-import { triggerExport } from 'lib/components/ExportButton/exporter'
-import { ExporterFormat } from '~/types'
-import clsx from 'clsx'
-import { MissingPersonsAlert } from 'scenes/trends/persons-modal/PersonsModal'
-import { useActions, useValues } from 'kea'
+import { capitalizeFirstLetter, isGroupType, percentage } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { retentionLogic } from './retentionLogic'
-import { retentionPeopleLogic } from './retentionPeopleLogic'
-import { retentionModalLogic } from './retentionModalLogic'
+import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { asDisplay } from 'scenes/persons/person-utils'
+import { RetentionTableAppearanceType } from 'scenes/retention/types'
+import { MissingPersonsAlert } from 'scenes/trends/persons-modal/PersonsModal'
+import { urls } from 'scenes/urls'
+
+import { ExporterFormat } from '~/types'
+
+import { retentionLogic } from './retentionLogic'
+import { retentionModalLogic } from './retentionModalLogic'
+import { retentionPeopleLogic } from './retentionPeopleLogic'
 
 export function RetentionModal(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { results } = useValues(retentionLogic(insightProps))
     const { people, peopleLoading, peopleLoadingMore } = useValues(retentionPeopleLogic(insightProps))
     const { loadMorePeople } = useActions(retentionPeopleLogic(insightProps))
-    const { aggregationTargetLabel, selectedRow } = useValues(retentionModalLogic(insightProps))
+    const { aggregationTargetLabel, selectedInterval, exploreUrl } = useValues(retentionModalLogic(insightProps))
     const { closeModal } = useActions(retentionModalLogic(insightProps))
 
-    if (!results || selectedRow === null) {
+    if (!results || selectedInterval === null) {
         return null
     }
 
-    const row = results[selectedRow]
+    const row = results[selectedInterval]
     const isEmpty = row.values[0]?.count === 0
     return (
         <LemonModal
             isOpen // always open, as we simply don't mount otherwise
             onClose={closeModal}
             footer={
-                <>
-                    <LemonButton type="secondary" onClick={closeModal}>
-                        Close
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        onClick={() =>
-                            triggerExport({
-                                export_format: ExporterFormat.CSV,
-                                export_context: {
-                                    path: row?.people_url,
-                                    max_limit: 10000,
-                                },
-                            })
-                        }
-                    >
-                        Export to CSV
-                    </LemonButton>
-                </>
+                <div className="flex justify-between gap-2 w-full">
+                    <div className="flex gap-2">
+                        <LemonButton
+                            type="secondary"
+                            onClick={() =>
+                                void triggerExport({
+                                    export_format: ExporterFormat.CSV,
+                                    export_context: {
+                                        path: row?.people_url,
+                                    },
+                                })
+                            }
+                        >
+                            Download CSV
+                        </LemonButton>
+                    </div>
+                    {exploreUrl && (
+                        <LemonButton
+                            type="primary"
+                            to={exploreUrl}
+                            data-attr="person-modal-new-insight"
+                            onClick={() => {
+                                closeModal()
+                            }}
+                        >
+                            Explore
+                        </LemonButton>
+                    )}
+                </div>
             }
             width={isEmpty ? undefined : '90%'}
             title={`${dayjs(row.date).format('MMMM D, YYYY')} Cohort`}
@@ -110,7 +123,9 @@ export function RetentionModal(): JSX.Element | null {
                                                 ) : (
                                                     <LemonButton
                                                         size="small"
-                                                        to={urls.person(personAppearances.person.distinct_ids[0])}
+                                                        to={urls.personByDistinctId(
+                                                            personAppearances.person.distinct_ids[0]
+                                                        )}
                                                         data-attr="retention-person-link"
                                                     >
                                                         {asDisplay(personAppearances.person)}
@@ -134,9 +149,13 @@ export function RetentionModal(): JSX.Element | null {
                                     ))}
                             </tbody>
                         </table>
-                        {people.next ? (
+                        {people.next || people.offset ? (
                             <div className="m-4 flex justify-center">
-                                <LemonButton type="primary" onClick={loadMorePeople} loading={peopleLoadingMore}>
+                                <LemonButton
+                                    type="primary"
+                                    onClick={() => loadMorePeople(selectedInterval)}
+                                    loading={peopleLoadingMore}
+                                >
                                     Load more {aggregationTargetLabel.plural}
                                 </LemonButton>
                             </div>

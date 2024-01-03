@@ -1,14 +1,20 @@
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { IconSettings } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { useValues } from 'kea'
-import { router } from 'kea-router'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+
 import { ProductKey } from '~/types'
-import { DataWarehouseTablesContainer } from './DataWarehouseTables'
-import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+
 import { DataWarehousePageTabs, DataWarehouseTab } from '../DataWarehousePageTabs'
+import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { DataWarehouseTablesContainer } from './DataWarehouseTables'
+import SourceModal from './SourceModal'
 
 export const scene: SceneExport = {
     component: DataWarehouseExternalScene,
@@ -16,7 +22,10 @@ export const scene: SceneExport = {
 }
 
 export function DataWarehouseExternalScene(): JSX.Element {
-    const { shouldShowEmptyState, shouldShowProductIntroduction } = useValues(dataWarehouseSceneLogic)
+    const { shouldShowEmptyState, shouldShowProductIntroduction, isSourceModalOpen } =
+        useValues(dataWarehouseSceneLogic)
+    const { toggleSourceModal } = useActions(dataWarehouseSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div>
@@ -30,22 +39,34 @@ export function DataWarehouseExternalScene(): JSX.Element {
                     </div>
                 }
                 buttons={
-                    <LemonButton
-                        type="primary"
-                        to={urls.dataWarehouseTable('new')}
-                        data-attr="new-data-warehouse-table"
-                    >
-                        New Table
-                    </LemonButton>
+                    featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_EXTERNAL_LINK] ? (
+                        <LemonButton
+                            type="primary"
+                            sideAction={{
+                                icon: <IconSettings />,
+                                onClick: () => router.actions.push(urls.dataWarehouseSettings()),
+                                'data-attr': 'saved-insights-new-insight-dropdown',
+                            }}
+                            data-attr="new-data-warehouse-easy-link"
+                            key={'new-data-warehouse-easy-link'}
+                            onClick={() => toggleSourceModal()}
+                        >
+                            Link Source
+                        </LemonButton>
+                    ) : !(shouldShowProductIntroduction || shouldShowEmptyState) ? (
+                        <LemonButton type="primary" to={urls.dataWarehouseTable()} data-attr="new-data-warehouse-table">
+                            New table
+                        </LemonButton>
+                    ) : undefined
                 }
                 caption={
                     <div>
                         These are external data sources you can query under SQL insights with{' '}
-                        <a href="https://posthog.com/manual/hogql" target="_blank">
+                        <Link to="https://posthog.com/manual/hogql" target="_blank">
                             HogQL
-                        </a>
-                        . Connect your own tables from S3 to query data from outside posthog.{' '}
-                        <a href="https://posthog.com/docs/data/data-warehouse">Learn more</a>
+                        </Link>
+                        . Connect your own tables from S3 to query data from outside PostHog.{' '}
+                        <Link to="https://posthog.com/docs/data/data-warehouse">Learn more</Link>
                     </div>
                 }
             />
@@ -53,17 +74,22 @@ export function DataWarehouseExternalScene(): JSX.Element {
             {(shouldShowProductIntroduction || shouldShowEmptyState) && (
                 <ProductIntroduction
                     productName={'Data Warehouse'}
-                    thingName={'data warehouse table'}
+                    thingName={'table'}
                     description={
                         'Bring your production database, revenue data, CRM contacts or any other data into PostHog.'
                     }
-                    action={() => router.actions.push(urls.dataWarehouseTable('new'))}
+                    action={() =>
+                        featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_EXTERNAL_LINK]
+                            ? toggleSourceModal()
+                            : router.actions.push(urls.dataWarehouseTable())
+                    }
                     isEmpty={shouldShowEmptyState}
                     docsURL="https://posthog.com/docs/data/data-warehouse"
                     productKey={ProductKey.DATA_WAREHOUSE}
                 />
             )}
             {!shouldShowEmptyState && <DataWarehouseTablesContainer />}
+            <SourceModal isOpen={isSourceModalOpen} onClose={() => toggleSourceModal(false)} />
         </div>
     )
 }

@@ -1,17 +1,17 @@
 .SessionRecordingPlayerExplorer {
     display: flex;
-    flex-direction: column;
     flex: 1;
-    height: calc(100vh - 3.5rem - 2rem);
+    flex-direction: column;
+    height: 100%;
     padding: 0.5rem;
     overflow: hidden;
 
     .SessionRecordingPlayerExplorer__wrapper {
         flex: 1;
-        border: 1px solid var(--border);
         padding: 0.5rem;
-        background-color: var(--default);
         overflow: hidden;
+        background-color: var(--default);
+        border: 1px solid var(--border);
 
         .SessionRecordingPlayerExplorer__iframe {
             transform-origin: top left;

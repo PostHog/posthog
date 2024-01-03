@@ -1,6 +1,6 @@
 import { Button, Upload } from 'antd'
-import { UploadOutlined } from '@ant-design/icons'
 import { UploadFile } from 'antd/lib/upload/interface'
+import { IconUploadFile } from 'lib/lemon-ui/icons'
 
 export function UploadField({
     value,
@@ -23,7 +23,7 @@ export function UploadField({
             }}
             className="ph-ignore-input"
         >
-            <Button icon={<UploadOutlined />}>Click to upload</Button>
+            <Button icon={<IconUploadFile />}>Click to upload</Button>
         </Upload>
     )
 }

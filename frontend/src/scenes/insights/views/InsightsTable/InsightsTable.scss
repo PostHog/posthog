@@ -1,27 +1,20 @@
-.insights-table.LemonTable--embedded {
-    border-top: 1px solid var(--border);
-}
-.dashboard .insights-table {
-    min-height: 100%;
-    border-top: none;
-}
-
 .series-name-wrapper-col {
     display: flex;
     align-items: center;
 
     .edit-icon {
-        color: var(--primary);
-        cursor: pointer;
         font-size: 1rem;
+        color: var(--primary-3000);
+        cursor: pointer;
     }
 
     .insights-label {
         &.editable {
             cursor: pointer;
-            .ant-typography {
-                color: var(--primary);
+
+            .EntityFilterInfo {
                 font-weight: 500;
+                color: var(--primary-3000);
             }
         }
     }

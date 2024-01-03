@@ -6,7 +6,7 @@ from sentry_sdk.api import capture_exception
 
 from posthog.async_migrations.definition import AsyncMigrationDefinition
 from posthog.async_migrations.setup import (
-    POSTHOG_VERSION,
+    FROZEN_POSTHOG_VERSION,
     get_async_migration_definition,
     get_async_migration_dependency,
 )
@@ -19,7 +19,11 @@ from posthog.async_migrations.utils import (
     trigger_migration,
     update_async_migration,
 )
-from posthog.models.async_migration import AsyncMigration, MigrationStatus, get_all_running_async_migrations
+from posthog.models.async_migration import (
+    AsyncMigration,
+    MigrationStatus,
+    get_all_running_async_migrations,
+)
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.utils import UUIDT
 from posthog.version_requirement import ServiceVersionRequirement
@@ -33,7 +37,9 @@ logger = structlog.get_logger(__name__)
 
 
 def start_async_migration(
-    migration_name: str, ignore_posthog_version=False, migration_definition: Optional[AsyncMigrationDefinition] = None
+    migration_name: str,
+    ignore_posthog_version=False,
+    migration_definition: Optional[AsyncMigrationDefinition] = None,
 ) -> bool:
     """
     Performs some basic checks to ensure the migration can indeed run, and then kickstarts the chain of operations
@@ -63,7 +69,10 @@ def start_async_migration(
 
     if not (
         ignore_posthog_version
-        or is_posthog_version_compatible(migration_instance.posthog_min_version, migration_instance.posthog_max_version)
+        or is_posthog_version_compatible(
+            migration_instance.posthog_min_version,
+            migration_instance.posthog_max_version,
+        )
     ):
         process_error(
             migration_instance,
@@ -102,7 +111,9 @@ def start_async_migration(
     ok, error = run_migration_precheck(migration_instance)
     if not ok:
         process_error(
-            migration_instance, f"Migration precheck failed with error:{error}", status=MigrationStatus.FailedAtStartup
+            migration_instance,
+            f"Migration precheck failed with error:{error}",
+            status=MigrationStatus.FailedAtStartup,
         )
         return False
 
@@ -245,12 +256,15 @@ def attempt_migration_rollback(migration_instance: AsyncMigration):
             return
 
     update_async_migration(
-        migration_instance=migration_instance, status=MigrationStatus.RolledBack, progress=0, current_operation_index=0
+        migration_instance=migration_instance,
+        status=MigrationStatus.RolledBack,
+        progress=0,
+        current_operation_index=0,
     )
 
 
 def is_posthog_version_compatible(posthog_min_version, posthog_max_version):
-    return get_instance_setting("ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION") or POSTHOG_VERSION in SimpleSpec(
+    return get_instance_setting("ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION") or FROZEN_POSTHOG_VERSION in SimpleSpec(
         f">={posthog_min_version},<={posthog_max_version}"
     )
 

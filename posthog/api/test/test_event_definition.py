@@ -18,7 +18,6 @@ from posthog.test.base import APIBaseTest
 
 @freeze_time("2020-01-02")
 class TestEventDefinitionAPI(APIBaseTest):
-
     demo_team: Team = None  # type: ignore
 
     EXPECTED_EVENT_DEFINITIONS: List[Dict[str, Any]] = [
@@ -56,10 +55,12 @@ class TestEventDefinitionAPI(APIBaseTest):
 
         for item in self.EXPECTED_EVENT_DEFINITIONS:
             response_item: Dict[str, Any] = next(
-                (_i for _i in response.json()["results"] if _i["name"] == item["name"]), {}
+                (_i for _i in response.json()["results"] if _i["name"] == item["name"]),
+                {},
             )
             self.assertAlmostEqual(
-                (dateutil.parser.isoparse(response_item["created_at"]) - timezone.now()).total_seconds(), 0
+                (dateutil.parser.isoparse(response_item["created_at"]) - timezone.now()).total_seconds(),
+                0,
             )
 
         # Test ordering
@@ -77,7 +78,11 @@ class TestEventDefinitionAPI(APIBaseTest):
             self.user.distinct_id,
             "event definition deleted",
             properties={"name": "test_event"},
-            groups={"instance": ANY, "organization": str(self.organization.id), "project": str(self.demo_team.uuid)},
+            groups={
+                "instance": ANY,
+                "organization": str(self.organization.id),
+                "project": str(self.demo_team.uuid),
+            },
         )
 
         activity_log: Optional[ActivityLog] = ActivityLog.objects.first()
@@ -133,7 +138,6 @@ class TestEventDefinitionAPI(APIBaseTest):
         self.assertEqual(response.json(), self.permission_denied_response())
 
     def test_query_event_definitions(self):
-
         # Regular search
         response = self.client.get("/api/projects/@current/event_definitions/?search=app")
         self.assertEqual(response.status_code, status.HTTP_200_OK)

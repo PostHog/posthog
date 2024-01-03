@@ -2,7 +2,11 @@ from django.utils import timezone
 
 from posthog.client import sync_execute
 from posthog.models import Plugin, PluginConfig
-from posthog.models.plugin import PluginLogEntrySource, PluginLogEntryType, fetch_plugin_log_entries
+from posthog.models.plugin import (
+    PluginLogEntrySource,
+    PluginLogEntryType,
+    fetch_plugin_log_entries,
+)
 from posthog.models.utils import UUIDT
 from posthog.test.base import BaseTest
 
@@ -126,7 +130,8 @@ class TestPluginLogEntry(BaseTest):
         )
 
         results = fetch_plugin_log_entries(
-            plugin_config_id=some_plugin_config.pk, type_filter=[PluginLogEntryType.ERROR, PluginLogEntryType.DEBUG]
+            plugin_config_id=some_plugin_config.pk,
+            type_filter=[PluginLogEntryType.ERROR, PluginLogEntryType.DEBUG],
         )
 
         self.assertEqual(len(results), 2)

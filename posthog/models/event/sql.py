@@ -124,7 +124,8 @@ KAFKA_EVENTS_TABLE_JSON_SQL = lambda: (
     indexes="",
 )
 
-EVENTS_TABLE_JSON_MV_SQL = lambda: """
+EVENTS_TABLE_JSON_MV_SQL = (
+    lambda: """
 CREATE MATERIALIZED VIEW IF NOT EXISTS events_json_mv ON CLUSTER '{cluster}'
 TO {database}.{target_table}
 AS SELECT
@@ -154,9 +155,10 @@ _timestamp,
 _offset
 FROM {database}.kafka_events_json
 """.format(
-    target_table=WRITABLE_EVENTS_DATA_TABLE(),
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    database=settings.CLICKHOUSE_DATABASE,
+        target_table=WRITABLE_EVENTS_DATA_TABLE(),
+        cluster=settings.CLICKHOUSE_CLUSTER,
+        database=settings.CLICKHOUSE_DATABASE,
+    )
 )
 
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
@@ -336,7 +338,7 @@ FROM events WHERE uuid = %(event_id)s AND team_id = %(team_id)s
 
 NULL_SQL = """
 -- Creates zero values for all date axis ticks for the given date_from, date_to range
-SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_to)s, %(timezone)s) - {interval_func}(number)) AS day_start
+SELECT toUInt16(0) AS total, {date_to_truncated} - {interval_func}(number) AS day_start
 
 -- Get the number of `intervals` between date_from and date_to.
 --
@@ -356,12 +358,12 @@ SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_to)s, %(timezone)s) 
 --
 -- TODO: Ths pattern of generating intervals is repeated in several places. Reuse this
 --       `ticks` query elsewhere.
-FROM numbers(dateDiff(%(interval)s, {trunc_func}(toDateTime(%(date_from)s, %(timezone)s)), toDateTime(%(date_to)s, %(timezone)s)))
+FROM numbers(dateDiff(%(interval)s, {date_from_truncated}, toDateTime(%(date_to)s, %(timezone)s)))
 
 UNION ALL
 
 -- Make sure we capture the interval date_from falls into.
-SELECT toUInt16(0) AS total, {trunc_func}(toDateTime(%(date_from)s, %(timezone)s))
+SELECT toUInt16(0) AS total, {date_from_truncated}
 """
 
 EVENT_JOIN_PERSON_SQL = """
@@ -387,9 +389,7 @@ WHERE events.team_id = %(team_id)s AND event = '$autocapture'
 GROUP BY tag_name, elements_chain
 ORDER BY tag_count desc, tag_name
 LIMIT %(limit)s
-""".format(
-    tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX
-)
+""".format(tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX)
 
 GET_CUSTOM_EVENTS = """
 SELECT DISTINCT event FROM events where team_id = %(team_id)s AND event NOT IN ['$autocapture', '$pageview', '$identify', '$pageleave', '$screen']

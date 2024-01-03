@@ -1,10 +1,10 @@
-import { ComponentMeta } from '@storybook/react'
-
-import { LemonSkeleton } from './LemonSkeleton'
+import { Meta } from '@storybook/react'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
-export default {
+import { LemonSkeleton } from './LemonSkeleton'
+
+const meta: Meta<typeof LemonSkeleton> = {
     title: 'Lemon UI/Lemon Skeleton',
     component: LemonSkeleton,
     parameters: {
@@ -16,8 +16,13 @@ export default {
 Skeleton screens are used to indicate that a screen is loading, are perceived as being shorter in duration when compared against a blank screen (our control) and a spinner — but not by much`,
             },
         },
+        testOptions: {
+            waitForLoadersToDisappear: false,
+        },
     },
-} as ComponentMeta<typeof LemonSkeleton>
+    tags: ['autodocs'],
+}
+export default meta
 
 export function Default(): JSX.Element {
     return <LemonSkeleton />
@@ -49,7 +54,7 @@ export function Presets(): JSX.Element {
                 }
             >
                 <div className="space-y-2">
-                    <LemonSkeleton className="w-1/2" />
+                    <LemonSkeleton className="w-1/2 h-4" />
                     <LemonSkeleton.Row repeat={3} />
                 </div>
             </LemonModal>

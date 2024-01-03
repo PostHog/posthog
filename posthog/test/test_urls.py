@@ -58,37 +58,43 @@ class TestUrls(APIBaseTest):
         self.team.save()
 
         response = self.client.get(
-            "/authorize_and_redirect/?redirect=https://not-permitted.com", HTTP_REFERER="https://not-permitted.com"
+            "/authorize_and_redirect/?redirect=https://not-permitted.com",
+            HTTP_REFERER="https://not-permitted.com",
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertTrue("Can only redirect to a permitted domain." in str(response.content))
 
         response = self.client.get(
-            "/authorize_and_redirect/?redirect=https://domain.com", HTTP_REFERER="https://not.com"
+            "/authorize_and_redirect/?redirect=https://domain.com",
+            HTTP_REFERER="https://not.com",
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertTrue("Can only redirect to the same domain as the referer: not.com" in str(response.content))
 
         response = self.client.get(
-            "/authorize_and_redirect/?redirect=http://domain.com", HTTP_REFERER="https://domain.com"
+            "/authorize_and_redirect/?redirect=http://domain.com",
+            HTTP_REFERER="https://domain.com",
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertTrue("Can only redirect to the same scheme as the referer: https" in str(response.content))
 
         response = self.client.get(
-            "/authorize_and_redirect/?redirect=https://domain.com:555", HTTP_REFERER="https://domain.com:443"
+            "/authorize_and_redirect/?redirect=https://domain.com:555",
+            HTTP_REFERER="https://domain.com:443",
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertTrue("Can only redirect to the same port as the referer: 443" in str(response.content))
 
         response = self.client.get(
-            "/authorize_and_redirect/?redirect=https://domain.com:555", HTTP_REFERER="https://domain.com/no-port"
+            "/authorize_and_redirect/?redirect=https://domain.com:555",
+            HTTP_REFERER="https://domain.com/no-port",
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertTrue("Can only redirect to the same port as the referer: no port in URL" in str(response.content))
 
         response = self.client.get(
-            "/authorize_and_redirect/?redirect=https://domain.com/sdf", HTTP_REFERER="https://domain.com/asd"
+            "/authorize_and_redirect/?redirect=https://domain.com/sdf",
+            HTTP_REFERER="https://domain.com/asd",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         # TODO: build frontend before backend tests, or find a way to mock the template

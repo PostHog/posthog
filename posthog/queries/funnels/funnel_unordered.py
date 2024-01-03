@@ -54,7 +54,6 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
         }
 
     def get_query(self):
-
         max_steps = len(self._filter.entities)
 
         for exclusion in self._filter.exclusions:
@@ -70,7 +69,6 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
         """
 
     def get_step_counts_query(self):
-
         max_steps = len(self._filter.entities)
 
         union_query = self.get_step_counts_without_aggregation_query()
@@ -140,7 +138,6 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
         return f", {formatted}" if formatted else ""
 
     def get_sorting_condition(self, max_steps: int):
-
         conditions = []
 
         event_times_elements = []

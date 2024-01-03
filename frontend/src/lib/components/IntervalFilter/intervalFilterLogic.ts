@@ -1,36 +1,38 @@
-import { kea } from 'kea'
-import { objectsEqual, dateMapping } from 'lib/utils'
-import type { intervalFilterLogicType } from './intervalFilterLogicType'
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { IntervalKeyType, Intervals, intervals } from 'lib/components/IntervalFilter/intervals'
-import { BaseMathType, InsightLogicProps, IntervalType } from '~/types'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { dayjs } from 'lib/dayjs'
-import { InsightQueryNode, TrendsQuery } from '~/queries/schema'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { dateMapping, objectsEqual } from 'lib/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
-export const intervalFilterLogic = kea<intervalFilterLogicType>({
-    props: {} as InsightLogicProps,
-    key: keyForInsightLogicProps('new'),
-    path: (key) => ['lib', 'components', 'IntervalFilter', 'intervalFilterLogic', key],
-    connect: (props: InsightLogicProps) => ({
+import { InsightQueryNode, TrendsQuery } from '~/queries/schema'
+import { BaseMathType, InsightLogicProps, IntervalType } from '~/types'
+
+import type { intervalFilterLogicType } from './intervalFilterLogicType'
+
+export const intervalFilterLogic = kea<intervalFilterLogicType>([
+    props({} as InsightLogicProps),
+    key(keyForInsightLogicProps('new')),
+    path((key) => ['lib', 'components', 'IntervalFilter', 'intervalFilterLogic', key]),
+    connect((props: InsightLogicProps) => ({
         actions: [insightVizDataLogic(props), ['updateQuerySource']],
         values: [insightVizDataLogic(props), ['interval', 'querySource']],
-    }),
-    actions: () => ({
+    })),
+    actions(() => ({
         setInterval: (interval: IntervalKeyType) => ({ interval }),
         setEnabledIntervals: (enabledIntervals: Intervals) => ({ enabledIntervals }),
-    }),
-    reducers: () => ({
+    })),
+    reducers(() => ({
         enabledIntervals: [
             { ...intervals } as Intervals,
             {
                 setEnabledIntervals: (_, { enabledIntervals }) => enabledIntervals,
             },
         ],
-    }),
-    listeners: ({ values, actions, selectors }) => ({
+    })),
+    listeners(({ values, actions, selectors }) => ({
         setInterval: ({ interval }) => {
             if (values.interval !== interval) {
                 actions.updateQuerySource({ interval } as Partial<InsightQueryNode>)
@@ -140,5 +142,5 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
             }
             actions.updateQuerySource({ interval } as Partial<InsightQueryNode>)
         },
-    }),
-})
+    })),
+])

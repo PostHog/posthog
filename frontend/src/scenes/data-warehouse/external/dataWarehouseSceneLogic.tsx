@@ -1,17 +1,29 @@
-import { afterMount, connect, kea, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { PaginatedResponse } from 'lib/api'
-import { DataWarehouseTable, ProductKey } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 
-import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
+import { DataWarehouseTable, ProductKey } from '~/types'
+
 import { DataWarehouseSceneRow } from '../types'
+import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
 
 export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     path(['scenes', 'warehouse', 'dataWarehouseSceneLogic']),
     connect(() => ({
         values: [userLogic, ['user']],
     })),
+    actions({
+        toggleSourceModal: (isOpen?: boolean) => ({ isOpen }),
+    }),
+    reducers({
+        isSourceModalOpen: [
+            false,
+            {
+                toggleSourceModal: (state, { isOpen }) => (isOpen != undefined ? isOpen : !state),
+            },
+        ],
+    }),
     loaders({
         dataWarehouse: [
             null as PaginatedResponse<DataWarehouseTable> | null,
@@ -37,6 +49,8 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                             columns: table.columns,
                             url_pattern: table.url_pattern,
                             format: table.format,
+                            external_data_source: table.external_data_source,
+                            external_schema: table.external_schema,
                         } as DataWarehouseSceneRow)
                 )
             },

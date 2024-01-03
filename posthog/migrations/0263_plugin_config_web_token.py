@@ -14,7 +14,6 @@ def forwards_func(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0262_track_viewed_notifications"),
     ]

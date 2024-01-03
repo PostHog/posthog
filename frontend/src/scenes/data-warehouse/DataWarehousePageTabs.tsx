@@ -1,10 +1,11 @@
-import { kea, useActions, useValues } from 'kea'
-import { urls } from 'scenes/urls'
+import { actions, kea, path, reducers, useActions, useValues } from 'kea'
+import { actionToUrl, urlToAction } from 'kea-router'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import type { dataWarehouseTabsLogicType } from './DataWarehousePageTabsType'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export enum DataWarehouseTab {
     Posthog = 'posthog',
@@ -13,28 +14,28 @@ export enum DataWarehouseTab {
 }
 
 const tabUrls = {
-    [DataWarehouseTab.Posthog]: urls.dataWarehousePosthog(),
     [DataWarehouseTab.External]: urls.dataWarehouseExternal(),
+    [DataWarehouseTab.Posthog]: urls.dataWarehousePosthog(),
     [DataWarehouseTab.Views]: urls.dataWarehouseSavedQueries(),
 }
 
-const dataWarehouseTabsLogic = kea<dataWarehouseTabsLogicType>({
-    path: ['scenes', 'warehouse', 'dataWarehouseTabsLogic'],
-    actions: {
+const dataWarehouseTabsLogic = kea<dataWarehouseTabsLogicType>([
+    path(['scenes', 'warehouse', 'dataWarehouseTabsLogic']),
+    actions({
         setTab: (tab: DataWarehouseTab) => ({ tab }),
-    },
-    reducers: {
+    }),
+    reducers({
         tab: [
-            DataWarehouseTab.Posthog as DataWarehouseTab,
+            DataWarehouseTab.External as DataWarehouseTab,
             {
                 setTab: (_, { tab }) => tab,
             },
         ],
-    },
-    actionToUrl: () => ({
-        setTab: ({ tab }) => tabUrls[tab as DataWarehouseTab] || urls.dataWarehousePosthog(),
     }),
-    urlToAction: ({ actions, values }) => {
+    actionToUrl(() => ({
+        setTab: ({ tab }) => tabUrls[tab as DataWarehouseTab] || urls.dataWarehousePosthog(),
+    })),
+    urlToAction(({ actions, values }) => {
         return Object.fromEntries(
             Object.entries(tabUrls).map(([key, url]) => [
                 url,
@@ -45,8 +46,8 @@ const dataWarehouseTabsLogic = kea<dataWarehouseTabsLogicType>({
                 },
             ])
         )
-    },
-})
+    }),
+])
 
 export function DataWarehousePageTabs({ tab }: { tab: DataWarehouseTab }): JSX.Element {
     const { setTab } = useActions(dataWarehouseTabsLogic)
@@ -59,12 +60,12 @@ export function DataWarehousePageTabs({ tab }: { tab: DataWarehouseTab }): JSX.E
                 onChange={(t) => setTab(t)}
                 tabs={[
                     {
-                        key: DataWarehouseTab.Posthog,
-                        label: <span data-attr="data-warehouse-Posthog-tab">Posthog</span>,
-                    },
-                    {
                         key: DataWarehouseTab.External,
                         label: <span data-attr="data-warehouse-external-tab">External</span>,
+                    },
+                    {
+                        key: DataWarehouseTab.Posthog,
+                        label: <span data-attr="data-warehouse-Posthog-tab">PostHog</span>,
                     },
                     ...(featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS]
                         ? [

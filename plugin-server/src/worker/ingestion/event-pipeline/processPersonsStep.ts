@@ -1,8 +1,10 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
+import { DateTime } from 'luxon'
 import { Person } from 'types'
 
 import { normalizeEvent } from '../../../utils/event'
-import { PersonState } from '../person-state'
+import { status } from '../../../utils/status'
+import { DeferredPersonOverrideWriter, PersonOverrideWriter, PersonState } from '../person-state'
 import { parseEventTimestamp } from '../timestamps'
 import { EventPipelineRunner } from './runner'
 
@@ -10,9 +12,24 @@ export async function processPersonsStep(
     runner: EventPipelineRunner,
     pluginEvent: PluginEvent
 ): Promise<[PluginEvent, Person]> {
-    const event = normalizeEvent(pluginEvent)
+    let event: PluginEvent
+    let timestamp: DateTime
+    try {
+        event = normalizeEvent(pluginEvent)
+        timestamp = parseEventTimestamp(event)
+    } catch (error) {
+        status.warn('⚠️', 'Failed normalizing event', { team_id: pluginEvent.team_id, uuid: pluginEvent.uuid, error })
+        throw error
+    }
 
-    const timestamp = parseEventTimestamp(event)
+    let overridesWriter: PersonOverrideWriter | DeferredPersonOverrideWriter | undefined = undefined
+    if (runner.poEEmbraceJoin) {
+        if (runner.hub.POE_DEFERRED_WRITES_ENABLED) {
+            overridesWriter = new DeferredPersonOverrideWriter(runner.hub.db.postgres)
+        } else {
+            overridesWriter = new PersonOverrideWriter(runner.hub.db.postgres)
+        }
+    }
 
     const person = await new PersonState(
         event,
@@ -20,8 +37,7 @@ export async function processPersonsStep(
         String(event.distinct_id),
         timestamp,
         runner.hub.db,
-        runner.hub.statsd,
-        runner.poEEmbraceJoin
+        overridesWriter
     ).update()
 
     return [event, person]

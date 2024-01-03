@@ -1,12 +1,15 @@
-import React from 'react'
+import './Link.scss'
+
+import clsx from 'clsx'
 import { router } from 'kea-router'
 import { isExternalLink } from 'lib/utils'
-import clsx from 'clsx'
-import './Link.scss'
+import React from 'react'
+import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+
+import { addProjectIdIfMissing } from '~/initKea'
+
 import { IconOpenInNew } from '../icons'
 import { Tooltip } from '../Tooltip'
-import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { addProjectIdIfMissing } from '~/initKea'
 
 type RoutePart = string | Record<string, any>
 
@@ -26,6 +29,13 @@ export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'cla
     disabled?: boolean
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
     disabledReason?: string | null | false
+    /**
+     * Whether an "open in new" icon should be shown if target is `_blank`.
+     * This is true by default if `children` is a string.
+     */
+    targetBlankIcon?: boolean
+    /** If true, the default color will be as normal text with only a link color on hover */
+    subtle?: boolean
 }
 
 // Some URLs we want to enforce a full reload such as billing which is redirected by Django
@@ -37,6 +47,15 @@ const shouldForcePageLoad = (input: any): boolean => {
     }
     return !!FORCE_PAGE_LOAD.find((x) => input.startsWith(x))
 }
+
+const isPostHogDomain = (url: string): boolean => {
+    return /^https:\/\/((www|app|eu)\.)?posthog\.com/.test(url)
+}
+
+// NOTE: Temporarily disabled - owner @corywatilo
+// const isPostHogComDocs = (url: string): boolean => {
+//     return /^https:\/\/(www\.)?posthog\.com\/docs/.test(url)
+// }
 
 /**
  * Link
@@ -50,6 +69,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         {
             to,
             target,
+            subtle,
             disableClientSideRouting,
             preventClick = false,
             onClick: onClickRaw,
@@ -57,6 +77,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             children,
             disabled,
             disabledReason,
+            targetBlankIcon = typeof children === 'string',
             ...props
         },
         ref
@@ -64,6 +85,9 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         const { elementProps: draggableProps } = useNotebookDrag({
             href: typeof to === 'string' ? to : undefined,
         })
+
+        // NOTE: Temporarily disabled - owner @corywatilo
+        // const { openSidePanel } = useActions(sidePanelStateLogic)
 
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
             if (event.metaKey || event.ctrlKey) {
@@ -78,6 +102,13 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 return
             }
 
+            // NOTE: Temporarily disabled - owner @corywatilo
+            // if (typeof to === 'string' && isPostHogComDocs(to)) {
+            //     event.preventDefault()
+            //     openSidePanel(SidePanelTab.Docs, to)
+            //     return
+            // }
+
             if (!target && to && !isExternalLink(to) && !disableClientSideRouting && !shouldForcePageLoad(to)) {
                 event.preventDefault()
                 if (to && to !== '#' && !preventClick) {
@@ -90,29 +121,29 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             }
         }
 
+        const rel = typeof to === 'string' && isPostHogDomain(to) ? 'noopener' : 'noopener noreferrer'
+
         return to ? (
+            // eslint-disable-next-line react/forbid-elements
             <a
                 ref={ref as any}
-                className={clsx('Link', className)}
+                className={clsx('Link', subtle && 'Link--subtle', className)}
                 onClick={onClick}
                 href={typeof to === 'string' ? (to.includes('://') ? to : addProjectIdIfMissing(to)) : '#'}
                 target={target}
-                rel={target === '_blank' ? 'noopener noreferrer' : undefined}
+                rel={target === '_blank' ? rel : undefined}
                 {...props}
                 {...draggableProps}
             >
                 {children}
-                {typeof children === 'string' && target === '_blank' ? <IconOpenInNew /> : null}
+                {targetBlankIcon && target === '_blank' ? <IconOpenInNew /> : null}
             </a>
         ) : (
-            <Tooltip
-                isDefaultTooltip
-                title={!!disabledReason ? <span className="italic">{disabledReason}</span> : undefined}
-            >
+            <Tooltip title={disabledReason ? <span className="italic">{disabledReason}</span> : undefined}>
                 <span>
                     <button
                         ref={ref as any}
-                        className={clsx('Link', className)}
+                        className={clsx('Link', subtle && 'Link--subtle', className)}
                         onClick={onClick}
                         type="button"
                         disabled={disabled || !!disabledReason}

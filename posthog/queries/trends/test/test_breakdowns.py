@@ -3,6 +3,12 @@ from typing import Dict
 
 from posthog.constants import TRENDS_TABLE
 from posthog.models import Filter
+from posthog.queries.trends.breakdown import (
+    BREAKDOWN_OTHER_NUMERIC_LABEL,
+    BREAKDOWN_OTHER_STRING_LABEL,
+    BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_NULL_NUMERIC_LABEL,
+)
 from posthog.queries.trends.trends import Trends
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.test.test_journeys import journeys_for
@@ -17,7 +23,11 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
                 {
                     "event": "watched movie",
                     "timestamp": datetime(2020, 1, 2, 12, 1),
-                    "properties": {"$session_id": "1", "movie_length": 100, "$current_url": "https://example.com"},
+                    "properties": {
+                        "$session_id": "1",
+                        "movie_length": 100,
+                        "$current_url": "https://example.com",
+                    },
                 }
             ],
             # Duration 60 seconds, with 2 events in 1 session
@@ -25,12 +35,20 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
                 {
                     "event": "watched movie",
                     "timestamp": datetime(2020, 1, 2, 12, 1),
-                    "properties": {"$session_id": "2", "movie_length": 50, "$current_url": "https://example.com"},
+                    "properties": {
+                        "$session_id": "2",
+                        "movie_length": 50,
+                        "$current_url": "https://example.com",
+                    },
                 },
                 {
                     "event": "watched movie",
                     "timestamp": datetime(2020, 1, 2, 12, 2),
-                    "properties": {"$session_id": "2", "movie_length": 75, "$current_url": "https://example.com"},
+                    "properties": {
+                        "$session_id": "2",
+                        "movie_length": 75,
+                        "$current_url": "https://example.com/",
+                    },
                 },
             ],
             # Duration 90 seconds, but session spans query boundary, so only a single event is counted
@@ -90,11 +108,19 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
         response = Trends().run(
             Filter(
                 data={
-                    "events": [{"id": "watched movie", "name": "watched movie", "type": "events", **events_extra}],
+                    "events": [
+                        {
+                            "id": "watched movie",
+                            "name": "watched movie",
+                            "type": "events",
+                            **events_extra,
+                        }
+                    ],
                     "date_from": "2020-01-02T00:00:00Z",
                     "date_to": "2020-01-12T00:00:00Z",
                     **extra,
-                }
+                },
+                team=self.team,
             ),
             self.team,
         )
@@ -106,7 +132,13 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
             {
                 "breakdown": "$session_duration",
                 "breakdown_type": "session",
-                "properties": [{"key": "$current_url", "operator": "is_not", "value": ["https://test.com"]}],
+                "properties": [
+                    {
+                        "key": "$current_url",
+                        "operator": "is_not",
+                        "value": ["https://test.com"],
+                    }
+                ],
             }
         )
 
@@ -128,16 +160,34 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
                 "breakdown": "$session_duration",
                 "breakdown_type": "session",
                 "breakdown_histogram_bin_count": 3,
-                "properties": [{"key": "$current_url", "operator": "is_not", "value": ["https://test.com"]}],
+                "properties": [
+                    {
+                        "key": "$current_url",
+                        "operator": "is_not",
+                        "value": ["https://test.com"],
+                    }
+                ],
             }
         )
 
         self.assertEqual(
             [(item["breakdown_value"], item["count"], item["data"]) for item in response],
             [
-                ("[0.0,69.92]", 3.0, [3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-                ("[69.92,110.72]", 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-                ("[110.72,180.01]", 5.0, [0.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                (
+                    "[0.0,69.92]",
+                    3.0,
+                    [3.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                ),
+                (
+                    "[69.92,110.72]",
+                    1.0,
+                    [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                ),
+                (
+                    "[110.72,180.01]",
+                    5.0,
+                    [0.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                ),
             ],
         )
 
@@ -160,7 +210,8 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_breakdown_by_session_duration_of_unique_sessions(self):
         response = self._run(
-            {"breakdown": "$session_duration", "breakdown_type": "session"}, events_extra={"math": "unique_session"}
+            {"breakdown": "$session_duration", "breakdown_type": "session"},
+            events_extra={"math": "unique_session"},
         )
 
         self.assertEqual(
@@ -177,62 +228,126 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_breakdown_by_session_duration_of_unique_sessions_with_bucketing(self):
         response = self._run(
-            {"breakdown": "$session_duration", "breakdown_type": "session", "breakdown_histogram_bin_count": 3},
+            {
+                "breakdown": "$session_duration",
+                "breakdown_type": "session",
+                "breakdown_histogram_bin_count": 3,
+            },
             events_extra={"math": "unique_session"},
         )
         self.assertEqual(
             [(item["breakdown_value"], item["count"], item["data"]) for item in response],
             [
-                ("[0.0,69.92]", 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-                ("[69.92,110.72]", 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-                ("[110.72,180.01]", 3.0, [0.0, 0.0, 1.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                (
+                    "[0.0,69.92]",
+                    2.0,
+                    [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                ),
+                (
+                    "[69.92,110.72]",
+                    1.0,
+                    [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                ),
+                (
+                    "[110.72,180.01]",
+                    3.0,
+                    [0.0, 0.0, 1.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                ),
             ],
         )
 
     @snapshot_clickhouse_queries
     def test_breakdown_by_event_property_with_bucketing(self):
         response = self._run(
-            {"breakdown": "movie_length", "breakdown_type": "event", "breakdown_histogram_bin_count": 3}
+            {
+                "breakdown": "movie_length",
+                "breakdown_type": "event",
+                "breakdown_histogram_bin_count": 3,
+            }
         )
 
         self.assertEqual(
             [(item["breakdown_value"], item["count"], item["data"]) for item in response],
             [
-                ("[25.0,66.25]", 4.0, [2.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-                ("[66.25,98.37]", 2.0, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-                ("[98.37,1000.01]", 2.0, [1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                (
+                    "[25.0,66.25]",
+                    4.0,
+                    [2.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                ),
+                (
+                    "[66.25,98.37]",
+                    2.0,
+                    [1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                ),
+                (
+                    "[98.37,1000.01]",
+                    2.0,
+                    [1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                ),
             ],
         )
 
     @snapshot_clickhouse_queries
     def test_breakdown_by_event_property_of_unique_sessions_with_bucketing(self):
         response = self._run(
-            {"breakdown": "movie_length", "breakdown_type": "event", "breakdown_histogram_bin_count": 3},
+            {
+                "breakdown": "movie_length",
+                "breakdown_type": "event",
+                "breakdown_histogram_bin_count": 3,
+            },
             events_extra={"math": "unique_session"},
         )
 
         self.assertEqual(
             [(item["breakdown_value"], item["count"], item["data"]) for item in response],
             [
-                ("[25.0,66.25]", 3.0, [2.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-                ("[66.25,98.37]", 2.0, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-                ("[98.37,1000.01]", 2.0, [1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                (
+                    "[25.0,66.25]",
+                    3.0,
+                    [2.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                ),
+                (
+                    "[66.25,98.37]",
+                    2.0,
+                    [1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                ),
+                (
+                    "[98.37,1000.01]",
+                    2.0,
+                    [1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                ),
             ],
         )
 
     def test_breakdown_by_event_property_with_bucketing_and_duplicate_buckets(self):
         journey = {
             "person1": [
-                {"event": "watched tv", "timestamp": datetime(2020, 1, 2, 12, 1), "properties": {"episode_length": 300}}
+                {
+                    "event": "watched tv",
+                    "timestamp": datetime(2020, 1, 2, 12, 1),
+                    "properties": {"episode_length": 300},
+                }
             ],
             "person2": [
-                {"event": "watched tv", "timestamp": datetime(2020, 1, 4, 12, 1), "properties": {"episode_length": 300}}
+                {
+                    "event": "watched tv",
+                    "timestamp": datetime(2020, 1, 4, 12, 1),
+                    "properties": {"episode_length": 300},
+                }
             ],
             "person3": [
-                {"event": "watched tv", "timestamp": datetime(2020, 1, 6, 12, 1), "properties": {"episode_length": 300}}
+                {
+                    "event": "watched tv",
+                    "timestamp": datetime(2020, 1, 6, 12, 1),
+                    "properties": {"episode_length": 300},
+                }
             ],
             "person4": [
-                {"event": "watched tv", "timestamp": datetime(2020, 1, 8, 12, 1), "properties": {"episode_length": 300}}
+                {
+                    "event": "watched tv",
+                    "timestamp": datetime(2020, 1, 8, 12, 1),
+                    "properties": {"episode_length": 300},
+                }
             ],
         }
 
@@ -256,22 +371,44 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [(item["breakdown_value"], item["count"], item["data"]) for item in response],
-            [("[300.0,300.01]", 4.0, [1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0])],
+            [
+                (
+                    "[300.0,300.01]",
+                    4.0,
+                    [1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0],
+                )
+            ],
         )
 
     def test_breakdown_by_event_property_with_bucketing_and_single_bucket(self):
         journey = {
             "person1": [
-                {"event": "watched tv", "timestamp": datetime(2020, 1, 2, 12, 1), "properties": {"episode_length": 300}}
+                {
+                    "event": "watched tv",
+                    "timestamp": datetime(2020, 1, 2, 12, 1),
+                    "properties": {"episode_length": 300},
+                }
             ],
             "person2": [
-                {"event": "watched tv", "timestamp": datetime(2020, 1, 4, 12, 1), "properties": {"episode_length": 300}}
+                {
+                    "event": "watched tv",
+                    "timestamp": datetime(2020, 1, 4, 12, 1),
+                    "properties": {"episode_length": 300},
+                }
             ],
             "person3": [
-                {"event": "watched tv", "timestamp": datetime(2020, 1, 5, 12, 1), "properties": {"episode_length": 320}}
+                {
+                    "event": "watched tv",
+                    "timestamp": datetime(2020, 1, 5, 12, 1),
+                    "properties": {"episode_length": 320},
+                }
             ],
             "person4": [
-                {"event": "watched tv", "timestamp": datetime(2020, 1, 6, 12, 1), "properties": {"episode_length": 305}}
+                {
+                    "event": "watched tv",
+                    "timestamp": datetime(2020, 1, 6, 12, 1),
+                    "properties": {"episode_length": 305},
+                }
             ],
         }
 
@@ -293,7 +430,13 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             [(item["breakdown_value"], item["count"], item["data"]) for item in response],
-            [("[300.0,320.01]", 4.0, [1.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])],
+            [
+                (
+                    "[300.0,320.01]",
+                    4.0,
+                    [1.0, 0.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                )
+            ],
         )
 
     @snapshot_clickhouse_queries
@@ -301,15 +444,31 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
         response = self._run(
             {"breakdown": "$current_url", "breakdown_type": "event"},
             events_extra={
-                "properties": [{"key": "$session_duration", "type": "session", "operator": "gt", "value": 30}]
+                "properties": [
+                    {
+                        "key": "$session_duration",
+                        "type": "session",
+                        "operator": "gt",
+                        "value": 30,
+                    }
+                ]
             },
         )
 
         self.assertEqual(
             [(item["breakdown_value"], item["count"], item["data"]) for item in response],
             [
-                ("", 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
-                ("https://example.com", 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                (BREAKDOWN_NULL_STRING_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                (
+                    "https://example.com",
+                    1.0,
+                    [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                ),
+                (
+                    "https://example.com/",
+                    1.0,
+                    [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                ),
             ],
         )
 
@@ -326,6 +485,114 @@ class TestBreakdowns(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             [(item["breakdown_value"], item["count"], item["data"]) for item in response],
             [
-                ("[nan,nan]", 0.0, [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                (
+                    "[nan,nan]",
+                    0.0,
+                    [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                ),
+            ],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_breakdown_numeric_hogql(self):
+        response = self._run(
+            {
+                "breakdown": "length(properties.$current_url)",
+                "breakdown_type": "hogql",
+                "breakdown_limit": 2,
+            },
+        )
+        self.assertEqual(
+            [(item["breakdown_value"], item["count"], item["data"]) for item in response],
+            [
+                (BREAKDOWN_NULL_NUMERIC_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                (19, 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                (BREAKDOWN_OTHER_NUMERIC_LABEL, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_breakdown_numeric_hogql_hide_other(self):
+        response = self._run(
+            {
+                "breakdown": "length(properties.$current_url)",
+                "breakdown_type": "hogql",
+                "breakdown_hide_other_aggregation": True,
+                "breakdown_limit": 2,
+            },
+        )
+        self.assertEqual(
+            [(item["breakdown_value"], item["count"], item["data"]) for item in response],
+            [
+                (BREAKDOWN_NULL_NUMERIC_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                (19, 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ],
+        )
+        response = self._run(
+            {
+                "breakdown": "length(properties.$current_url)",
+                "breakdown_type": "hogql",
+                "breakdown_hide_other_aggregation": True,
+                "breakdown_limit": 3,
+            },
+        )
+        self.assertEqual(
+            [(item["breakdown_value"], item["count"], item["data"]) for item in response],
+            [
+                (BREAKDOWN_NULL_NUMERIC_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                (19, 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                (20, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_breakdown_string_hogql(self):
+        response = self._run(
+            {
+                "breakdown": "properties.$current_url",
+                "breakdown_type": "hogql",
+                "breakdown_limit": 2,
+            },
+        )
+        self.assertEqual(
+            [(item["breakdown_value"], item["count"], item["data"]) for item in response],
+            [
+                (BREAKDOWN_NULL_STRING_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ("https://example.com", 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                (BREAKDOWN_OTHER_STRING_LABEL, 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_breakdown_string_hogql_hide_other(self):
+        response = self._run(
+            {
+                "breakdown": "properties.$current_url",
+                "breakdown_type": "hogql",
+                "breakdown_hide_other_aggregation": True,
+                "breakdown_limit": 2,
+            },
+        )
+        self.assertEqual(
+            [(item["breakdown_value"], item["count"], item["data"]) for item in response],
+            [
+                (BREAKDOWN_NULL_STRING_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ("https://example.com", 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+            ],
+        )
+        response = self._run(
+            {
+                "breakdown": "properties.$current_url",
+                "breakdown_type": "hogql",
+                "breakdown_hide_other_aggregation": True,
+                "breakdown_limit": 3,
+            },
+        )
+        self.assertEqual(
+            [(item["breakdown_value"], item["count"], item["data"]) for item in response],
+            [
+                (BREAKDOWN_NULL_STRING_LABEL, 6.0, [1.0, 0.0, 1.0, 4.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ("https://example.com", 2.0, [2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
+                ("https://example.com/", 1.0, [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]),
             ],
         )

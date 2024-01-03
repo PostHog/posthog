@@ -5,7 +5,10 @@ from typing import Any, Dict, List, Set, TypedDict, Union, cast
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.group.group import Group
 from posthog.models.person.person import Person
-from posthog.models.property.util import extract_tables_and_properties, get_single_or_multi_property_string_expr
+from posthog.models.property.util import (
+    extract_tables_and_properties,
+    get_single_or_multi_property_string_expr,
+)
 from posthog.models.team.team import Team
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.trends.util import offset_time_series_date_by_interval
@@ -87,7 +90,9 @@ class PropertiesTimeline:
             filter = filter.shallow_clone(
                 {
                     "date_to": offset_time_series_date_by_interval(
-                        cast(datetime.datetime, filter.date_from), filter=filter, team=team
+                        cast(datetime.datetime, filter.date_from),
+                        filter=filter,
+                        team=team,
                     )
                 }
             )
@@ -120,7 +125,10 @@ class PropertiesTimeline:
             actor_properties_column=actor_properties_column,
         )
 
-        params = {**event_query_params, "actor_id": actor.uuid if isinstance(actor, Person) else actor.group_key}
+        params = {
+            **event_query_params,
+            "actor_id": actor.uuid if isinstance(actor, Person) else actor.group_key,
+        }
         raw_query_result = insight_sync_execute(
             formatted_sql,
             {**params, **filter.hogql_context.values},

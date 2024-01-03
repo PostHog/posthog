@@ -1,12 +1,15 @@
-import { ComponentMeta } from '@storybook/react'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { AnyPropertyFilter, PropertyOperator } from '~/types'
+import { Meta } from '@storybook/react'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
-export default {
+import { useStorybookMocks } from '~/mocks/browser'
+import { AnyPropertyFilter, PropertyOperator } from '~/types'
+
+const meta: Meta<typeof PropertyFilters> = {
     title: 'Filters/PropertyFilters',
     component: PropertyFilters,
-} as ComponentMeta<typeof PropertyFilters>
+}
+export default meta
 
 const propertyFilters = [
     {
@@ -30,6 +33,11 @@ const propertyFilters = [
 ] as AnyPropertyFilter[]
 
 export function ComparingPropertyFilters(): JSX.Element {
+    useStorybookMocks({
+        get: {
+            '/api/event/values/': [],
+        },
+    })
     return (
         <>
             <h1>Pop-over enabled</h1>
@@ -37,7 +45,6 @@ export function ComparingPropertyFilters(): JSX.Element {
                 propertyFilters={[...propertyFilters]}
                 onChange={() => {}}
                 pageKey={'pageKey'}
-                style={{ marginBottom: 0 }}
                 showNestedArrow
                 eventNames={[]}
             />
@@ -47,7 +54,6 @@ export function ComparingPropertyFilters(): JSX.Element {
                 propertyFilters={[...propertyFilters]}
                 onChange={() => {}}
                 pageKey={'pageKey'}
-                style={{ marginBottom: 0 }}
                 eventNames={[]}
                 disablePopover={true}
             />

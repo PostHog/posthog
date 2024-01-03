@@ -1,15 +1,18 @@
-import { ComponentMeta, ComponentStory } from '@storybook/react'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useState } from 'react'
+
 import { PathCleaningFilter } from '~/types'
 
 import { PathCleanFilters, PathCleanFiltersProps } from './PathCleanFilters'
 
-export default {
+type Story = StoryObj<typeof PathCleanFilters>
+const meta: Meta<typeof PathCleanFilters> = {
     title: 'Filters/PathCleanFilters',
     component: PathCleanFilters,
-} as ComponentMeta<typeof PathCleanFilters>
+}
+export default meta
 
-const Template: ComponentStory<typeof PathCleanFilters> = (props: Partial<PathCleanFiltersProps>) => {
+const Template: StoryFn<typeof PathCleanFilters> = (props: Partial<PathCleanFiltersProps>) => {
     const [filters, setFilters] = useState<PathCleaningFilter[]>([
         { alias: 'insights', regex: '/insights/w+/dashboard$' },
         { regex: '/feature_flags/d+$' },
@@ -18,5 +21,5 @@ const Template: ComponentStory<typeof PathCleanFilters> = (props: Partial<PathCl
     return <PathCleanFilters filters={filters} setFilters={setFilters} {...props} />
 }
 
-export const Default = Template.bind({})
+export const Default: Story = Template.bind({})
 Default.args = {}

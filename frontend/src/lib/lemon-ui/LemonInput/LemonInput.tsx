@@ -1,8 +1,9 @@
 import './LemonInput.scss'
-import React, { useRef, useState } from 'react'
+
 import clsx from 'clsx'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconClose, IconEyeHidden, IconEyeVisible, IconMagnifier } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import React, { useRef, useState } from 'react'
 
 interface LemonInputPropsBase
     extends Pick<
@@ -44,6 +45,8 @@ interface LemonInputPropsBase
     onPressEnter?: (event: React.KeyboardEvent<HTMLInputElement>) => void
     'data-attr'?: string
     'aria-label'?: string
+    /** Whether to stop propagation of events from the input */
+    stopPropagation?: boolean
 }
 
 export interface LemonInputPropsText extends LemonInputPropsBase {
@@ -80,6 +83,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         value,
         transparentBackground = false,
         size = 'medium',
+        stopPropagation = false,
         ...textProps
     },
     ref
@@ -105,7 +109,6 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                 size="small"
                 noPadding
                 icon={passwordVisible ? <IconEyeHidden /> : <IconEyeVisible />}
-                status="primary-alt"
                 tooltip={passwordVisible ? 'Hide password' : 'Show password'}
                 onClick={(e) => {
                     e.stopPropagation()
@@ -122,7 +125,6 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                 size="small"
                 noPadding
                 icon={<IconClose />}
-                status="primary-alt"
                 tooltip="Clear input"
                 onClick={(e) => {
                     e.stopPropagation()
@@ -160,6 +162,9 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                 type={(type === 'password' && passwordVisible ? 'text' : type) || 'text'}
                 value={value}
                 onChange={(event) => {
+                    if (stopPropagation) {
+                        event.stopPropagation()
+                    }
                     if (type === 'number') {
                         onChange?.(
                             !isNaN(event.currentTarget.valueAsNumber) ? event.currentTarget.valueAsNumber : undefined
@@ -169,14 +174,23 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                     }
                 }}
                 onFocus={(event) => {
+                    if (stopPropagation) {
+                        event.stopPropagation()
+                    }
                     setFocused(true)
                     onFocus?.(event)
                 }}
                 onBlur={(event) => {
+                    if (stopPropagation) {
+                        event.stopPropagation()
+                    }
                     setFocused(false)
                     onBlur?.(event)
                 }}
                 onKeyDown={(event) => {
+                    if (stopPropagation) {
+                        event.stopPropagation()
+                    }
                     if (onPressEnter && event.key === 'Enter') {
                         onPressEnter(event)
                     }

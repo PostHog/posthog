@@ -2,7 +2,10 @@ from functools import cached_property
 
 import structlog
 
-from posthog.async_migrations.definition import AsyncMigrationDefinition, AsyncMigrationOperationSQL
+from posthog.async_migrations.definition import (
+    AsyncMigrationDefinition,
+    AsyncMigrationOperationSQL,
+)
 from posthog.client import sync_execute
 from posthog.constants import AnalyticsDBMS
 from posthog.version_requirement import ServiceVersionRequirement
@@ -20,9 +23,21 @@ class Migration(AsyncMigrationDefinition):
     posthog_max_version = "1.49.99"
 
     parameters = {
-        "OLDEST_PARTITION_TO_KEEP": ("200001", "ID of the oldest partition to keep", str),
-        "NEWEST_PARTITION_TO_KEEP": ("202308", "ID of the newest partition to keep", str),
-        "OPTIMIZE_TABLE": (False, "Optimize sharded_events table after moving partitions?", bool),
+        "OLDEST_PARTITION_TO_KEEP": (
+            "200001",
+            "ID of the oldest partition to keep",
+            str,
+        ),
+        "NEWEST_PARTITION_TO_KEEP": (
+            "202308",
+            "ID of the newest partition to keep",
+            str,
+        ),
+        "OPTIMIZE_TABLE": (
+            False,
+            "Optimize sharded_events table after moving partitions?",
+            bool,
+        ),
     }
 
     service_version_requirements = [ServiceVersionRequirement(service="clickhouse", supported_version=">=22.3.0")]

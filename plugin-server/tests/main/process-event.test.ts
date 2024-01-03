@@ -21,17 +21,22 @@ import {
     PropertyDefinitionTypeEnum,
     RRWebEvent,
     Team,
+    TimestampFormat,
 } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
+import { PostgresUse } from '../../src/utils/db/postgres'
 import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
 import { posthog } from '../../src/utils/posthog'
-import { UUIDT } from '../../src/utils/utils'
+import { castTimestampToClickhouseFormat, UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import {
+    ConsoleLogEntry,
     createPerformanceEvent,
     createSessionRecordingEvent,
     createSessionReplayEvent,
     EventsProcessor,
+    gatherConsoleLogEvents,
+    getTimestampsFrom,
     SummarizedSessionRecordingEvent,
 } from '../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
@@ -266,10 +271,11 @@ test('merge people', async () => {
 })
 
 test('capture new person', async () => {
-    await hub.db.postgresQuery(
+    await hub.db.postgres.query(
+        PostgresUse.COMMON_WRITE,
         `UPDATE posthog_team
-             SET ingested_event = $1
-             WHERE id = $2`,
+         SET ingested_event = $1
+         WHERE id = $2`,
         [true, team.id],
         'testTag'
     )
@@ -313,7 +319,7 @@ test('capture new person', async () => {
     let persons = await hub.db.fetchPersons()
     expect(persons[0].version).toEqual(0)
     expect(persons[0].created_at).toEqual(now)
-    let expectedProps = {
+    let expectedProps: Record<string, any> = {
         $creator_event_uuid: uuid,
         $initial_browser: 'Chrome',
         $initial_browser_version: '95',
@@ -327,6 +333,12 @@ test('capture new person', async () => {
         msclkid: 'BING ADS ID',
         $initial_referrer: 'https://google.com/?q=posthog',
         $initial_referring_domain: 'https://google.com',
+        $browser: 'Chrome',
+        $browser_version: '95',
+        $current_url: 'https://test.com',
+        $os: 'Mac OS X',
+        $referrer: 'https://google.com/?q=posthog',
+        $referring_domain: 'https://google.com',
     }
     expect(persons[0].properties).toEqual(expectedProps)
 
@@ -341,7 +353,17 @@ test('capture new person', async () => {
     expect(events[0].properties).toEqual({
         $ip: '127.0.0.1',
         $os: 'Mac OS X',
-        $set: { utm_medium: 'twitter', gclid: 'GOOGLE ADS ID', msclkid: 'BING ADS ID' },
+        $set: {
+            utm_medium: 'twitter',
+            gclid: 'GOOGLE ADS ID',
+            msclkid: 'BING ADS ID',
+            $browser: 'Chrome',
+            $browser_version: '95',
+            $current_url: 'https://test.com',
+            $os: 'Mac OS X',
+            $referrer: 'https://google.com/?q=posthog',
+            $referring_domain: 'https://google.com',
+        },
         token: 'THIS IS NOT A TOKEN FOR TEAM 2',
         $browser: 'Chrome',
         $set_once: {
@@ -410,6 +432,12 @@ test('capture new person', async () => {
         msclkid: 'BING ADS ID',
         $initial_referrer: 'https://google.com/?q=posthog',
         $initial_referring_domain: 'https://google.com',
+        $browser: 'Firefox',
+        $browser_version: 80,
+        $current_url: 'https://test.com/pricing',
+        $os: 'Mac OS X',
+        $referrer: 'https://google.com/?q=posthog',
+        $referring_domain: 'https://google.com',
     }
     expect(persons[0].properties).toEqual(expectedProps)
 
@@ -423,6 +451,9 @@ test('capture new person', async () => {
 
     expect(events[1].properties.$set).toEqual({
         utm_medium: 'instagram',
+        $browser: 'Firefox',
+        $browser_version: 80,
+        $current_url: 'https://test.com/pricing',
     })
     expect(events[1].properties.$set_once).toEqual({
         $initial_browser: 'Firefox',
@@ -479,6 +510,9 @@ test('capture new person', async () => {
     expect(persons[0].version).toEqual(1)
 
     expect(events[2].properties.$set).toEqual({
+        $browser: 'Firefox',
+        $current_url: 'https://test.com/pricing',
+
         utm_medium: 'instagram',
     })
     expect(events[2].properties.$set_once).toEqual({
@@ -804,7 +838,6 @@ test('capture bad team', async () => {
     await expect(
         eventsProcessor.processEvent(
             'asdfasdfasdf',
-            '',
             {
                 event: '$pageview',
                 properties: { distinct_id: 'asdfasdfasdf', token: team.api_token },
@@ -896,7 +929,12 @@ test('ip override', async () => {
 })
 
 test('anonymized ip capture', async () => {
-    await hub.db.postgresQuery('update posthog_team set anonymize_ips = $1', [true], 'testTag')
+    await hub.db.postgres.query(
+        PostgresUse.COMMON_WRITE,
+        'update posthog_team set anonymize_ips = $1',
+        [true],
+        'testTag'
+    )
     await createPerson(hub, team, ['asdfasdfasdf'])
 
     await processEvent(
@@ -1146,7 +1184,14 @@ test('long htext', async () => {
 })
 
 test('capture first team event', async () => {
-    await hub.db.postgresQuery(`UPDATE posthog_team SET ingested_event = $1 WHERE id = $2`, [false, team.id], 'testTag')
+    await hub.db.postgres.query(
+        PostgresUse.COMMON_WRITE,
+        `UPDATE posthog_team
+         SET ingested_event = $1
+         WHERE id = $2`,
+        [false, team.id],
+        'testTag'
+    )
 
     posthog.capture = jest.fn() as any
     posthog.identify = jest.fn() as any
@@ -1209,6 +1254,7 @@ test('snapshot event stored as session_recording_event', () => {
 })
 const sessionReplayEventTestCases: {
     snapshotData: { events_summary: RRWebEvent[] }
+    snapshotSource?: string
     expected: Pick<
         SummarizedSessionRecordingEvent,
         | 'click_count'
@@ -1222,6 +1268,9 @@ const sessionReplayEventTestCases: {
         | 'console_warn_count'
         | 'console_error_count'
         | 'size'
+        | 'event_count'
+        | 'message_count'
+        | 'snapshot_source'
     >
 }[] = [
     {
@@ -1230,7 +1279,7 @@ const sessionReplayEventTestCases: {
             click_count: 1,
             keypress_count: 0,
             mouse_activity_count: 1,
-            first_url: undefined,
+            first_url: null,
             first_timestamp: '2023-04-25 18:58:13.469',
             last_timestamp: '2023-04-25 18:58:13.469',
             active_milliseconds: 1, //  one event, but it's active, so active time is 1ms not 0
@@ -1238,6 +1287,9 @@ const sessionReplayEventTestCases: {
             console_warn_count: 0,
             console_error_count: 0,
             size: 73,
+            event_count: 1,
+            message_count: 1,
+            snapshot_source: 'web',
         },
     },
     {
@@ -1246,7 +1298,7 @@ const sessionReplayEventTestCases: {
             click_count: 0,
             keypress_count: 1,
             mouse_activity_count: 1,
-            first_url: undefined,
+            first_url: null,
             first_timestamp: '2023-04-25 18:58:13.469',
             last_timestamp: '2023-04-25 18:58:13.469',
             active_milliseconds: 1, //  one event, but it's active, so active time is 1ms not 0
@@ -1254,6 +1306,9 @@ const sessionReplayEventTestCases: {
             console_warn_count: 0,
             console_error_count: 0,
             size: 73,
+            event_count: 1,
+            message_count: 1,
+            snapshot_source: 'web',
         },
     },
     {
@@ -1302,7 +1357,7 @@ const sessionReplayEventTestCases: {
             click_count: 0,
             keypress_count: 1,
             mouse_activity_count: 1,
-            first_url: undefined,
+            first_url: null,
             first_timestamp: '2023-04-25 18:58:13.469',
             last_timestamp: '2023-04-25 18:58:13.469',
             active_milliseconds: 1, //  one event, but it's active, so active time is 1ms not 0
@@ -1310,6 +1365,9 @@ const sessionReplayEventTestCases: {
             console_warn_count: 3,
             console_error_count: 1,
             size: 762,
+            event_count: 7,
+            message_count: 1,
+            snapshot_source: 'web',
         },
     },
     {
@@ -1348,6 +1406,35 @@ const sessionReplayEventTestCases: {
             console_warn_count: 0,
             console_error_count: 0,
             size: 213,
+            event_count: 2,
+            message_count: 1,
+            snapshot_source: 'web',
+        },
+    },
+    {
+        snapshotData: {
+            events_summary: [
+                // a negative timestamp is ignored
+                { timestamp: 1682449093000, type: 3, data: { source: 2 }, windowId: '1' },
+                { timestamp: 1682449095000, type: 3, data: { source: 2 }, windowId: '1' },
+                { timestamp: -922167545571, type: 3, data: { source: 2 }, windowId: '1' },
+            ],
+        },
+        expected: {
+            click_count: 3,
+            keypress_count: 0,
+            mouse_activity_count: 3,
+            first_url: null,
+            first_timestamp: '2023-04-25 18:58:13.000',
+            last_timestamp: '2023-04-25 18:58:15.000',
+            active_milliseconds: 1,
+            console_log_count: 0,
+            console_warn_count: 0,
+            console_error_count: 0,
+            size: 217,
+            event_count: 3,
+            message_count: 1,
+            snapshot_source: 'web',
         },
     },
     {
@@ -1367,7 +1454,7 @@ const sessionReplayEventTestCases: {
             click_count: 6,
             keypress_count: 0,
             mouse_activity_count: 6,
-            first_url: undefined,
+            first_url: null,
             first_timestamp: '2023-04-25 18:58:13.000',
             last_timestamp: '2023-04-25 18:58:19.000',
             active_milliseconds: 6000, // can sum up the activity across windows
@@ -1375,17 +1462,43 @@ const sessionReplayEventTestCases: {
             console_warn_count: 0,
             console_error_count: 0,
             size: 433,
+            event_count: 6,
+            message_count: 1,
+            snapshot_source: 'web',
+        },
+    },
+    {
+        snapshotData: {
+            events_summary: [{ timestamp: 1682449093000, type: 3, data: { source: 2 }, windowId: '1' }],
+        },
+        snapshotSource: 'mobile',
+        expected: {
+            active_milliseconds: 1,
+            click_count: 1,
+            console_error_count: 0,
+            console_log_count: 0,
+            console_warn_count: 0,
+            event_count: 1,
+            first_timestamp: '2023-04-25 18:58:13.000',
+            first_url: null,
+            keypress_count: 0,
+            last_timestamp: '2023-04-25 18:58:13.000',
+            message_count: 1,
+            mouse_activity_count: 1,
+            size: 73,
+            snapshot_source: 'mobile',
         },
     },
 ]
-sessionReplayEventTestCases.forEach(({ snapshotData, expected }) => {
+sessionReplayEventTestCases.forEach(({ snapshotData, snapshotSource, expected }) => {
     test(`snapshot event ${JSON.stringify(snapshotData)} can be stored as session_replay_event`, () => {
         const data = createSessionReplayEvent(
             'some-id',
             team.id,
             '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
             'abcf-efg',
-            snapshotData.events_summary
+            snapshotData.events_summary,
+            snapshotSource
         )
 
         const expectedEvent: SummarizedSessionRecordingEvent = {
@@ -1425,6 +1538,74 @@ test(`snapshot event with no event summary timestamps is ignored`, () => {
             },
         ] as any[])
     }).toThrowError()
+})
+
+test.each([
+    { events: [], expectedTimestamps: [] },
+    { events: [{ without: 'timestamp property' } as unknown as RRWebEvent], expectedTimestamps: [] },
+    { events: [{ timestamp: undefined } as unknown as RRWebEvent], expectedTimestamps: [] },
+    { events: [{ timestamp: null } as unknown as RRWebEvent], expectedTimestamps: [] },
+    { events: [{ timestamp: 'what about a string' } as unknown as RRWebEvent], expectedTimestamps: [] },
+    // we have seen negative timestamps from clients 🙈
+    { events: [{ timestamp: -1 } as unknown as RRWebEvent], expectedTimestamps: [] },
+    { events: [{ timestamp: 0 } as unknown as RRWebEvent], expectedTimestamps: [] },
+    { events: [{ timestamp: 1 } as unknown as RRWebEvent], expectedTimestamps: ['1970-01-01 00:00:00.001'] },
+])('timestamps from rrweb events', ({ events, expectedTimestamps }) => {
+    expect(getTimestampsFrom(events)).toEqual(expectedTimestamps)
+})
+
+function consoleMessageFor(payload: any[]) {
+    return {
+        timestamp: 1682449093469,
+        type: 6,
+        data: {
+            plugin: 'rrweb/console@1',
+            payload: {
+                level: 'info',
+                payload: payload,
+            },
+        },
+    }
+}
+
+test.each([
+    {
+        payload: ['the message', 'more strings', '', null, false, 0, { blah: 'wat' }],
+        expectedMessage: 'the message more strings',
+    },
+    {
+        // lone surrogate pairs are replaced with the "unknown" character
+        payload: ['\\\\\\",\\\\\\"emoji_flag\\\\\\":\\\\\\"\ud83c...[truncated]'],
+        expectedMessage: '\\\\\\",\\\\\\"emoji_flag\\\\\\":\\\\\\"\ufffd...[truncated]',
+    },
+    {
+        // sometimes the strings are wrapped in quotes...
+        payload: ['"test"'],
+        expectedMessage: '"test"',
+    },
+    {
+        // let's not accept arbitrary length content
+        payload: [new Array(3001).join('a')],
+        expectedMessage: new Array(3000).join('a'),
+    },
+])('simple console log processing', ({ payload, expectedMessage }) => {
+    const consoleLogEntries = gatherConsoleLogEvents(team.id, 'session_id', [
+        consoleMessageFor(payload),
+        // see https://posthog.sentry.io/issues/4525043303
+        // null events always ignored
+        null as unknown as RRWebEvent,
+    ])
+    expect(consoleLogEntries).toEqual([
+        {
+            team_id: team.id,
+            log_level: 'info',
+            log_source: 'session_replay',
+            log_source_id: 'session_id',
+            instance_id: null,
+            timestamp: castTimestampToClickhouseFormat(DateTime.fromMillis(1682449093469), TimestampFormat.ClickHouse),
+            message: expectedMessage,
+        } satisfies ConsoleLogEntry,
+    ])
 })
 
 test('performance event stored as performance_event', () => {
@@ -2309,28 +2490,45 @@ test('long event name substr', async () => {
     expect(event.event?.length).toBe(200)
 })
 
-test('throws with bad uuid', async () => {
-    await expect(
-        eventsProcessor.processEvent(
-            'xxx',
-            '',
-            { event: 'E', properties: { price: 299.99, name: 'AirPods Pro' } } as any as PluginEvent,
-            team.id,
-            DateTime.utc(),
-            'this is not an uuid'
-        )
-    ).rejects.toEqual(new Error('Not a valid UUID: "this is not an uuid"'))
+describe('validates eventUuid', () => {
+    test('invalid uuid string returns an error', async () => {
+        const pluginEvent: PluginEvent = {
+            distinct_id: 'i_am_a_distinct_id',
+            site_url: '',
+            team_id: team.id,
+            timestamp: DateTime.utc().toISO(),
+            now: now.toUTC().toISO(),
+            ip: '',
+            uuid: 'i_am_not_a_uuid',
+            event: 'eVeNt',
+            properties: { price: 299.99, name: 'AirPods Pro' },
+        }
 
-    await expect(
-        eventsProcessor.processEvent(
-            'xxx',
-            '',
-            { event: 'E', properties: { price: 299.99, name: 'AirPods Pro' } } as any as PluginEvent,
-            team.id,
-            DateTime.utc(),
-            null as any
-        )
-    ).rejects.toEqual(new Error('Not a valid UUID: "null"'))
+        const runner = new EventPipelineRunner(hub, pluginEvent)
+        const result = await runner.runEventPipeline(pluginEvent)
+
+        expect(result.error).toBeDefined()
+        expect(result.error).toEqual('Not a valid UUID: "i_am_not_a_uuid"')
+    })
+    test('null value in eventUUID returns an error', async () => {
+        const pluginEvent: PluginEvent = {
+            distinct_id: 'i_am_a_distinct_id',
+            site_url: '',
+            team_id: team.id,
+            timestamp: DateTime.utc().toISO(),
+            now: now.toUTC().toISO(),
+            ip: '',
+            uuid: null as any,
+            event: 'eVeNt',
+            properties: { price: 299.99, name: 'AirPods Pro' },
+        }
+
+        const runner = new EventPipelineRunner(hub, pluginEvent)
+        const result = await runner.runEventPipeline(pluginEvent)
+
+        expect(result.error).toBeDefined()
+        expect(result.error).toEqual('Not a valid UUID: "null"')
+    })
 })
 
 test('any event can do $set on props (user exists)', async () => {
@@ -2737,6 +2935,35 @@ test('$unset person property', async () => {
     expect(person.properties).toEqual({ b: 2 })
 })
 
+test('$unset person empty set ignored', async () => {
+    await createPerson(hub, team, ['distinct_id1'], { a: 1, b: 2, c: 3 })
+
+    await processEvent(
+        'distinct_id1',
+        '',
+        '',
+        {
+            event: 'some_event',
+            properties: {
+                token: team.api_token,
+                distinct_id: 'distinct_id1',
+                $unset: {},
+            },
+        } as any as PluginEvent,
+        team.id,
+        now,
+        new UUIDT().toString()
+    )
+    expect((await hub.db.fetchEvents()).length).toBe(1)
+
+    const [event] = await hub.db.fetchEvents()
+    expect(event.properties['$unset']).toEqual({})
+
+    const [person] = await hub.db.fetchPersons()
+    expect(await hub.db.fetchDistinctIdValues(person)).toEqual(['distinct_id1'])
+    expect(person.properties).toEqual({ a: 1, b: 2, c: 3 })
+})
+
 describe('ingestion in any order', () => {
     const ts0: DateTime = now
     const ts1: DateTime = now.plus({ minutes: 1 })
@@ -2797,12 +3024,15 @@ describe('ingestion in any order', () => {
     async function ingest0() {
         await runProcessEvent(set0, setOnce0, ts0)
     }
+
     async function ingest1() {
         await runProcessEvent(set1, setOnce1, ts1)
     }
+
     async function ingest2() {
         await runProcessEvent(set2, setOnce2, ts2)
     }
+
     async function ingest3() {
         await runProcessEvent(set3, setOnce3, ts3)
     }

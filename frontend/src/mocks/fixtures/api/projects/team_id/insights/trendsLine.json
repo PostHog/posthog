@@ -1,0 +1,194 @@
+{
+    "id": 51,
+    "short_id": "jEAIVJnN",
+    "name": "",
+    "derived_name": "Pageview count",
+    "filters": {
+        "display": "ActionsLineGraph",
+        "events": [
+            {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            }
+        ],
+        "insight": "TRENDS",
+        "interval": "day"
+    },
+    "filters_hash": "cache_42127776c1709f7c4209cea8925faefd",
+    "order": null,
+    "deleted": false,
+    "dashboard": null,
+    "layouts": {},
+    "color": null,
+    "last_refresh": null,
+    "refreshing": false,
+    "result": [
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "$pageview",
+            "count": 61010,
+            "data": [0, 0, 0, 15625, 22870, 15044, 6675, 796],
+            "labels": [
+                "4-Mar-2022",
+                "5-Mar-2022",
+                "6-Mar-2022",
+                "7-Mar-2022",
+                "8-Mar-2022",
+                "9-Mar-2022",
+                "10-Mar-2022",
+                "11-Mar-2022"
+            ],
+            "days": [
+                "2022-03-04",
+                "2022-03-05",
+                "2022-03-06",
+                "2022-03-07",
+                "2022-03-08",
+                "2022-03-09",
+                "2022-03-10",
+                "2022-03-11"
+            ],
+            "persons_urls": [
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-04",
+                        "date_to": "2022-03-04"
+                    },
+                    "url": "api/projects/1/persons/trends/?date_from=2022-03-04&date_to=2022-03-04&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-05",
+                        "date_to": "2022-03-05"
+                    },
+                    "url": "api/projects/1/persons/trends/?date_from=2022-03-05&date_to=2022-03-05&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-06",
+                        "date_to": "2022-03-06"
+                    },
+                    "url": "api/projects/1/persons/trends/?date_from=2022-03-06&date_to=2022-03-06&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-07",
+                        "date_to": "2022-03-07"
+                    },
+                    "url": "api/projects/1/persons/trends/?date_from=2022-03-07&date_to=2022-03-07&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-08",
+                        "date_to": "2022-03-08"
+                    },
+                    "url": "api/projects/1/persons/trends/?date_from=2022-03-08&date_to=2022-03-08&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-09",
+                        "date_to": "2022-03-09"
+                    },
+                    "url": "api/projects/1/persons/trends/?date_from=2022-03-09&date_to=2022-03-09&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-10",
+                        "date_to": "2022-03-10"
+                    },
+                    "url": "api/projects/1/persons/trends/?date_from=2022-03-10&date_to=2022-03-10&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events"
+                },
+                {
+                    "filter": {
+                        "entity_id": "$pageview",
+                        "entity_type": "events",
+                        "entity_math": null,
+                        "date_from": "2022-03-11",
+                        "date_to": "2022-03-11"
+                    },
+                    "url": "api/projects/1/persons/trends/?date_from=2022-03-11&date_to=2022-03-11&display=ActionsLineGraph&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events"
+                }
+            ],
+            "filter": {
+                "display": "ActionsLineGraph",
+                "events": [
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 0,
+                        "name": "$pageview",
+                        "custom_name": null,
+                        "math": null,
+                        "math_property": null,
+                        "math_group_type_index": null,
+                        "properties": {}
+                    }
+                ],
+                "insight": "TRENDS",
+                "interval": "day"
+            }
+        }
+    ],
+    "created_at": "2022-03-15T21:31:00.192917Z",
+    "created_by": {
+        "id": 1,
+        "uuid": "017f7913-c1ee-0000-faff-0fe5ace3849a",
+        "distinct_id": "Q1OD2NmnqqbqrLR45mYm2p1VNNbSO9DBFsMig90GWkK",
+        "first_name": "Marius",
+        "email": "marius@posthog.com"
+    },
+    "description": "",
+    "updated_at": "2022-03-15T21:31:04.623891Z",
+    "tags": [],
+    "favorited": false,
+    "saved": true,
+    "last_modified_at": "2022-03-15T21:31:04.619654Z",
+    "last_modified_by": {
+        "id": 1,
+        "uuid": "017f7913-c1ee-0000-faff-0fe5ace3849a",
+        "distinct_id": "Q1OD2NmnqqbqrLR45mYm2p1VNNbSO9DBFsMig90GWkK",
+        "first_name": "Marius",
+        "email": "marius@posthog.com"
+    },
+    "is_sample": false,
+    "effective_restriction_level": 21,
+    "effective_privilege_level": 37
+}

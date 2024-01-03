@@ -1,13 +1,17 @@
-import { initKeaTests } from '~/test/init'
-import { CohortLogicProps } from 'scenes/cohorts/cohortLogic'
-import { expectLogic, partial } from 'kea-test-utils'
-import { useMocks } from '~/mocks/jest'
-import { mockCohort } from '~/test/mocks'
-import { teamLogic } from 'scenes/teamLogic'
-import { api } from 'lib/api.mock'
-import { cohortsModel } from '~/models/cohortsModel'
 import { router } from 'kea-router'
+import { expectLogic, partial } from 'kea-test-utils'
+import { api } from 'lib/api.mock'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { cohortEditLogic, CohortLogicProps } from 'scenes/cohorts/cohortEditLogic'
+import { CRITERIA_VALIDATIONS, NEW_CRITERIA, ROWS } from 'scenes/cohorts/CohortFilters/constants'
+import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+
+import { useMocks } from '~/mocks/jest'
+import { cohortsModel } from '~/models/cohortsModel'
+import { initKeaTests } from '~/test/init'
+import { mockCohort } from '~/test/mocks'
 import {
     BehavioralEventType,
     BehavioralLifecycleType,
@@ -16,10 +20,6 @@ import {
     PropertyOperator,
     TimeUnitType,
 } from '~/types'
-import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { CRITERIA_VALIDATIONS, NEW_CRITERIA, ROWS } from 'scenes/cohorts/CohortFilters/constants'
-import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 
 describe('cohortEditLogic', () => {
     let logic: ReturnType<typeof cohortEditLogic.build>
@@ -78,8 +78,8 @@ describe('cohortEditLogic', () => {
     it('delete cohort', async () => {
         await initCohortLogic({ id: 1 })
         await expectLogic(logic, async () => {
-            await logic.actions.setCohort(mockCohort)
-            await logic.actions.deleteCohort()
+            logic.actions.setCohort(mockCohort)
+            logic.actions.deleteCohort()
         })
             .toFinishAllListeners()
             .toDispatchActions(['setCohort', 'deleteCohort', router.actionCreators.push(urls.cohorts())])
@@ -93,7 +93,7 @@ describe('cohortEditLogic', () => {
         it('save with valid cohort', async () => {
             await initCohortLogic({ id: 1 })
             await expectLogic(logic, async () => {
-                await logic.actions.setCohort({
+                logic.actions.setCohort({
                     ...mockCohort,
                     filters: {
                         properties: {
@@ -117,7 +117,7 @@ describe('cohortEditLogic', () => {
                         },
                     },
                 })
-                await logic.actions.submitCohort()
+                logic.actions.submitCohort()
             }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortSuccess'])
             expect(api.update).toBeCalledTimes(1)
         })
@@ -125,11 +125,11 @@ describe('cohortEditLogic', () => {
         it('do not save with invalid name', async () => {
             await initCohortLogic({ id: 1 })
             await expectLogic(logic, async () => {
-                await logic.actions.setCohort({
+                logic.actions.setCohort({
                     ...mockCohort,
                     name: '',
                 })
-                await logic.actions.submitCohort()
+                logic.actions.submitCohort()
             }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
             expect(api.update).toBeCalledTimes(0)
         })
@@ -138,7 +138,7 @@ describe('cohortEditLogic', () => {
             it('do not save on OR operator', async () => {
                 await initCohortLogic({ id: 1 })
                 await expectLogic(logic, async () => {
-                    await logic.actions.setCohort({
+                    logic.actions.setCohort({
                         ...mockCohort,
                         filters: {
                             properties: {
@@ -172,7 +172,7 @@ describe('cohortEditLogic', () => {
                             },
                         },
                     })
-                    await logic.actions.submitCohort()
+                    logic.actions.submitCohort()
                 })
                     .toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
                     .toMatchValues({
@@ -200,7 +200,7 @@ describe('cohortEditLogic', () => {
             it('do not save on less than one positive matching criteria', async () => {
                 await initCohortLogic({ id: 1 })
                 await expectLogic(logic, async () => {
-                    await logic.actions.setCohort({
+                    logic.actions.setCohort({
                         ...mockCohort,
                         filters: {
                             properties: {
@@ -226,7 +226,7 @@ describe('cohortEditLogic', () => {
                             },
                         },
                     })
-                    await logic.actions.submitCohort()
+                    logic.actions.submitCohort()
                 })
                     .toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
                     .toMatchValues({
@@ -253,7 +253,7 @@ describe('cohortEditLogic', () => {
             it('do not save on criteria cancelling each other out', async () => {
                 await initCohortLogic({ id: 1 })
                 await expectLogic(logic, async () => {
-                    await logic.actions.setCohort({
+                    logic.actions.setCohort({
                         ...mockCohort,
                         filters: {
                             properties: {
@@ -287,7 +287,7 @@ describe('cohortEditLogic', () => {
                             },
                         },
                     })
-                    await logic.actions.submitCohort()
+                    logic.actions.submitCohort()
                 })
                     .toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
                     .toMatchValues({
@@ -318,7 +318,7 @@ describe('cohortEditLogic', () => {
         it('do not save on invalid lower and upper bound period values - perform event regularly', async () => {
             await initCohortLogic({ id: 1 })
             await expectLogic(logic, async () => {
-                await logic.actions.setCohort({
+                logic.actions.setCohort({
                     ...mockCohort,
                     filters: {
                         properties: {
@@ -347,7 +347,7 @@ describe('cohortEditLogic', () => {
                         },
                     },
                 })
-                await logic.actions.submitCohort()
+                logic.actions.submitCohort()
             })
                 .toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
                 .toMatchValues({
@@ -377,7 +377,7 @@ describe('cohortEditLogic', () => {
         it('do not save on invalid lower and upper bound period values - perform events in sequence', async () => {
             await initCohortLogic({ id: 1 })
             await expectLogic(logic, async () => {
-                await logic.actions.setCohort({
+                logic.actions.setCohort({
                     ...mockCohort,
                     filters: {
                         properties: {
@@ -404,7 +404,7 @@ describe('cohortEditLogic', () => {
                         },
                     },
                 })
-                await logic.actions.submitCohort()
+                logic.actions.submitCohort()
             })
                 .toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
                 .toMatchValues({
@@ -436,7 +436,7 @@ describe('cohortEditLogic', () => {
                 it(`${key} row missing all required fields`, async () => {
                     await initCohortLogic({ id: 1 })
                     await expectLogic(logic, async () => {
-                        await logic.actions.setCohort({
+                        logic.actions.setCohort({
                             ...mockCohort,
                             filters: {
                                 properties: {
@@ -462,7 +462,7 @@ describe('cohortEditLogic', () => {
                                 },
                             },
                         })
-                        await logic.actions.submitCohort()
+                        logic.actions.submitCohort()
                     })
                         .toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
                         .toMatchValues({
@@ -497,13 +497,13 @@ describe('cohortEditLogic', () => {
         it('can save existing static cohort with empty csv', async () => {
             await initCohortLogic({ id: 1 })
             await expectLogic(logic, async () => {
-                await logic.actions.setCohort({
+                logic.actions.setCohort({
                     ...mockCohort,
                     is_static: true,
                     groups: [],
                     csv: undefined,
                 })
-                await logic.actions.submitCohort()
+                logic.actions.submitCohort()
             }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortSuccess'])
             expect(api.update).toBeCalledTimes(1)
         })
@@ -511,14 +511,14 @@ describe('cohortEditLogic', () => {
         it('do not save static cohort with empty csv', async () => {
             await initCohortLogic({ id: 'new' })
             await expectLogic(logic, async () => {
-                await logic.actions.setCohort({
+                logic.actions.setCohort({
                     ...mockCohort,
                     is_static: true,
                     groups: [],
                     csv: undefined,
                     id: 'new',
                 })
-                await logic.actions.submitCohort()
+                logic.actions.submitCohort()
             }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
             expect(api.update).toBeCalledTimes(0)
         })

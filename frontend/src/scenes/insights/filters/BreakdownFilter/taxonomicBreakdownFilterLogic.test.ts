@@ -1,7 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
-
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+
+import { initKeaTests } from '~/test/init'
+import { InsightLogicProps } from '~/types'
 
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
@@ -20,6 +21,7 @@ const taxonomicGroupFor = (
 
 const updateBreakdown = jest.fn()
 const updateDisplay = jest.fn()
+const insightProps: InsightLogicProps = { dashboardItemId: 'new' }
 
 describe('taxonomicBreakdownFilterLogic', () => {
     let logic: ReturnType<typeof taxonomicBreakdownFilterLogic.build>
@@ -31,11 +33,11 @@ describe('taxonomicBreakdownFilterLogic', () => {
     describe('addBreakdown', () => {
         it('sets breakdown for events', async () => {
             logic = taxonomicBreakdownFilterLogic({
+                insightProps,
                 breakdownFilter: {},
                 isTrends: true,
                 updateBreakdown,
                 updateDisplay,
-                isDataExploration: true,
             })
             logic.mount()
             const changedBreakdown = 'c'
@@ -55,13 +57,14 @@ describe('taxonomicBreakdownFilterLogic', () => {
 
         it('sets breakdown for cohorts', async () => {
             logic = taxonomicBreakdownFilterLogic({
+                insightProps,
                 breakdownFilter: {
+                    breakdown_type: 'cohort',
                     breakdown: ['all', 1],
                 },
                 isTrends: true,
                 updateBreakdown,
                 updateDisplay,
-                isDataExploration: true,
             })
             logic.mount()
             const changedBreakdown = 2
@@ -85,11 +88,11 @@ describe('taxonomicBreakdownFilterLogic', () => {
 
         it('sets breakdown for person properties', async () => {
             logic = taxonomicBreakdownFilterLogic({
+                insightProps,
                 breakdownFilter: {},
                 isTrends: true,
                 updateBreakdown,
                 updateDisplay,
-                isDataExploration: true,
             })
             logic.mount()
             const changedBreakdown = 'height'
@@ -108,11 +111,11 @@ describe('taxonomicBreakdownFilterLogic', () => {
 
         it('sets breakdown for group properties', async () => {
             logic = taxonomicBreakdownFilterLogic({
+                insightProps,
                 breakdownFilter: {},
                 isTrends: true,
                 updateBreakdown,
                 updateDisplay,
-                isDataExploration: true,
             })
             logic.mount()
             const changedBreakdown = '$lib_version'

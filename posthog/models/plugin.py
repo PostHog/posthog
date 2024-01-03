@@ -12,9 +12,10 @@ from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
-from semantic_version.base import SimpleSpec, Version
+from semantic_version.base import SimpleSpec
 
 from posthog.cloud_utils import is_cloud
+from posthog.constants import FROZEN_POSTHOG_VERSION
 from posthog.models.organization import Organization
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
@@ -28,7 +29,6 @@ from posthog.plugins.utils import (
     load_json_file,
     parse_url,
 )
-from posthog.version import VERSION
 
 from .utils import UUIDModel, sane_repr
 
@@ -105,13 +105,14 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
             validated_data["plugin_type"] = Plugin.PluginType.CUSTOM
 
     if posthog_version and not is_cloud():
+        # Legacy: PostHog is no longer versioned
         try:
             spec = SimpleSpec(posthog_version.replace(" ", ""))
         except ValueError:
             raise ValidationError(f'Invalid PostHog semantic version requirement "{posthog_version}"!')
-        if Version(VERSION) not in spec:
+        if FROZEN_POSTHOG_VERSION not in spec:
             raise ValidationError(
-                f'Currently running PostHog version {VERSION} does not match this plugin\'s semantic version requirement "{posthog_version}".'
+                f'Currently running PostHog version {FROZEN_POSTHOG_VERSION} does not match this plugin\'s semantic version requirement "{posthog_version}".'
             )
 
     return plugin_json
@@ -134,12 +135,24 @@ class PluginManager(models.Manager):
 class Plugin(models.Model):
     class PluginType(models.TextChoices):
         LOCAL = "local", "local"  # url starts with "file:"
-        CUSTOM = "custom", "custom"  # github or npm url downloaded as zip or tar.gz into field "archive"
-        REPOSITORY = "repository", "repository"  # same, but originating from our plugins.json repository
-        SOURCE = "source", "source"  # coded inside the browser (versioned via plugin_source_version)
+        CUSTOM = (
+            "custom",
+            "custom",
+        )  # github or npm url downloaded as zip or tar.gz into field "archive"
+        REPOSITORY = (
+            "repository",
+            "repository",
+        )  # same, but originating from our plugins.json repository
+        SOURCE = (
+            "source",
+            "source",
+        )  # coded inside the browser (versioned via plugin_source_version)
 
     organization: models.ForeignKey = models.ForeignKey(
-        "posthog.Organization", on_delete=models.CASCADE, related_name="plugins", related_query_name="plugin"
+        "posthog.Organization",
+        on_delete=models.CASCADE,
+        related_name="plugins",
+        related_query_name="plugin",
     )
     plugin_type: models.CharField = models.CharField(
         max_length=200, null=True, blank=True, choices=PluginType.choices, default=None
@@ -215,6 +228,7 @@ class PluginConfig(models.Model):
     enabled: models.BooleanField = models.BooleanField(default=False)
     order: models.IntegerField = models.IntegerField()
     config: models.JSONField = models.JSONField(default=dict)
+    # DEPRECATED: use `plugin_log_entries` or `app_metrics` in ClickHouse instead
     # Error when running this plugin on an event (frontend: PluginErrorType)
     # - e.g: "undefined is not a function on index.js line 23"
     # - error = { message: "Exception in processEvent()", time: "iso-string", ...meta }
@@ -224,6 +238,11 @@ class PluginConfig(models.Model):
 
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+    # Used in the frontend
+    name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    description: models.CharField = models.CharField(max_length=1000, null=True, blank=True)
+    # Used in the frontend to hide pluginConfgis that user deleted
+    deleted: models.BooleanField = models.BooleanField(default=False, null=True)
 
 
 class PluginAttachment(models.Model):
@@ -239,7 +258,10 @@ class PluginAttachment(models.Model):
 class PluginStorage(models.Model):
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["plugin_config_id", "key"], name="posthog_unique_plugin_storage_key")
+            models.UniqueConstraint(
+                fields=["plugin_config_id", "key"],
+                name="posthog_unique_plugin_storage_key",
+            )
         ]
 
     plugin_config: models.ForeignKey = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
@@ -265,7 +287,10 @@ class PluginSourceFileManager(models.Manager):
     def sync_from_plugin_archive(
         self, plugin: Plugin, plugin_json_parsed: Optional[Dict[str, Any]] = None
     ) -> Tuple[
-        "PluginSourceFile", Optional["PluginSourceFile"], Optional["PluginSourceFile"], Optional["PluginSourceFile"]
+        "PluginSourceFile",
+        Optional["PluginSourceFile"],
+        Optional["PluginSourceFile"],
+        Optional["PluginSourceFile"],
     ]:
         """Create PluginSourceFile objects from a plugin that has an archive.
 
@@ -280,7 +305,12 @@ class PluginSourceFileManager(models.Manager):
         plugin_json_instance, _ = PluginSourceFile.objects.update_or_create(
             plugin=plugin,
             filename="plugin.json",
-            defaults={"source": plugin_json, "transpiled": None, "status": None, "error": None},
+            defaults={
+                "source": plugin_json,
+                "transpiled": None,
+                "status": None,
+                "error": None,
+            },
         )
         # Save frontend.tsx
         frontend_tsx_instance: Optional["PluginSourceFile"] = None
@@ -288,7 +318,12 @@ class PluginSourceFileManager(models.Manager):
             frontend_tsx_instance, _ = PluginSourceFile.objects.update_or_create(
                 plugin=plugin,
                 filename="frontend.tsx",
-                defaults={"source": frontend_tsx, "transpiled": None, "status": None, "error": None},
+                defaults={
+                    "source": frontend_tsx,
+                    "transpiled": None,
+                    "status": None,
+                    "error": None,
+                },
             )
         else:
             filenames_to_delete.append("frontend.tsx")
@@ -298,7 +333,12 @@ class PluginSourceFileManager(models.Manager):
             site_ts_instance, _ = PluginSourceFile.objects.update_or_create(
                 plugin=plugin,
                 filename="site.ts",
-                defaults={"source": site_ts, "transpiled": None, "status": None, "error": None},
+                defaults={
+                    "source": site_ts,
+                    "transpiled": None,
+                    "status": None,
+                    "error": None,
+                },
             )
         else:
             filenames_to_delete.append("site.ts")
@@ -310,7 +350,12 @@ class PluginSourceFileManager(models.Manager):
             index_ts_instance, _ = PluginSourceFile.objects.update_or_create(
                 plugin=plugin,
                 filename="index.ts",
-                defaults={"source": index_ts, "transpiled": None, "status": None, "error": None},
+                defaults={
+                    "source": index_ts,
+                    "transpiled": None,
+                    "status": None,
+                    "error": None,
+                },
             )
         else:
             filenames_to_delete.append("index.ts")
@@ -318,7 +363,12 @@ class PluginSourceFileManager(models.Manager):
         PluginSourceFile.objects.filter(plugin=plugin, filename__in=filenames_to_delete).delete()
         # Trigger plugin server reload and code transpilation
         plugin.save()
-        return plugin_json_instance, index_ts_instance, frontend_tsx_instance, site_ts_instance
+        return (
+            plugin_json_instance,
+            index_ts_instance,
+            frontend_tsx_instance,
+            site_ts_instance,
+        )
 
 
 class PluginSourceFile(UUIDModel):
@@ -430,7 +480,8 @@ def preinstall_plugins_for_new_organization(sender, instance: Organization, crea
                 )
             except Exception as e:
                 print(
-                    f"⚠️ Cannot preinstall plugin from {plugin_url}, skipping it for organization {instance.name}:\n", e
+                    f"⚠️ Cannot preinstall plugin from {plugin_url}, skipping it for organization {instance.name}:\n",
+                    e,
                 )
 
 
@@ -438,7 +489,6 @@ def preinstall_plugins_for_new_organization(sender, instance: Organization, crea
 def enable_preinstalled_plugins_for_new_team(sender, instance: Team, created: bool, **kwargs):
     if created and can_configure_plugins(instance.organization):
         for order, preinstalled_plugin in enumerate(Plugin.objects.filter(is_preinstalled=True)):
-
             PluginConfig.objects.create(
                 team=instance,
                 plugin=preinstalled_plugin,

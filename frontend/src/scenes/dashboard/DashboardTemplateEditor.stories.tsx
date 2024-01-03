@@ -1,8 +1,9 @@
-import { ComponentMeta } from '@storybook/react'
+import { Meta } from '@storybook/react'
+
 import { DashboardTemplateEditor } from './DashboardTemplateEditor'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
 
-export default {
+const meta: Meta<typeof DashboardTemplateEditor> = {
     title: 'Scenes-App/Dashboards',
     component: DashboardTemplateEditor,
     parameters: {
@@ -10,7 +11,8 @@ export default {
             waitForLoadersToDisappear: true,
         },
     },
-} as ComponentMeta<typeof DashboardTemplateEditor>
+}
+export default meta
 
 export const CreateTemplate = (): JSX.Element => {
     dashboardTemplateEditorLogic.mount()

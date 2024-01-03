@@ -1,16 +1,15 @@
-import { LemonButton, LemonCollapse, LemonInput, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
+import './UserInterviewScheduler.scss'
 
 import { urls } from '@posthog/apps-common'
+import { LemonButton, LemonCollapse, LemonInput, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-
-import { IconHelpOutline } from 'lib/lemon-ui/icons'
-import { FLAG_PREFIX, userInterviewSchedulerLogic } from './userInterviewSchedulerLogic'
-import { OverViewTab } from 'scenes/feature-flags/FeatureFlags'
 import { Form } from 'kea-forms'
-
-import './UserInterviewScheduler.scss'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { Field } from 'lib/forms/Field'
+import { IconHelpOutline } from 'lib/lemon-ui/icons'
+import { OverViewTab } from 'scenes/feature-flags/FeatureFlags'
+
+import { FLAG_PREFIX, userInterviewSchedulerLogic } from './userInterviewSchedulerLogic'
 
 const OPT_IN_SNIPPET = `posthog.init('YOUR_PROJECT_API_KEY', {
     api_host: 'YOUR API HOST',
@@ -102,9 +101,9 @@ export function SchedulerInstructions(): JSX.Element {
                                         <div>
                                             <div>
                                                 1. Create a custom popup in your webapp or mobile app based on{' '}
-                                                <a href="https://github.com/PostHog/user-interview-app/blob/main/site.ts">
+                                                <Link to="https://github.com/PostHog/user-interview-app/blob/main/site.ts">
                                                     PostHog's open-source popup code
-                                                </a>
+                                                </Link>
                                             </div>
                                             <div className="ml-4 my-4">
                                                 <ul className="list-disc ml-4">
@@ -191,20 +190,10 @@ export function UserInterviewSchedulerHeaderButtons(): JSX.Element {
     return (
         <>
             <div className="flex gap-2">
-                <LemonButton
-                    onClick={() => {
-                        toggleSchedulerInstructions()
-                    }}
-                    sideIcon={<IconHelpOutline />}
-                >
+                <LemonButton onClick={toggleSchedulerInstructions} sideIcon={<IconHelpOutline />}>
                     Scheduler instructions
                 </LemonButton>
-                <LemonButton
-                    type="primary"
-                    onClick={() => {
-                        toggleInterviewFlagModal()
-                    }}
-                >
+                <LemonButton type="primary" onClick={toggleInterviewFlagModal}>
                     Create interview invitation
                 </LemonButton>
             </div>

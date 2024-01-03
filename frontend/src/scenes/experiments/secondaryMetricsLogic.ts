@@ -1,20 +1,19 @@
-import { actions, connect, kea, listeners, path, props, key, reducers } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
-import { dayjs } from 'lib/dayjs'
-
-import { Experiment, FilterType, FunnelVizType, InsightType, SecondaryExperimentMetric } from '~/types'
-import { cleanFilters, getDefaultEvent } from 'scenes/insights/utils/cleanFilters'
 import { FunnelLayout } from 'lib/constants'
-import { InsightVizNode } from '~/queries/schema'
-
-import { SECONDARY_METRIC_INSIGHT_ID } from './constants'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { dayjs } from 'lib/dayjs'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { cleanFilters, getDefaultEvent } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { InsightVizNode } from '~/queries/schema'
+import { Experiment, FilterType, FunnelVizType, InsightType, SecondaryExperimentMetric } from '~/types'
+
+import { SECONDARY_METRIC_INSIGHT_ID } from './constants'
 import type { secondaryMetricsLogicType } from './secondaryMetricsLogicType'
 
 const DEFAULT_DURATION = 14
@@ -51,9 +50,9 @@ const defaultFormValuesGenerator: (
 
 export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
     props({} as SecondaryMetricsProps),
-    key((props) => `${props.experimentId}-${props.defaultAggregationType}` || `new-${props.defaultAggregationType}`),
+    key((props) => `${props.experimentId || 'new'}-${props.defaultAggregationType}`),
     path((key) => ['scenes', 'experiment', 'secondaryMetricsLogic', key]),
-    connect({
+    connect(() => ({
         logic: [insightLogic({ dashboardItemId: SECONDARY_METRIC_INSIGHT_ID, syncWithUrl: false })],
         values: [teamLogic, ['currentTeamId']],
         actions: [
@@ -62,7 +61,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
             insightVizDataLogic({ dashboardItemId: SECONDARY_METRIC_INSIGHT_ID }),
             ['updateQuerySource'],
         ],
-    }),
+    })),
     actions({
         // modal
         openModalToCreateSecondaryMetric: true,
@@ -121,7 +120,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
     })),
     forms(({ props }) => ({
         secondaryMetricModal: {
-            defaults: defaultFormValuesGenerator(props.defaultAggregationType) as SecondaryMetricForm,
+            defaults: defaultFormValuesGenerator(props.defaultAggregationType),
             errors: () => ({}),
             submit: async () => {
                 // We don't use the form submit anymore

@@ -1,78 +1,79 @@
-import { ComponentMeta, ComponentStory } from '@storybook/react'
-import { LemonCalendar, LemonCalendarProps } from './LemonCalendar'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { dayjs } from 'lib/dayjs'
 
-export default {
+import { LemonCalendar, LemonCalendarProps } from './LemonCalendar'
+
+type Story = StoryObj<typeof LemonCalendar>
+const meta: Meta<typeof LemonCalendar> = {
     title: 'Lemon UI/Lemon Calendar/Lemon Calendar',
     component: LemonCalendar,
-    argTypes: {
-        onClick: {
-            defaultValue: (date: dayjs.Dayjs) => {
-                // eslint-disable-next-line no-console
-                console.log(`Clicked: ${date}`)
-            },
+    args: {
+        onDateClick: (date: dayjs.Dayjs) => {
+            // eslint-disable-next-line no-console
+            console.log(`Clicked: ${date}`)
         },
     },
     parameters: {
         mockDate: '2023-01-26',
     },
-} as ComponentMeta<typeof LemonCalendar>
+    tags: ['autodocs'],
+}
+export default meta
 
-const BasicTemplate: ComponentStory<typeof LemonCalendar> = (props: LemonCalendarProps) => {
+const BasicTemplate: StoryFn<typeof LemonCalendar> = (props: LemonCalendarProps) => {
     return <LemonCalendar {...props} />
 }
 
-export const Default = BasicTemplate.bind({})
+export const Default: Story = BasicTemplate.bind({})
 Default.args = {}
 
-export const MultipleMonths = BasicTemplate.bind({})
+export const MultipleMonths: Story = BasicTemplate.bind({})
 MultipleMonths.args = {
     months: 3,
 }
 
-export const CustomStyles = BasicTemplate.bind({})
+export const CustomStyles: Story = BasicTemplate.bind({})
 CustomStyles.args = {
     getLemonButtonProps: ({ date, props }) => {
         return {
             ...props,
             active: date.day() % 2 === 0,
-            status: date.date() % 10 === 0 ? 'primary' : 'stealth',
             type: date.date() % 10 === 0 ? 'primary' : undefined,
         }
     },
 }
 
-export const MondayFirst = BasicTemplate.bind({})
+export const MondayFirst: Story = BasicTemplate.bind({})
 MondayFirst.args = {
-    weekStart: 1,
+    weekStartDay: 1,
 }
 
-export const TuesdayFirst = BasicTemplate.bind({})
+export const TuesdayFirst: Story = BasicTemplate.bind({})
 TuesdayFirst.args = {
-    weekStart: 2,
+    weekStartDay: 2,
 }
 
-export const WednesdayFirst = BasicTemplate.bind({})
+export const WednesdayFirst: Story = BasicTemplate.bind({})
 WednesdayFirst.args = {
-    weekStart: 3,
+    weekStartDay: 3,
 }
 
-export const ThursdayFirst = BasicTemplate.bind({})
+export const ThursdayFirst: Story = BasicTemplate.bind({})
 ThursdayFirst.args = {
-    weekStart: 4,
+    weekStartDay: 4,
 }
 
-export const FridayFirst = BasicTemplate.bind({})
+export const FridayFirst: Story = BasicTemplate.bind({})
 FridayFirst.args = {
-    weekStart: 5,
+    weekStartDay: 5,
 }
 
-export const SaturdayFirst = BasicTemplate.bind({})
+export const SaturdayFirst: Story = BasicTemplate.bind({})
 SaturdayFirst.args = {
-    weekStart: 6,
+    weekStartDay: 6,
 }
 
-export const SundayFirst = BasicTemplate.bind({})
+export const SundayFirst: Story = BasicTemplate.bind({})
 SundayFirst.args = {
-    weekStart: 0,
+    weekStartDay: 0,
 }

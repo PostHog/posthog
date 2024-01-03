@@ -1,25 +1,22 @@
 import './EventDefinitionsTable.scss'
-import { useActions, useValues } from 'kea'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { EventDefinition, EventDefinitionType } from '~/types'
-import {
-    EVENT_DEFINITIONS_PER_PAGE,
-    eventDefinitionsTableLogic,
-} from 'scenes/data-management/events/eventDefinitionsTableLogic'
-import { SceneExport } from 'scenes/sceneTypes'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { EventDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
-import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
-import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
-import { PageHeader } from 'lib/components/PageHeader'
+
 import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { urls } from 'scenes/urls'
+import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { TZLabel } from 'lib/components/TZLabel'
+import { EVENT_DEFINITIONS_PER_PAGE } from 'lib/constants'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { TZLabel } from 'lib/components/TZLabel'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { EventDefinitionHeader } from 'scenes/data-management/events/DefinitionHeader'
+import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
+import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { urls } from 'scenes/urls'
+
+import { EventDefinition, EventDefinitionType } from '~/types'
 
 const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
     { value: EventDefinitionType.Event, label: 'All events', 'data-attr': 'event-type-option-event' },
@@ -34,12 +31,6 @@ const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
         'data-attr': 'event-type-option-event-posthog',
     },
 ]
-
-export const scene: SceneExport = {
-    component: EventDefinitionsTable,
-    logic: eventDefinitionsTableLogic,
-    paramsToProps: () => ({ syncWithUrl: true }),
-}
 
 export function EventDefinitionsTable(): JSX.Element {
     const { eventDefinitions, eventDefinitionsLoading, filters } = useValues(eventDefinitionsTableLogic)
@@ -93,7 +84,6 @@ export function EventDefinitionsTable(): JSX.Element {
                         overlay={
                             <>
                                 <LemonButton
-                                    status="stealth"
                                     to={
                                         combineUrl(urls.replay(), {
                                             filters: {
@@ -124,14 +114,6 @@ export function EventDefinitionsTable(): JSX.Element {
 
     return (
         <div data-attr="manage-events-table">
-            <PageHeader
-                title="Data Management"
-                caption="Use data management to organize events that come into PostHog. Reduce noise, clarify usage, and help collaborators get the most value from your data."
-                tabbedPage
-            />
-
-            <DataManagementPageTabs tab={DataManagementTab.EventDefinitions} />
-
             <LemonBanner className="mb-4" type="info">
                 Looking for{' '}
                 {filters.event_type === 'event_custom'
@@ -190,12 +172,12 @@ export function EventDefinitionsTable(): JSX.Element {
                     currentPage: eventDefinitions?.page ?? 1,
                     entryCount: eventDefinitions?.count ?? 0,
                     pageSize: EVENT_DEFINITIONS_PER_PAGE,
-                    onForward: !!eventDefinitions.next
+                    onForward: eventDefinitions.next
                         ? () => {
                               loadEventDefinitions(eventDefinitions.next)
                           }
                         : undefined,
-                    onBackward: !!eventDefinitions.previous
+                    onBackward: eventDefinitions.previous
                         ? () => {
                               loadEventDefinitions(eventDefinitions.previous)
                           }

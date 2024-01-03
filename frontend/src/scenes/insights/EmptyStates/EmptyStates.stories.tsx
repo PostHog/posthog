@@ -1,25 +1,26 @@
-import { useEffect } from 'react'
-import { Meta } from '@storybook/react'
-import funnelOneStep from './funnelOneStep.json'
-import { useStorybookMocks } from '~/mocks/browser'
+import { Meta, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
-import insight from '../__mocks__/trendsLine.json'
-import { InsightShortId } from '~/types'
-import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
+import { useEffect } from 'react'
 import { App } from 'scenes/App'
-import { insightVizDataLogic } from '../insightVizDataLogic'
+import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
-// some metadata and optional parameters
-export default {
+import { useStorybookMocks } from '~/mocks/browser'
+import { InsightShortId } from '~/types'
+
+import insight from '../../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
+import { insightVizDataLogic } from '../insightVizDataLogic'
+import funnelOneStep from './funnelOneStep.json'
+
+type Story = StoryObj<typeof App>
+const meta: Meta = {
     title: 'Scenes-App/Insights/Error states',
+    tags: ['test-skip'],
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         viewMode: 'story',
-        testOptions: { skip: true }, // FIXME
     },
-} as Meta
-
+}
+export default meta
 export function EmptyState(): JSX.Element {
     useStorybookMocks({
         get: {
@@ -81,4 +82,4 @@ export function TimeoutState(): JSX.Element {
     return <App />
 }
 
-export const FunnelSingleStep = createInsightStory(funnelOneStep as any)
+export const FunnelSingleStep: Story = createInsightStory(funnelOneStep as any)

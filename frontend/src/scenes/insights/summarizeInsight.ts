@@ -1,6 +1,7 @@
-import { AnyPartialFilterType, EntityFilter, FilterType, FunnelVizType, StepOrderValue } from '~/types'
-import { BreakdownFilter, InsightQueryNode, Node, StickinessQuery } from '~/queries/schema'
+import { useValues } from 'kea'
+import { RETENTION_FIRST_TIME } from 'lib/constants'
 import { KEY_MAPPING } from 'lib/taxonomy'
+import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import {
     isFunnelsFilter,
@@ -10,10 +11,21 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
+import {
+    getDisplayNameFromEntityFilter,
+    getDisplayNameFromEntityNode,
+    humanizePathsEventTypes,
+} from 'scenes/insights/utils'
 import { retentionOptions } from 'scenes/retention/constants'
-import { RETENTION_FIRST_TIME } from 'lib/constants'
-import { alphabet, capitalizeFirstLetter } from 'lib/utils'
-import { apiValueToMathType, MathCategory, MathDefinition } from 'scenes/trends/mathsLogic'
+import { apiValueToMathType, MathCategory, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
+import { mathsLogicType } from 'scenes/trends/mathsLogicType'
+
+import { cohortsModel } from '~/models/cohortsModel'
+import { cohortsModelType } from '~/models/cohortsModelType'
+import { groupsModel } from '~/models/groupsModel'
+import { groupsModelType } from '~/models/groupsModelType'
+import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { BreakdownFilter, InsightQueryNode, Node } from '~/queries/schema'
 import {
     isDataTableNode,
     isEventsQuery,
@@ -29,15 +41,7 @@ import {
     isTimeToSeeDataSessionsQuery,
     isTrendsQuery,
 } from '~/queries/utils'
-import { groupsModelType } from '~/models/groupsModelType'
-import { cohortsModelType } from '~/models/cohortsModelType'
-import { mathsLogicType } from 'scenes/trends/mathsLogicType'
-import {
-    getDisplayNameFromEntityFilter,
-    getDisplayNameFromEntityNode,
-    humanizePathsEventTypes,
-} from 'scenes/insights/utils'
-import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { AnyPartialFilterType, EntityFilter, FilterType, FunnelVizType, StepOrderValue } from '~/types'
 
 function summarizeBreakdown(filters: Partial<FilterType> | BreakdownFilter, context: SummaryContext): string | null {
     const { breakdown_type, breakdown, breakdown_group_type_index } = filters
@@ -178,7 +182,7 @@ function summarizeInsightFilters(filters: AnyPartialFilterType, context: Summary
     return ''
 }
 
-function summarizeInsightQuery(query: InsightQueryNode, context: SummaryContext): string {
+export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryContext): string {
     if (isTrendsQuery(query)) {
         let summary = query.series
             .map((s, index) => {
@@ -272,7 +276,7 @@ function summarizeInsightQuery(query: InsightQueryNode, context: SummaryContext)
         return summary
     } else if (isStickinessQuery(query)) {
         return capitalizeFirstLetter(
-            (query as StickinessQuery).series
+            query.series
                 .map((s) => {
                     const actor = context.aggregationLabel(s.math_group_type_index, true).singular
                     return `${actor} stickiness based on ${getDisplayNameFromEntityNode(s)}`
@@ -339,15 +343,23 @@ export interface SummaryContext {
 
 export function summarizeInsight(
     query: Node | undefined | null,
-    filters: Partial<FilterType>,
+    filters: Partial<FilterType> | undefined | null,
     context: SummaryContext
 ): string {
-    const hasFilters = Object.keys(filters || {}).length > 0
     return isInsightVizNode(query)
         ? summarizeInsightQuery(query.source, context)
         : !!query && !isInsightVizNode(query)
         ? summarizeQuery(query)
-        : hasFilters
+        : filters && Object.keys(filters).length > 0
         ? summarizeInsightFilters(filters, context)
         : ''
+}
+
+export function useSummarizeInsight(): (query: Node | undefined | null, filters?: Partial<FilterType>) => string {
+    const { aggregationLabel } = useValues(groupsModel)
+    const { cohortsById } = useValues(cohortsModel)
+    const { mathDefinitions } = useValues(mathsLogic)
+
+    return (query, filters) =>
+        summarizeInsight(query, filters || {}, { aggregationLabel, cohortsById, mathDefinitions })
 }

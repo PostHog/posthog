@@ -1,5 +1,7 @@
+import { objectClean } from 'lib/utils'
+import { isFunnelsFilter, isLifecycleFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+
 import { ActionsNode, BreakdownFilter, EventsNode, InsightNodeKind, InsightQueryNode, NodeKind } from '~/queries/schema'
-import { ActionFilter, EntityTypes, FilterType, InsightType } from '~/types'
 import {
     isActionsNode,
     isEventsNode,
@@ -10,8 +12,7 @@ import {
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
-import { objectClean } from 'lib/utils'
-import { isFunnelsFilter, isLifecycleFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { ActionFilter, EntityTypes, FilterType, InsightType } from '~/types'
 
 type FilterTypeActionsAndEvents = { events?: ActionFilter[]; actions?: ActionFilter[]; new_entity?: ActionFilter[] }
 
@@ -86,7 +87,6 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         date_from: query.dateRange?.date_from,
         entity_type: 'events',
         sampling_factor: query.samplingFactor,
-        aggregation_group_type_index: query.aggregation_group_type_index,
     })
 
     if (!isRetentionQuery(query) && !isPathsQuery(query)) {
@@ -105,6 +105,15 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
     // TODO stickiness should probably support breakdowns as well
     if ((isTrendsQuery(query) || isFunnelsQuery(query)) && query.breakdown) {
         Object.assign(filters, objectClean<Partial<Record<keyof BreakdownFilter, unknown>>>(query.breakdown))
+    }
+
+    if (!isLifecycleQuery(query) && !isStickinessQuery(query)) {
+        Object.assign(
+            filters,
+            objectClean({
+                aggregation_group_type_index: query.aggregation_group_type_index,
+            })
+        )
     }
 
     if (isTrendsQuery(query) || isStickinessQuery(query) || isLifecycleQuery(query) || isFunnelsQuery(query)) {
@@ -127,7 +136,6 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
 
     if (isLifecycleQuery(query) && isLifecycleFilter(filters)) {
         filters.toggledLifecycles = query.lifecycleFilter?.toggledLifecycles
-        filters.shown_as = query.lifecycleFilter?.shown_as
     }
 
     // get node specific filter properties e.g. trendsFilter, funnelsFilter, ...

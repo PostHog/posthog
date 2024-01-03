@@ -2,6 +2,7 @@ import { QueryResult } from 'pg'
 
 import { PluginConfig } from '../../types'
 import { DB } from '../../utils/db/db'
+import { PostgresUse } from '../../utils/db/postgres'
 
 // This assumes the value stored at `key` can be cast to a Postgres numeric type
 export const postgresIncrement = async (
@@ -10,7 +11,8 @@ export const postgresIncrement = async (
     key: string,
     incrementBy = 1
 ): Promise<number> => {
-    const incrementResult = await db.postgresQuery(
+    const incrementResult = await db.postgres.query(
+        PostgresUse.PLUGIN_STORAGE_RW,
         `
         INSERT INTO posthog_pluginstorage (plugin_config_id, key, value)
         VALUES ($1, $2, $3)
@@ -31,7 +33,8 @@ export const postgresSetOnce = async (
     key: string,
     value: number
 ): Promise<void> => {
-    await db.postgresQuery(
+    await db.postgres.query(
+        PostgresUse.PLUGIN_STORAGE_RW,
         `
         INSERT INTO posthog_pluginstorage (plugin_config_id, key, value)
         VALUES ($1, $2, $3)
@@ -48,7 +51,8 @@ export const postgresGet = async (
     pluginConfigId: PluginConfig['id'],
     key: string
 ): Promise<QueryResult<any>> => {
-    return await db.postgresQuery(
+    return await db.postgres.query(
+        PostgresUse.PLUGIN_STORAGE_RW,
         'SELECT * FROM posthog_pluginstorage WHERE "plugin_config_id"=$1 AND "key"=$2 LIMIT 1',
         [pluginConfigId, key],
         'storageGet'

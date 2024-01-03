@@ -9,7 +9,11 @@ from posthog.models.filters.properties_timeline_filter import PropertiesTimeline
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.property import PropertyIdentifier
-from posthog.models.property.util import box_value, count_hogql_properties, extract_tables_and_properties
+from posthog.models.property.util import (
+    box_value,
+    count_hogql_properties,
+    extract_tables_and_properties,
+)
 from posthog.queries.column_optimizer.foss_column_optimizer import FOSSColumnOptimizer
 from posthog.queries.trends.util import is_series_group_based
 
@@ -52,12 +56,22 @@ class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
                 boxed_breakdown = box_value(self.filter.breakdown)
                 for b in boxed_breakdown:
                     if isinstance(b, str):
-                        counter[(b, self.filter.breakdown_type, self.filter.breakdown_group_type_index)] += 1
+                        counter[
+                            (
+                                b,
+                                self.filter.breakdown_type,
+                                self.filter.breakdown_group_type_index,
+                            )
+                        ] += 1
             elif self.filter.breakdown_type == "group":
                 # :TRICKY: We only support string breakdown for group properties
                 assert isinstance(self.filter.breakdown, str)
                 counter[
-                    (self.filter.breakdown, self.filter.breakdown_type, self.filter.breakdown_group_type_index)
+                    (
+                        self.filter.breakdown,
+                        self.filter.breakdown_type,
+                        self.filter.breakdown_group_type_index,
+                    )
                 ] += 1
             elif self.filter.breakdown_type == "hogql":
                 if isinstance(self.filter.breakdown, list):
@@ -72,7 +86,13 @@ class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
                 if breakdown["type"] == "hogql":
                     counter = count_hogql_properties(breakdown["property"], counter)
                 else:
-                    counter[(breakdown["property"], breakdown["type"], self.filter.breakdown_group_type_index)] += 1
+                    counter[
+                        (
+                            breakdown["property"],
+                            breakdown["type"],
+                            self.filter.breakdown_group_type_index,
+                        )
+                    ] += 1
 
         # Both entities and funnel exclusions can contain nested property filters
         for entity in self.entities_used_in_filter():
@@ -104,7 +124,6 @@ class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
             and self.filter.correlation_type == FunnelCorrelationType.PROPERTIES
             and self.filter.correlation_property_names
         ):
-
             if self.filter.aggregation_group_type_index is not None:
                 for prop_value in self.filter.correlation_property_names:
                     counter[(prop_value, "group", self.filter.aggregation_group_type_index)] += 1

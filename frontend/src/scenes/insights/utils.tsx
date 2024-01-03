@@ -1,32 +1,37 @@
+import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
+import { KEY_MAPPING } from 'lib/taxonomy'
+import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
+import { getCurrentTeamId } from 'lib/utils/logics'
+import { ReactNode } from 'react'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
+import { urls } from 'scenes/urls'
+
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
+import { examples } from '~/queries/examples'
+import { ActionsNode, BreakdownFilter, EventsNode } from '~/queries/schema'
+import { isEventsNode } from '~/queries/utils'
 import {
     ActionFilter,
     AnyPartialFilterType,
     BreakdownKeyType,
     BreakdownType,
+    ChartDisplayType,
     CohortType,
     EntityFilter,
     EntityTypes,
+    EventType,
     InsightModel,
     InsightShortId,
     InsightType,
     PathsFilterType,
     PathType,
+    TrendsFilterType,
 } from '~/types'
-import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
-import { KEY_MAPPING } from 'lib/taxonomy'
-import api from 'lib/api'
-import { dayjs } from 'lib/dayjs'
-import { getCurrentTeamId } from 'lib/utils/logics'
-import { dashboardsModel } from '~/models/dashboardsModel'
+
 import { insightLogic } from './insightLogic'
-import { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
-import { ReactNode } from 'react'
-import { ActionsNode, BreakdownFilter, EventsNode } from '~/queries/schema'
-import { isEventsNode } from '~/queries/utils'
-import { urls } from 'scenes/urls'
-import { examples } from '~/queries/examples'
 
 export const isAllEventsEntityFilter = (filter: EntityFilter | ActionFilter | null): boolean => {
     return (
@@ -69,7 +74,7 @@ export const getDisplayNameFromEntityNode = (node: EventsNode | ActionsNode, isC
     const id = isEventsNode(node) ? node.event : node.id
 
     // Return custom name. If that doesn't exist then the name, then the id, then just null.
-    return (isCustom ? customName : null) ?? name ?? (!!id ? `${id}` : null)
+    return (isCustom ? customName : null) ?? name ?? (id ? `${id}` : null)
 }
 
 export function extractObjectDiffKeys(
@@ -209,6 +214,20 @@ export function formatAggregationValue(
     return Array.isArray(formattedValue) ? formattedValue[0] : formattedValue
 }
 
+// NB! Sync this with breakdown.py
+export const BREAKDOWN_OTHER_STRING_LABEL = '$$_posthog_breakdown_other_$$'
+export const BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991 // pow(2, 53) - 1
+export const BREAKDOWN_NULL_STRING_LABEL = '$$_posthog_breakdown_null_$$'
+export const BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990 // pow(2, 53) - 2
+
+export function isOtherBreakdown(breakdown_value: string | number | null | undefined): boolean {
+    return breakdown_value === BREAKDOWN_OTHER_STRING_LABEL || breakdown_value === BREAKDOWN_OTHER_NUMERIC_LABEL
+}
+
+export function isNullBreakdown(breakdown_value: string | number | null | undefined): boolean {
+    return breakdown_value === BREAKDOWN_NULL_STRING_LABEL || breakdown_value === BREAKDOWN_NULL_NUMERIC_LABEL
+}
+
 export function formatBreakdownLabel(
     cohorts: CohortType[] | undefined,
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined,
@@ -244,11 +263,19 @@ export function formatBreakdownLabel(
         }
         return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name ?? (breakdown_value || '').toString()
     } else if (typeof breakdown_value == 'number') {
-        return formatPropertyValueForDisplay
+        return isOtherBreakdown(breakdown_value)
+            ? 'Other'
+            : isNullBreakdown(breakdown_value)
+            ? 'None'
+            : formatPropertyValueForDisplay
             ? formatPropertyValueForDisplay(breakdown, breakdown_value)?.toString() ?? 'None'
-            : breakdown_value.toString()
+            : String(breakdown_value)
     } else if (typeof breakdown_value == 'string') {
-        return breakdown_value === 'nan' ? 'Other' : breakdown_value === '' ? 'None' : breakdown_value
+        return isOtherBreakdown(breakdown_value) || breakdown_value === 'nan'
+            ? 'Other'
+            : isNullBreakdown(breakdown_value) || breakdown_value === ''
+            ? 'None'
+            : breakdown_value
     } else if (Array.isArray(breakdown_value)) {
         return breakdown_value.join('::')
     } else {
@@ -273,7 +300,7 @@ export function getResponseBytes(apiResponse: Response): number {
     return parseInt(apiResponse.headers.get('Content-Length') ?? '0')
 }
 
-export const insightTypeURL: Record<InsightType, string> = {
+export const insightTypeURL = (bi_viz_flag: boolean): Record<InsightType, string> => ({
     TRENDS: urls.insightNew({ insight: InsightType.TRENDS }),
     STICKINESS: urls.insightNew({ insight: InsightType.STICKINESS }),
     LIFECYCLE: urls.insightNew({ insight: InsightType.LIFECYCLE }),
@@ -281,8 +308,12 @@ export const insightTypeURL: Record<InsightType, string> = {
     RETENTION: urls.insightNew({ insight: InsightType.RETENTION }),
     PATHS: urls.insightNew({ insight: InsightType.PATHS }),
     JSON: urls.insightNew(undefined, undefined, JSON.stringify(examples.EventsTableFull)),
-    SQL: urls.insightNew(undefined, undefined, JSON.stringify(examples.HogQLTable)),
-}
+    SQL: urls.insightNew(
+        undefined,
+        undefined,
+        JSON.stringify(bi_viz_flag ? examples.DataVisualization : examples.HogQLTable)
+    ),
+})
 
 /** Combines a list of words, separating with the correct punctuation. For example: [a, b, c, d] -> "a, b, c, and d"  */
 export function concatWithPunctuation(phrases: string[]): string {
@@ -295,4 +326,49 @@ export function concatWithPunctuation(phrases: string[]): string {
     } else {
         return `${phrases.slice(0, phrases.length - 1).join(', ')}, and ${phrases[phrases.length - 1]}`
     }
+}
+
+export function insightUrlForEvent(event: Pick<EventType, 'event' | 'properties'>): string | undefined {
+    let insightParams: Partial<TrendsFilterType> | undefined
+    if (event.event === '$pageview') {
+        insightParams = {
+            insight: InsightType.TRENDS,
+            interval: 'day',
+            display: ChartDisplayType.ActionsLineGraph,
+            actions: [],
+            events: [
+                {
+                    id: '$pageview',
+                    name: '$pageview',
+                    type: 'events',
+                    order: 0,
+                    properties: [
+                        {
+                            key: '$current_url',
+                            value: event.properties.$current_url,
+                            type: 'event',
+                        },
+                    ],
+                },
+            ],
+        }
+    } else if (event.event !== '$autocapture') {
+        insightParams = {
+            insight: InsightType.TRENDS,
+            interval: 'day',
+            display: ChartDisplayType.ActionsLineGraph,
+            actions: [],
+            events: [
+                {
+                    id: event.event,
+                    name: event.event,
+                    type: 'events',
+                    order: 0,
+                    properties: [],
+                },
+            ],
+        }
+    }
+
+    return insightParams ? urls.insightNew(insightParams) : undefined
 }

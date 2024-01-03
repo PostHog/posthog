@@ -5,7 +5,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0182_sessionrecordingevent_window_id"),
     ]
@@ -14,7 +13,15 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="Group",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("group_key", models.CharField(max_length=400)),
                 ("group_type_index", models.IntegerField()),
                 ("group_properties", models.JSONField(default=dict)),
@@ -22,7 +29,10 @@ class Migration(migrations.Migration):
                 ("properties_last_updated_at", models.JSONField(default=dict)),
                 ("properties_last_operation", models.JSONField(default=dict)),
                 ("version", models.BigIntegerField()),
-                ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
+                (
+                    "team",
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+                ),
             ],
         ),
         migrations.AddConstraint(

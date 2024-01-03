@@ -10,7 +10,12 @@ from posthog.models.cohort import Cohort
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.person import Person
 from posthog.tasks.calculate_cohort import insert_cohort_from_insight_filter
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+)
 
 
 class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
@@ -86,7 +91,12 @@ class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
 
         _insert_cohort_from_insight_filter.assert_called_once_with(
             cohort_id,
-            {"insight": "PATHS", "filter_test_accounts": "false", "date_from": "2021-05-01", "date_to": "2021-05-10"},
+            {
+                "insight": "PATHS",
+                "filter_test_accounts": "false",
+                "date_from": "2021-05-01",
+                "date_to": "2021-05-10",
+            },
         )
 
         insert_cohort_from_insight_filter(cohort_id, params)
@@ -256,7 +266,8 @@ class TestPathPerson(ClickhouseTestMixin, APIBaseTest):
         }
 
         get_response = self.client.get(
-            "/api/person/path/", data={**request_data, "funnel_filter": json.dumps(funnel_filter)}
+            "/api/person/path/",
+            data={**request_data, "funnel_filter": json.dumps(funnel_filter)},
         )
         self.assertEqual(get_response.status_code, status.HTTP_200_OK)
         get_j = get_response.json()

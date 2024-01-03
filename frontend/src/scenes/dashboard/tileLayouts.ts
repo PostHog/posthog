@@ -1,7 +1,8 @@
 import { Layout } from 'react-grid-layout'
-import { ChartDisplayType, DashboardLayoutSize, DashboardTile, FilterType } from '~/types'
-import { isPathsFilter, isRetentionFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { BREAKPOINT_COLUMN_COUNTS, MIN_ITEM_HEIGHT_UNITS, MIN_ITEM_WIDTH_UNITS } from 'scenes/dashboard/dashboardLogic'
+import { isPathsFilter, isRetentionFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+
+import { ChartDisplayType, DashboardLayoutSize, DashboardTile, FilterType } from '~/types'
 
 export const sortTilesByLayout = (tiles: Array<DashboardTile>, col: DashboardLayoutSize): Array<DashboardTile> => {
     return [...tiles].sort((a: DashboardTile, b: DashboardTile) => {
@@ -46,7 +47,7 @@ export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<Dashboa
             const isBoldNumber = isTrendsFilter(filters) && filters.display === ChartDisplayType.BoldNumber
 
             const defaultWidth = isRetention || isPathsViz ? 8 : 6
-            const defaultHeight = !!tile.text ? minH + 1 : isRetention ? 8 : isPathsViz ? 12.5 : 5
+            const defaultHeight = tile.text ? minH + 1 : isRetention ? 8 : isPathsViz ? 12.5 : 5
             const layout = tile.layouts && tile.layouts[col]
             const { x, y, w, h } = layout || {}
             const width = Math.min(w || defaultWidth, BREAKPOINT_COLUMN_COUNTS[col])

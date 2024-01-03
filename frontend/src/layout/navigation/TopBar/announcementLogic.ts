@@ -1,13 +1,12 @@
-import { kea, connect, path, actions, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
-import { navigationLogic } from '../navigationLogic'
 import posthog from 'posthog-js'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { userLogic } from 'scenes/userLogic'
 
+import { navigationLogic } from '../navigationLogic'
 import type { announcementLogicType } from './announcementLogicType'
 
 export enum AnnouncementType {
@@ -18,7 +17,7 @@ export enum AnnouncementType {
 }
 
 export const DEFAULT_CLOUD_ANNOUNCEMENT =
-    "We're experiencing technical difficulties, see more at [status.posthog.com](https://status.posthog.com)"
+    "We're experiencing technical difficulties. Check [status.posthog.com](https://status.posthog.com) for updates."
 
 // Switch to `false` if we're not showing a feature announcement. Hard-coded because the announcement needs to be manually updated anyways.
 const ShowNewFeatureAnnouncement = false
@@ -87,7 +86,8 @@ export const announcementLogic = kea<announcementLogicType>([
                     (closable &&
                         (closed ||
                             (relevantAnnouncementType && persistedClosedAnnouncements[relevantAnnouncementType]))) || // hide if already closed
-                    pathname == urls.ingestion() // hide during the ingestion phase
+                    pathname.includes('/onboarding') ||
+                    pathname.includes('/products') // hide during the onboarding phase
                 ) {
                     return null
                 }

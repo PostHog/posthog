@@ -1,23 +1,26 @@
-import { BuiltLogic, useActions, useValues } from 'kea'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import {
-    ActionFilter as ActionFilterType,
-    ActionFilter,
-    EntityType,
-    EntityTypes,
-    FunnelStepRangeEntityFilter,
-    PropertyFilterValue,
-    BaseMathType,
-    PropertyMathType,
-    CountPerActorMathType,
-    HogQLMathType,
-} from '~/types'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { getEventNamesForAction } from 'lib/utils'
-import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import './ActionFilterRow.scss'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+
+import { DraggableSyntheticListeners } from '@dnd-kit/core'
+import { useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
+import { BuiltLogic, useActions, useValues } from 'kea'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicPopover, TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { IconCopy, IconDelete, IconEdit, IconFilter, IconWithCount } from 'lib/lemon-ui/icons'
+import { SortableDragIcon } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { getEventNamesForAction } from 'lib/utils'
+import { useState } from 'react'
+import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
+import { isAllEventsEntityFilter } from 'scenes/insights/utils'
 import {
     apiValueToMathType,
     COUNT_PER_ACTOR_MATH_DEFINITIONS,
@@ -26,26 +29,29 @@ import {
     mathTypeToApiValues,
     PROPERTY_MATH_DEFINITIONS,
 } from 'scenes/trends/mathsLogic'
-import { actionsModel } from '~/models/actionsModel'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicPopover, TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { IconCopy, IconDelete, IconEdit, IconFilter, IconWithCount } from 'lib/lemon-ui/icons'
-import { SortableHandle as sortableHandle } from 'react-sortable-hoc'
-import { SortableDragIcon } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
-import { useState } from 'react'
-import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
-import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
-import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
-import { entityFilterLogicType } from '../entityFilterLogicType'
-import { isAllEventsEntityFilter } from 'scenes/insights/utils'
 
-const DragHandle = sortableHandle(() => (
-    <span className="ActionFilterRowDragHandle">
+import { actionsModel } from '~/models/actionsModel'
+import {
+    ActionFilter,
+    ActionFilter as ActionFilterType,
+    BaseMathType,
+    CountPerActorMathType,
+    EntityType,
+    EntityTypes,
+    FunnelExclusion,
+    HogQLMathType,
+    PropertyFilterValue,
+    PropertyMathType,
+} from '~/types'
+
+import { LocalFilter } from '../entityFilterLogic'
+import { entityFilterLogicType } from '../entityFilterLogicType'
+
+const DragHandle = (props: DraggableSyntheticListeners | undefined): JSX.Element => (
+    <span className="ActionFilterRowDragHandle" {...props}>
         <SortableDragIcon />
     </span>
-))
+)
 
 export enum MathAvailability {
     All,
@@ -68,7 +74,7 @@ const getValue = (
 
 export interface ActionFilterRowProps {
     logic: BuiltLogic<entityFilterLogicType>
-    filter: ActionFilter
+    filter: LocalFilter
     index: number
     typeKey: string
     mathAvailability: MathAvailability
@@ -86,11 +92,7 @@ export interface ActionFilterRowProps {
     customRowSuffix?:
         | string
         | JSX.Element
-        | ((props: {
-              filter: ActionFilterType | FunnelStepRangeEntityFilter
-              index: number
-              onClose: () => void
-          }) => JSX.Element) // Custom suffix element to show in each row
+        | ((props: { filter: ActionFilterType | FunnelExclusion; index: number; onClose: () => void }) => JSX.Element) // Custom suffix element to show in each row
     hasBreakdown: boolean // Whether the current graph has a breakdown filter applied
     showNestedArrow?: boolean // Show nested arrows to the left of property filter buttons
     actionsTaxonomicGroupTypes?: TaxonomicFilterGroupType[] // Which tabs to show for actions selector
@@ -104,7 +106,6 @@ export interface ActionFilterRowProps {
         propertyFiltersButton,
         renameRowButton,
         deleteButton,
-        orLabel,
     }: Record<string, JSX.Element | string | undefined>) => JSX.Element // build your own row given these components
 }
 
@@ -148,6 +149,8 @@ export function ActionFilterRow({
     const { mathDefinitions } = useValues(mathsLogic)
 
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
+
+    const { setNodeRef, attributes, transform, transition, listeners, isDragging } = useSortable({ id: filter.uuid })
 
     const propertyFiltersVisible = typeof filter.order === 'number' ? entityFilterVisible[filter.order] : false
 
@@ -204,8 +207,6 @@ export function ActionFilterRow({
         value = filter.name || filter.id
     }
 
-    const orLabel = <div className="stateful-badge or width-locked">OR</div>
-
     const seriesIndicator =
         seriesIndicatorType === 'numeric' ? (
             <SeriesGlyph style={{ borderColor: 'var(--border)' }}>{index + 1}</SeriesGlyph>
@@ -232,8 +233,6 @@ export function ActionFilterRow({
                 </span>
             )}
             groupTypes={actionsTaxonomicGroupTypes}
-            type="secondary"
-            status="stealth"
             placeholder="All events"
             placeholderClass=""
             disabled={disabled || readOnly}
@@ -243,10 +242,9 @@ export function ActionFilterRow({
     const suffix = typeof customRowSuffix === 'function' ? customRowSuffix({ filter, index, onClose }) : customRowSuffix
 
     const propertyFiltersButton = (
-        <IconWithCount count={filter.properties?.length || 0} showZero={false}>
+        <IconWithCount key="property-filter" count={filter.properties?.length || 0} showZero={false}>
             <LemonButton
                 icon={propertyFiltersVisible ? <IconFilter /> : <IconFilter />} // TODO: Get new IconFilterStriked icon
-                status="primary-alt"
                 title="Show filters"
                 data-attr={`show-prop-filter-${index}`}
                 noPadding
@@ -262,8 +260,8 @@ export function ActionFilterRow({
 
     const renameRowButton = (
         <LemonButton
+            key="rename"
             icon={<IconEdit />}
-            status="primary-alt"
             title="Rename graph series"
             data-attr={`show-prop-rename-${index}`}
             noPadding
@@ -276,8 +274,8 @@ export function ActionFilterRow({
 
     const duplicateRowButton = (
         <LemonButton
+            key="duplicate"
             icon={<IconCopy />}
-            status="primary-alt"
             title="Duplicate graph series"
             data-attr={`show-prop-duplicate-${index}`}
             noPadding
@@ -289,8 +287,8 @@ export function ActionFilterRow({
 
     const deleteButton = (
         <LemonButton
+            key="delete"
             icon={<IconDelete />}
-            status="primary-alt"
             title="Delete graph series"
             data-attr={`delete-prop-filter-${index}`}
             noPadding
@@ -299,8 +297,8 @@ export function ActionFilterRow({
     )
 
     const rowStartElements = [
-        sortable && filterCount > 1 ? <DragHandle /> : null,
-        showSeriesIndicator && <div>{seriesIndicator}</div>,
+        sortable && filterCount > 1 ? <DragHandle {...listeners} /> : null,
+        showSeriesIndicator && <div key="series-indicator">{seriesIndicator}</div>,
     ].filter(Boolean)
 
     const rowEndElements = !readOnly
@@ -313,7 +311,18 @@ export function ActionFilterRow({
         : []
 
     return (
-        <div className={'ActionFilterRow'}>
+        <li
+            className={'ActionFilterRow'}
+            ref={setNodeRef}
+            {...attributes}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{
+                position: 'relative',
+                zIndex: isDragging ? 1 : undefined,
+                transform: CSS.Translate.toString(transform),
+                transition,
+            }}
+        >
             <div className="ActionFilterRow-content">
                 {renderRow ? (
                     renderRow({
@@ -323,7 +332,6 @@ export function ActionFilterRow({
                         propertyFiltersButton: propertyFiltersButton,
                         renameRowButton,
                         deleteButton,
-                        orLabel,
                     })
                 ) : (
                     <>
@@ -419,7 +427,6 @@ export function ActionFilterRow({
                                             >
                                                 <LemonButton
                                                     fullWidth
-                                                    status="stealth"
                                                     type="secondary"
                                                     data-attr={`math-hogql-select-${index}`}
                                                     onClick={() => setIsHogQLDropdownVisible(!isHogQLDropdownVisible)}
@@ -444,7 +451,6 @@ export function ActionFilterRow({
                         pageKey={`${index}-${value}-${typeKey}-filter`}
                         propertyFilters={filter.properties}
                         onChange={(properties) => updateFilterProperty({ properties, index })}
-                        style={{ margin: 0 }}
                         showNestedArrow={showNestedArrow}
                         disablePopover={!propertyFiltersPopover}
                         taxonomicGroupTypes={propertiesTaxonomicGroupTypes}
@@ -458,7 +464,7 @@ export function ActionFilterRow({
                     />
                 </div>
             )}
-        </div>
+        </li>
     )
 }
 

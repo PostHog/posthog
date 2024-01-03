@@ -5,7 +5,10 @@ from typing import Optional, Tuple, Union
 import zoneinfo
 from rest_framework import request
 
-from posthog.caching.calculate_results import CLICKHOUSE_MAX_EXECUTION_TIME, calculate_cache_key
+from posthog.caching.calculate_results import (
+    CLICKHOUSE_MAX_EXECUTION_TIME,
+    calculate_cache_key,
+)
 from posthog.caching.insight_caching_state import InsightCachingState
 from posthog.models import DashboardTile, Insight
 from posthog.models.filters.utils import get_filter
@@ -25,7 +28,11 @@ INCREASED_MINIMUM_INSIGHT_REFRESH_INTERVAL = timedelta(minutes=30)
 
 
 def should_refresh_insight(
-    insight: Insight, dashboard_tile: Optional[DashboardTile], *, request: request.Request, is_shared=False
+    insight: Insight,
+    dashboard_tile: Optional[DashboardTile],
+    *,
+    request: request.Request,
+    is_shared=False,
 ) -> Tuple[bool, timedelta]:
     """Return whether the insight should be refreshed now, and what's the minimum wait time between refreshes.
 

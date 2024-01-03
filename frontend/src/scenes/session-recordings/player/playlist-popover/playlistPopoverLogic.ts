@@ -1,31 +1,28 @@
-import { kea, props, path, key, actions, reducers, selectors, listeners, connect } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
-    SessionRecordingLogicProps,
     sessionRecordingPlayerLogic,
+    SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-
-import type { playlistPopoverLogicType } from './playlistPopoverLogicType'
-import { SessionRecordingPlaylistType } from '~/types'
-import { forms } from 'kea-forms'
 import { addRecordingToPlaylist, removeRecordingFromPlaylist } from 'scenes/session-recordings/player/utils/playerUtils'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
-import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+
+import { SessionRecordingPlaylistType } from '~/types'
+
+import type { playlistPopoverLogicType } from './playlistPopoverLogicType'
 
 export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playlist-popover', 'playlistPopoverLogic', key]),
-    props({} as SessionRecordingLogicProps),
-    key((props: SessionRecordingLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
-    connect((props: SessionRecordingLogicProps) => ({
+    props({} as SessionRecordingPlayerLogicProps),
+    key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
+    connect((props: SessionRecordingPlayerLogicProps) => ({
         actions: [
             sessionRecordingPlayerLogic(props),
             ['setPause'],
-            sessionRecordingDataLogic(props),
-            ['addDiffToRecordingMetaPinnedCount'],
             eventUsageLogic,
             ['reportRecordingPinnedToList', 'reportRecordingPlaylistCreated'],
         ],
@@ -38,10 +35,6 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
         removeFromPlaylist: (playlist: SessionRecordingPlaylistType) => ({ playlist }),
         setNewFormShowing: (show: boolean) => ({ show }),
         setShowPlaylistPopover: (show: boolean) => ({ show }),
-        updateRecordingsPinnedCounts: (
-            diffCount: number,
-            playlistShortId?: SessionRecordingPlaylistType['short_id']
-        ) => ({ diffCount, playlistShortId }),
     })),
     loaders(({ values, props, actions }) => ({
         playlists: {
@@ -144,39 +137,18 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
                 actions.setPause()
             }
         },
-
-        addToPlaylistSuccess: ({ payload }) => {
-            actions.updateRecordingsPinnedCounts(1, payload?.playlist?.short_id)
-        },
-
-        removeFromPlaylistSuccess: ({ payload }) => {
-            actions.updateRecordingsPinnedCounts(-1, payload?.playlist?.short_id)
-        },
-
-        updateRecordingsPinnedCounts: ({ diffCount, playlistShortId }) => {
-            actions.addDiffToRecordingMetaPinnedCount(diffCount)
-
-            // Handles locally updating recordings sidebar so that we don't have to call expensive load recordings every time.
-            if (!!playlistShortId && sessionRecordingsListLogic.isMounted({ playlistShortId })) {
-                // On playlist page
-                sessionRecordingsListLogic({ playlistShortId }).actions.loadAllRecordings()
-            } else {
-                // In any other context (recent recordings, single modal, single recording page)
-                sessionRecordingsListLogic.findMounted({ updateSearchParams: true })?.actions?.loadAllRecordings()
-            }
-        },
     })),
     selectors(() => ({
         allPlaylists: [
-            (s) => [s.playlists, s.currentPlaylists, s.searchQuery, (_, props) => props.playlistShortId],
-            (playlists, currentPlaylists, searchQuery, playlistShortId) => {
+            (s) => [s.playlists, s.currentPlaylists, s.searchQuery],
+            (playlists, currentPlaylists, searchQuery) => {
                 const otherPlaylists = searchQuery
                     ? playlists
                     : playlists.filter((x) => !currentPlaylists.find((y) => x.short_id === y.short_id))
 
                 const selectedPlaylists = !searchQuery ? currentPlaylists : []
 
-                let results: {
+                const results: {
                     selected: boolean
                     playlist: SessionRecordingPlaylistType
                 }[] = [
@@ -190,15 +162,13 @@ export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
                     })),
                 ]
 
-                // If props.playlistShortId exists put it at the beginning of the list
-                if (playlistShortId) {
-                    results = results.sort((a, b) =>
-                        a.playlist.short_id == playlistShortId ? -1 : b.playlist.short_id == playlistShortId ? 1 : 0
-                    )
-                }
-
                 return results
             },
         ],
+        pinnedCount: [(s) => [s.currentPlaylists], (currentPlaylists) => currentPlaylists.length],
     })),
+
+    afterMount(({ actions }) => {
+        actions.loadPlaylistsForRecording()
+    }),
 ])

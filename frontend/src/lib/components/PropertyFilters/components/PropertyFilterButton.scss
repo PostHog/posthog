@@ -1,22 +1,36 @@
 .PropertyFilterButton {
-    overflow: hidden;
-    color: var(--bg-charcoal);
-    border-color: transparent;
-    background: var(--border);
     display: inline-flex;
-    transition-duration: 200ms; // Shorten from Ant's 300ms
+    gap: 0.5rem;
+    align-items: center;
+    height: 2rem;
+    padding: 0.25rem 1rem;
+    overflow: hidden;
+    color: var(--default);
+    white-space: nowrap;
+    user-select: none;
+    background: var(--border);
+    border: 1px solid transparent;
+    border-radius: 2rem;
+    outline: 0;
+    transition: all 0.2s cubic-bezier(0.645, 0.045, 0.355, 1);
 
     &:hover,
     &:focus {
         border-color: var(--border);
-        background: var(--border);
-        color: var(--bg-charcoal);
     }
 
-    text-shadow: none;
-    box-shadow: none;
-    align-items: center;
-    gap: 0.5rem;
+    &:not(.PropertyFilterButton--clickable) {
+        border-color: transparent;
+    }
+
+    &.PropertyFilterButton--clickable {
+        touch-action: manipulation; // faster clicks
+        cursor: pointer;
+    }
+
+    &.PropertyFilterButton--closable {
+        padding-right: 0.5rem;
+    }
 
     > :not(.PropertyFilterButton-content) {
         flex-shrink: 0;
@@ -28,7 +42,27 @@
         text-overflow: ellipsis;
     }
 
-    .anticon-close {
-        color: var(--bg-charcoal);
+    // Close button
+    .LemonButton {
+        margin-left: -0.25rem;
+    }
+
+    .LemonButton__chrome {
+        height: 22px !important;
+        min-height: auto !important;
+        padding: 0 4px !important;
+    }
+}
+
+.posthog-3000 {
+    .PropertyFilterButton {
+        &:hover,
+        &:focus {
+            border-color: var(--border-bold);
+        }
+
+        &:not(.PropertyFilterButton--clickable) {
+            border-color: transparent;
+        }
     }
 }

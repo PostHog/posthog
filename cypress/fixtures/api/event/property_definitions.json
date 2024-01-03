@@ -5,7 +5,7 @@
     "results": [
         {
             "id": "017dde0e-1cb5-0000-68b4-44835b7c894f",
-            "name": "$browser_version",
+            "name": "$browser",
             "is_numerical": true,
             "query_usage_30_day": null,
             "property_type": null,

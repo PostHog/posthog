@@ -3,13 +3,14 @@ from datetime import datetime, timedelta
 from enum import Enum, auto
 from typing import Any, Dict, Optional, Union
 
-import pytz
+from zoneinfo import ZoneInfo
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from posthog.cache_utils import cache_for
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
 from posthog.models.team import Team
+from posthog.models.team.team import WeekStartDay
 from posthog.queries.insight import insight_sync_execute
 from posthog.utils import PersonOnEventsMode
 
@@ -66,16 +67,16 @@ PERIOD_TO_INTERVAL_FUNC: Dict[str, str] = {
     "month": "toIntervalMonth",
 }
 
+
 # TODO: refactor since this is only used in one spot now
 def format_ch_timestamp(timestamp: datetime, convert_to_timezone: Optional[str] = None):
     if convert_to_timezone:
         # Here we probably get a timestamp set to the beginning of the day (00:00), in UTC
         # We need to convert that UTC timestamp to the local timestamp (00:00 in US/Pacific for example)
         # Then we convert it back to UTC (08:00 in UTC)
-        if timestamp.tzinfo and timestamp.tzinfo != pytz.UTC:
+        if timestamp.tzinfo and timestamp.tzinfo != ZoneInfo("UTC"):
             raise ValidationError(detail="You must pass a timestamp with no timezone or UTC")
-        timestamp = pytz.timezone(convert_to_timezone).localize(timestamp.replace(tzinfo=None)).astimezone(pytz.UTC)
-
+        timestamp = timestamp.replace(tzinfo=ZoneInfo(convert_to_timezone)).astimezone(ZoneInfo("UTC"))
     return timestamp.strftime("%Y-%m-%d %H:%M:%S")
 
 
@@ -91,6 +92,26 @@ def get_earliest_timestamp(team_id: int) -> datetime:
         return results[0][0]
     else:
         return timezone.now() - DEFAULT_EARLIEST_TIME_DELTA
+
+
+def get_start_of_interval_sql(
+    interval: str,
+    *,
+    team: Team,
+    source: str = "timestamp",
+    ensure_datetime: bool = False,
+) -> str:
+    trunc_func = get_trunc_func_ch(interval)
+    if source.startswith("%(") and source.endswith(")s"):
+        source = f"toDateTime({source}, %(timezone)s)"
+    elif "%(timezone)s" not in source:
+        source = f"toTimeZone(toDateTime({source}, 'UTC'), %(timezone)s)"
+    trunc_func_args = [source]
+    if trunc_func == "toStartOfWeek":
+        trunc_func_args.append((WeekStartDay(team.week_start_day or 0)).clickhouse_mode)
+    interval_sql = f"{trunc_func}({', '.join(trunc_func_args)})"
+    # For larger intervals dates are returned instead of datetimes, and we always want datetimes for comparisons
+    return f"toDateTime({interval_sql}, %(timezone)s)" if ensure_datetime else interval_sql
 
 
 def get_trunc_func_ch(period: Optional[str]) -> str:
@@ -134,7 +155,9 @@ def convert_to_datetime_aware(date_obj):
 
 
 def correct_result_for_sampling(
-    value: Union[int, float], sampling_factor: Optional[float], entity_math: Optional[str] = None
+    value: Union[int, float],
+    sampling_factor: Optional[float],
+    entity_math: Optional[str] = None,
 ) -> Union[int, float]:
     from posthog.queries.trends.util import ALL_SUPPORTED_MATH_FUNCTIONS
 

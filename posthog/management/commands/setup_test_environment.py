@@ -9,6 +9,7 @@ from posthog.clickhouse.schema import (
     CREATE_MERGETREE_TABLE_QUERIES,
     CREATE_MV_TABLE_QUERIES,
     build_query,
+    CREATE_DATA_QUERIES,
 )
 from posthog.settings import (
     CLICKHOUSE_CLUSTER,
@@ -56,6 +57,7 @@ class Command(BaseCommand):
         create_clickhouse_schema_in_parallel(CREATE_DISTRIBUTED_TABLE_QUERIES)
         create_clickhouse_schema_in_parallel(CREATE_MV_TABLE_QUERIES)
         create_clickhouse_schema_in_parallel(CREATE_DICTIONARY_QUERIES)
+        create_clickhouse_schema_in_parallel(CREATE_DATA_QUERIES)
 
 
 def create_clickhouse_schema_in_parallel(queries):

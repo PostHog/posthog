@@ -5,7 +5,6 @@ import urllib.parse
 from base64 import b32encode
 from binascii import unhexlify
 from typing import Any, Optional, cast
-
 import requests
 from django.conf import settings
 from django.contrib.auth import login, update_session_auth_hash
@@ -21,6 +20,7 @@ from django_otp.util import random_hex
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, mixins, permissions, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
@@ -31,10 +31,15 @@ from posthog.api.decide import hostname_in_allowed_url_list
 from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
+from posthog.api.utils import raise_if_user_provided_url_unsafe
 from posthog.auth import authenticate_secondarily
 from posthog.email import is_email_available
-from posthog.event_usage import report_user_logged_in, report_user_updated, report_user_verified_email
-from posthog.models import Team, User
+from posthog.event_usage import (
+    report_user_logged_in,
+    report_user_updated,
+    report_user_verified_email,
+)
+from posthog.models import Team, User, UserScenePersonalisation, Dashboard
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications
 from posthog.tasks import user_identify
@@ -57,6 +62,12 @@ class UserEmailVerificationThrottle(UserRateThrottle):
     rate = "6/day"
 
 
+class ScenePersonalisationBasicSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserScenePersonalisation
+        fields = ["scene", "dashboard"]
+
+
 class UserSerializer(serializers.ModelSerializer):
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
@@ -69,6 +80,7 @@ class UserSerializer(serializers.ModelSerializer):
     set_current_team = serializers.CharField(write_only=True, required=False)
     current_password = serializers.CharField(write_only=True, required=False)
     notification_settings = serializers.DictField(required=False)
+    scene_personalisation = ScenePersonalisationBasicSerializer(many=True, read_only=True)
 
     class Meta:
         model = User
@@ -77,6 +89,7 @@ class UserSerializer(serializers.ModelSerializer):
             "uuid",
             "distinct_id",
             "first_name",
+            "last_name",
             "email",
             "pending_email",
             "email_opt_in",
@@ -99,8 +112,13 @@ class UserSerializer(serializers.ModelSerializer):
             "is_2fa_enabled",
             "has_social_auth",
             "has_seen_product_intro_for",
+            "scene_personalisation",
+            "theme_mode",
         ]
-        extra_kwargs = {"date_joined": {"read_only": True}, "password": {"write_only": True}}
+        extra_kwargs = {
+            "date_joined": {"read_only": True},
+            "password": {"write_only": True},
+        }
 
     def get_has_password(self, instance: User) -> bool:
         return instance.has_usable_password()
@@ -156,12 +174,14 @@ class UserSerializer(serializers.ModelSerializer):
                 # usable (properly hashed) and that a password actually exists.
                 if not current_password:
                     raise serializers.ValidationError(
-                        {"current_password": ["This field is required when updating your password."]}, code="required"
+                        {"current_password": ["This field is required when updating your password."]},
+                        code="required",
                     )
 
                 if not instance.check_password(current_password):
                     raise serializers.ValidationError(
-                        {"current_password": ["Your current password is incorrect."]}, code="incorrect_password"
+                        {"current_password": ["Your current password is incorrect."]},
+                        code="incorrect_password",
                     )
             try:
                 validate_password(password, instance)
@@ -227,7 +247,51 @@ class UserSerializer(serializers.ModelSerializer):
         return super().to_representation(instance)
 
 
-class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+class ScenePersonalisationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserScenePersonalisation
+        fields = ["scene", "dashboard"]
+        read_only_fields = ["user", "team"]
+
+    def validate_dashboard(self, value: Dashboard) -> Dashboard:
+        instance = cast(User, self.instance)
+
+        if value.team != instance.current_team:
+            raise serializers.ValidationError("Dashboard must belong to the user's current team.")
+
+        return value
+
+    def validate(self, data):
+        if "dashboard" not in data:
+            raise serializers.ValidationError("Dashboard must be provided.")
+
+        if "scene" not in data:
+            raise serializers.ValidationError("Scene must be provided.")
+
+        return data
+
+    def save(self, **kwargs):
+        instance = cast(User, self.instance)
+        if not instance:
+            # there must always be a user instance
+            raise NotFound()
+
+        validated_data = {**self.validated_data, **kwargs}
+
+        return UserScenePersonalisation.objects.update_or_create(
+            user=instance,
+            team=instance.current_team,
+            scene=validated_data["scene"],
+            defaults={"dashboard": validated_data["dashboard"]},
+        )
+
+
+class UserViewSet(
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.ListModelMixin,
+    viewsets.GenericViewSet,
+):
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -256,7 +320,10 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
         return queryset
 
     def get_serializer_context(self):
-        return {**super().get_serializer_context(), "user_permissions": UserPermissions(cast(User, self.request.user))}
+        return {
+            **super().get_serializer_context(),
+            "user_permissions": UserPermissions(cast(User, self.request.user)),
+        }
 
     @action(methods=["GET"], detail=True)
     def start_2fa_setup(self, request, **kwargs):
@@ -270,7 +337,9 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
     @action(methods=["POST"], detail=True)
     def validate_2fa(self, request, **kwargs):
         form = TOTPDeviceForm(
-            request.session["django_two_factor-hex"], request.user, data={"token": request.data["token"]}
+            request.session["django_two_factor-hex"],
+            request.user,
+            data={"token": request.data["token"]},
         )
         if not form.is_valid():
             raise serializers.ValidationError("Token is not valid", code="token_invalid")
@@ -296,7 +365,8 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
 
         if not user or not EmailVerifier.check_token(user, token):
             raise serializers.ValidationError(
-                {"token": ["This verification token is invalid or has expired."]}, code="invalid_token"
+                {"token": ["This verification token is invalid or has expired."]},
+                code="invalid_token",
             )
 
         if user.pending_email:
@@ -315,7 +385,10 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
         return Response({"success": True, "token": token})
 
     @action(
-        methods=["POST"], detail=True, permission_classes=[AllowAny], throttle_classes=[UserEmailVerificationThrottle]
+        methods=["POST"],
+        detail=True,
+        permission_classes=[AllowAny],
+        throttle_classes=[UserEmailVerificationThrottle],
     )
     def request_email_verification(self, request, **kwargs):
         uuid = request.data["uuid"]
@@ -333,12 +406,22 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
 
         return Response({"success": True})
 
+    @action(methods=["POST"], detail=True)
+    def scene_personalisation(self, request, **kwargs):
+        instance = self.get_object()
+        request_serializer = ScenePersonalisationSerializer(instance=instance, data=request.data, partial=True)
+        request_serializer.is_valid(raise_exception=True)
+
+        request_serializer.save()
+        instance.refresh_from_db()
+
+        return Response(self.get_serializer(instance=instance).data)
+
 
 @authenticate_secondarily
 def redirect_to_site(request):
     team = request.user.team
     app_url = request.GET.get("appUrl") or (team.app_urls and team.app_urls[0])
-    use_new_toolbar = request.user.toolbar_mode != "disabled"
 
     if not app_url:
         return HttpResponse(status=404)
@@ -370,10 +453,7 @@ def redirect_to_site(request):
     # see https://github.com/PostHog/posthog/issues/9671
     state = urllib.parse.quote(json.dumps(params), safe="")
 
-    if use_new_toolbar:
-        return redirect("{}#__posthog={}".format(app_url, state))
-    else:
-        return redirect("{}#state={}".format(app_url, state))
+    return redirect("{}#__posthog={}".format(app_url, state))
 
 
 @require_http_methods(["POST"])
@@ -391,6 +471,8 @@ def test_slack_webhook(request):
         return JsonResponse({"error": "no webhook URL"})
     message = {"text": "_Greetings_ from PostHog!"}
     try:
+        if not settings.DEBUG:
+            raise_if_user_provided_url_unsafe(webhook)
         response = requests.post(webhook, verify=False, json=message)
 
         if response.ok:

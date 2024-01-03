@@ -1,4 +1,6 @@
 import { dayjs } from 'lib/dayjs'
+import { fullName } from 'lib/utils'
+
 import { InsightShortId, PersonType } from '~/types'
 
 export interface ActivityChange {
@@ -49,8 +51,8 @@ export enum ActivityScope {
     NOTEBOOK = 'Notebook',
 }
 
-export interface ActivityLogItem {
-    user: ActivityUser
+export type ActivityLogItem = {
+    user?: ActivityUser
     activity: string
     created_at: string
     scope: ActivityScope
@@ -71,7 +73,7 @@ export type ChangeMapping = {
 }
 export type HumanizedChange = { description: Description | null; extendedDescription?: ExtendedDescription }
 
-export interface HumanizedActivityLogItem {
+export type HumanizedActivityLogItem = {
     email?: string | null
     name?: string
     isSystem?: boolean
@@ -100,15 +102,17 @@ export function humanize(
 
     for (const logItem of results) {
         const describer = describerFor?.(logItem)
+
         if (!describer) {
             continue
         }
         const { description, extendedDescription } = describer(logItem, asNotification)
+
         if (description !== null) {
             logLines.push({
-                email: logItem.user.email,
-                name: logItem.user.first_name,
-                isSystem: logItem.user.is_system,
+                email: logItem.user?.email,
+                name: logItem.user ? fullName(logItem.user) : undefined,
+                isSystem: logItem.is_system,
                 description,
                 extendedDescription,
                 created_at: dayjs(logItem.created_at),
@@ -117,4 +121,11 @@ export function humanize(
         }
     }
     return logLines
+}
+
+export function userNameForLogItem(logItem: ActivityLogItem): string {
+    if (logItem.is_system) {
+        return 'PostHog'
+    }
+    return logItem.user ? fullName(logItem.user) : 'A user'
 }

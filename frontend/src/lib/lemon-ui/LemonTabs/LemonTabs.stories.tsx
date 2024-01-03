@@ -1,8 +1,10 @@
-import { ComponentMeta, ComponentStory } from '@storybook/react'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useState } from 'react'
+
 import { LemonTab, LemonTabs as LemonTabsComponent } from './LemonTabs'
 
-export default {
+type Story = StoryObj<typeof LemonTabsComponent>
+const meta: Meta<typeof LemonTabsComponent> = {
     title: 'Lemon UI/Lemon Tabs',
     component: LemonTabsComponent,
     argTypes: {
@@ -10,41 +12,43 @@ export default {
             control: {
                 type: 'object',
             },
-            defaultValue: [
-                {
-                    key: 'calendar',
-                    label: 'Calendar',
-                    content: <div>Imagine some calendar here. 🗓️</div>,
-                },
-                {
-                    key: 'calculator',
-                    label: 'Calculator',
-                    tooltip: 'Calculate 2+2, as well as 1/0.',
-                    content: <div>Imagine some calculator here. 🔢</div>,
-                },
-                {
-                    key: 'banana',
-                    label: 'Banana',
-                    content: <div>Imagine some banana here. 🍌</div>,
-                },
-                {
-                    key: 'settings',
-                    label: 'Settings',
-                    content: <div>Imagine some settings here. ⚙️</div>,
-                },
-            ] as LemonTab<'calendar' | 'calculator' | 'banana' | 'settings'>[],
         },
-        // Show value and onChange, but disable editing as they're handled by the template
-        value: { control: { disable: true } },
         onChange: { control: { disable: true } },
     },
-} as ComponentMeta<typeof LemonTabsComponent>
+    tags: ['autodocs'],
+    args: {
+        tabs: [
+            {
+                key: 'calendar',
+                label: 'Calendar',
+                content: <div>Imagine some calendar here. 🗓️</div>,
+            },
+            {
+                key: 'calculator',
+                label: 'Calculator',
+                tooltip: 'Calculate 2+2, as well as 1/0.',
+                content: <div>Imagine some calculator here. 🔢</div>,
+            },
+            {
+                key: 'banana',
+                label: 'Banana',
+                content: <div>Imagine some banana here. 🍌</div>,
+            },
+            {
+                key: 'settings',
+                label: 'Settings',
+                content: <div>Imagine some settings here. ⚙️</div>,
+            },
+        ] as LemonTab<'calendar' | 'calculator' | 'banana' | 'settings'>[],
+    },
+}
+export default meta
 
-const Template: ComponentStory<typeof LemonTabsComponent> = (props) => {
+const Template: StoryFn<typeof LemonTabsComponent> = (props) => {
     const [activeKey, setActiveKey] = useState((props.tabs[0] as LemonTab<string | number>).key)
 
     return <LemonTabsComponent {...props} activeKey={activeKey} onChange={(newValue) => setActiveKey(newValue)} />
 }
 
-export const LemonTabs = Template.bind({})
+export const LemonTabs: Story = Template.bind({})
 LemonTabs.args = {}

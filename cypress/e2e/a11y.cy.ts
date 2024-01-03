@@ -16,12 +16,10 @@ describe('a11y', () => {
         'experiments',
         'events',
         'datamanagement',
-        'persons',
-        'cohorts',
-        'annotations',
-        'plugins',
+        'personsmanagement',
+        'apps',
         'toolbarlaunch',
-        'projectsettings',
+        'settings',
     ]
 
     sidebarItems.forEach((sideBarItem) => {

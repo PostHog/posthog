@@ -5,9 +5,19 @@ from rest_framework.decorators import action
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models.plugin import PluginConfig
-from posthog.queries.app_metrics.app_metrics import AppMetricsErrorDetailsQuery, AppMetricsErrorsQuery, AppMetricsQuery
-from posthog.queries.app_metrics.historical_exports import historical_export_metrics, historical_exports_activity
-from posthog.queries.app_metrics.serializers import AppMetricsErrorsRequestSerializer, AppMetricsRequestSerializer
+from posthog.queries.app_metrics.app_metrics import (
+    AppMetricsErrorDetailsQuery,
+    AppMetricsErrorsQuery,
+    AppMetricsQuery,
+)
+from posthog.queries.app_metrics.historical_exports import (
+    historical_export_metrics,
+    historical_exports_activity,
+)
+from posthog.queries.app_metrics.serializers import (
+    AppMetricsErrorsRequestSerializer,
+    AppMetricsRequestSerializer,
+)
 
 
 class AppMetricsViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
@@ -35,7 +45,10 @@ class AppMetricsViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, views
 
 
 class HistoricalExportsAppMetricsViewSet(
-    StructuredViewSetMixin, mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.ViewSet
+    StructuredViewSetMixin,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.ViewSet,
 ):
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         return response.Response(

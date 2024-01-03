@@ -1,28 +1,34 @@
-import { useActions, useValues } from 'kea'
 import './SessionRecordingsPlaylist.scss'
+
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { SceneExport } from 'scenes/sceneTypes'
+import { useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import { PageHeader } from 'lib/components/PageHeader'
-import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 import { NotFound } from 'lib/components/NotFound'
+import { PageHeader } from 'lib/components/PageHeader'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { SceneExport } from 'scenes/sceneTypes'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+
+import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
+import { sessionRecordingsPlaylistSceneLogic } from './sessionRecordingsPlaylistSceneLogic'
 
 export const scene: SceneExport = {
     component: SessionRecordingsPlaylistScene,
-    logic: sessionRecordingsPlaylistLogic,
+    logic: sessionRecordingsPlaylistSceneLogic,
     paramsToProps: ({ params: { id } }) => {
         return { shortId: id as string }
     },
 }
 
 export function SessionRecordingsPlaylistScene(): JSX.Element {
-    const { playlist, playlistLoading, hasChanges, derivedName } = useValues(sessionRecordingsPlaylistLogic)
-    const { setFilters, updatePlaylist, duplicatePlaylist, deletePlaylist } = useActions(sessionRecordingsPlaylistLogic)
+    const { playlist, playlistLoading, pinnedRecordings, hasChanges, derivedName } = useValues(
+        sessionRecordingsPlaylistSceneLogic
+    )
+    const { setFilters, updatePlaylist, duplicatePlaylist, deletePlaylist, onPinnedChange } = useActions(
+        sessionRecordingsPlaylistSceneLogic
+    )
 
     const { showFilters } = useValues(playerSettingsLogic)
     const { setShowFilters } = useActions(playerSettingsLogic)
@@ -31,8 +37,8 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
         return (
             <div className="space-y-4 mt-6">
                 <LemonSkeleton className="h-10 w-1/4" />
-                <LemonSkeleton className=" w-1/3" />
-                <LemonSkeleton className=" w-1/4" />
+                <LemonSkeleton className="h-4 w-1/3" />
+                <LemonSkeleton className="h-4 w-1/4" />
 
                 <div className="flex justify-between mt-4">
                     <LemonSkeleton.Button />
@@ -58,7 +64,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
 
     return (
         // Margin bottom hacks the fact that our wrapping container has an annoyingly large padding
-        <div className="-mb-16">
+        <div className="-mb-14">
             <PageHeader
                 title={
                     <EditableField
@@ -68,7 +74,6 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                         onSave={(value) => updatePlaylist({ short_id: playlist.short_id, name: value })}
                         saveOnBlur={true}
                         maxLength={400}
-                        mode={undefined}
                         data-attr="playlist-name"
                     />
                 }
@@ -78,7 +83,6 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                             overlay={
                                 <>
                                     <LemonButton
-                                        status="stealth"
                                         onClick={() => duplicatePlaylist()}
                                         fullWidth
                                         data-attr="duplicate-playlist"
@@ -86,7 +90,6 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                         Duplicate
                                     </LemonButton>
                                     <LemonButton
-                                        status="stealth"
                                         onClick={() =>
                                             updatePlaylist({
                                                 short_id: playlist.short_id,
@@ -124,6 +127,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                         <EditableField
                             multiline
                             name="description"
+                            markdown
                             value={playlist.description || ''}
                             placeholder="Description (optional)"
                             onSave={(value) => updatePlaylist({ description: value })}
@@ -140,12 +144,15 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     </>
                 }
             />
-            {playlist.short_id ? (
-                <SessionRecordingsPlaylist
-                    playlistShortId={playlist.short_id}
-                    filters={playlist.filters}
-                    onFiltersChange={setFilters}
-                />
+            {playlist.short_id && pinnedRecordings !== null ? (
+                <div className="SessionRecordingPlaylistHeightWrapper">
+                    <SessionRecordingsPlaylist
+                        filters={playlist.filters}
+                        onFiltersChange={setFilters}
+                        onPinnedChange={onPinnedChange}
+                        pinnedRecordings={pinnedRecordings ?? []}
+                    />
+                </div>
             ) : null}
         </div>
     )

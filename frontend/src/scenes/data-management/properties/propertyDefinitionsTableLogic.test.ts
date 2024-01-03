@@ -1,15 +1,14 @@
-import { initKeaTests } from '~/test/init'
-import { api, MOCK_TEAM_ID } from 'lib/api.mock'
-import { expectLogic, partial } from 'kea-test-utils'
-import { mockEventPropertyDefinitions } from '~/test/mocks'
-import { useMocks } from '~/mocks/jest'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { combineUrl, router } from 'kea-router'
-import {
-    EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
-    propertyDefinitionsTableLogic,
-} from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
+import { expectLogic, partial } from 'kea-test-utils'
+import { api, MOCK_GROUP_TYPES, MOCK_TEAM_ID } from 'lib/api.mock'
+import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
+import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+import { mockEventPropertyDefinitions } from '~/test/mocks'
 
 describe('propertyDefinitionsTableLogic', () => {
     let logic: ReturnType<typeof propertyDefinitionsTableLogic.build>
@@ -53,6 +52,7 @@ describe('propertyDefinitionsTableLogic', () => {
                         ]
                     }
                 },
+                'api/projects/:team/groups_types': MOCK_GROUP_TYPES,
             },
         })
         initKeaTests()
@@ -93,7 +93,7 @@ describe('propertyDefinitionsTableLogic', () => {
                     }),
                 })
 
-            expect(api.get).toBeCalledTimes(1)
+            expect(api.get).toBeCalledTimes(2)
             expect(api.get).toBeCalledWith(startingUrl)
 
             await expectLogic(logic, () => {
@@ -101,7 +101,7 @@ describe('propertyDefinitionsTableLogic', () => {
             }).toDispatchActions(['loadPropertyDefinitions', 'loadPropertyDefinitionsSuccess'])
 
             // Doesn't call api.get again
-            expect(api.get).toBeCalledTimes(1)
+            expect(api.get).toBeCalledTimes(2)
         })
 
         it('pagination forwards and backwards', async () => {
@@ -119,7 +119,7 @@ describe('propertyDefinitionsTableLogic', () => {
                         next: `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=50&offset=50`,
                     }),
                 })
-            expect(api.get).toBeCalledTimes(1)
+            expect(api.get).toBeCalledTimes(2)
             // Forwards
             await expectLogic(logic, () => {
                 logic.actions.loadPropertyDefinitions(
@@ -135,7 +135,7 @@ describe('propertyDefinitionsTableLogic', () => {
                         next: null,
                     }),
                 })
-            expect(api.get).toBeCalledTimes(2)
+            expect(api.get).toBeCalledTimes(3)
             // Backwards
             await expectLogic(logic, () => {
                 logic.actions.loadPropertyDefinitions(startingUrl)
@@ -147,7 +147,7 @@ describe('propertyDefinitionsTableLogic', () => {
                         next: `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=50&offset=50`,
                     }),
                 })
-            expect(api.get).toBeCalledTimes(2)
+            expect(api.get).toBeCalledTimes(3)
         })
     })
 })

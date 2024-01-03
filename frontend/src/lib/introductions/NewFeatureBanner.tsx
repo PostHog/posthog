@@ -1,6 +1,6 @@
+import { LemonButton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Link } from 'lib/lemon-ui/Link'
-import { LemonButton } from '@posthog/lemon-ui'
 import { billingLogic } from 'scenes/billing/billingLogic'
 
 export function NewFeatureBanner(): JSX.Element | null {

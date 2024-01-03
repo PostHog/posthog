@@ -1,10 +1,13 @@
 import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
+import { captureException } from '@sentry/node'
 import { DateTime } from 'luxon'
+import { Counter, Summary } from 'prom-client'
 
 import { activeMilliseconds } from '../../main/ingestion-queues/session-recording/snapshot-segmenter'
 import {
+    ClickHouseTimestamp,
     Element,
     GroupTypeIndex,
     Hub,
@@ -21,16 +24,30 @@ import {
 } from '../../types'
 import { DB, GroupId } from '../../utils/db/db'
 import { elementsToString, extractElements } from '../../utils/db/elements-chain'
+import { MessageSizeTooLarge } from '../../utils/db/error'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
-import { castTimestampOrNow, UUID } from '../../utils/utils'
+import { MessageSizeTooLargeWarningLimiter } from '../../utils/token-bucket'
+import { castTimestampOrNow } from '../../utils/utils'
 import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { upsertGroup } from './properties-updater'
 import { PropertyDefinitionsManager } from './property-definitions-manager'
 import { TeamManager } from './team-manager'
 import { captureIngestionWarning } from './utils'
+
+const processEventMsSummary = new Summary({
+    name: 'process_event_ms',
+    help: 'Duration spent in processEvent',
+    percentiles: [0.5, 0.9, 0.95, 0.99],
+})
+
+const elementsOrElementsChainCounter = new Counter({
+    name: 'events_pipeline_elements_or_elements_chain_total',
+    help: 'Number of times elements or elements_chain appears on event',
+    labelNames: ['type'],
+})
 
 export class EventsProcessor {
     pluginsServer: Hub
@@ -52,25 +69,17 @@ export class EventsProcessor {
             this.teamManager,
             this.groupTypeManager,
             pluginsServer.db,
-            pluginsServer,
-            pluginsServer.statsd
+            pluginsServer
         )
     }
 
     public async processEvent(
         distinctId: string,
-        ip: string | null,
         data: PluginEvent,
         teamId: number,
         timestamp: DateTime,
         eventUuid: string
     ): Promise<PreIngestionEvent> {
-        if (!UUID.validateString(eventUuid, false)) {
-            captureIngestionWarning(this.db, teamId, 'skipping_event_invalid_uuid', {
-                eventUuid: JSON.stringify(eventUuid),
-            })
-            throw new Error(`Not a valid UUID: "${eventUuid}"`)
-        }
         const singleSaveTimer = new Date()
         const timeout = timeoutGuard('Still inside "EventsProcessor.processEvent". Timeout warning after 30 sec!', {
             event: JSON.stringify(data),
@@ -90,10 +99,8 @@ export class EventsProcessor {
                 eventUuid,
             })
             try {
-                result = await this.capture(eventUuid, ip, team, data['event'], distinctId, properties, timestamp)
-                this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer, {
-                    team_id: teamId.toString(),
-                })
+                result = await this.capture(eventUuid, team, data['event'], distinctId, properties, timestamp)
+                processEventMsSummary.observe(Date.now() - singleSaveTimer.valueOf())
             } finally {
                 clearTimeout(captureTimeout)
             }
@@ -103,9 +110,34 @@ export class EventsProcessor {
         return result
     }
 
+    private getElementsChain(properties: Properties): string {
+        /*
+        We're deprecating $elements in favor of $elements_chain, which doesn't require extra
+        processing on the ingestion side and is the way we store elements in ClickHouse.
+        As part of that we'll move posthog-js to send us $elements_chain as string directly,
+        but we still need to support the old way of sending $elements and converting them
+        to $elements_chain, while everyone hasn't upgraded.
+        */
+        let elementsChain = ''
+        if (properties['$elements_chain']) {
+            elementsChain = properties['$elements_chain']
+            elementsOrElementsChainCounter.labels('elements_chain').inc()
+        } else if (properties['$elements']) {
+            const elements: Record<string, any>[] | undefined = properties['$elements']
+            let elementsList: Element[] = []
+            if (elements && elements.length) {
+                elementsList = extractElements(elements)
+                elementsChain = elementsToString(elementsList)
+            }
+            elementsOrElementsChainCounter.labels('elements').inc()
+        }
+        delete properties['$elements_chain']
+        delete properties['$elements']
+        return elementsChain
+    }
+
     private async capture(
         eventUuid: string,
-        ip: string | null,
         team: Team,
         event: string,
         distinctId: string,
@@ -113,28 +145,25 @@ export class EventsProcessor {
         timestamp: DateTime
     ): Promise<PreIngestionEvent> {
         event = sanitizeEventName(event)
-        const elements: Record<string, any>[] | undefined = properties['$elements']
-        let elementsList: Element[] = []
 
-        if (elements && elements.length) {
-            elementsList = extractElements(elements)
-            delete properties['$elements']
+        if (properties['$ip'] && team.anonymize_ips) {
+            delete properties['$ip']
         }
 
-        if (ip && !team.anonymize_ips && !('$ip' in properties)) {
-            properties['$ip'] = ip
+        if (this.pluginsServer.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP === false) {
+            try {
+                await this.propertyDefinitionsManager.updateEventNamesAndProperties(team.id, event, properties)
+            } catch (err) {
+                Sentry.captureException(err, { tags: { team_id: team.id } })
+                status.warn('⚠️', 'Failed to update property definitions for an event', {
+                    event,
+                    properties,
+                    err,
+                })
+            }
         }
 
-        try {
-            await this.propertyDefinitionsManager.updateEventNamesAndProperties(team.id, event, properties)
-        } catch (err) {
-            Sentry.captureException(err, { tags: { team_id: team.id } })
-            status.warn('⚠️', 'Failed to update property definitions for an event', {
-                event,
-                properties,
-                err,
-            })
-        }
+        // Adds group_0 etc values to properties
         properties = await addGroupProperties(team.id, properties, this.groupTypeManager)
 
         if (event === '$groupidentify') {
@@ -144,11 +173,9 @@ export class EventsProcessor {
         return {
             eventUuid,
             event,
-            ip,
             distinctId,
             properties,
             timestamp: timestamp.toISO() as ISOTimestamp,
-            elementsList,
             teamId: team.id,
         }
     }
@@ -168,17 +195,20 @@ export class EventsProcessor {
         preIngestionEvent: PreIngestionEvent,
         person: Person
     ): Promise<[RawClickHouseEvent, Promise<void>]> {
-        const {
-            eventUuid: uuid,
-            event,
-            teamId,
-            distinctId,
-            properties,
-            timestamp,
-            elementsList: elements,
-        } = preIngestionEvent
+        const { eventUuid: uuid, event, teamId, distinctId, properties, timestamp } = preIngestionEvent
 
-        const elementsChain = elements && elements.length ? elementsToString(elements) : ''
+        let elementsChain = ''
+        try {
+            elementsChain = this.getElementsChain(properties)
+        } catch (error) {
+            Sentry.captureException(error, { tags: { team_id: teamId } })
+            status.warn('⚠️', 'Failed to process elements', {
+                uuid,
+                teamId: teamId,
+                properties,
+                error,
+            })
+        }
 
         const groupIdentifiers = this.getGroupIdentifiers(properties)
         const groupsColumns = await this.db.getGroupsColumns(teamId, groupIdentifiers)
@@ -206,12 +236,27 @@ export class EventsProcessor {
             ...groupsColumns,
         }
 
-        const ack = this.kafkaProducer.produce({
-            topic: this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-            key: uuid,
-            value: Buffer.from(JSON.stringify(rawEvent)),
-            waitForAck: true,
-        })
+        const ack = this.kafkaProducer
+            .produce({
+                topic: this.pluginsServer.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                key: uuid,
+                value: Buffer.from(JSON.stringify(rawEvent)),
+                waitForAck: true,
+            })
+            .catch(async (error) => {
+                // Some messages end up significantly larger than the original
+                // after plugin processing, person & group enrichment, etc.
+                if (error instanceof MessageSizeTooLarge) {
+                    if (MessageSizeTooLargeWarningLimiter.consume(`${teamId}`, 1)) {
+                        await captureIngestionWarning(this.db, teamId, 'message_size_too_large', {
+                            eventUuid: uuid,
+                            distinctId: distinctId,
+                        })
+                    }
+                } else {
+                    throw error
+                }
+            })
 
         return [rawEvent, ack]
     }
@@ -267,7 +312,7 @@ export interface SummarizedSessionRecordingEvent {
     team_id: number
     distinct_id: string
     session_id: string
-    first_url: string | undefined
+    first_url: string | null
     click_count: number
     keypress_count: number
     mouse_activity_count: number
@@ -276,19 +321,131 @@ export interface SummarizedSessionRecordingEvent {
     console_warn_count: number
     console_error_count: number
     size: number
+    event_count: number
+    message_count: number
+    snapshot_source: string | null
 }
+
+export type ConsoleLogEntry = {
+    team_id: number
+    message: string
+    log_level: 'info' | 'warn' | 'error'
+    log_source: 'session_replay'
+    // the session_id
+    log_source_id: string
+    // The ClickHouse log_entries table collapses input based on its order by key
+    // team_id, log_source, log_source_id, instance_id, timestamp
+    // since we don't have a natural instance id, we don't send one.
+    // This means that if we can log two messages for one session with the same timestamp
+    // we might lose one of them
+    // in practice console log timestamps are pretty precise: 2023-10-04 07:53:29.586
+    // so, this is unlikely enough that we can avoid filling the DB with UUIDs only to avoid losing
+    // a very, very small proportion of console logs.
+    instance_id: string | null
+    timestamp: ClickHouseTimestamp
+}
+
+function sanitizeForUTF8(input: string): string {
+    // the JS console truncates some logs...
+    // when it does that it doesn't check if the output is valid UTF-8
+    // and so it can truncate half way through a UTF-16 pair 🤷
+    // the simplest way to fix this is to convert to a buffer and back
+    // annoyingly Node 20 has `toWellFormed` which might have been useful
+    const buffer = Buffer.from(input)
+    return buffer.toString()
+}
+
+function safeString(payload: (string | null)[]) {
+    // the individual strings are sometimes wrapped in quotes... we want to strip those
+    return payload
+        .filter((item): item is string => !!item && typeof item === 'string')
+        .map((item) => sanitizeForUTF8(item.substring(0, 2999)))
+        .join(' ')
+}
+
+export enum RRWebEventType {
+    DomContentLoaded = 0,
+    Load = 1,
+    FullSnapshot = 2,
+    IncrementalSnapshot = 3,
+    Meta = 4,
+    Custom = 5,
+    Plugin = 6,
+}
+
+enum RRWebEventSource {
+    Mutation = 0,
+    MouseMove = 1,
+    MouseInteraction = 2,
+    Scroll = 3,
+    ViewportResize = 4,
+    Input = 5,
+    TouchMove = 6,
+    MediaInteraction = 7,
+    StyleSheetRule = 8,
+    CanvasMutation = 9,
+    Font = 1,
+    Log = 1,
+    Drag = 1,
+    StyleDeclaration = 1,
+    Selection = 1,
+}
+export const gatherConsoleLogEvents = (
+    team_id: number,
+    session_id: string,
+    events: RRWebEvent[]
+): ConsoleLogEntry[] => {
+    const consoleLogEntries: ConsoleLogEntry[] = []
+
+    events.forEach((event) => {
+        // it should be unnecessary to check for truthiness of event here,
+        // but we've seen null in production so 🤷
+        if (!!event && event.type === RRWebEventType.Plugin && event.data?.plugin === 'rrweb/console@1') {
+            try {
+                const level = event.data.payload?.level
+                const message = safeString(event.data.payload?.payload)
+                consoleLogEntries.push({
+                    team_id,
+                    // TODO when is it not a single item array?
+                    message: message,
+                    log_level: level,
+                    log_source: 'session_replay',
+                    log_source_id: session_id,
+                    instance_id: null,
+                    timestamp: castTimestampOrNow(DateTime.fromMillis(event.timestamp), TimestampFormat.ClickHouse),
+                })
+            } catch (e) {
+                // if we can't process a console log, we don't want to lose the whole shebang
+                captureException(e, { extra: { messagePayload: event.data.payload?.payload }, tags: { session_id } })
+            }
+        }
+    })
+
+    return consoleLogEntries
+}
+
+export const getTimestampsFrom = (events: RRWebEvent[]): ClickHouseTimestamp[] =>
+    events
+        // from millis expects a number and handles unexpected input gracefully so we have to do some filtering
+        // since we're accepting input over the API and have seen very unexpected values in the past
+        // we want to be very careful here before converting to a DateTime
+        // TODO we don't really want to support timestamps of 1,
+        //  but we don't currently filter out based on date of RRWebEvents being too far in the past
+        .filter((e) => (e?.timestamp || -1) > 0)
+        .map((e) => DateTime.fromMillis(e.timestamp))
+        .filter((e) => e.isValid)
+        .map((e) => castTimestampOrNow(e, TimestampFormat.ClickHouse))
+        .sort()
 
 export const createSessionReplayEvent = (
     uuid: string,
     team_id: number,
     distinct_id: string,
     session_id: string,
-    events: RRWebEvent[]
+    events: RRWebEvent[],
+    snapshot_source: string | null
 ) => {
-    const timestamps = events
-        .filter((e) => !!e?.timestamp)
-        .map((e) => castTimestampOrNow(DateTime.fromMillis(e.timestamp), TimestampFormat.ClickHouse))
-        .sort()
+    const timestamps = getTimestampsFrom(events)
 
     // but every event where chunk index = 0 must have an eventsSummary
     if (events.length === 0 || timestamps.length === 0) {
@@ -306,21 +463,21 @@ export const createSessionReplayEvent = (
     let consoleLogCount = 0
     let consoleWarnCount = 0
     let consoleErrorCount = 0
-    let url: string | undefined = undefined
+    let url: string | null = null
     events.forEach((event) => {
-        if (event.type === 3) {
+        if (event.type === RRWebEventType.IncrementalSnapshot) {
             mouseActivity += 1
-            if (event.data?.source === 2) {
+            if (event.data?.source === RRWebEventSource.MouseInteraction) {
                 clickCount += 1
             }
-            if (event.data?.source === 5) {
+            if (event.data?.source === RRWebEventSource.Input) {
                 keypressCount += 1
             }
         }
-        if (!!event.data?.href?.trim().length && url === undefined) {
+        if (url === null && !!event.data?.href?.trim().length) {
             url = event.data.href
         }
-        if (event.type === 6 && event.data?.plugin === 'rrweb/console@1') {
+        if (event.type === RRWebEventType.Plugin && event.data?.plugin === 'rrweb/console@1') {
             const level = event.data.payload?.level
             if (level === 'log') {
                 consoleLogCount += 1
@@ -334,22 +491,27 @@ export const createSessionReplayEvent = (
 
     const activeTime = activeMilliseconds(events)
 
+    // NB forces types to be correct e.g. by truncating or rounding
+    // to ensure we don't send floats when we should send an integer
     const data: SummarizedSessionRecordingEvent = {
         uuid,
         team_id: team_id,
-        distinct_id: distinct_id,
+        distinct_id: String(distinct_id),
         session_id: session_id,
         first_timestamp: timestamps[0],
         last_timestamp: timestamps[timestamps.length - 1],
-        click_count: clickCount,
-        keypress_count: keypressCount,
-        mouse_activity_count: mouseActivity,
+        click_count: Math.trunc(clickCount),
+        keypress_count: Math.trunc(keypressCount),
+        mouse_activity_count: Math.trunc(mouseActivity),
         first_url: url,
-        active_milliseconds: activeTime,
-        console_log_count: consoleLogCount,
-        console_warn_count: consoleWarnCount,
-        console_error_count: consoleErrorCount,
-        size: Buffer.byteLength(JSON.stringify(events), 'utf8'),
+        active_milliseconds: Math.round(activeTime),
+        console_log_count: Math.trunc(consoleLogCount),
+        console_warn_count: Math.trunc(consoleWarnCount),
+        console_error_count: Math.trunc(consoleErrorCount),
+        size: Math.trunc(Buffer.byteLength(JSON.stringify(events), 'utf8')),
+        event_count: Math.trunc(events.length),
+        message_count: 1,
+        snapshot_source: snapshot_source || 'web',
     }
 
     return data

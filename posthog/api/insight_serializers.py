@@ -48,10 +48,14 @@ class GenericInsightsSerializer(serializers.Serializer):
         super().__init__(*args, **kwargs)
 
     events = FilterEventSerializer(
-        required=False, many=True, help_text="Events to filter on. One of `events` or `actions` is required."
+        required=False,
+        many=True,
+        help_text="Events to filter on. One of `events` or `actions` is required.",
     )
     actions = FilterActionSerializer(
-        required=False, many=True, help_text="Actions to filter on. One of `events` or `actions` is required."
+        required=False,
+        many=True,
+        help_text="Actions to filter on. One of `events` or `actions` is required.",
     )
     properties = PropertySerializer(required=False, help_text=property_help_text)
     filter_test_accounts = serializers.BooleanField(
@@ -125,10 +129,12 @@ class ResultsMixin(serializers.Serializer):
 class TrendResultSerializer(serializers.Serializer):
     data = serializers.ListField(child=serializers.IntegerField(), help_text="The requested counts.")  # type: ignore
     days = serializers.ListField(
-        child=serializers.DateField(), help_text="The dates corresponding to the data field above."
+        child=serializers.DateField(),
+        help_text="The dates corresponding to the data field above.",
     )
     labels = serializers.ListField(
-        child=serializers.CharField(), help_text="The dates corresponding to the data field above."
+        child=serializers.CharField(),
+        help_text="The dates corresponding to the data field above.",
     )
     filter = GenericInsightsSerializer(help_text="The insight that's being returned.")
     label = serializers.CharField(

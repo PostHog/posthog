@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import List
 from unittest.mock import MagicMock, call, patch
 
-import pytz
+from zoneinfo import ZoneInfo
 from freezegun import freeze_time
 
 from ee.tasks.subscriptions import (
@@ -55,16 +55,24 @@ class TestSubscriptionsTasks(APIBaseTest):
             create_subscription(team=self.team, insight=self.insight, created_by=self.user),
             create_subscription(team=self.team, insight=self.insight, created_by=self.user),
             create_subscription(team=self.team, dashboard=self.dashboard, created_by=self.user),
-            create_subscription(team=self.team, dashboard=self.dashboard, created_by=self.user, deleted=True),
+            create_subscription(
+                team=self.team,
+                dashboard=self.dashboard,
+                created_by=self.user,
+                deleted=True,
+            ),
         ]
         # Modify a subscription to have its target time at least an hour ahead
-        subscriptions[2].start_date = datetime(2022, 1, 1, 10, 0).replace(tzinfo=pytz.UTC)
+        subscriptions[2].start_date = datetime(2022, 1, 1, 10, 0).replace(tzinfo=ZoneInfo("UTC"))
         subscriptions[2].save()
-        assert subscriptions[2].next_delivery_date == datetime(2022, 2, 2, 10, 0).replace(tzinfo=pytz.UTC)
+        assert subscriptions[2].next_delivery_date == datetime(2022, 2, 2, 10, 0).replace(tzinfo=ZoneInfo("UTC"))
 
         schedule_all_subscriptions()
 
-        assert mock_deliver_task.delay.mock_calls == [call(subscriptions[0].id), call(subscriptions[1].id)]
+        assert mock_deliver_task.delay.mock_calls == [
+            call(subscriptions[0].id),
+            call(subscriptions[1].id),
+        ]
 
     @patch("ee.tasks.subscriptions.deliver_subscription_report")
     def test_does_not_schedule_subscription_if_item_is_deleted(
@@ -100,7 +108,10 @@ class TestSubscriptionsTasks(APIBaseTest):
         assert mock_deliver_task.delay.call_count == 0
 
     def test_deliver_subscription_report_email(
-        self, mock_gen_assets: MagicMock, mock_send_email: MagicMock, mock_send_slack: MagicMock
+        self,
+        mock_gen_assets: MagicMock,
+        mock_send_email: MagicMock,
+        mock_send_slack: MagicMock,
     ) -> None:
         subscription = create_subscription(team=self.team, insight=self.insight, created_by=self.user)
         mock_gen_assets.return_value = [self.insight], [self.asset]
@@ -110,12 +121,27 @@ class TestSubscriptionsTasks(APIBaseTest):
         assert mock_send_email.call_count == 2
 
         assert mock_send_email.call_args_list == [
-            call("test1@posthog.com", subscription, [self.asset], invite_message=None, total_asset_count=1),
-            call("test2@posthog.com", subscription, [self.asset], invite_message=None, total_asset_count=1),
+            call(
+                "test1@posthog.com",
+                subscription,
+                [self.asset],
+                invite_message=None,
+                total_asset_count=1,
+            ),
+            call(
+                "test2@posthog.com",
+                subscription,
+                [self.asset],
+                invite_message=None,
+                total_asset_count=1,
+            ),
         ]
 
     def test_handle_subscription_value_change_email(
-        self, mock_gen_assets: MagicMock, mock_send_email: MagicMock, mock_send_slack: MagicMock
+        self,
+        mock_gen_assets: MagicMock,
+        mock_send_email: MagicMock,
+        mock_send_slack: MagicMock,
     ) -> None:
         subscription = create_subscription(
             team=self.team,
@@ -126,7 +152,9 @@ class TestSubscriptionsTasks(APIBaseTest):
         mock_gen_assets.return_value = [self.insight], [self.asset]
 
         handle_subscription_value_change(
-            subscription.id, previous_value="test_existing@posthog.com", invite_message="My invite message"
+            subscription.id,
+            previous_value="test_existing@posthog.com",
+            invite_message="My invite message",
         )
 
         assert mock_send_email.call_count == 1
@@ -142,7 +170,10 @@ class TestSubscriptionsTasks(APIBaseTest):
         ]
 
     def test_deliver_subscription_report_slack(
-        self, mock_gen_assets: MagicMock, mock_send_email: MagicMock, mock_send_slack: MagicMock
+        self,
+        mock_gen_assets: MagicMock,
+        mock_send_email: MagicMock,
+        mock_send_slack: MagicMock,
     ) -> None:
         subscription = create_subscription(
             team=self.team,
@@ -157,5 +188,10 @@ class TestSubscriptionsTasks(APIBaseTest):
 
         assert mock_send_slack.call_count == 1
         assert mock_send_slack.call_args_list == [
-            call(subscription, [self.asset], total_asset_count=1, is_new_subscription=False)
+            call(
+                subscription,
+                [self.asset],
+                total_asset_count=1,
+                is_new_subscription=False,
+            )
         ]

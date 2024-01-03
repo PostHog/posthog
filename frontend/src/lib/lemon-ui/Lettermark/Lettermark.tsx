@@ -1,5 +1,6 @@
-import clsx from 'clsx'
 import './Lettermark.scss'
+
+import clsx from 'clsx'
 
 // This is the number of known --lettermark-* variables in `globals.scss`
 const NUM_LETTERMARK_STYLES = 8
@@ -37,7 +38,8 @@ export function Lettermark({ name, index, color, rounded = false }: LettermarkPr
             className={clsx(
                 'Lettermark',
                 colorIndex && `Lettermark--variant-${colorIndex}`,
-                rounded && `Lettermark--rounded`
+                rounded && `Lettermark--rounded`,
+                representation === '?' && 'Lettermark--unknown'
             )}
             title={String(name)}
         >

@@ -1,17 +1,20 @@
-import { ComponentMeta, ComponentStory } from '@storybook/react'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
 import { SentenceList, SentenceListProps } from './SentenceList'
 
-export default {
+type Story = StoryObj<typeof SentenceList>
+const meta: Meta<typeof SentenceList> = {
     title: 'Components/SentenceList',
     component: SentenceList,
     parameters: {},
-} as ComponentMeta<typeof SentenceList>
+}
+export default meta
 
-const Template: ComponentStory<typeof SentenceList> = (props: SentenceListProps) => {
+const Template: StoryFn<typeof SentenceList> = (props: SentenceListProps) => {
     return <SentenceList {...props} />
 }
 
-export const FullSentence = Template.bind({})
+export const FullSentence: Story = Template.bind({})
 FullSentence.args = {
     prefix: 'Bob',
     suffix: 'on feature flag cool-flag',
@@ -22,13 +25,13 @@ FullSentence.args = {
     ],
 }
 
-export const OneAction = Template.bind({})
+export const OneAction: Story = Template.bind({})
 OneAction.args = { listParts: ['changed description to "something cool"'] }
 
-export const TwoActions = Template.bind({})
+export const TwoActions: Story = Template.bind({})
 TwoActions.args = { listParts: ['changed description to "something cool"', 'changed name to "woop"'] }
 
-export const ThreeActions = Template.bind({})
+export const ThreeActions: Story = Template.bind({})
 ThreeActions.args = {
     listParts: [
         'changed description to "something cool"',

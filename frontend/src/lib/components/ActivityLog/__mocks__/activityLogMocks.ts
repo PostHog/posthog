@@ -1,4 +1,5 @@
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+
 import { InsightShortId } from '~/types'
 
 export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
@@ -619,6 +620,75 @@ export const personActivityResponseJson: ActivityLogItem[] = [
 ]
 
 export const insightsActivityResponseJson: ActivityLogItem[] = [
+    {
+        user: {
+            first_name: 'Employee 427',
+            email: 'test@posthog.com',
+        },
+        activity: 'updated',
+        scope: ActivityScope.INSIGHT,
+        item_id: '39',
+        detail: {
+            merge: null,
+            changes: [
+                {
+                    type: 'Insight',
+                    action: 'changed',
+                    field: 'derived_name',
+                    before: "Pageview count by event's $feature/auto-redirect",
+                    after: "Pageview count by event's Browser Version",
+                },
+                {
+                    type: 'Insight',
+                    action: 'changed',
+                    field: 'filters',
+                    before: {
+                        events: [
+                            {
+                                id: '$pageview',
+                                math: 'total',
+                                name: '$pageview',
+                                type: 'events',
+                                order: 0,
+                            },
+                        ],
+                        display: 'ActionsLineGraph',
+                        insight: 'TRENDS',
+                        interval: 'day',
+                        breakdown: '$feature/auto-redirect',
+                        date_from: '-7d',
+                        entity_type: 'events',
+                        breakdown_type: 'event',
+                        filter_test_accounts: false,
+                    },
+                    after: {
+                        events: [
+                            {
+                                id: '$pageview',
+                                math: 'total',
+                                name: '$pageview',
+                                type: 'events',
+                                order: 0,
+                            },
+                        ],
+                        display: 'ActionsLineGraph',
+                        insight: 'TRENDS',
+                        interval: 'day',
+                        breakdown: '$browser_version',
+                        date_from: '-7d',
+                        entity_type: 'events',
+                        breakdown_type: 'event',
+                        filter_test_accounts: false,
+                        breakdown_histogram_bin_count: 10,
+                    },
+                },
+            ],
+            trigger: null,
+            name: "Pageview count by event's Browser Version",
+            short_id: 'T6G3KTkh' as InsightShortId,
+        },
+        created_at: '2023-08-21T20:47:45.898432Z',
+    },
     {
         user: {
             first_name: 'Cory',

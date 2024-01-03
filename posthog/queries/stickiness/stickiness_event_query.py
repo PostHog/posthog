@@ -7,7 +7,7 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.queries.event_query import EventQuery
 from posthog.queries.person_query import PersonQuery
-from posthog.queries.util import get_person_properties_mode, get_trunc_func_ch
+from posthog.queries.util import get_person_properties_mode, get_start_of_interval_sql
 from posthog.utils import PersonOnEventsMode
 
 
@@ -20,7 +20,6 @@ class StickinessEventsQuery(EventQuery):
         super().__init__(*args, **kwargs)
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
-
         prop_query, prop_params = self._get_prop_groups(
             self._filter.property_groups.combine_property_group(PropertyOperatorType.AND, self._entity.property_groups),
             person_properties_mode=get_person_properties_mode(self._team),
@@ -53,7 +52,9 @@ class StickinessEventsQuery(EventQuery):
         query = f"""
             SELECT
                 {self.aggregation_target()} AS aggregation_target,
-                countDistinct({get_trunc_func_ch(self._filter.interval)}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s))) as num_intervals
+                countDistinct(
+                    {get_start_of_interval_sql(self._filter.interval, team=self._team)}
+                ) as num_intervals
             FROM events {self.EVENT_TABLE_ALIAS}
             {sample_clause}
             {self._get_person_ids_query()}

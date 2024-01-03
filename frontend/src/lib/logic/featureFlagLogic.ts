@@ -1,8 +1,10 @@
-import { kea } from 'kea'
-import type { featureFlagLogicType } from './featureFlagLogicType'
-import posthog from 'posthog-js'
+import { actions, afterMount, kea, path, reducers } from 'kea'
 import { getAppContext } from 'lib/utils/getAppContext'
+import posthog from 'posthog-js'
+
 import { AppContext } from '~/types'
+
+import type { featureFlagLogicType } from './featureFlagLogicType'
 
 export type FeatureFlagsSet = {
     [flag: string]: boolean | string
@@ -20,7 +22,13 @@ function notifyFlagIfNeeded(flag: string, flagState: string | boolean | undefine
 
 function getPersistedFeatureFlags(appContext: AppContext | undefined = getAppContext()): FeatureFlagsSet {
     const persistedFeatureFlags = appContext?.persisted_feature_flags || []
-    return Object.fromEntries(persistedFeatureFlags.map((f) => [f, true]))
+    const flags = Object.fromEntries(
+        persistedFeatureFlags.map((f) => {
+            return [f, true]
+        })
+    )
+
+    return flags
 }
 
 function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
@@ -64,13 +72,12 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
     }
 }
 
-export const featureFlagLogic = kea<featureFlagLogicType>({
-    path: ['lib', 'logic', 'featureFlagLogic'],
-    actions: {
+export const featureFlagLogic = kea<featureFlagLogicType>([
+    path(['lib', 'logic', 'featureFlagLogic']),
+    actions({
         setFeatureFlags: (flags: string[], variants: Record<string, string | boolean>) => ({ flags, variants }),
-    },
-
-    reducers: {
+    }),
+    reducers({
         featureFlags: [
             getPersistedFeatureFlags(),
             { persist: true },
@@ -84,11 +91,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
                 setFeatureFlags: () => true,
             },
         ],
-    },
-
-    events: ({ actions }) => ({
-        afterMount: () => {
-            posthog.onFeatureFlags(actions.setFeatureFlags)
-        },
     }),
-})
+    afterMount(({ actions }) => {
+        posthog.onFeatureFlags(actions.setFeatureFlags)
+    }),
+])

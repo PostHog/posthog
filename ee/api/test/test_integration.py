@@ -25,11 +25,16 @@ class TestIntegration(APILicensedTest):
         signature = (
             "v0="
             + hmac.new(
-                "not-so-secret".encode("utf-8"), sig_basestring.encode("utf-8"), digestmod=hashlib.sha256
+                "not-so-secret".encode("utf-8"),
+                sig_basestring.encode("utf-8"),
+                digestmod=hashlib.sha256,
             ).hexdigest()
         )
 
-        return {"HTTP_X_SLACK_SIGNATURE": signature, "HTTP_X_SLACK_REQUEST_TIMESTAMP": str(slack_time)}
+        return {
+            "HTTP_X_SLACK_SIGNATURE": signature,
+            "HTTP_X_SLACK_REQUEST_TIMESTAMP": str(slack_time),
+        }
 
     def test_validates_payload(self):
         body = {"type": "url_verification", "challenge": "to-a-duel!"}

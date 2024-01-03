@@ -1,5 +1,5 @@
 from posthog.test.base import BaseTest
-from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential
+from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseTable
 
 
 class TestTable(BaseTest):
@@ -34,10 +34,12 @@ class TestTable(BaseTest):
             },
             credential=credential,
         )
-        self.assertEqual(list(table.hogql_definition().fields.keys()), ["id", "timestamp", "mrr", "offset"])
+        self.assertEqual(
+            list(table.hogql_definition().fields.keys()),
+            ["id", "timestamp", "mrr", "offset"],
+        )
 
     def test_hogql_definition_tuple_patch(self):
-
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
         table = DataWarehouseTable.objects.create(
             name="bla",

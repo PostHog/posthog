@@ -48,6 +48,7 @@ class OrganizationUsageResource(TypedDict):
 class OrganizationUsageInfo(TypedDict):
     events: Optional[OrganizationUsageResource]
     recordings: Optional[OrganizationUsageResource]
+    rows_synced: Optional[OrganizationUsageResource]
     period: Optional[List[str]]
 
 
@@ -56,7 +57,11 @@ class OrganizationManager(models.Manager):
         return create_with_slug(super().create, *args, **kwargs)
 
     def bootstrap(
-        self, user: Optional["User"], *, team_fields: Optional[Dict[str, Any]] = None, **kwargs
+        self,
+        user: Optional["User"],
+        *,
+        team_fields: Optional[Dict[str, Any]] = None,
+        **kwargs,
     ) -> Tuple["Organization", Optional["OrganizationMembership"], "Team"]:
         """Instead of doing the legwork of creating an organization yourself, delegate the details with bootstrap."""
         from .team import Team  # Avoiding circular import
@@ -67,10 +72,14 @@ class OrganizationManager(models.Manager):
             organization_membership: Optional[OrganizationMembership] = None
             if user is not None:
                 organization_membership = OrganizationMembership.objects.create(
-                    organization=organization, user=user, level=OrganizationMembership.Level.OWNER
+                    organization=organization,
+                    user=user,
+                    level=OrganizationMembership.Level.OWNER,
                 )
                 user.current_organization = organization
+                user.organization = user.current_organization  # Update cached property
                 user.current_team = team
+                user.team = user.current_team  # Update cached property
                 user.save()
 
         return organization, organization_membership, team
@@ -117,10 +126,8 @@ class Organization(UUIDModel):
     is_member_join_email_enabled: models.BooleanField = models.BooleanField(default=True)
     enforce_2fa: models.BooleanField = models.BooleanField(null=True, blank=True)
 
-    # Managed by Billing
+    ## Managed by Billing
     customer_id: models.CharField = models.CharField(max_length=200, null=True, blank=True)
-    # will be deprecated in favor of `available_product_features` once we're fully using that format in the frontend
-    available_features = ArrayField(models.CharField(max_length=64, blank=False), blank=True, default=list)
     available_product_features = ArrayField(models.JSONField(blank=False), null=True, blank=True)
     # Managed by Billing, cached here for usage controls
     # Like {
@@ -130,6 +137,7 @@ class Organization(UUIDModel):
     # }
     # Also currently indicates if the organization is on billing V2 or not
     usage: models.JSONField = models.JSONField(null=True, blank=True)
+    never_drop_data: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
 
     # DEPRECATED attributes (should be removed on next major version)
     setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)
@@ -137,6 +145,9 @@ class Organization(UUIDModel):
     domain_whitelist: ArrayField = ArrayField(
         models.CharField(max_length=256, blank=False), blank=True, default=list
     )  # DEPRECATED in favor of `OrganizationDomain` model; previously used to allow self-serve account creation based on social login (#5111)
+    available_features = ArrayField(
+        models.CharField(max_length=64, blank=False), blank=True, default=list
+    )  # DEPRECATED in favor of `available_product_features`
 
     objects: OrganizationManager = OrganizationManager()
 
@@ -202,7 +213,6 @@ class Organization(UUIDModel):
         return {
             "member_count": self.members.count(),
             "project_count": self.teams.count(),
-            "person_count": sum(team.person_set.count() for team in self.teams.all()),
             "name": self.name,
         }
 
@@ -219,8 +229,14 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
 def ensure_available_features_sync(sender, instance: Organization, **kwargs):
     updated_fields = kwargs.get("update_fields") or []
     if "available_features" in updated_fields:
-        logger.info("Notifying plugin-server to reset available features cache.", {"organization_id": instance.id})
-        get_client().publish("reset-available-features-cache", json.dumps({"organization_id": str(instance.id)}))
+        logger.info(
+            "Notifying plugin-server to reset available features cache.",
+            {"organization_id": instance.id},
+        )
+        get_client().publish(
+            "reset-available-features-cache",
+            json.dumps({"organization_id": str(instance.id)}),
+        )
 
 
 class OrganizationMembership(UUIDModel):
@@ -232,7 +248,10 @@ class OrganizationMembership(UUIDModel):
         OWNER = 15, "owner"
 
     organization: models.ForeignKey = models.ForeignKey(
-        "posthog.Organization", on_delete=models.CASCADE, related_name="memberships", related_query_name="membership"
+        "posthog.Organization",
+        on_delete=models.CASCADE,
+        related_name="memberships",
+        related_query_name="membership",
     )
     user: models.ForeignKey = models.ForeignKey(
         "posthog.User",
@@ -248,9 +267,14 @@ class OrganizationMembership(UUIDModel):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["organization_id", "user_id"], name="unique_organization_membership"),
             models.UniqueConstraint(
-                fields=["organization_id"], condition=models.Q(level=15), name="only_one_owner_per_organization"
+                fields=["organization_id", "user_id"],
+                name="unique_organization_membership",
+            ),
+            models.UniqueConstraint(
+                fields=["organization_id"],
+                condition=models.Q(level=15),
+                name="only_one_owner_per_organization",
             ),
         ]
 
@@ -258,7 +282,9 @@ class OrganizationMembership(UUIDModel):
         return str(self.Level(self.level))
 
     def validate_update(
-        self, membership_being_updated: "OrganizationMembership", new_level: Optional[Level] = None
+        self,
+        membership_being_updated: "OrganizationMembership",
+        new_level: Optional[Level] = None,
     ) -> None:
         if new_level is not None:
             if membership_being_updated.id == self.id:
@@ -287,7 +313,10 @@ class OrganizationMembership(UUIDModel):
 
 class OrganizationInvite(UUIDModel):
     organization: models.ForeignKey = models.ForeignKey(
-        "posthog.Organization", on_delete=models.CASCADE, related_name="invites", related_query_name="invite"
+        "posthog.Organization",
+        on_delete=models.CASCADE,
+        related_name="invites",
+        related_query_name="invite",
     )
     target_email: models.EmailField = models.EmailField(null=True, db_index=True)
     first_name: models.CharField = models.CharField(max_length=30, blank=True, default="")
@@ -303,7 +332,16 @@ class OrganizationInvite(UUIDModel):
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
     message: models.TextField = models.TextField(blank=True, null=True)
 
-    def validate(self, *, user: Optional["User"] = None, email: Optional[str] = None) -> None:
+    def validate(
+        self,
+        *,
+        user: Optional["User"] = None,
+        email: Optional[str] = None,
+        invite_email: Optional[str] = None,
+        request_path: Optional[str] = None,
+    ) -> None:
+        from .user import User
+
         _email = email or getattr(user, "email", None)
 
         if _email and _email != self.target_email:
@@ -314,12 +352,17 @@ class OrganizationInvite(UUIDModel):
 
         if self.is_expired():
             raise exceptions.ValidationError(
-                "This invite has expired. Please ask your admin for a new one.", code="expired"
+                "This invite has expired. Please ask your admin for a new one.",
+                code="expired",
             )
+
+        if user is None and User.objects.filter(email=invite_email).exists():
+            raise exceptions.ValidationError(f"/login?next={request_path}", code="account_exists")
 
         if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():
             raise exceptions.ValidationError(
-                "You already are a member of this organization.", code="user_already_member"
+                "You already are a member of this organization.",
+                code="user_already_member",
             )
 
         if OrganizationMembership.objects.filter(
@@ -337,7 +380,12 @@ class OrganizationInvite(UUIDModel):
         if is_email_available(with_absolute_urls=True) and self.organization.is_member_join_email_enabled:
             from posthog.tasks.email import send_member_join
 
-            send_member_join.apply_async(kwargs={"invitee_uuid": user.uuid, "organization_id": self.organization_id})
+            send_member_join.apply_async(
+                kwargs={
+                    "invitee_uuid": user.uuid,
+                    "organization_id": self.organization_id,
+                }
+            )
         OrganizationInvite.objects.filter(target_email__iexact=self.target_email).delete()
 
     def is_expired(self) -> bool:
@@ -363,3 +411,19 @@ def ensure_organization_membership_consistency(sender, instance: OrganizationMem
         save_user = True
     if save_user:
         instance.user.save()
+
+
+@receiver(models.signals.pre_save, sender=OrganizationMembership)
+def organization_membership_saved(sender: Any, instance: OrganizationMembership, **kwargs: Any) -> None:
+    from posthog.event_usage import report_user_organization_membership_level_changed
+
+    try:
+        old_instance = OrganizationMembership.objects.get(id=instance.id)
+        if old_instance.level != instance.level:
+            # the level has been changed
+            report_user_organization_membership_level_changed(
+                instance.user, instance.organization, instance.level, old_instance.level
+            )
+    except OrganizationMembership.DoesNotExist:
+        # The instance is new, or we are setting up test data
+        pass

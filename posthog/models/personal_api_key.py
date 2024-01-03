@@ -1,16 +1,27 @@
-from django.contrib.auth.hashers import get_hasher
+from django.contrib.auth.hashers import PBKDF2PasswordHasher
 from django.db import models
 from django.utils import timezone
 
 from .utils import generate_random_token
+
+# Fixed iteration count for PBKDF2PasswordHasher hasher.
+# This is the iteration count used by PostHog since the beginning of time.
+# Changing this would break all existing personal API keys.
+PERSONAL_API_KEY_ITERATIONS = 260000
+
+PERSONAL_API_KEY_ITERATIONS_TO_TRY = (
+    PERSONAL_API_KEY_ITERATIONS,
+    390000,  # This is the iteration count used briefly on some API keys.
+)
 
 # A constant salt is not nearly as good as user-specific, but we must be able to look up a personal API key
 # by itself. Some salt is slightly better than none though.
 PERSONAL_API_KEY_SALT = "posthog_personal_api_key"
 
 
-def hash_key_value(value: str) -> str:
-    return get_hasher().encode(value, PERSONAL_API_KEY_SALT)
+def hash_key_value(value: str, iterations: int = PERSONAL_API_KEY_ITERATIONS) -> str:
+    hasher = PBKDF2PasswordHasher()
+    return hasher.encode(value, PERSONAL_API_KEY_SALT, iterations=iterations)
 
 
 class PersonalAPIKey(models.Model):
@@ -29,5 +40,9 @@ class PersonalAPIKey(models.Model):
 
     # DEPRECATED: personal API keys are now specifically personal, without team affiliation
     team = models.ForeignKey(
-        "posthog.Team", on_delete=models.SET_NULL, related_name="personal_api_keys+", null=True, blank=True
+        "posthog.Team",
+        on_delete=models.SET_NULL,
+        related_name="personal_api_keys+",
+        null=True,
+        blank=True,
     )

@@ -27,8 +27,20 @@ class TestCaptureAPI(APIBaseTest):
             {
                 "data": json.dumps(
                     [
-                        {"event": "event1", "properties": {"distinct_id": "id1", "token": self.team.api_token}},
-                        {"event": "event2", "properties": {"distinct_id": "id2", "token": self.team.api_token}},
+                        {
+                            "event": "event1",
+                            "properties": {
+                                "distinct_id": "id1",
+                                "token": self.team.api_token,
+                            },
+                        },
+                        {
+                            "event": "event2",
+                            "properties": {
+                                "distinct_id": "id2",
+                                "token": self.team.api_token,
+                            },
+                        },
                     ]
                 ),
                 "api_key": self.team.api_token,
@@ -87,7 +99,10 @@ class TestCaptureAPI(APIBaseTest):
                         {
                             "event": "event1",
                             "uuid": "017d37c1-f285-0000-0e8b-e02d131925dc",
-                            "properties": {"distinct_id": "id1", "token": self.team.api_token},
+                            "properties": {
+                                "distinct_id": "id1",
+                                "token": self.team.api_token,
+                            },
                         }
                     ]
                 ),
@@ -110,7 +125,15 @@ class TestCaptureAPI(APIBaseTest):
             "/capture/",
             {
                 "data": json.dumps(
-                    [{"event": "event1", "properties": {"distinct_id": "id1", "token": self.team.api_token}}]
+                    [
+                        {
+                            "event": "event1",
+                            "properties": {
+                                "distinct_id": "id1",
+                                "token": self.team.api_token,
+                            },
+                        }
+                    ]
                 ),
                 "api_key": self.team.api_token,
             },
@@ -135,7 +158,15 @@ class TestCaptureAPI(APIBaseTest):
             "/capture/",
             {
                 "data": json.dumps(
-                    [{"event": "event1", "properties": {"distinct_id": "id1", "token": self.team.api_token}}]
+                    [
+                        {
+                            "event": "event1",
+                            "properties": {
+                                "distinct_id": "id1",
+                                "token": self.team.api_token,
+                            },
+                        }
+                    ]
                 ),
                 "api_key": self.team.api_token,
             },
@@ -143,7 +174,10 @@ class TestCaptureAPI(APIBaseTest):
 
         # By default we use (the hash of) <team_id:distinct_id> as the partition key
         kafka_produce_call = kafka_produce.call_args_list[0].kwargs
-        self.assertEqual(kafka_produce_call["key"], hashlib.sha256(default_partition_key.encode()).hexdigest())
+        self.assertEqual(
+            kafka_produce_call["key"],
+            hashlib.sha256(default_partition_key.encode()).hexdigest(),
+        )
 
         # Setting up an override via EVENT_PARTITION_KEYS_TO_OVERRIDE should cause us to pass None
         # as the key when producing to Kafka, leading to random partitioning
@@ -152,7 +186,15 @@ class TestCaptureAPI(APIBaseTest):
                 "/capture/",
                 {
                     "data": json.dumps(
-                        [{"event": "event1", "properties": {"distinct_id": "id1", "token": self.team.api_token}}]
+                        [
+                            {
+                                "event": "event1",
+                                "properties": {
+                                    "distinct_id": "id1",
+                                    "token": self.team.api_token,
+                                },
+                            }
+                        ]
                     ),
                     "api_key": self.team.api_token,
                 },

@@ -24,8 +24,7 @@ describe('captureIngestionWarning()', () => {
     }
 
     it('can read own writes', async () => {
-        captureIngestionWarning(hub.db, 2, 'some_type', { foo: 'bar' })
-        await hub.promiseManager.awaitPromisesIfNeeded()
+        await captureIngestionWarning(hub.db, 2, 'some_type', { foo: 'bar' })
 
         const warnings = await delayUntilEventIngested(fetchWarnings)
         expect(warnings).toEqual([

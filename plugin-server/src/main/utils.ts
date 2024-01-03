@@ -4,38 +4,56 @@ import { exponentialBuckets, Histogram } from 'prom-client'
 import { timeoutGuard } from '../utils/db/utils'
 import { status } from '../utils/status'
 
-interface FunctionInstrumentation<T, E> {
-    event: E
-    timeoutMessage: string
+interface FunctionInstrumentation<T> {
     statsKey: string
-    func: (event: E) => Promise<T>
-    teamId: number
+    func: () => Promise<T>
+    timeout?: number
+    timeoutMessage?: string
+    timeoutContext?: () => Record<string, any>
+    teamId?: number
+    logExecutionTime?: boolean
 }
 
-export async function runInstrumentedFunction<T, E>({
+const logTime = (startTime: number, statsKey: string, error?: any) => {
+    status.info('⏱️', `${statsKey} took ${Math.round(performance.now() - startTime)}ms`, {
+        error,
+        statsKey,
+        type: 'instrumented_function_time_log',
+    })
+}
+
+export async function runInstrumentedFunction<T>({
     timeoutMessage,
-    event,
+    timeout,
+    timeoutContext,
     func,
     statsKey,
     teamId,
-}: FunctionInstrumentation<T, E>): Promise<T> {
-    const timeout = timeoutGuard(timeoutMessage, {
-        event: JSON.stringify(event),
-    })
+    logExecutionTime = false,
+}: FunctionInstrumentation<T>): Promise<T> {
+    const t = timeoutGuard(timeoutMessage ?? `Timeout warning for '${statsKey}'!`, timeoutContext, timeout)
+    const startTime = performance.now()
     const end = instrumentedFunctionDuration.startTimer({
         function: statsKey,
     })
+
     try {
-        const result = await func(event)
+        const result = await func()
         end({ success: 'true' })
+        if (logExecutionTime) {
+            logTime(startTime, statsKey)
+        }
         return result
     } catch (error) {
         end({ success: 'false' })
         status.info('🔔', error)
+        if (logExecutionTime) {
+            logTime(startTime, statsKey, error)
+        }
         Sentry.captureException(error, { tags: { team_id: teamId } })
         throw error
     } finally {
-        clearTimeout(timeout)
+        clearTimeout(t)
     }
 }
 

@@ -31,7 +31,7 @@
         "team_members",
         "organizations_projects",
         "api_access",
-        "google_login",
+        "social_sso",
         "project_based_permissioning",
         "sso_enforcement",
         "white_labeling",
@@ -302,9 +302,9 @@
             "note": null
         },
         {
-            "key": "google_login",
-            "name": "Google oAuth",
-            "description": "Use Google's oAuth to log in to PostHog.",
+            "key": "social_sso",
+            "name": "SSO via Google, Github, or Gitlab",
+            "description": "Log in to PostHog with your Google, Github, or Gitlab account.",
             "unit": null,
             "limit": null,
             "note": null
@@ -382,10 +382,236 @@
             "description": "Trends, funnels, path analysis + more.",
             "price_description": null,
             "usage_key": "events",
+            "icon_key": "IconGraph",
             "image_url": "https://posthog.com/images/product/product-icons/product-analytics.svg",
             "docs_url": "https://posthog.com/docs/product-analytics",
             "subscribed": true,
-            "plans": [],
+            "plans": [
+                {
+                    "plan_key": "free-20230117",
+                    "product_key": "product_analytics",
+                    "name": "Product analytics + data stack",
+                    "description": "Trends, funnels, path analysis, CDP + more.",
+                    "image_url": "https://posthog.com/images/product/product-icons/product-analytics.svg",
+                    "docs_url": "https://posthog.com/docs/product-analytics",
+                    "note": null,
+                    "unit": "event",
+                    "free_allocation": 1000000,
+                    "features": [
+                        {
+                            "key": "dashboards",
+                            "name": "Dashboards",
+                            "description": "Save trends, funnels, and other insights for easy reference by your whole team.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "funnels",
+                            "name": "Funnels",
+                            "description": "Visualize user dropoff between a sequence of events.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "graphs_trends",
+                            "name": "Graphs & trends",
+                            "description": "Plot any number of events or actions over time.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "paths",
+                            "name": "Paths",
+                            "description": "Limited paths excludes: customizing path insights by setting the maximum number of paths, number of people on each path, how path names appear",
+                            "unit": null,
+                            "limit": null,
+                            "note": "Limited"
+                        }
+                    ],
+                    "tiers": null,
+                    "current_plan": false,
+                    "included_if": null
+                },
+                {
+                    "plan_key": "paid-20230509",
+                    "product_key": "product_analytics",
+                    "name": "Product analytics + data stack",
+                    "description": "Trends, funnels, path analysis, CDP + more.",
+                    "image_url": "https://posthog.com/images/product/product-icons/product-analytics.svg",
+                    "docs_url": "https://posthog.com/docs/product-analytics",
+                    "note": null,
+                    "unit": "event",
+                    "free_allocation": null,
+                    "features": [
+                        {
+                            "key": "dashboards",
+                            "name": "Dashboards",
+                            "description": "Save trends, funnels, and other insights for easy reference by your whole team.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "funnels",
+                            "name": "Funnels",
+                            "description": "Visualize user dropoff between a sequence of events.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "graphs_trends",
+                            "name": "Graphs & trends",
+                            "description": "Plot any number of events or actions over time.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "paths",
+                            "name": "Paths",
+                            "description": "Limited paths excludes: customizing path insights by setting the maximum number of paths, number of people on each path, how path names appear",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "subscriptions",
+                            "name": "Insight & dashboard subscriptions",
+                            "description": "Create a subscription for any insight or dashboard in PostHog to receive regular reports with their updates.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "paths_advanced",
+                            "name": "Advanced paths",
+                            "description": "Customize your path insights by setting the maximum number of paths, number of people on each path, and how path names should appear.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "dashboard_permissioning",
+                            "name": "Dashboard permissions",
+                            "description": "Restrict access to dashboards within the organization to only those who need it.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "dashboard_collaboration",
+                            "name": "Tags & text cards",
+                            "description": "Keep organized by adding tags to your dashboards, cohorts and more. Add text cards and descriptions to your dashboards to provide context to your team.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "ingestion_taxonomy",
+                            "name": "Ingestion taxonomy",
+                            "description": "Ingestion taxonomy",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "correlation_analysis",
+                            "name": "Correlation analysis",
+                            "description": "Automatically highlight significant factors that affect the conversion rate of users within a funnel.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "tagging",
+                            "name": "Dashboard tags",
+                            "description": "Organize dashboards with tags.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "behavioral_cohort_filtering",
+                            "name": "Lifecycle cohorts",
+                            "description": "Group users based on their long term behavior, such as whether they frequently performed an event, or have recently stopped performing an event.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        }
+                    ],
+                    "tiers": [
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0",
+                            "up_to": 1000000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.0003068",
+                            "up_to": 2000000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.00013",
+                            "up_to": 15000000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.0000819",
+                            "up_to": 50000000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.0000455",
+                            "up_to": 100000000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.0000234",
+                            "up_to": 250000000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.0000052",
+                            "up_to": null,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        }
+                    ],
+                    "current_plan": true,
+                    "included_if": null
+                }
+            ],
             "type": "product_analytics",
             "free_allocation": 0,
             "tiers": [
@@ -452,6 +678,7 @@
                     "description": "Understand how groups of users behave.",
                     "price_description": null,
                     "image_url": "https://posthog.com/images/product/product-icons/group-analytics.svg",
+                    "icon_key": "IconPeople",
                     "docs_url": "https://posthog.com/docs/product-analytics/group-analytics",
                     "type": "group_analytics",
                     "tiers": [],
@@ -1016,9 +1243,9 @@
                             "note": null
                         },
                         {
-                            "key": "google_login",
-                            "name": "Google oAuth",
-                            "description": "Use Google's oAuth to log in to PostHog.",
+                            "key": "social_sso",
+                            "name": "SSO via Google, Github, or Gitlab",
+                            "description": "Log in to PostHog with your Google, Github, or Gitlab account.",
                             "unit": null,
                             "limit": null,
                             "note": null
@@ -1096,9 +1323,9 @@
                             "note": null
                         },
                         {
-                            "key": "google_login",
-                            "name": "Google oAuth",
-                            "description": "Use Google's oAuth to log in to PostHog.",
+                            "key": "social_sso",
+                            "name": "SSO via Google, Github, or Gitlab",
+                            "description": "Log in to PostHog with your Google, Github, or Gitlab account.",
                             "unit": null,
                             "limit": null,
                             "note": null
@@ -1394,9 +1621,9 @@
                                     "group": "platform"
                                 },
                                 {
-                                    "key": "google_login",
-                                    "name": "Google oAuth",
-                                    "description": "Use Google's oAuth to log in to PostHog.",
+                                    "key": "social_sso",
+                                    "name": "SSO via Google, Github, or Gitlab",
+                                    "description": "Log in to PostHog with your Google, Github, or Gitlab account.",
                                     "unit": null,
                                     "limit": null,
                                     "note": null,
@@ -1920,9 +2147,9 @@
                                     "group": "platform"
                                 },
                                 {
-                                    "key": "google_login",
-                                    "name": "Google oAuth",
-                                    "description": "Use Google's oAuth to log in to PostHog.",
+                                    "key": "social_sso",
+                                    "name": "SSO via Google, Github, or Gitlab",
+                                    "description": "Log in to PostHog with your Google, Github, or Gitlab account.",
                                     "unit": null,
                                     "limit": null,
                                     "note": null,
@@ -2455,9 +2682,9 @@
                                     "group": "platform"
                                 },
                                 {
-                                    "key": "google_login",
-                                    "name": "Google oAuth",
-                                    "description": "Use Google's oAuth to log in to PostHog.",
+                                    "key": "social_sso",
+                                    "name": "SSO via Google, Github, or Gitlab",
+                                    "description": "Log in to PostHog with your Google, Github, or Gitlab account.",
                                     "unit": null,
                                     "limit": null,
                                     "note": null,

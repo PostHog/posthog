@@ -6,12 +6,13 @@ import {
     Description,
     detectBoolean,
     HumanizedChange,
+    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
-import { pluralize } from 'lib/utils'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { IconVerifiedEvent } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
+import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 const dataManagementActionsMapping: Record<
@@ -22,7 +23,7 @@ const dataManagementActionsMapping: Record<
         return {
             description: [
                 <>
-                    changed description to <strong>"{change?.after}"</strong>
+                    changed description to <strong>"{change?.after as string}"</strong>
                 </>,
             ],
         }
@@ -129,7 +130,7 @@ export function dataManagementActivityDescriber(logItem: ActivityLogItem): Human
                 description: (
                     <SentenceList
                         listParts={changes}
-                        prefix={<strong>{logItem.user.first_name}</strong>}
+                        prefix={<strong>{userNameForLogItem(logItem)}</strong>}
                         suffix={changeSuffix}
                     />
                 ),
@@ -141,7 +142,7 @@ export function dataManagementActivityDescriber(logItem: ActivityLogItem): Human
         return {
             description: (
                 <>
-                    <strong>{logItem.user.first_name}</strong> deleted <DescribeType logItem={logItem} />{' '}
+                    <strong>{userNameForLogItem(logItem)}</strong> deleted <DescribeType logItem={logItem} />{' '}
                     {nameAndLink(logItem)}
                 </>
             ),

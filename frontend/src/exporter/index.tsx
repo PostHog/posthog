@@ -1,10 +1,13 @@
 import '~/styles'
 import './Exporter.scss'
-import ReactDOM from 'react-dom'
-import { loadPostHogJS } from '~/loadPostHogJS'
-import { initKea } from '~/initKea'
+
+import { createRoot } from 'react-dom/client'
+
 import { Exporter } from '~/exporter/Exporter'
 import { ExportedData } from '~/exporter/types'
+import { initKea } from '~/initKea'
+import { loadPostHogJS } from '~/loadPostHogJS'
+
 import { ErrorBoundary } from '../layout/ErrorBoundary'
 
 // Disable tracking for all exports and embeds.
@@ -20,11 +23,10 @@ const exportedData: ExportedData = window.POSTHOG_EXPORTED_DATA
 function renderApp(): void {
     const root = document.getElementById('root')
     if (root) {
-        ReactDOM.render(
+        createRoot(root).render(
             <ErrorBoundary>
                 <Exporter {...exportedData} />
-            </ErrorBoundary>,
-            root
+            </ErrorBoundary>
         )
     } else {
         console.error('Attempted, but could not render PostHog app because <div id="root" /> is not found.')

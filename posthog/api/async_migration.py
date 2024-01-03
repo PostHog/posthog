@@ -4,9 +4,17 @@ from rest_framework.decorators import action
 from semantic_version.base import Version
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.async_migrations.runner import MAX_CONCURRENT_ASYNC_MIGRATIONS, is_posthog_version_compatible
+from posthog.async_migrations.runner import (
+    MAX_CONCURRENT_ASYNC_MIGRATIONS,
+    is_posthog_version_compatible,
+)
 from posthog.async_migrations.setup import get_async_migration_definition
-from posthog.async_migrations.utils import force_stop_migration, rollback_migration, trigger_migration
+from posthog.async_migrations.utils import (
+    force_stop_migration,
+    rollback_migration,
+    trigger_migration,
+)
+from posthog.constants import FROZEN_POSTHOG_VERSION
 from posthog.models.async_migration import (
     AsyncMigration,
     AsyncMigrationError,
@@ -15,7 +23,6 @@ from posthog.models.async_migration import (
 )
 from posthog.models.instance_setting import get_instance_setting
 from posthog.permissions import IsStaffUser
-from posthog.version import VERSION
 
 logger = structlog.get_logger(__name__)
 
@@ -83,9 +90,10 @@ class AsyncMigrationSerializer(serializers.ModelSerializer):
         return {}
 
     def get_is_available(self, async_migration: AsyncMigration):
-        return get_instance_setting("ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION") or Version(
-            async_migration.posthog_min_version
-        ) <= Version(VERSION)
+        return (
+            get_instance_setting("ASYNC_MIGRATIONS_IGNORE_POSTHOG_VERSION")
+            or Version(async_migration.posthog_min_version) <= FROZEN_POSTHOG_VERSION
+        )
 
 
 class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
@@ -108,7 +116,8 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
         migration_instance = self.get_object()
 
         if not is_posthog_version_compatible(
-            migration_instance.posthog_min_version, migration_instance.posthog_max_version
+            migration_instance.posthog_min_version,
+            migration_instance.posthog_max_version,
         ):
             return response.Response(
                 {
@@ -130,7 +139,11 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
         migration_instance = self.get_object()
         if migration_instance.status != MigrationStatus.Errored:
             return response.Response(
-                {"success": False, "error": "Can't resume a migration that isn't in errored state"}, status=400
+                {
+                    "success": False,
+                    "error": "Can't resume a migration that isn't in errored state",
+                },
+                status=400,
             )
 
         migration_instance.status = MigrationStatus.Running
@@ -142,9 +155,16 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     def _force_stop(self, rollback: bool):
         migration_instance = self.get_object()
-        if migration_instance.status not in [MigrationStatus.Running, MigrationStatus.Starting]:
+        if migration_instance.status not in [
+            MigrationStatus.Running,
+            MigrationStatus.Starting,
+        ]:
             return response.Response(
-                {"success": False, "error": "Can't stop a migration that isn't running."}, status=400
+                {
+                    "success": False,
+                    "error": "Can't stop a migration that isn't running.",
+                },
+                status=400,
             )
         force_stop_migration(migration_instance, rollback=rollback)
         return response.Response({"success": True}, status=200)
@@ -164,7 +184,11 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
         migration_instance = self.get_object()
         if migration_instance.status != MigrationStatus.Errored:
             return response.Response(
-                {"success": False, "error": "Can't rollback a migration that isn't in errored state."}, status=400
+                {
+                    "success": False,
+                    "error": "Can't rollback a migration that isn't in errored state.",
+                },
+                status=400,
             )
 
         rollback_migration(migration_instance)
@@ -175,7 +199,10 @@ class AsyncMigrationsViewset(StructuredViewSetMixin, viewsets.ModelViewSet):
         migration_instance = self.get_object()
         if migration_instance.status != MigrationStatus.CompletedSuccessfully:
             return response.Response(
-                {"success": False, "error": "Can't force rollback a migration that did not complete successfully."},
+                {
+                    "success": False,
+                    "error": "Can't force rollback a migration that did not complete successfully.",
+                },
                 status=400,
             )
 

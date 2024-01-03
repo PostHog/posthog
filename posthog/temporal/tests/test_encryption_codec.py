@@ -1,4 +1,5 @@
 import dataclasses
+import json
 import uuid
 
 import pytest
@@ -8,8 +9,9 @@ from temporalio.api.enums.v1 import EventType
 from temporalio.client import Client
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.codec import EncryptionCodec
-from posthog.temporal.workflows.noop import NoOpWorkflow, noop_activity
+from posthog.batch_exports.service import NoOpInputs
+from posthog.temporal.batch_exports.noop import NoOpWorkflow, noop_activity
+from posthog.temporal.common.codec import EncryptionCodec
 
 
 def get_history_event_payloads(event):
@@ -42,12 +44,22 @@ async def test_payloads_are_encrypted():
 
     workflow_id = uuid.uuid4()
     input_str = str(uuid.uuid4())
+
     no_op_result_str = f"OK - {input_str}"
-    no_op_activity_input_str = f'{{"time":"{input_str}"}}'
+    inputs = NoOpInputs(
+        arg=input_str,
+        batch_export_id="123",
+        team_id=1,
+    )
+
     # The no-op Workflow can only produce a limited set of results, so we'll check if the events match any of these.
     # Either it's the final result (no_op_result_str), the input to an activity (no_op_activity_input_str), or the
-    # input to the workflow (input_str). In all cases, data is encoded.
-    expected_results = (f'"{no_op_result_str}"'.encode(), f'"{input_str}"'.encode(), no_op_activity_input_str.encode())
+    # input to the workflow (inputs).
+    expected_results = (
+        no_op_result_str,
+        {"arg": input_str},
+        dataclasses.asdict(inputs),
+    )
 
     async with Worker(
         client,
@@ -58,7 +70,7 @@ async def test_payloads_are_encrypted():
     ) as worker:
         handle = await client.start_workflow(
             NoOpWorkflow.run,
-            input_str,
+            inputs,
             id=f"workflow-{workflow_id}",
             task_queue=worker.task_queue,
         )
@@ -76,4 +88,5 @@ async def test_payloads_are_encrypted():
             assert payload.metadata["encoding"] == b"binary/encrypted"
 
             decoded_payloads = await codec.decode([payload])
-            assert decoded_payloads[0].data in expected_results
+            loaded_payload = json.loads(decoded_payloads[0].data)
+            assert loaded_payload in expected_results

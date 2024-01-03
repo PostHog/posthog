@@ -27,9 +27,6 @@ export const KAFKA_SCHEDULED_TASKS_DLQ = `${prefix}scheduled_tasks_dlq${suffix}`
 export const KAFKA_METRICS_TIME_TO_SEE_DATA = `${prefix}clickhouse_metrics_time_to_see_data${suffix}`
 export const KAFKA_PERSON_OVERRIDE = `${prefix}clickhouse_person_override${suffix}`
 
-// read session recording events from Kafka
-export const KAFKA_SESSION_RECORDING_EVENTS = `${prefix}session_recording_events${suffix}`
-export const KAFKA_SESSION_RECORDING_EVENTS_DLQ = `${prefix}session_recording_events_dlq${suffix}`
 // read session recording snapshot items
 export const KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS = `${prefix}session_recording_snapshot_item_events${suffix}`
 // write session recording and replay events to ClickHouse
@@ -37,3 +34,6 @@ export const KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS = `${prefix}clickhouse_se
 export const KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS = `${prefix}clickhouse_session_replay_events${suffix}`
 // write performance events to ClickHouse
 export const KAFKA_PERFORMANCE_EVENTS = `${prefix}clickhouse_performance_events${suffix}`
+
+// log entries for ingestion into clickhouse
+export const KAFKA_LOG_ENTRIES = `${prefix}log_entries${suffix}`

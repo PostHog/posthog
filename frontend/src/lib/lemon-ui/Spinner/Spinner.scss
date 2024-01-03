@@ -1,9 +1,12 @@
 .Spinner {
-    display: block;
+    --spinner-color: var(--primary-3000);
+
+    display: inline-block; // Same as .LemonIcon
+    flex-shrink: 0;
     width: 1em;
     height: 1em;
-    flex-shrink: 0;
-    --spinner-color: var(--brand-blue);
+    vertical-align: -0.15em; // Same as .LemonIcon
+
     &.Spinner--textColored {
         --spinner-color: currentColor;
     }
@@ -11,62 +14,70 @@
 
 .Spinner__layer {
     transform-origin: center;
+
     > circle {
         display: block;
         fill: transparent;
-        stroke-width: 8px;
-        transform-origin: center;
         stroke: var(--spinner-color);
         stroke-linecap: round;
+        stroke-width: 8px;
+        transform-origin: center;
     }
+
     &:nth-child(1) {
         opacity: 0.333;
     }
+
     &:nth-child(2) {
-        animation: spin 1.5s infinite linear;
+        animation: spin 1s infinite linear;
+
         > circle {
-            animation: writhe 2.25s infinite ease both;
+            animation: Spinner__writhe 1.5s infinite ease both;
         }
     }
 }
 
-@keyframes writhe {
+@keyframes Spinner__writhe {
     0%,
     100% {
+        stroke-dasharray: 70;
         stroke-dashoffset: -60;
-        stroke-dasharray: 70;
     }
+
     50% {
-        stroke-dashoffset: -30;
         stroke-dasharray: 70;
+        stroke-dashoffset: -30;
     }
 }
 
 .SpinnerOverlay {
     position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    text-align: center;
-    min-height: 6rem;
+    inset: 0;
     z-index: var(--z-content-overlay);
     display: flex;
     align-items: center;
     justify-content: center;
+    min-height: 6rem;
+    text-align: center;
+    transition: opacity 0.2s ease;
+
+    &[aria-hidden='true'] {
+        pointer-events: none;
+        opacity: 0;
+    }
+
     &::before {
-        content: '';
         position: absolute;
-        top: 0;
-        bottom: 0;
-        left: 0;
-        right: 0;
+        inset: 0;
+        content: '';
         background: var(--bg-light);
         opacity: 0.5;
     }
+
     .Spinner {
         position: relative;
     }
+
     .posthog-3000 &.SpinnerOverlay--scene-level::before {
         background: var(--bg-3000);
     }

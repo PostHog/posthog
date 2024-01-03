@@ -2,7 +2,6 @@ from posthog.test.base import NonAtomicTestMigrations
 
 
 class CreatingSessionRecordingModelMigrationTestCase(NonAtomicTestMigrations):
-
     migrate_from = "0286_index_insightcachingstate_lookup"
     migrate_to = "0287_add_session_recording_model"
 

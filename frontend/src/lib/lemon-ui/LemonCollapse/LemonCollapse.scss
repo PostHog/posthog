@@ -2,34 +2,43 @@
     display: flex;
     flex-direction: column;
     align-items: stretch;
+    overflow: hidden;
+    background: var(--bg-light);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    background: var(--bg-light);
-    overflow: hidden;
 }
 
 .LemonCollapsePanel {
     display: flex;
     flex-direction: column;
     align-items: stretch;
+
     &:not(:last-child) {
         border-bottom-width: 1px;
     }
 }
 
 .LemonCollapsePanel__header {
-    min-height: 2.875rem;
-    border-radius: 0;
+    min-height: 2.875rem !important;
     padding: 0.5rem 0.75rem !important; // Override reduced side padding
     font-weight: 500 !important; // Override status="stealth"'s font-weight
+    border-radius: 0 !important;
+
+    .posthog-3000 &.LemonButton:active {
+        transform: inherit;
+    }
 }
 
 .LemonCollapsePanel__body {
-    transition: height 200ms ease;
+    box-sizing: content-box;
     height: 0;
     overflow: hidden;
     border-top-width: 1px;
-    box-sizing: content-box;
+    transition: height 200ms ease;
+
+    .posthog-3000 & {
+        background: var(--bg-light);
+    }
 }
 
 .LemonCollapsePanel__content {

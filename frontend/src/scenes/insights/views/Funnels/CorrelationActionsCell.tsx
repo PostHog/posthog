@@ -1,15 +1,20 @@
-import { useState } from 'react'
 import { useActions, useValues } from 'kea'
-
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
+import { IconEllipsis } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { useState } from 'react'
 import { funnelCorrelationDetailsLogic } from 'scenes/funnels/funnelCorrelationDetailsLogic'
+import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
 import { funnelPropertyCorrelationLogic } from 'scenes/funnels/funnelPropertyCorrelationLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { FunnelCorrelation, FunnelCorrelationResultsType } from '~/types'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-import { IconEllipsis } from 'lib/lemon-ui/icons'
+
+type CorrelationActionsCellComponentButtonProps = Pick<LemonButtonProps, 'onClick' | 'children' | 'title' | 'disabled'>
+
+type CorrelationActionsCellComponentProps = {
+    buttons: CorrelationActionsCellComponentButtonProps[]
+}
 
 export const EventCorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.Element => {
     const { insightProps } = useValues(insightLogic)
@@ -20,7 +25,7 @@ export const EventCorrelationActionsCell = ({ record }: { record: FunnelCorrelat
     const { setFunnelCorrelationDetails } = useActions(funnelCorrelationDetailsLogic(insightProps))
     const components = record.event.event.split('::')
 
-    const buttons: LemonButtonProps[] = [
+    const buttons: CorrelationActionsCellComponentButtonProps[] = [
         ...(record.result_type === FunnelCorrelationResultsType.Events
             ? [
                   {
@@ -54,7 +59,7 @@ export const PropertyCorrelationActionsCell = ({ record }: { record: FunnelCorre
     const { setFunnelCorrelationDetails } = useActions(funnelCorrelationDetailsLogic(insightProps))
     const propertyName = (record.event.event || '').split('::')[0]
 
-    const buttons: LemonButtonProps[] = [
+    const buttons: CorrelationActionsCellComponentButtonProps[] = [
         {
             children: 'View correlation details',
             onClick: () => setFunnelCorrelationDetails(record),
@@ -70,10 +75,6 @@ export const PropertyCorrelationActionsCell = ({ record }: { record: FunnelCorre
     return <CorrelationActionsCellComponent buttons={buttons} />
 }
 
-type CorrelationActionsCellComponentProps = {
-    buttons: LemonButtonProps[]
-}
-
 const CorrelationActionsCellComponent = ({ buttons }: CorrelationActionsCellComponentProps): JSX.Element => {
     const [popoverOpen, setPopoverOpen] = useState(false)
     return (
@@ -82,10 +83,10 @@ const CorrelationActionsCellComponent = ({ buttons }: CorrelationActionsCellComp
             actionable
             onClickOutside={() => setPopoverOpen(false)}
             overlay={buttons.map((props, index) => (
-                <LemonButton key={index} status="stealth" fullWidth {...props} />
+                <LemonButton key={index} fullWidth {...props} />
             ))}
         >
-            <LemonButton status="stealth" onClick={() => setPopoverOpen(!popoverOpen)}>
+            <LemonButton onClick={() => setPopoverOpen(!popoverOpen)}>
                 <IconEllipsis />
             </LemonButton>
         </Popover>

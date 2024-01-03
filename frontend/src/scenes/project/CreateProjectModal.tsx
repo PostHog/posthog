@@ -4,6 +4,7 @@ import { PureField } from 'lib/forms/Field'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
+
 import { organizationLogic } from '../organizationLogic'
 
 export function CreateProjectModal({
@@ -61,13 +62,13 @@ export function CreateProjectModal({
             footer={
                 <>
                     {onClose && (
-                        <LemonButton type="secondary" onClick={() => onClose()}>
+                        <LemonButton type="secondary" onClick={onClose}>
                             Cancel
                         </LemonButton>
                     )}
                     <LemonButton
                         type="primary"
-                        onClick={() => handleSubmit()}
+                        onClick={handleSubmit}
                         disabledReason={!name ? 'Think of a name!' : null}
                     >
                         Create project

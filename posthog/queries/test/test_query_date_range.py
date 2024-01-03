@@ -7,7 +7,6 @@ from posthog.test.base import APIBaseTest
 
 class TestQueryDateRange(APIBaseTest):
     def test_parsed_date(self):
-
         with freeze_time("2021-08-25T00:00:00.000Z"):
             filter = Filter(
                 data={
@@ -31,7 +30,6 @@ class TestQueryDateRange(APIBaseTest):
         )
 
     def test_parsed_date_hour(self):
-
         with freeze_time("2021-08-25T00:00:00.000Z"):
             filter = Filter(
                 data={
@@ -51,11 +49,10 @@ class TestQueryDateRange(APIBaseTest):
         )
         self.assertEqual(
             parsed_date_to % date_to_params,
-            "AND toTimeZone(timestamp, UTC) <= toDateTime(2021-08-25 00:01:00, UTC)",
+            "AND toTimeZone(timestamp, UTC) <= toDateTime(2021-08-25 00:59:59, UTC)",
         )  # ensure last hour is included
 
     def test_parsed_date_middle_of_hour(self):
-
         with freeze_time("2021-08-25T00:00:00.000Z"):
             filter = Filter(
                 data={
@@ -80,7 +77,6 @@ class TestQueryDateRange(APIBaseTest):
         )  # ensure last hour is included
 
     def test_parsed_date_week_rounded(self):
-
         with freeze_time("2021-08-25T00:00:00.000Z"):
             filter = Filter(
                 data={
@@ -95,16 +91,15 @@ class TestQueryDateRange(APIBaseTest):
             parsed_date_to, date_to_params = query_date_range.date_to
 
         self.assertEqual(
-            parsed_date_from % date_from_params,
+            parsed_date_from % {**filter.hogql_context.values, **date_from_params},
             "AND toTimeZone(timestamp, UTC) >= toDateTime(toStartOfWeek(toDateTime(2021-08-18 00:00:00, UTC), 0), UTC)",
         )
         self.assertEqual(
-            parsed_date_to % date_to_params,
+            parsed_date_to % {**filter.hogql_context.values, **date_to_params},
             "AND toTimeZone(timestamp, UTC) <= toDateTime(2021-08-25 23:59:59, UTC)",
         )
 
     def test_is_hourly(self):
-
         with freeze_time("2021-08-25T00:00:00.000Z"):
             filter = Filter(
                 data={
@@ -134,55 +129,3 @@ class TestQueryDateRange(APIBaseTest):
         self.assertTrue(query_date_range.is_hourly("-48d"))
         self.assertTrue(query_date_range.is_hourly("-48h"))
         self.assertTrue(query_date_range.is_hourly(None))
-
-    def test_interval_annotation(self):
-        with freeze_time("2021-08-25T00:00:00.000Z"):
-            filter = Filter(
-                data={
-                    "date_from": "-48h",
-                    "interval": "day",
-                    "events": [{"id": "sign up"}, {"id": "no events"}],
-                }
-            )
-
-        query_date_range = QueryDateRange(filter=filter, team=self.team)
-
-        self.assertEquals(query_date_range.interval_annotation, "toStartOfDay")
-
-        with freeze_time("2021-08-25T00:00:00.000Z"):
-            filter = Filter(
-                data={
-                    "date_from": "-48h",
-                    "interval": "week",
-                    "events": [{"id": "sign up"}, {"id": "no events"}],
-                }
-            )
-
-        query_date_range = QueryDateRange(filter=filter, team=self.team)
-
-        self.assertEquals(query_date_range.interval_annotation, "toStartOfWeek")
-
-        with freeze_time("2021-08-25T00:00:00.000Z"):
-            filter = Filter(
-                data={
-                    "date_from": "-48h",
-                    "events": [{"id": "sign up"}, {"id": "no events"}],
-                }
-            )
-
-        query_date_range = QueryDateRange(filter=filter, team=self.team)
-
-        self.assertEquals(query_date_range.interval_annotation, "toStartOfDay")
-
-        with freeze_time("2021-08-25T00:00:00.000Z"):
-            filter = Filter(
-                data={
-                    "date_from": "-48h",
-                    "interval": "bad",
-                    "events": [{"id": "sign up"}, {"id": "no events"}],
-                }
-            )
-        # filter handling will throw not the class
-        with self.assertRaises(ValueError) as _:
-            query_date_range = QueryDateRange(filter=filter, team=self.team)
-            query_date_range.interval_annotation

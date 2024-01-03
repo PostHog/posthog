@@ -1,16 +1,17 @@
-import { IconExtension } from 'lib/lemon-ui/icons'
-import { urls } from 'scenes/urls'
-import { Scene } from 'scenes/sceneTypes'
-import { canInstallPlugins } from 'scenes/plugins/access'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { PluginSource } from 'scenes/plugins/source/PluginSource'
 import { useActions, useValues } from 'kea'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { router } from 'kea-router'
+import { IconExtension } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { canInstallPlugins } from 'scenes/plugins/access'
+import { PluginSource } from 'scenes/plugins/source/PluginSource'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { PageButton } from '~/layout/navigation/SideBar/PageButton'
-import { PluginInstallationType } from 'scenes/plugins/types'
+import { PluginInstallationType } from '~/types'
 
 export function SideBarApps(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
@@ -42,11 +43,7 @@ export function SideBarApps(): JSX.Element {
                                           hideSideBarMobile()
                                       },
                                       overlay: (
-                                          <LemonButton
-                                              status="stealth"
-                                              onClick={() => openAppSourceEditor(id, pluginId)}
-                                              fullWidth
-                                          >
+                                          <LemonButton onClick={() => openAppSourceEditor(id, pluginId)} fullWidth>
                                               Edit source code
                                           </LemonButton>
                                       ),

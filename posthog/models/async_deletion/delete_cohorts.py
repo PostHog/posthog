@@ -15,7 +15,10 @@ class AsyncCohortDeletion(AsyncDeletionProcess):
 
         logger.warn(
             "Starting AsyncDeletion on `cohortpeople` table in ClickHouse",
-            {"count": len(deletions), "team_ids": list(set(row.team_id for row in deletions))},
+            {
+                "count": len(deletions),
+                "team_ids": list(set(row.team_id for row in deletions)),
+            },
         )
 
         conditions, args = self._conditions(deletions)
@@ -62,13 +65,20 @@ class AsyncCohortDeletion(AsyncDeletionProcess):
         version_param = f"version{suffix}"
         if async_deletion.deletion_type == DeletionType.Cohort_full:
             key, _ = async_deletion.key.split("_")
-            return f"( team_id = %({team_id_param})s AND {self._column_name(async_deletion)} = %({key_param})s )", {
-                team_id_param: async_deletion.team_id,
-                key_param: key,
-            }
+            return (
+                f"( team_id = %({team_id_param})s AND {self._column_name(async_deletion)} = %({key_param})s )",
+                {
+                    team_id_param: async_deletion.team_id,
+                    key_param: key,
+                },
+            )
         else:
             key, version = async_deletion.key.split("_")
             return (
                 f"( team_id = %({team_id_param})s AND {self._column_name(async_deletion)} = %({key_param})s AND version < %({version_param})s )",
-                {team_id_param: async_deletion.team_id, version_param: version, key_param: key},
+                {
+                    team_id_param: async_deletion.team_id,
+                    version_param: version,
+                    key_param: key,
+                },
             )

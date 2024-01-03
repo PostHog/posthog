@@ -7,8 +7,8 @@
   FROM app_metrics
   WHERE team_id = 2
     AND plugin_config_id = 3
-    AND category = 'processEvent'
     AND error_type = 'SomeError'
+    AND category = 'processEvent'
   ORDER BY timestamp DESC
   LIMIT 20
   '
@@ -22,8 +22,8 @@
   FROM app_metrics
   WHERE team_id = 2
     AND plugin_config_id = 3
-    AND category = 'processEvent'
     AND error_type = 'SomeError'
+    AND category = 'processEvent'
     AND job_id = '1234'
   ORDER BY timestamp DESC
   LIMIT 20
@@ -38,8 +38,8 @@
   FROM app_metrics
   WHERE team_id = 2
     AND plugin_config_id = 3
-    AND category = 'processEvent'
     AND error_type = 'SomeError'
+    AND category = 'processEvent'
   ORDER BY timestamp DESC
   LIMIT 20
   '

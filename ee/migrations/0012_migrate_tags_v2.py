@@ -34,14 +34,21 @@ def forwards(apps, schema_editor):
 
     for event_definition_page in event_definition_paginator.page_range:
         logger.info(
-            "event_definition_tag_batch_get_start", limit=batch_size, offset=(event_definition_page - 1) * batch_size
+            "event_definition_tag_batch_get_start",
+            limit=batch_size,
+            offset=(event_definition_page - 1) * batch_size,
         )
         event_definitions = iter(event_definition_paginator.get_page(event_definition_page))
         for tags, team_id, event_definition_id in event_definitions:
             unique_tags = set(tagify(t) for t in tags if isinstance(t, str) and t.strip() != "")
             for tag in unique_tags:
                 temp_tag = Tag(name=tag, team_id=team_id)
-                createables.append((temp_tag, TaggedItem(event_definition_id=event_definition_id, tag_id=temp_tag.id)))
+                createables.append(
+                    (
+                        temp_tag,
+                        TaggedItem(event_definition_id=event_definition_id, tag_id=temp_tag.id),
+                    )
+                )
 
     logger.info("event_definition_tag_get_end", tags_count=len(createables))
     num_event_definition_tags = len(createables)
@@ -68,10 +75,19 @@ def forwards(apps, schema_editor):
             for tag in unique_tags:
                 temp_tag = Tag(name=tag, team_id=team_id)
                 createables.append(
-                    (temp_tag, TaggedItem(property_definition_id=property_definition_id, tag_id=temp_tag.id))
+                    (
+                        temp_tag,
+                        TaggedItem(
+                            property_definition_id=property_definition_id,
+                            tag_id=temp_tag.id,
+                        ),
+                    )
                 )
 
-    logger.info("property_definition_tag_get_end", tags_count=len(createables) - num_event_definition_tags)
+    logger.info(
+        "property_definition_tag_get_end",
+        tags_count=len(createables) - num_event_definition_tags,
+    )
 
     # Consistent ordering to make independent runs non-deterministic
     createables = sorted(createables, key=lambda pair: pair[0].name)
@@ -102,7 +118,9 @@ def forwards(apps, schema_editor):
 
         # Create tag <-> item relationships, ignoring conflicts
         TaggedItem.objects.bulk_create(
-            [tagged_item for (_, tagged_item) in createable_batch], ignore_conflicts=True, batch_size=batch_size
+            [tagged_item for (_, tagged_item) in createable_batch],
+            ignore_conflicts=True,
+            batch_size=batch_size,
         )
 
     logger.info("ee/0012_migrate_tags_v2_end")

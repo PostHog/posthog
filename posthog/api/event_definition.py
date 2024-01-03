@@ -1,7 +1,15 @@
 from typing import Any, Literal, Tuple, Type, cast
 
 from django.db.models import Manager, Prefetch
-from rest_framework import mixins, permissions, serializers, viewsets, request, status, response
+from rest_framework import (
+    mixins,
+    permissions,
+    serializers,
+    viewsets,
+    request,
+    status,
+    response,
+)
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -15,7 +23,10 @@ from posthog.models import EventDefinition, TaggedItem
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
-from posthog.permissions import OrganizationMemberPermissions, TeamMemberAccessPermission
+from posthog.permissions import (
+    OrganizationMemberPermissions,
+    TeamMemberAccessPermission,
+)
 from posthog.settings import EE_AVAILABLE
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
@@ -132,7 +143,9 @@ class EventDefinitionViewSet(
 
     def get_object(self):
         id = self.kwargs["id"]
-        if EE_AVAILABLE and self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
+        if EE_AVAILABLE and self.request.user.organization.is_feature_available(  # type: ignore
+            AvailableFeature.INGESTION_TAXONOMY
+        ):
             from ee.models.event_definition import EnterpriseEventDefinition
 
             enterprise_event = EnterpriseEventDefinition.objects.filter(id=id).first()
@@ -151,7 +164,9 @@ class EventDefinitionViewSet(
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class
-        if EE_AVAILABLE and self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
+        if EE_AVAILABLE and self.request.user.organization.is_feature_available(  # type: ignore
+            AvailableFeature.INGESTION_TAXONOMY
+        ):
             from ee.api.ee_event_definition import EnterpriseEventDefinitionSerializer
 
             serializer_class = EnterpriseEventDefinitionSerializer  # type: ignore
@@ -162,7 +177,11 @@ class EventDefinitionViewSet(
         instance_id: str = str(instance.id)
         self.perform_destroy(instance)
         # Casting, since an anonymous use CANNOT access this endpoint
-        report_user_action(cast(User, request.user), "event definition deleted", {"name": instance.name})
+        report_user_action(
+            cast(User, request.user),
+            "event definition deleted",
+            {"name": instance.name},
+        )
         user = cast(User, request.user)
         log_activity(
             organization_id=cast(UUIDT, self.organization_id),

@@ -1,17 +1,20 @@
 import './Insight.scss'
-import { useEffect } from 'react'
+
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { useEffect } from 'react'
+import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { insightLogic } from './insightLogic'
+import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
+
+import { Query } from '~/queries/Query/Query'
+import { Node } from '~/queries/schema'
+import { containsHogQLQuery, isInsightVizNode } from '~/queries/utils'
+import { InsightShortId, ItemMode } from '~/types'
+
 import { insightCommandLogic } from './insightCommandLogic'
 import { insightDataLogic } from './insightDataLogic'
-import { InsightShortId, ItemMode } from '~/types'
+import { insightLogic } from './insightLogic'
 import { InsightsNav } from './InsightNav/InsightsNav'
-import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
-import { Query } from '~/queries/Query/Query'
-import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
-import { containsHogQLQuery, isInsightVizNode } from '~/queries/utils'
-
 export interface InsightSceneProps {
     insightId: InsightShortId | 'new'
 }
@@ -29,8 +32,8 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
     const { reportInsightViewedForRecentInsights } = useActions(logic)
 
     // insightDataLogic
-    const { query, isQueryBasedInsight, showQueryEditor } = useValues(insightDataLogic(insightProps))
-    const { setQuery } = useActions(insightDataLogic(insightProps))
+    const { query, showQueryEditor } = useValues(insightDataLogic(insightProps))
+    const { setQuery: setInsightQuery } = useActions(insightDataLogic(insightProps))
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
@@ -45,13 +48,17 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
         return <InsightSkeleton />
     }
 
-    const actuallyShowQueryEditor =
-        insightMode === ItemMode.Edit &&
-        ((isQueryBasedInsight && !containsHogQLQuery(query)) || (!isQueryBasedInsight && showQueryEditor))
+    const actuallyShowQueryEditor = insightMode === ItemMode.Edit && showQueryEditor
+
+    const setQuery = (query: Node): void => {
+        if (!isInsightVizNode(query)) {
+            setInsightQuery(query)
+        }
+    }
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
-            <div className={'insights-page'}>
+            <div className="Insight">
                 <InsightPageHeader insightLogicProps={insightProps} />
 
                 {insightMode === ItemMode.Edit && <InsightsNav />}

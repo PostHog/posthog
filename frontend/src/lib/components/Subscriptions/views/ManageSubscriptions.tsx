@@ -1,13 +1,15 @@
 import { useActions, useValues } from 'kea'
-import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
-import { SubscriptionType } from '~/types'
-import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { IconEllipsis, IconSlack } from 'lib/lemon-ui/icons'
-import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
-import { subscriptionsLogic } from '../subscriptionsLogic'
-import { SubscriptionBaseProps } from '../utils'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils'
+
+import { SubscriptionType } from '~/types'
+
+import { subscriptionsLogic } from '../subscriptionsLogic'
+import { SubscriptionBaseProps } from '../utils'
 
 interface SubscriptionListItemProps {
     subscription: SubscriptionType
@@ -17,10 +19,9 @@ interface SubscriptionListItemProps {
 
 export function SubscriptionListItem({ subscription, onClick, onDelete }: SubscriptionListItemProps): JSX.Element {
     return (
-        <LemonButtonWithSideAction
+        <LemonButton
             type="secondary"
-            status="stealth"
-            onClick={() => onClick()}
+            onClick={onClick}
             data-attr="subscription-list-item"
             fullWidth
             sideAction={{
@@ -31,7 +32,7 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
                         <>
                             {onDelete && (
                                 <LemonButton
-                                    onClick={() => onDelete()}
+                                    onClick={onDelete}
                                     data-attr="subscription-list-item-delete"
                                     status="danger"
                                     fullWidth
@@ -46,7 +47,7 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
         >
             <div className="flex justify-between flex-auto items-center p-2">
                 <div>
-                    <div className="text-primary font-medium">{subscription.title}</div>
+                    <div className="text-link font-medium">{subscription.title}</div>
                     <div className="text-sm text-default">{capitalizeFirstLetter(subscription.summary)}</div>
                 </div>
                 {subscription.target_type === 'email' ? (
@@ -57,7 +58,7 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
                 ) : null}
                 {subscription.target_type === 'slack' ? <IconSlack /> : null}
             </div>
-        </LemonButtonWithSideAction>
+        </LemonButton>
     )
 }
 
@@ -88,7 +89,7 @@ export function ManageSubscriptions({
             <LemonModal.Content>
                 {subscriptionsLoading && !subscriptions.length ? (
                     <div className="space-y-2">
-                        <LemonSkeleton className="w-1/2" />
+                        <LemonSkeleton className="w-1/2 h-4" />
                         <LemonSkeleton.Row repeat={2} />
                     </div>
                 ) : subscriptions.length ? (
@@ -123,7 +124,7 @@ export function ManageSubscriptions({
 
             <LemonModal.Footer>
                 <div className="flex-1">
-                    {!!subscriptions.length ? (
+                    {subscriptions.length ? (
                         <LemonButton type="secondary" onClick={() => onSelect('new')}>
                             Add subscription
                         </LemonButton>

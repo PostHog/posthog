@@ -1,10 +1,11 @@
-import { useActions, useValues } from 'kea'
-import { ActionStep } from '~/toolbar/elements/ActionStep'
-import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
-import { elementsLogic } from '~/toolbar/elements/elementsLogic'
-import { ActionsListView } from '~/toolbar/actions/ActionsListView'
 import { LemonButton } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { IconCalendar, IconPlus } from 'lib/lemon-ui/icons'
+
+import { ActionsListView } from '~/toolbar/actions/ActionsListView'
+import { ActionStep } from '~/toolbar/actions/ActionStep'
+import { elementsLogic } from '~/toolbar/elements/elementsLogic'
+import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 
 function ElementStatistic({
     prefix,
@@ -86,13 +87,7 @@ export function ElementInfo(): JSX.Element | null {
                     <ActionsListView actions={activeMeta.actions.map((a) => a.action)} />
                 )}
 
-                <LemonButton
-                    size="small"
-                    type={'secondary'}
-                    status={'primary-alt'}
-                    onClick={() => createAction(element)}
-                    icon={<IconPlus />}
-                >
+                <LemonButton size="small" type="secondary" onClick={() => createAction(element)} icon={<IconPlus />}>
                     Create a new action
                 </LemonButton>
             </div>

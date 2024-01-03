@@ -11,10 +11,13 @@
   '
   
   SELECT team_id,
-         count(1) as count
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
   WHERE timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND event != '$feature_flag_called'
+    AND event NOT IN ('survey sent',
+                      'survey shown',
+                      'survey dismissed')
   GROUP BY team_id
   '
 ---
@@ -196,6 +199,9 @@
   FROM events
   WHERE timestamp between '2022-01-01 00:00:00' AND '2022-01-10 23:59:59'
     AND event != '$feature_flag_called'
+    AND event NOT IN ('survey sent',
+                      'survey shown',
+                      'survey dismissed')
   GROUP BY team_id
   '
 ---
@@ -231,6 +237,46 @@
     AND query_start_time between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
     AND access_method = 'personal_api_key'
   GROUP BY team_id
+  '
+---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.22
+  '
+  
+  SELECT team_id,
+         COUNT() as count
+  FROM events
+  WHERE event = 'survey sent'
+    AND timestamp between '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+  GROUP BY team_id
+  '
+---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.23
+  '
+  
+  SELECT team_id,
+         COUNT() as count
+  FROM events
+  WHERE event = 'survey sent'
+    AND timestamp between '2022-01-01 00:00:00' AND '2022-01-10 23:59:59'
+  GROUP BY team_id
+  '
+---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.24
+  '
+  
+  SELECT team,
+         sum(rows_synced)
+  FROM
+    (SELECT JSONExtractString(properties, 'job_id') AS job_id,
+            distinct_id AS team,
+            any(JSONExtractInt(properties, 'count')) AS rows_synced
+     FROM events
+     WHERE team_id = 2
+       AND event = 'external data sync job'
+       AND parseDateTimeBestEffort(JSONExtractString(properties, 'startTime')) BETWEEN '2022-01-10 00:00:00' AND '2022-01-10 23:59:59'
+     GROUP BY job_id,
+              team)
+  GROUP BY team
   '
 ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.3

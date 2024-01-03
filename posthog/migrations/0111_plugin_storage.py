@@ -5,7 +5,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0110_sessionrecordingeventbyteamandtimestamp"),
     ]
@@ -14,19 +13,31 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="PluginStorage",
             fields=[
-                ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.AutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
                 ("key", models.CharField(max_length=200)),
                 ("value", models.TextField(blank=True, null=True)),
                 (
                     "plugin_config",
-                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.PluginConfig"),
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="posthog.PluginConfig",
+                    ),
                 ),
             ],
         ),
         migrations.AddConstraint(
             model_name="pluginstorage",
             constraint=models.UniqueConstraint(
-                fields=("plugin_config_id", "key"), name="posthog_unique_plugin_storage_key"
+                fields=("plugin_config_id", "key"),
+                name="posthog_unique_plugin_storage_key",
             ),
         ),
     ]

@@ -3,7 +3,7 @@
 # We do this to ensure our reference images for visual regression tests are the same during development and in CI.
 #
 
-FROM mcr.microsoft.com/playwright:v1.29.2
+FROM mcr.microsoft.com/playwright:v1.32.2
 
 WORKDIR /work
 
@@ -13,8 +13,8 @@ COPY package.json pnpm-lock.yaml ./
 
 ENV CYPRESS_INSTALL_BINARY=0
 
-RUN pnpm install
+RUN pnpm install --frozen-lockfile
 
-COPY playwright.config.ts webpack.config.js babel.config.js tsconfig.json ./
+COPY playwright.config.ts webpack.config.js babel.config.js tsconfig.json test-runner-jest.config.js test-runner-jest-environment.js ./
 
 COPY .storybook/ .storybook/

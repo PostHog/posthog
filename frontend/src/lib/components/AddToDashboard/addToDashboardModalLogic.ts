@@ -1,13 +1,14 @@
-import { kea } from 'kea'
-import { dashboardsModel } from '~/models/dashboardsModel'
+import FuseClass from 'fuse.js'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
-import { DashboardBasicType, DashboardType, InsightModel, InsightType } from '~/types'
-import FuseClass from 'fuse.js'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { urls } from 'scenes/urls'
+
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { DashboardBasicType, DashboardType, InsightModel, InsightType } from '~/types'
 
 import type { addToDashboardModalLogicType } from './addToDashboardModalLogicType'
 
@@ -17,19 +18,19 @@ export interface AddToDashboardModalLogicProps {
 }
 
 // Helping kea-typegen navigate the exported default class for Fuse
-// eslint-disable-next-line @typescript-eslint/no-empty-interface
+
 export interface Fuse extends FuseClass<any> {}
 
-export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>({
-    path: ['lib', 'components', 'AddToDashboard', 'saveToDashboardModalLogic'],
-    props: {} as AddToDashboardModalLogicProps,
-    key: ({ insight }) => {
+export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>([
+    props({} as AddToDashboardModalLogicProps),
+    key(({ insight }) => {
         if (!insight.short_id) {
             throw Error('must provide an insight with a short id')
         }
         return insight.short_id
-    },
-    connect: (props: AddToDashboardModalLogicProps) => ({
+    }),
+    path(['lib', 'components', 'AddToDashboard', 'saveToDashboardModalLogic']),
+    connect((props: AddToDashboardModalLogicProps) => ({
         actions: [
             insightLogic({ dashboardItemId: props.insight.short_id, cachedInsight: props.insight }),
             ['updateInsight', 'updateInsightSuccess', 'updateInsightFailure'],
@@ -38,8 +39,8 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>({
             newDashboardLogic,
             ['showNewDashboardModal'],
         ],
-    }),
-    actions: {
+    })),
+    actions({
         addNewDashboard: true,
         setDashboardId: (id: number) => ({ id }),
         setSearchQuery: (query: string) => ({ query }),
@@ -47,9 +48,8 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>({
         setScrollIndex: (index: number) => ({ index }),
         addToDashboard: (insight: Partial<InsightModel>, dashboardId: number) => ({ insight, dashboardId }),
         removeFromDashboard: (insight: Partial<InsightModel>, dashboardId: number) => ({ insight, dashboardId }),
-    },
-
-    reducers: {
+    }),
+    reducers({
         _dashboardId: [null as null | number, { setDashboardId: (_, { id }) => id }],
         searchQuery: ['', { setSearchQuery: (_, { query }) => query }],
         scrollIndex: [-1 as number, { setScrollIndex: (_, { index }) => index }],
@@ -62,9 +62,8 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>({
                 updateInsightFailure: () => null,
             },
         ],
-    },
-
-    selectors: {
+    }),
+    selectors({
         dashboardId: [
             (s) => [
                 s._dashboardId,
@@ -92,7 +91,7 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>({
                     : nameSortedDashboards,
         ],
         currentDashboards: [
-            (s) => [s.filteredDashboards, (_, props) => props.insight],
+            (s, p) => [s.filteredDashboards, p.insight],
             (filteredDashboards, insight: InsightModel): DashboardBasicType[] =>
                 filteredDashboards.filter((d) => insight.dashboard_tiles?.map((dt) => dt.dashboard_id)?.includes(d.id)),
         ],
@@ -108,9 +107,8 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>({
                 ...availableDashboards,
             ],
         ],
-    },
-
-    listeners: ({ actions, values, props }) => ({
+    }),
+    listeners(({ actions, values, props }) => ({
         setDashboardId: ({ id }) => {
             dashboardsModel.actions.setLastDashboardId(id)
         },
@@ -153,5 +151,5 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>({
                 }
             )
         },
-    }),
-})
+    })),
+])

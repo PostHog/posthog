@@ -26,7 +26,6 @@ def backwards(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0049_delete_funnelstep"),
     ]
@@ -73,7 +72,12 @@ class Migration(migrations.Migration):
                 to="posthog.Dashboard",
             ),
         ),
-        migrations.RunPython(forwards, reverse_code=backwards, hints={"target_db": "default"}, elidable=True),
+        migrations.RunPython(
+            forwards,
+            reverse_code=backwards,
+            hints={"target_db": "default"},
+            elidable=True,
+        ),
         migrations.AlterField(
             model_name="dashboarditem",
             name="dashboard",

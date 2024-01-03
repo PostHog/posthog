@@ -1,7 +1,16 @@
-import { convertAmountToUsage, convertUsageToAmount, projectUsage, summarizeUsage } from './billing-utils'
-import tk from 'timekeeper'
 import { dayjs } from 'lib/dayjs'
+import tk from 'timekeeper'
+
 import billingJson from '~/mocks/fixtures/_billing_v2.json'
+import billingJsonWithFlatFee from '~/mocks/fixtures/_billing_v2_with_flat_fee.json'
+
+import {
+    convertAmountToUsage,
+    convertLargeNumberToWords,
+    convertUsageToAmount,
+    projectUsage,
+    summarizeUsage,
+} from './billing-utils'
 
 describe('summarizeUsage', () => {
     it('should summarise usage', () => {
@@ -142,6 +151,34 @@ describe('convertUsageToAmountWithPercentDiscount', () => {
         }
     )
 })
+
+const amountToUsageMappingWithFirstTierFlatFee = [
+    { usage: 5_000_000, amount: '200.00' },
+    { usage: 10_000_000, amount: '575.00' },
+    { usage: 30_000_000, amount: '1725.00' },
+]
+describe('amountToUsageMappingWithFirstTierFlatFee', () => {
+    it.each(amountToUsageMappingWithFirstTierFlatFee)(
+        'should convert usage to an amount based on the tiers',
+        (mapping) => {
+            if (billingJsonWithFlatFee.products[0].tiers) {
+                expect(convertUsageToAmount(mapping.usage, [billingJsonWithFlatFee.products[0].tiers])).toEqual(
+                    mapping.amount
+                )
+            }
+        }
+    )
+    it.each(amountToUsageMappingWithFirstTierFlatFee)(
+        'should convert amount to a usage based on the tiers',
+        (mapping) => {
+            if (billingJsonWithFlatFee.products[0].tiers) {
+                expect(convertAmountToUsage(mapping.amount, [billingJsonWithFlatFee.products[0].tiers])).toEqual(
+                    mapping.usage
+                )
+            }
+        }
+    )
+})
 describe('convertAmountToUsageWithPercentDiscount', () => {
     it.each(amountToUsageMappingWithPercentDiscount)(
         'should convert amount to a usage based on the tiers',
@@ -158,4 +195,14 @@ describe('convertAmountToUsageWithPercentDiscount', () => {
             }
         }
     )
+})
+
+describe('convertLargeNumberToWords', () => {
+    it('should convert large numbers to words', () => {
+        expect(convertLargeNumberToWords(250, null, true, 'survey')).toEqual('First 250 surveys/mo')
+        expect(convertLargeNumberToWords(500, 250, true, 'survey')).toEqual('251-500')
+        expect(convertLargeNumberToWords(1000, 500, true, 'survey')).toEqual('501-1k')
+        expect(convertLargeNumberToWords(10000, 1000, true, 'survey')).toEqual('1-10k')
+        expect(convertLargeNumberToWords(10000000, 1000000, true, 'survey')).toEqual('1-10 million')
+    })
 })

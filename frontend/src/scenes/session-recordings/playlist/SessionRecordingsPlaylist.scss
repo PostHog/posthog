@@ -3,22 +3,36 @@
 
 .SessionRecordingsPlaylist {
     display: flex;
-    flex-direction: column-reverse;
+    flex-direction: row;
     align-items: flex-start;
-    gap: 1rem;
+    justify-content: flex-start;
+    height: 100%;
     overflow: hidden;
-    padding-bottom: 1rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
 
-    .SessionRecordingsPlaylist__left-column {
-        flex-shrink: 0;
-        width: 100%;
+    .SessionRecordingsPlaylist__list {
         display: flex;
         flex-direction: column;
-    }
-    .SessionRecordingsPlaylist__right-column {
+        flex-shrink: 0;
+        width: 25%;
+        min-width: 300px;
+        max-width: 350px;
+        height: 100%;
         overflow: hidden;
+
+        .text-link {
+            .posthog-3000 & {
+                color: var(--default);
+            }
+        }
+    }
+
+    .SessionRecordingsPlaylist__player {
+        flex: 1;
         width: 100%;
-        height: 30rem;
+        height: 100%;
+        overflow: hidden;
 
         .SessionRecordingsPlaylist__loading {
             display: flex;
@@ -28,37 +42,47 @@
         }
     }
 
+    &--embedded {
+        border: none;
+    }
+
     &--wide {
-        flex-direction: row;
-        justify-content: flex-start;
-        height: calc(100vh - 5rem);
-
-        .SessionRecordingsPlaylist__left-column {
-            max-width: 350px;
-            min-width: 300px;
-            width: 25%;
-            overflow: hidden;
-            height: 100%;
-        }
-
-        .SessionRecordingsPlaylist__right-column {
+        .SessionRecordingsPlaylist__player {
             flex: 1;
             height: 100%;
         }
     }
 }
 
-.SessionRecordingsPlaylist__lists {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-    overflow: hidden;
-    gap: 0.5rem;
+.SessionRecordingPlaylistHeightWrapper {
+    // NOTE: Somewhat random way to offset the various headers and tabs above the playlist
+    height: calc(100vh - 15rem);
+    min-height: 41rem;
+
+    .posthog-3000 & {
+        height: calc(100vh - 9rem);
+    }
 }
 
 .SessionRecordingPreview {
+    position: relative;
+    display: flex;
+    padding: 0.5rem 0 0.5rem 0.5rem;
+    overflow: hidden;
+    cursor: pointer;
+    border-left: 6px solid transparent;
+    transition: background-color 200ms ease, border 200ms ease;
+
+    &--active {
+        border-left-color: var(--primary-3000);
+    }
+
+    &:hover {
+        background-color: var(--primary-3000-highlight);
+    }
+
     .SessionRecordingPreview__property-icon:hover {
-        transition: opacity 200ms;
         opacity: 1;
+        transition: opacity 200ms;
     }
 }

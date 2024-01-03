@@ -2,20 +2,18 @@
     background: var(--bg-light);
 }
 
-.TextCard-Body {
-    position: absolute;
-    bottom: 0;
-    left: 0;
+.TextCard__body {
+    flex: 1;
     overflow-y: auto;
 
     ul {
-        list-style: disc;
-        padding-inline-start: 1.5em;
+        list-style-position: inside;
+        list-style-type: disc;
     }
 
     ol {
-        list-style: numeric;
-        padding-inline-start: 1.5em;
+        list-style-position: inside;
+        list-style-type: numeric;
     }
 
     img {

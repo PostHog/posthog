@@ -1,23 +1,24 @@
-import { useEffect } from 'react'
-import { billingLogic } from './billingLogic'
 import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { Field, Form } from 'kea-forms'
+import { PageHeader } from 'lib/components/PageHeader'
+import { supportLogic } from 'lib/components/Support/supportLogic'
+import { dayjs } from 'lib/dayjs'
+import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
+import { IconPlus } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { dayjs } from 'lib/dayjs'
-import clsx from 'clsx'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { capitalizeFirstLetter } from 'lib/utils'
-import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { BillingHero } from './BillingHero'
-import { PageHeader } from 'lib/components/PageHeader'
-import { BillingProduct } from './BillingProduct'
-import { IconPlus } from 'lib/lemon-ui/icons'
-import { SceneExport } from 'scenes/sceneTypes'
-import { supportLogic } from 'lib/components/Support/supportLogic'
-import { Field, Form } from 'kea-forms'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { useEffect } from 'react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+
+import { BillingHero } from './BillingHero'
+import { billingLogic } from './billingLogic'
+import { BillingProduct } from './BillingProduct'
 
 export const scene: SceneExport = {
     component: Billing,
@@ -68,9 +69,13 @@ export function Billing(): JSX.Element {
             <div className="space-y-4">
                 {!isOnboarding && <BillingPageHeader />}
                 <LemonBanner type="error">
-                    There was an issue retrieving your current billing information. If this message persists, please
+                    {
+                        'There was an issue retrieving your current billing information. If this message persists, please '
+                    }
                     {preflight?.cloud ? (
-                        <Link onClick={() => openSupportForm('bug', 'billing')}>submit a bug report</Link>
+                        <Link onClick={() => openSupportForm({ kind: 'bug', target_area: 'billing' })}>
+                            submit a bug report
+                        </Link>
                     ) : (
                         <Link to="mailto:sales@posthog.com">contact sales@posthog.com</Link>
                     )}
@@ -249,7 +254,7 @@ export function Billing(): JSX.Element {
                                 {capitalizeFirstLetter(billing.license.plan)} license
                             </div>
                             <span>
-                                Please contact <a href="mailto:sales@posthog.com">sales@posthog.com</a> if you would
+                                Please contact <Link to="mailto:sales@posthog.com">sales@posthog.com</Link> if you would
                                 like to make any changes to your license.
                             </span>
                         </div>
@@ -258,13 +263,13 @@ export function Billing(): JSX.Element {
                     {!cloudOrDev && !billing?.has_active_subscription ? (
                         <p>
                             Self-hosted licenses are no longer available for purchase. Please contact{' '}
-                            <a href="mailto:sales@posthog.com">sales@posthog.com</a> to discuss options.
+                            <Link to="mailto:sales@posthog.com">sales@posthog.com</Link> to discuss options.
                         </p>
                     ) : null}
                 </div>
             </div>
 
-            <div className="flex justify-between">
+            <div className="flex justify-between mt-4">
                 <h2>Products</h2>
                 {isOnboarding && upgradeAllProductsLink && (
                     <LemonButton

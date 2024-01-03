@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { IconPlus, IconSettings } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -9,8 +9,10 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+
 import { AvailableFeature, TeamBasicType } from '~/types'
-import { navigationLogic } from './navigationLogic'
+
+import { globalModalsLogic } from '../GlobalModals'
 
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     return (
@@ -21,22 +23,22 @@ export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     )
 }
 
-export function ProjectSwitcherOverlay(): JSX.Element {
+export function ProjectSwitcherOverlay({ onClickInside }: { onClickInside?: () => void }): JSX.Element {
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
     const { guardAvailableFeature } = useActions(sceneLogic)
-    const { showCreateProjectModal, hideProjectSwitcher } = useActions(navigationLogic)
+    const { showCreateProjectModal } = useActions(globalModalsLogic)
 
     return (
         <div className="project-switcher-container">
             <h5>Projects</h5>
             <LemonDivider />
-            <CurrentProjectButton />
+            <CurrentProjectButton onClickInside={onClickInside} />
             {currentOrganization?.teams &&
                 currentOrganization.teams
                     .filter((team) => team.id !== currentTeam?.id)
                     .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
-                    .map((team) => <OtherProjectButton key={team.id} team={team} />)}
+                    .map((team) => <OtherProjectButton key={team.id} team={team} onClickInside={onClickInside} />)}
 
             <LemonButton
                 icon={<IconPlus />}
@@ -44,7 +46,7 @@ export function ProjectSwitcherOverlay(): JSX.Element {
                 disabled={!!projectCreationForbiddenReason}
                 tooltip={projectCreationForbiddenReason}
                 onClick={() => {
-                    hideProjectSwitcher()
+                    onClickInside?.()
                     guardAvailableFeature(
                         AvailableFeature.ORGANIZATIONS_PROJECTS,
                         'multiple projects',
@@ -61,54 +63,50 @@ export function ProjectSwitcherOverlay(): JSX.Element {
     )
 }
 
-function CurrentProjectButton(): JSX.Element | null {
+function CurrentProjectButton({ onClickInside }: { onClickInside?: () => void }): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const { push } = useActions(router)
-    const { hideProjectSwitcher } = useActions(navigationLogic)
 
     return isAuthenticatedTeam(currentTeam) ? (
-        <LemonButtonWithSideAction
+        <LemonButton
             active
             sideAction={{
                 icon: <IconSettings className="text-muted-alt" />,
                 tooltip: `Go to ${currentTeam.name} settings`,
                 onClick: () => {
-                    hideProjectSwitcher()
-                    push(urls.projectSettings())
+                    onClickInside?.()
+                    push(urls.settings('project'))
                 },
             }}
             title={`Switch to project ${currentTeam.name}`}
-            status="stealth"
             fullWidth
         >
             <ProjectName team={currentTeam} />
-        </LemonButtonWithSideAction>
+        </LemonButton>
     ) : null
 }
 
-function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
+function OtherProjectButton({ team, onClickInside }: { team: TeamBasicType; onClickInside?: () => void }): JSX.Element {
     const { updateCurrentTeam } = useActions(userLogic)
-    const { hideProjectSwitcher } = useActions(navigationLogic)
 
     return (
-        <LemonButtonWithSideAction
+        <LemonButton
             onClick={() => {
-                hideProjectSwitcher()
+                onClickInside?.()
                 updateCurrentTeam(team.id, '/')
             }}
             sideAction={{
                 icon: <IconSettings className="text-muted-alt" />,
                 tooltip: `Go to ${team.name} settings`,
                 onClick: () => {
-                    hideProjectSwitcher()
-                    updateCurrentTeam(team.id, urls.projectSettings())
+                    onClickInside?.()
+                    updateCurrentTeam(team.id, urls.settings())
                 },
             }}
             title={`Switch to project ${team.name}`}
-            status="stealth"
             fullWidth
         >
             <ProjectName team={team} />
-        </LemonButtonWithSideAction>
+        </LemonButton>
     )
 }

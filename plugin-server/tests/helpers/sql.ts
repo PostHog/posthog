@@ -1,5 +1,4 @@
 import { DateTime } from 'luxon'
-import { Pool, PoolClient } from 'pg'
 
 import { defaultConfig } from '../../src/config/config'
 import {
@@ -16,6 +15,7 @@ import {
     Team,
 } from '../../src/types'
 import { DB } from '../../src/utils/db/db'
+import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
 import { UUIDT } from '../../src/utils/utils'
 import {
     commonOrganizationId,
@@ -47,10 +47,10 @@ export async function resetTestDatabase(
     extraRows: ExtraDatabaseRows = {},
     { withExtendedTestData = true }: { withExtendedTestData?: boolean } = {}
 ): Promise<void> {
-    const config = { ...defaultConfig, ...extraServerConfig }
-    const db = new Pool({ connectionString: config.DATABASE_URL!, max: 1 })
+    const config = { ...defaultConfig, ...extraServerConfig, POSTGRES_CONNECTION_POOL_SIZE: 1 }
+    const db = new PostgresRouter(config, undefined)
+    await db.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_TABLES_QUERY, undefined, 'delete-tables')
 
-    await db.query(POSTGRES_DELETE_TABLES_QUERY)
     const mocks = makePluginObjects(code)
     const teamIds = mocks.pluginConfigRows.map((c) => c.team_id)
     const teamIdToCreate = teamIds[0]
@@ -96,7 +96,7 @@ export async function resetTestDatabase(
     await db.end()
 }
 
-export async function insertRow(db: PoolClient | Pool, table: string, objectProvided: Record<string, any>) {
+export async function insertRow(db: PostgresRouter, table: string, objectProvided: Record<string, any>) {
     // Handling of related fields
     const { source__plugin_json, source__index_ts, source__frontend_tsx, source__site_ts, ...object } = objectProvided
 
@@ -116,7 +116,14 @@ export async function insertRow(db: PoolClient | Pool, table: string, objectProv
     try {
         const {
             rows: [rowSaved],
-        } = await db.query(`INSERT INTO ${table} (${keys}) VALUES (${params}) RETURNING *`, values)
+        } = await db.query(
+            PostgresUse.COMMON_WRITE,
+            `INSERT INTO ${table} (${keys})
+             VALUES (${params})
+             RETURNING *`,
+            values,
+            `insertRow-${table}`
+        )
         const dependentQueries: Promise<void>[] = []
         if (source__plugin_json) {
             dependentQueries.push(
@@ -175,7 +182,7 @@ export async function insertRow(db: PoolClient | Pool, table: string, objectProv
 }
 
 export async function createUserTeamAndOrganization(
-    db: Pool,
+    db: PostgresRouter,
     teamId: number,
     userId: number = commonUserId,
     userUuid: string = commonUserUuid,
@@ -247,54 +254,22 @@ export async function createUserTeamAndOrganization(
 }
 
 export async function getTeams(hub: Hub): Promise<Team[]> {
-    return (await hub.db.postgresQuery('SELECT * FROM posthog_team ORDER BY id', undefined, 'fetchAllTeams')).rows
+    return (
+        await hub.db.postgres.query(
+            PostgresUse.COMMON_READ,
+            'SELECT * FROM posthog_team ORDER BY id',
+            undefined,
+            'fetchAllTeams'
+        )
+    ).rows
 }
 
 export async function getFirstTeam(hub: Hub): Promise<Team> {
     return (await getTeams(hub))[0]
 }
 
-/** Inject code onto `server` which runs a callback whenever a postgres query is performed */
-export function onQuery(hub: Hub, onQueryCallback: (queryText: string) => any): void {
-    function spyOnQueryFunction(client: any) {
-        const query = client.query.bind(client)
-        client.query = (queryText: any, values?: any, callback?: any): any => {
-            onQueryCallback(queryText)
-            return query(queryText, values, callback)
-        }
-    }
-
-    spyOnQueryFunction(hub.postgres)
-
-    const postgresTransaction = hub.db.postgresTransaction.bind(hub.db)
-    hub.db.postgresTransaction = async (
-        tag: string,
-        transaction: (client: PoolClient) => Promise<any>
-    ): Promise<any> => {
-        return await postgresTransaction(tag, async (client: PoolClient) => {
-            const query = client.query
-            spyOnQueryFunction(client)
-            const response = await transaction(client)
-            client.query = query
-            return response
-        })
-    }
-}
-
-export async function getErrorForPluginConfig(id: number): Promise<any> {
-    const db = new Pool({ connectionString: defaultConfig.DATABASE_URL! })
-    let error
-    try {
-        const response = await db.query('SELECT * FROM posthog_pluginconfig WHERE id = $1', [id])
-        error = response.rows[0]['error']
-    } catch {}
-
-    await db.end()
-    return error
-}
-
-export const createPlugin = async (pgClient: Pool, plugin: Omit<Plugin, 'id'>) => {
-    return await insertRow(pgClient, 'posthog_plugin', {
+export const createPlugin = async (pg: PostgresRouter, plugin: Omit<Plugin, 'id'>) => {
+    return await insertRow(pg, 'posthog_plugin', {
         ...plugin,
         config_schema: {},
         from_json: false,
@@ -307,10 +282,10 @@ export const createPlugin = async (pgClient: Pool, plugin: Omit<Plugin, 'id'>) =
 }
 
 export const createPluginConfig = async (
-    pgClient: Pool,
-    pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'config' | 'has_error'>
+    pg: PostgresRouter,
+    pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'config'>
 ) => {
-    return await insertRow(pgClient, 'posthog_pluginconfig', {
+    return await insertRow(pg, 'posthog_pluginconfig', {
         ...pluginConfig,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -320,9 +295,9 @@ export const createPluginConfig = async (
     })
 }
 
-export const createOrganization = async (pgClient: Pool) => {
+export const createOrganization = async (pg: PostgresRouter) => {
     const organizationId = new UUIDT().toString()
-    await insertRow(pgClient, 'posthog_organization', {
+    await insertRow(pg, 'posthog_organization', {
         id: organizationId,
         name: 'TEST ORG',
         plugins_access_level: 9,
@@ -339,8 +314,8 @@ export const createOrganization = async (pgClient: Pool) => {
     return organizationId
 }
 
-export const createTeam = async (pgClient: Pool, organizationId: string, token?: string) => {
-    const team = await insertRow(pgClient, 'posthog_team', {
+export const createTeam = async (pg: PostgresRouter, organizationId: string, token?: string) => {
+    const team = await insertRow(pg, 'posthog_team', {
         // KLUDGE: auto increment IDs can be racy in tests so we ensure IDs don't clash
         id: Math.round(Math.random() * 1000000000),
         organization_id: organizationId,
@@ -371,9 +346,9 @@ export const createTeam = async (pgClient: Pool, organizationId: string, token?:
     return team.id
 }
 
-export const createUser = async (pgClient: Pool, distinctId: string) => {
+export const createUser = async (pg: PostgresRouter, distinctId: string) => {
     const uuid = new UUIDT().toString()
-    const user = await insertRow(pgClient, 'posthog_user', {
+    const user = await insertRow(pg, 'posthog_user', {
         uuid: uuid,
         password: 'gibberish',
         first_name: 'PluginTest',
@@ -388,9 +363,9 @@ export const createUser = async (pgClient: Pool, distinctId: string) => {
     return user.id
 }
 
-export const createOrganizationMembership = async (pgClient: Pool, organizationId: string, userId: number) => {
+export const createOrganizationMembership = async (pg: PostgresRouter, organizationId: string, userId: number) => {
     const membershipId = new UUIDT().toString()
-    const membership = await insertRow(pgClient, 'posthog_organizationmembership', {
+    const membership = await insertRow(pg, 'posthog_organizationmembership', {
         id: membershipId,
         organization_id: organizationId,
         user_id: userId,
@@ -403,7 +378,7 @@ export const createOrganizationMembership = async (pgClient: Pool, organizationI
 
 export async function fetchPostgresPersons(db: DB, teamId: number) {
     const query = `SELECT * FROM posthog_person WHERE team_id = ${teamId} ORDER BY id`
-    return (await db.postgresQuery(query, undefined, 'persons')).rows.map(
+    return (await db.postgres.query(PostgresUse.COMMON_READ, query, undefined, 'persons')).rows.map(
         // NOTE: we map to update some values here to maintain
         // compatibility with `hub.db.fetchPersons`.
         // TODO: remove unnecessary property translation operation.

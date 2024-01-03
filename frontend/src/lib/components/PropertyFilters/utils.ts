@@ -1,25 +1,110 @@
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { allOperatorsMapping, isOperatorFlag } from 'lib/utils'
+
+import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { BreakdownFilter } from '~/queries/schema'
 import {
     AnyFilterLike,
     AnyPropertyFilter,
     CohortPropertyFilter,
+    CohortType,
     ElementPropertyFilter,
+    EmptyPropertyFilter,
     EventDefinition,
     EventPropertyFilter,
     FeaturePropertyFilter,
     FilterLogicalOperator,
     GroupPropertyFilter,
     HogQLPropertyFilter,
+    KeyMappingInterface,
     PersonPropertyFilter,
     PropertyDefinitionType,
     PropertyFilterType,
+    PropertyFilterValue,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     PropertyOperator,
     RecordingDurationFilter,
     SessionPropertyFilter,
 } from '~/types'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { flattenPropertyGroup, isPropertyGroup } from 'lib/utils'
+
+export function isPropertyGroup(
+    properties:
+        | PropertyGroupFilter
+        | PropertyGroupFilterValue
+        | AnyPropertyFilter[]
+        | AnyPropertyFilter
+        | Record<string, any>
+        | null
+        | undefined
+): properties is PropertyGroupFilter {
+    return (
+        (properties as PropertyGroupFilter)?.type !== undefined &&
+        (properties as PropertyGroupFilter)?.values !== undefined
+    )
+}
+
+function flattenPropertyGroup(
+    flattenedProperties: AnyPropertyFilter[],
+    propertyGroup: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter
+): AnyPropertyFilter[] {
+    const obj: AnyPropertyFilter = {} as EmptyPropertyFilter
+    Object.keys(propertyGroup).forEach(function (k) {
+        obj[k] = propertyGroup[k]
+    })
+    if (isValidPropertyFilter(obj)) {
+        flattenedProperties.push(obj)
+    }
+    if (isPropertyGroup(propertyGroup)) {
+        return propertyGroup.values.reduce(flattenPropertyGroup, flattenedProperties)
+    }
+    return flattenedProperties
+}
+
+export function convertPropertiesToPropertyGroup(
+    properties: PropertyGroupFilter | AnyPropertyFilter[] | undefined
+): PropertyGroupFilter {
+    if (isPropertyGroup(properties)) {
+        return properties
+    }
+    if (properties && properties.length > 0) {
+        return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values: properties }] }
+    }
+    return { type: FilterLogicalOperator.And, values: [] }
+}
+
+/** Flatten a filter group into an array of filters. NB: Logical operators (AND/OR) are lost in the process. */
+export function convertPropertyGroupToProperties(
+    properties?: PropertyGroupFilter | AnyPropertyFilter[]
+): AnyPropertyFilter[] | undefined {
+    if (isPropertyGroup(properties)) {
+        return flattenPropertyGroup([], properties).filter(isValidPropertyFilter)
+    }
+    if (properties) {
+        return properties.filter(isValidPropertyFilter)
+    }
+    return properties
+}
+
+export function formatPropertyLabel(
+    item: Record<string, any>,
+    cohortsById: Partial<Record<CohortType['id'], CohortType>>,
+    keyMapping: KeyMappingInterface,
+    valueFormatter: (value: PropertyFilterValue | undefined) => string | string[] | null = (s) => [String(s)]
+): string {
+    if (isHogQLPropertyFilter(item as AnyFilterLike)) {
+        return extractExpressionComment(item.key)
+    }
+    const { value, key, operator, type } = item
+    return type === 'cohort'
+        ? cohortsById[value]?.name || `ID ${value}`
+        : (keyMapping[type === 'element' ? 'element' : 'event'][key]?.label || key) +
+              (isOperatorFlag(operator)
+                  ? ` ${allOperatorsMapping[operator]}`
+                  : ` ${(allOperatorsMapping[operator || 'exact'] || '?').split(' ')[0]} ${
+                        value && value.length === 1 && value[0] === '' ? '(empty string)' : valueFormatter(value) || ''
+                    } `)
+}
 
 /** Make sure unverified user property filter input has at least a "type" */
 export function sanitizePropertyFilter(propertyFilter: AnyPropertyFilter): AnyPropertyFilter {
@@ -39,7 +124,7 @@ export function parseProperties(
         return input || []
     }
     if (input && !Array.isArray(input) && isPropertyGroup(input)) {
-        return flattenPropertyGroup([], input as PropertyGroupFilter)
+        return flattenPropertyGroup([], input)
     }
     // Old style dict properties
     return Object.entries(input).map(([inputKey, value]) => {
@@ -77,6 +162,11 @@ export function isEventPropertyFilter(filter?: AnyFilterLike | null): filter is 
 }
 export function isPersonPropertyFilter(filter?: AnyFilterLike | null): filter is PersonPropertyFilter {
     return filter?.type === PropertyFilterType.Person
+}
+export function isEventPropertyOrPersonPropertyFilter(
+    filter?: AnyFilterLike | null
+): filter is EventPropertyFilter | PersonPropertyFilter {
+    return filter?.type === PropertyFilterType.Event || filter?.type === PropertyFilterType.Person
 }
 export function isElementPropertyFilter(filter?: AnyFilterLike | null): filter is ElementPropertyFilter {
     return filter?.type === PropertyFilterType.Element
@@ -153,18 +243,36 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.HogQL]: TaxonomicFilterGroupType.HogQLExpression,
 }
 
-export function propertyFilterTypeToTaxonomicFilterType(
-    filterType?: string | null,
-    groupTypeIndex?: number | null
-): TaxonomicFilterGroupType | undefined {
-    if (!filterType) {
+const filterToTaxonomicFilterType = (
+    type?: string | null,
+    group_type_index?: number | null,
+    value?: (string | number)[] | string | number | null
+): TaxonomicFilterGroupType | undefined => {
+    if (!type) {
         return undefined
     }
-    if (filterType === 'group') {
-        return `${TaxonomicFilterGroupType.GroupsPrefix}_${groupTypeIndex}` as TaxonomicFilterGroupType
+    if (type === 'group') {
+        return `${TaxonomicFilterGroupType.GroupsPrefix}_${group_type_index}` as TaxonomicFilterGroupType
     }
-    return propertyFilterMapping[filterType]
+    if (type === 'event' && typeof value === 'string' && value?.startsWith('$feature/')) {
+        return TaxonomicFilterGroupType.EventFeatureFlags
+    }
+    return propertyFilterMapping[type]
 }
+
+export const propertyFilterTypeToTaxonomicFilterType = (
+    filter: AnyPropertyFilter
+): TaxonomicFilterGroupType | undefined =>
+    filterToTaxonomicFilterType(filter.type, (filter as GroupPropertyFilter).group_type_index, filter.key)
+
+export const breakdownFilterToTaxonomicFilterType = (
+    breakdownFilter: BreakdownFilter
+): TaxonomicFilterGroupType | undefined =>
+    filterToTaxonomicFilterType(
+        breakdownFilter.breakdown_type,
+        breakdownFilter.breakdown_group_type_index,
+        breakdownFilter.breakdown
+    )
 
 export function propertyFilterTypeToPropertyDefinitionType(
     filterType?: PropertyFilterType | string | null

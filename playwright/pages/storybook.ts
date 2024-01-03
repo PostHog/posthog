@@ -19,13 +19,11 @@ type ComponentScreenshotConfig = {
 
 export class StorybookStoryPage {
     readonly page: Page
-    readonly mainAppContent: Locator
     readonly storyRoot: Locator
 
     constructor(page: Page) {
         this.page = page
-        this.mainAppContent = page.locator('.main-app-content')
-        this.storyRoot = page.locator('#root')
+        this.storyRoot = page.locator('#storybook-root')
     }
 
     async goto(storyId: string): Promise<void> {
@@ -41,10 +39,6 @@ export class StorybookStoryPage {
         await expect(this.page).toHaveScreenshot({ maxDiffPixelRatio: 0.01 })
     }
 
-    async expectSceneScreenshot(): Promise<void> {
-        await expect(this.mainAppContent).toHaveScreenshot({ maxDiffPixelRatio: 0.01 })
-    }
-
     async expectComponentScreenshot({ pseudo } = {} as ComponentScreenshotConfig): Promise<void> {
         const pseudoClasses = Object.entries(pseudo || {}).flatMap(([state, enabled]) => {
             return enabled ? `pseudo-${PSEUDO_STATES[state]}` : []
@@ -52,7 +46,7 @@ export class StorybookStoryPage {
 
         await this.page.evaluate(
             ([pseudoClasses]) => {
-                const rootEl = document.getElementById('root')
+                const rootEl = document.getElementById('storybook-root')
 
                 if (rootEl) {
                     // don't expand the container element to limit the screenshot

@@ -45,6 +45,22 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         with self.assertNumQueries(1):
             assert permissions.team(self.team).effective_membership_level is None
 
+    def test_team_effective_membership_level_membership_isolation(self):
+        self.team.access_control = True
+        self.team.save()
+        ExplicitTeamMembership.objects.create(
+            team=self.team,
+            parent_membership=self.organization_membership,
+        )
+        forbidden_team = Team.objects.create(
+            organization=self.organization,
+            name="FORBIDDEN",
+            access_control=True,
+        )
+        permissions = UserPermissions(user=self.user)
+        with self.assertNumQueries(2):
+            assert permissions.team(forbidden_team).effective_membership_level is None
+
     def test_team_effective_membership_level_with_explicit_membership_returns_current_level(self):
         self.team.access_control = True
         self.team.save()
@@ -70,7 +86,9 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         self.organization_membership.save()
 
         ExplicitTeamMembership.objects.create(
-            team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.ADMIN
+            team=self.team,
+            parent_membership=self.organization_membership,
+            level=ExplicitTeamMembership.Level.ADMIN,
         )
 
         with self.assertNumQueries(2):
@@ -90,7 +108,9 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         self.team.save()
 
         ExplicitTeamMembership.objects.create(
-            team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.ADMIN
+            team=self.team,
+            parent_membership=self.organization_membership,
+            level=ExplicitTeamMembership.Level.ADMIN,
         )
 
         assert self.permissions().team_ids_visible_for_user == [self.team.pk]
@@ -165,7 +185,9 @@ class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):
         self.dashboard.save()
 
         DashboardPrivilege.objects.create(
-            user=self.user, dashboard=self.dashboard, level=Dashboard.PrivilegeLevel.CAN_EDIT
+            user=self.user,
+            dashboard=self.dashboard,
+            level=Dashboard.PrivilegeLevel.CAN_EDIT,
         )
 
         assert self.dashboard_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
@@ -203,7 +225,9 @@ class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):
         self.dashboard.save()
 
         DashboardPrivilege.objects.create(
-            user=self.user, dashboard=self.dashboard, level=Dashboard.PrivilegeLevel.CAN_EDIT
+            user=self.user,
+            dashboard=self.dashboard,
+            level=Dashboard.PrivilegeLevel.CAN_EDIT,
         )
 
         assert self.dashboard_permissions().can_edit
@@ -216,7 +240,8 @@ class TestUserInsightPermissions(BaseTest, WithPermissionsBase):
         self.organization.save()
 
         self.dashboard1 = Dashboard.objects.create(
-            team=self.team, restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+            team=self.team,
+            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
         self.dashboard2 = Dashboard.objects.create(team=self.team)
         self.insight = Insight.objects.create(team=self.team)
@@ -287,7 +312,8 @@ class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
         self.organization.save()
 
         dashboard = Dashboard.objects.create(
-            team=self.team, restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+            team=self.team,
+            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
         insights, tiles = [], []
         for _ in range(10):
@@ -311,7 +337,7 @@ class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
                 assert user_permissions.insight(insight).effective_privilege_level is not None
 
     def test_team_lookup_efficiency(self):
-        user = User.objects.create(email="test2@posthog.com")
+        user = User.objects.create(email="test2@posthog.com", distinct_id="test2")
         models = []
         for _ in range(10):
             organization, membership, team = Organization.objects.bootstrap(

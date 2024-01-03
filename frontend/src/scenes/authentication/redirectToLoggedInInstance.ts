@@ -22,6 +22,7 @@
  */
 
 import { lemonToast } from '@posthog/lemon-ui'
+import { captureException } from '@sentry/react'
 import { getCookie } from 'lib/api'
 
 // cookie values
@@ -29,24 +30,49 @@ const PH_CURRENT_INSTANCE = 'ph_current_instance'
 
 const REDIRECT_TIMEOUT = 2500
 
-const SUBDOMAIN_TO_NAME = {
-    eu: 'EU',
-    app: 'US',
-} as const
+type Subdomain = 'eu' | 'us'
+
+export function cleanedCookieSubdomain(loggedInInstance: string | null): Subdomain | null {
+    try {
+        // replace '"' as for some reason the cookie value is wrapped in quotes e.g. "https://eu.posthog.com"
+        const url = loggedInInstance?.replace(/"/g, '')
+        if (!url) {
+            return null
+        }
+        // convert to URL, so that we can be sure we're dealing with a valid URL
+        const hostname = new URL(url).hostname
+        switch (hostname) {
+            case 'eu.posthog.com':
+                return 'eu'
+            case 'us.posthog.com':
+                return 'us'
+            default:
+                return null
+        }
+    } catch (e) {
+        // let's not allow errors in this code break the log-in page 🤞
+        captureException(e, { extra: { loggedInInstance } })
+        return null
+    }
+}
+
+function regionFromSubdomain(subdomain: Subdomain): 'EU' | 'US' {
+    switch (subdomain) {
+        case 'us':
+            return 'US'
+        case 'eu':
+            return 'EU'
+    }
+}
 
 export function redirectIfLoggedInOtherInstance(): (() => void) | undefined {
     const currentSubdomain = window.location.hostname.split('.')[0]
 
     const loggedInInstance = getCookie(PH_CURRENT_INSTANCE)
-    // replace '"' as for some reason the cookie value is wrapped in quotes e.g. "https://eu.posthog.com"
-    const loggedInSubdomain = loggedInInstance ? new URL(loggedInInstance.replace('"', '')).host.split('.')[0] : null
+    const loggedInSubdomain = cleanedCookieSubdomain(loggedInInstance)
 
     if (!loggedInSubdomain) {
         return // not logged into another subdomain
-    }
-
-    if (!SUBDOMAIN_TO_NAME[loggedInSubdomain]) {
-        return // not logged into a valid subdomain
     }
 
     const loggedIntoOtherSubdomain = loggedInSubdomain !== currentSubdomain
@@ -65,7 +91,7 @@ export function redirectIfLoggedInOtherInstance(): (() => void) | undefined {
         }
 
         lemonToast.info(
-            `Redirecting to your logged-in account in the Cloud ${SUBDOMAIN_TO_NAME[loggedInSubdomain]} region`,
+            `Redirecting to your logged-in account in the Cloud ${regionFromSubdomain(loggedInSubdomain)} region`,
             {
                 button: {
                     label: 'Cancel',

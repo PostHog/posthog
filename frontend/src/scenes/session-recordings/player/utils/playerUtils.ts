@@ -1,10 +1,11 @@
-import { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from 'react'
-import { SessionRecordingPlaylistType, SessionRecordingType } from '~/types'
-import { ExpandableConfig } from 'lib/lemon-ui/LemonTable'
-import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { router } from 'kea-router'
+import api from 'lib/api'
+import { ExpandableConfig } from 'lib/lemon-ui/LemonTable'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from 'react'
 import { urls } from 'scenes/urls'
+
+import { SessionRecordingPlaylistType, SessionRecordingType } from '~/types'
 
 export const THUMB_SIZE = 15
 export const THUMB_OFFSET = THUMB_SIZE / 2

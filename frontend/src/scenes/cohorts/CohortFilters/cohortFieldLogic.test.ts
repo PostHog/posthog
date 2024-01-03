@@ -1,11 +1,12 @@
-import { cohortFieldLogic, CohortFieldLogicProps } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
-import { useMocks } from '~/mocks/jest'
-import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
-import { groupsModel } from '~/models/groupsModel'
 import { MOCK_GROUP_TYPES } from 'lib/api.mock'
-import { FieldOptionsType } from 'scenes/cohorts/CohortFilters/types'
+import { cohortFieldLogic, CohortFieldLogicProps } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import { FIELD_VALUES } from 'scenes/cohorts/CohortFilters/constants'
+import { FieldOptionsType } from 'scenes/cohorts/CohortFilters/types'
+
+import { useMocks } from '~/mocks/jest'
+import { groupsModel } from '~/models/groupsModel'
+import { initKeaTests } from '~/test/init'
 
 describe('cohortFieldLogic', () => {
     let logic: ReturnType<typeof cohortFieldLogic.build>
@@ -51,7 +52,26 @@ describe('cohortFieldLogic', () => {
                     fieldOptionGroupTypes: [key as FieldOptionsType],
                 })
                 await expectLogic(logic).toMatchValues({
-                    fieldOptionGroups: [value],
+                    fieldOptionGroups: [
+                        key !== FieldOptionsType.Actors
+                            ? value
+                            : // Actors also include the group types fetched from the API (here they're MOCK_GROUP_TYPES)
+                              {
+                                  ...value,
+                                  values: {
+                                      ...value.values,
+                                      group_0: {
+                                          label: 'organizations',
+                                      },
+                                      group_1: {
+                                          label: 'instances',
+                                      },
+                                      group_2: {
+                                          label: 'projects',
+                                      },
+                                  },
+                              },
+                    ],
                 })
             })
         }

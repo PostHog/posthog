@@ -1,21 +1,20 @@
-import { ComponentMeta, ComponentStory } from '@storybook/react'
-import { Query } from '~/queries/Query/Query'
-import { examples } from './DataTable.examples'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
 import { mswDecorator } from '~/mocks/browser'
+import { Query } from '~/queries/Query/Query'
+
 import events from '../DataNode/__mocks__/EventsNode.json'
 import persons from '../DataNode/__mocks__/PersonsNode.json'
+import { examples } from './DataTable.examples'
 
-export default {
+type Story = StoryObj<typeof Query>
+const meta: Meta<typeof Query> = {
     title: 'Queries/DataTable',
     component: Query,
+    tags: ['test-skip'],
     parameters: {
         layout: 'fullscreen',
-        options: { showPanel: false },
         viewMode: 'story',
-        testOptions: { skip: true },
-    },
-    argTypes: {
-        query: { defaultValue: {} },
     },
     decorators: [
         mswDecorator({
@@ -25,30 +24,31 @@ export default {
             },
         }),
     ],
-} as ComponentMeta<typeof Query>
+}
+export default meta
 
-const QueryTemplate: ComponentStory<typeof Query> = (args) => <Query {...args} context={{ showQueryEditor: true }} />
+const QueryTemplate: StoryFn<typeof Query> = (args) => <Query {...args} context={{ showQueryEditor: true }} />
 
-export const AllDefaults = QueryTemplate.bind({})
+export const AllDefaults: Story = QueryTemplate.bind({})
 AllDefaults.args = { query: examples['AllDefaults'] }
 
-export const Minimalist = QueryTemplate.bind({})
+export const Minimalist: Story = QueryTemplate.bind({})
 Minimalist.args = { query: examples['Minimalist'] }
 
-export const ManyColumns = QueryTemplate.bind({})
+export const ManyColumns: Story = QueryTemplate.bind({})
 ManyColumns.args = { query: examples['ManyColumns'] }
 
-export const ShowFilters = QueryTemplate.bind({})
+export const ShowFilters: Story = QueryTemplate.bind({})
 ShowFilters.args = { query: examples['ShowFilters'] }
 
-export const ShowTools = QueryTemplate.bind({})
+export const ShowTools: Story = QueryTemplate.bind({})
 ShowTools.args = { query: examples['ShowTools'] }
 
-export const ShowAllTheThings = QueryTemplate.bind({})
+export const ShowAllTheThings: Story = QueryTemplate.bind({})
 ShowAllTheThings.args = { query: examples['ShowAllTheThings'] }
 
-export const Persons = QueryTemplate.bind({})
+export const Persons: Story = QueryTemplate.bind({})
 Persons.args = { query: examples['Persons'] }
 
-export const PersonsTable = QueryTemplate.bind({})
+export const PersonsTable: Story = QueryTemplate.bind({})
 PersonsTable.args = { query: examples['PersonsTable'] }

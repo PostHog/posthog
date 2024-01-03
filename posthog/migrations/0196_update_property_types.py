@@ -4,7 +4,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "0195_group_type_name"),
     ]
@@ -39,7 +38,10 @@ class Migration(migrations.Migration):
             constraint=models.CheckConstraint(
                 check=models.Q(
                     models.Q(
-                        ("property_type__in", ["DateTime", "String", "Numeric", "Boolean"]),
+                        (
+                            "property_type__in",
+                            ["DateTime", "String", "Numeric", "Boolean"],
+                        ),
                         (
                             "property_type_format__in",
                             [

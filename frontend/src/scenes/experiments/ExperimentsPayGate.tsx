@@ -1,4 +1,5 @@
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
+
 import { AvailableFeature } from '~/types'
 
 export function ExperimentsPayGate(): JSX.Element {

@@ -39,12 +39,20 @@ def _create_action(**kwargs):
 class TestCohort(ClickhouseTestMixin, BaseTest):
     def _get_cohortpeople(self, cohort: Cohort):
         return sync_execute(
-            GET_COHORTPEOPLE_BY_COHORT_ID, {"team_id": self.team.pk, "cohort_id": cohort.pk, "version": cohort.version}
+            GET_COHORTPEOPLE_BY_COHORT_ID,
+            {
+                "team_id": self.team.pk,
+                "cohort_id": cohort.pk,
+                "version": cohort.version,
+            },
         )
 
     def test_prop_cohort_basic(self):
-
-        _create_person(distinct_ids=["some_other_id"], team_id=self.team.pk, properties={"$some_prop": "something"})
+        _create_person(
+            distinct_ids=["some_other_id"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
 
         _create_person(
             distinct_ids=["some_id"],
@@ -52,9 +60,19 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             properties={"$some_prop": "something", "$another_prop": "something"},
         )
         _create_person(distinct_ids=["no_match"], team_id=self.team.pk)
-        _create_event(event="$pageview", team=self.team, distinct_id="some_id", properties={"attr": "some_val"})
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="some_id",
+            properties={"attr": "some_val"},
+        )
 
-        _create_event(event="$pageview", team=self.team, distinct_id="some_other_id", properties={"attr": "some_val"})
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="some_other_id",
+            properties={"attr": "some_val"},
+        )
 
         cohort1 = Cohort.objects.create(
             team=self.team,
@@ -62,7 +80,11 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                 {
                     "properties": [
                         {"key": "$some_prop", "value": "something", "type": "person"},
-                        {"key": "$another_prop", "value": "something", "type": "person"},
+                        {
+                            "key": "$another_prop",
+                            "value": "something",
+                            "type": "person",
+                        },
                     ]
                 }
             ],
@@ -71,15 +93,23 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]})
         query, params = parse_prop_grouped_clauses(
-            team_id=self.team.pk, property_group=filter.property_groups, hogql_context=filter.hogql_context
+            team_id=self.team.pk,
+            property_group=filter.property_groups,
+            hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
-        result = sync_execute(final_query, {**params, **filter.hogql_context.values, "team_id": self.team.pk})
+        result = sync_execute(
+            final_query,
+            {**params, **filter.hogql_context.values, "team_id": self.team.pk},
+        )
         self.assertEqual(len(result), 1)
 
     def test_prop_cohort_basic_action(self):
-
-        _create_person(distinct_ids=["some_other_id"], team_id=self.team.pk, properties={"$some_prop": "something"})
+        _create_person(
+            distinct_ids=["some_other_id"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
 
         _create_person(
             distinct_ids=["some_id"],
@@ -107,7 +137,10 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         cohort1 = Cohort.objects.create(team=self.team, groups=[{"action_id": action.pk, "days": 3}], name="cohort1")
 
-        filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}, team=self.team)
+        filter = Filter(
+            data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]},
+            team=self.team,
+        )
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
@@ -117,13 +150,19 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
-        result = sync_execute(final_query, {**params, **filter.hogql_context.values, "team_id": self.team.pk})
+        result = sync_execute(
+            final_query,
+            {**params, **filter.hogql_context.values, "team_id": self.team.pk},
+        )
 
         self.assertEqual(len(result), 1)
 
     def test_prop_cohort_basic_event_days(self):
-
-        _create_person(distinct_ids=["some_other_id"], team_id=self.team.pk, properties={"$some_prop": "something"})
+        _create_person(
+            distinct_ids=["some_other_id"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
 
         _create_person(
             distinct_ids=["some_id"],
@@ -147,9 +186,16 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             timestamp=datetime.now() - timedelta(days=4, hours=12),
         )
 
-        cohort1 = Cohort.objects.create(team=self.team, groups=[{"event_id": "$pageview", "days": 1}], name="cohort1")
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[{"event_id": "$pageview", "days": 1}],
+            name="cohort1",
+        )
 
-        filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}, team=self.team)
+        filter = Filter(
+            data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]},
+            team=self.team,
+        )
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
@@ -159,12 +205,22 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
-        result = sync_execute(final_query, {**params, **filter.hogql_context.values, "team_id": self.team.pk})
+        result = sync_execute(
+            final_query,
+            {**params, **filter.hogql_context.values, "team_id": self.team.pk},
+        )
         self.assertEqual(len(result), 1)
 
-        cohort2 = Cohort.objects.create(team=self.team, groups=[{"event_id": "$pageview", "days": 7}], name="cohort2")
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            groups=[{"event_id": "$pageview", "days": 7}],
+            name="cohort2",
+        )
 
-        filter = Filter(data={"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}]}, team=self.team)
+        filter = Filter(
+            data={"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}]},
+            team=self.team,
+        )
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
@@ -174,12 +230,18 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
-        result = sync_execute(final_query, {**params, **filter.hogql_context.values, "team_id": self.team.pk})
+        result = sync_execute(
+            final_query,
+            {**params, **filter.hogql_context.values, "team_id": self.team.pk},
+        )
         self.assertEqual(len(result), 2)
 
     def test_prop_cohort_basic_action_days(self):
-
-        _create_person(distinct_ids=["some_other_id"], team_id=self.team.pk, properties={"$some_prop": "something"})
+        _create_person(
+            distinct_ids=["some_other_id"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
 
         _create_person(
             distinct_ids=["some_id"],
@@ -206,7 +268,10 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         cohort1 = Cohort.objects.create(team=self.team, groups=[{"action_id": action.pk, "days": 1}], name="cohort1")
 
-        filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}, team=self.team)
+        filter = Filter(
+            data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]},
+            team=self.team,
+        )
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
@@ -216,12 +281,18 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
-        result = sync_execute(final_query, {**params, **filter.hogql_context.values, "team_id": self.team.pk})
+        result = sync_execute(
+            final_query,
+            {**params, **filter.hogql_context.values, "team_id": self.team.pk},
+        )
         self.assertEqual(len(result), 1)
 
         cohort2 = Cohort.objects.create(team=self.team, groups=[{"action_id": action.pk, "days": 7}], name="cohort2")
 
-        filter = Filter(data={"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}]}, team=self.team)
+        filter = Filter(
+            data={"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}]},
+            team=self.team,
+        )
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
@@ -231,17 +302,37 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
-        result = sync_execute(final_query, {**params, **filter.hogql_context.values, "team_id": self.team.pk})
+        result = sync_execute(
+            final_query,
+            {**params, **filter.hogql_context.values, "team_id": self.team.pk},
+        )
         self.assertEqual(len(result), 2)
 
     def test_prop_cohort_multiple_groups(self):
+        _create_person(
+            distinct_ids=["some_other_id"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
 
-        _create_person(distinct_ids=["some_other_id"], team_id=self.team.pk, properties={"$some_prop": "something"})
+        _create_person(
+            distinct_ids=["some_id"],
+            team_id=self.team.pk,
+            properties={"$another_prop": "something"},
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="some_id",
+            properties={"attr": "some_val"},
+        )
 
-        _create_person(distinct_ids=["some_id"], team_id=self.team.pk, properties={"$another_prop": "something"})
-        _create_event(event="$pageview", team=self.team, distinct_id="some_id", properties={"attr": "some_val"})
-
-        _create_event(event="$pageview", team=self.team, distinct_id="some_other_id", properties={"attr": "some_val"})
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="some_other_id",
+            properties={"attr": "some_val"},
+        )
 
         cohort1 = Cohort.objects.create(
             team=self.team,
@@ -252,46 +343,101 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort1",
         )
 
-        filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}, team=self.team)
+        filter = Filter(
+            data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]},
+            team=self.team,
+        )
         query, params = parse_prop_grouped_clauses(
-            team_id=self.team.pk, property_group=filter.property_groups, hogql_context=filter.hogql_context
+            team_id=self.team.pk,
+            property_group=filter.property_groups,
+            hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
-        result = sync_execute(final_query, {**params, **filter.hogql_context.values, "team_id": self.team.pk})
+        result = sync_execute(
+            final_query,
+            {**params, **filter.hogql_context.values, "team_id": self.team.pk},
+        )
         self.assertEqual(len(result), 2)
 
     def test_prop_cohort_with_negation(self):
         team2 = Organization.objects.bootstrap(None)[2]
 
-        _create_person(distinct_ids=["some_other_id"], team_id=self.team.pk, properties={"$some_prop": "something"})
+        _create_person(
+            distinct_ids=["some_other_id"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
 
-        _create_person(distinct_ids=["some_id"], team_id=team2.pk, properties={"$another_prop": "something"})
-        _create_event(event="$pageview", team=self.team, distinct_id="some_id", properties={"attr": "some_val"})
+        _create_person(
+            distinct_ids=["some_id"],
+            team_id=team2.pk,
+            properties={"$another_prop": "something"},
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="some_id",
+            properties={"attr": "some_val"},
+        )
 
-        _create_event(event="$pageview", team=self.team, distinct_id="some_other_id", properties={"attr": "some_val"})
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="some_other_id",
+            properties={"attr": "some_val"},
+        )
 
         cohort1 = Cohort.objects.create(
             team=self.team,
             groups=[
-                {"properties": [{"type": "person", "key": "$some_prop", "operator": "is_not", "value": "something"}]}
+                {
+                    "properties": [
+                        {
+                            "type": "person",
+                            "key": "$some_prop",
+                            "operator": "is_not",
+                            "value": "something",
+                        }
+                    ]
+                }
             ],
             name="cohort1",
         )
 
-        filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}, team=self.team)
+        filter = Filter(
+            data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]},
+            team=self.team,
+        )
         query, params = parse_prop_grouped_clauses(
-            team_id=self.team.pk, property_group=filter.property_groups, hogql_context=filter.hogql_context
+            team_id=self.team.pk,
+            property_group=filter.property_groups,
+            hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         self.assertIn("\nFROM person_distinct_id2\n", final_query)
 
-        result = sync_execute(final_query, {**params, **filter.hogql_context.values, "team_id": self.team.pk})
+        result = sync_execute(
+            final_query,
+            {**params, **filter.hogql_context.values, "team_id": self.team.pk},
+        )
         self.assertEqual(len(result), 0)
 
     def test_cohort_get_person_ids_by_cohort_id(self):
-        user1 = _create_person(distinct_ids=["user1"], team_id=self.team.pk, properties={"$some_prop": "something"})
-        _create_person(distinct_ids=["user2"], team_id=self.team.pk, properties={"$some_prop": "another"})
-        user3 = _create_person(distinct_ids=["user3"], team_id=self.team.pk, properties={"$some_prop": "something"})
+        user1 = _create_person(
+            distinct_ids=["user1"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
+        _create_person(
+            distinct_ids=["user2"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "another"},
+        )
+        user3 = _create_person(
+            distinct_ids=["user3"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
         cohort = Cohort.objects.create(
             team=self.team,
             groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
@@ -322,7 +468,8 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["'); truncate person_static_cohort; --"])
         cohort.insert_users_by_list(["'); truncate person_static_cohort; --", "123"])
         results = sync_execute(
-            "select count(1) from person_static_cohort where team_id = %(team_id)s", {"team_id": self.team.pk}
+            "select count(1) from person_static_cohort where team_id = %(team_id)s",
+            {"team_id": self.team.pk},
         )[0][0]
         self.assertEqual(results, 3)
 
@@ -355,7 +502,11 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                 {
                     "properties": [
                         {"key": "$some_prop", "value": "something", "type": "person"},
-                        {"key": "$another_prop", "value": "something", "type": "person"},
+                        {
+                            "key": "$another_prop",
+                            "value": "something",
+                            "type": "person",
+                        },
                     ]
                 }
             ],
@@ -482,7 +633,6 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         return action
 
     def test_cohortpeople_action_count(self):
-
         action = self._setup_actions_with_different_counts()
 
         # test operators
@@ -534,7 +684,11 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                 {
                     "properties": [
                         {"key": "$some_prop", "value": "something", "type": "person"},
-                        {"key": "$another_prop", "value": "something", "type": "person"},
+                        {
+                            "key": "$another_prop",
+                            "value": "something",
+                            "type": "person",
+                        },
                     ]
                 }
             ],
@@ -563,8 +717,16 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                 groups=[
                     {
                         "properties": [
-                            {"key": "$some_prop", "value": "something", "type": "person"},
-                            {"key": "$another_prop", "value": "something", "type": "person"},
+                            {
+                                "key": "$some_prop",
+                                "value": "something",
+                                "type": "person",
+                            },
+                            {
+                                "key": "$another_prop",
+                                "value": "something",
+                                "type": "person",
+                            },
                         ]
                     }
                 ],
@@ -592,7 +754,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             properties={"$some_prop": "something", "$another_prop": "something"},
         )
         p2 = Person.objects.create(
-            team_id=self.team.pk, distinct_ids=["2"], properties={"$some_prop": "another", "$another_prop": "another"}
+            team_id=self.team.pk,
+            distinct_ids=["2"],
+            properties={"$some_prop": "another", "$another_prop": "another"},
         )
 
         cohort1 = Cohort.objects.create(
@@ -601,7 +765,11 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                 {
                     "properties": [
                         {"key": "$some_prop", "value": "something", "type": "person"},
-                        {"key": "$another_prop", "value": "something", "type": "person"},
+                        {
+                            "key": "$another_prop",
+                            "value": "something",
+                            "type": "person",
+                        },
                     ]
                 }
             ],
@@ -651,7 +819,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"})
 
         cohort0: Cohort = Cohort.objects.create(
-            team=self.team, groups=[{"properties": [{"key": "foo", "value": "bar", "type": "person"}]}], name="cohort0"
+            team=self.team,
+            groups=[{"properties": [{"key": "foo", "value": "bar", "type": "person"}]}],
+            name="cohort0",
         )
         cohort0.calculate_people_ch(pending_version=0)
 
@@ -668,8 +838,16 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
     @snapshot_clickhouse_insert_cohortpeople_queries
     def test_cohortpeople_with_not_in_cohort_operator(self):
-        _create_person(distinct_ids=["1"], team_id=self.team.pk, properties={"$some_prop": "something1"})
-        _create_person(distinct_ids=["2"], team_id=self.team.pk, properties={"$some_prop": "something2"})
+        _create_person(
+            distinct_ids=["1"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something1"},
+        )
+        _create_person(
+            distinct_ids=["2"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something2"},
+        )
 
         _create_event(
             event="$pageview",
@@ -725,25 +903,45 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort1.calculate_people_ch(pending_version=0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-
             filter = Filter(
-                data={"properties": [{"key": "id", "value": cohort1.pk, "type": "precalculated-cohort"}]},
+                data={
+                    "properties": [
+                        {
+                            "key": "id",
+                            "value": cohort1.pk,
+                            "type": "precalculated-cohort",
+                        }
+                    ]
+                },
                 team=self.team,
             )
             query, params = parse_prop_grouped_clauses(
-                team_id=self.team.pk, property_group=filter.property_groups, hogql_context=filter.hogql_context
+                team_id=self.team.pk,
+                property_group=filter.property_groups,
+                hogql_context=filter.hogql_context,
             )
             final_query = "SELECT uuid, distinct_id FROM events WHERE team_id = %(team_id)s {}".format(query)
 
-            result = sync_execute(final_query, {**params, **filter.hogql_context.values, "team_id": self.team.pk})
+            result = sync_execute(
+                final_query,
+                {**params, **filter.hogql_context.values, "team_id": self.team.pk},
+            )
 
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][1], "2")  # distinct_id '2' is the one in cohort
 
     @snapshot_clickhouse_queries
     def test_cohortpeople_with_not_in_cohort_operator_and_no_precalculation(self):
-        _create_person(distinct_ids=["1"], team_id=self.team.pk, properties={"$some_prop": "something1"})
-        _create_person(distinct_ids=["2"], team_id=self.team.pk, properties={"$some_prop": "something2"})
+        _create_person(
+            distinct_ids=["1"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something1"},
+        )
+        _create_person(
+            distinct_ids=["2"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something2"},
+        )
 
         _create_event(
             event="$pageview",
@@ -795,21 +993,37 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort1",
         )
 
-        filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}, team=self.team)
+        filter = Filter(
+            data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]},
+            team=self.team,
+        )
         query, params = parse_prop_grouped_clauses(
-            team_id=self.team.pk, property_group=filter.property_groups, hogql_context=filter.hogql_context
+            team_id=self.team.pk,
+            property_group=filter.property_groups,
+            hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid, distinct_id FROM events WHERE team_id = %(team_id)s {}".format(query)
         self.assertIn("\nFROM person_distinct_id2\n", final_query)
 
-        result = sync_execute(final_query, {**params, **filter.hogql_context.values, "team_id": self.team.pk})
+        result = sync_execute(
+            final_query,
+            {**params, **filter.hogql_context.values, "team_id": self.team.pk},
+        )
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][1], "2")  # distinct_id '2' is the one in cohort
 
     @snapshot_clickhouse_insert_cohortpeople_queries
     def test_cohortpeople_with_not_in_cohort_operator_for_behavioural_cohorts(self):
-        _create_person(distinct_ids=["1"], team_id=self.team.pk, properties={"$some_prop": "something"})
-        _create_person(distinct_ids=["2"], team_id=self.team.pk, properties={"$some_prop": "something"})
+        _create_person(
+            distinct_ids=["1"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
+        _create_person(
+            distinct_ids=["2"],
+            team_id=self.team.pk,
+            properties={"$some_prop": "something"},
+        )
 
         _create_event(
             event="signup",
@@ -885,14 +1099,21 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort1.calculate_people_ch(pending_version=0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-
-            filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}, team=self.team)
+            filter = Filter(
+                data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]},
+                team=self.team,
+            )
             query, params = parse_prop_grouped_clauses(
-                team_id=self.team.pk, property_group=filter.property_groups, hogql_context=filter.hogql_context
+                team_id=self.team.pk,
+                property_group=filter.property_groups,
+                hogql_context=filter.hogql_context,
             )
             final_query = "SELECT uuid, distinct_id FROM events WHERE team_id = %(team_id)s {}".format(query)
 
-            result = sync_execute(final_query, {**params, **filter.hogql_context.values, "team_id": self.team.pk})
+            result = sync_execute(
+                final_query,
+                {**params, **filter.hogql_context.values, "team_id": self.team.pk},
+            )
 
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][1], "2")  # distinct_id '2' is the one in cohort
@@ -902,7 +1123,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"})
 
         cohort1: Cohort = Cohort.objects.create(
-            team=self.team, groups=[{"properties": [{"key": "id", "type": "cohort", "value": 666}]}], name="cohort1"
+            team=self.team,
+            groups=[{"properties": [{"key": "id", "type": "cohort", "value": 666}]}],
+            name="cohort1",
         )
 
         cohort1.calculate_people_ch(pending_version=0)
@@ -921,15 +1144,19 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertFalse(Cohort.objects.get().is_calculating)
 
     def test_query_with_multiple_new_style_cohorts(self):
-
         action1 = Action.objects.create(team=self.team, name="action1")
         ActionStep.objects.create(
-            event="$autocapture", action=action1, url="https://posthog.com/feedback/123", url_matching=ActionStep.EXACT
+            event="$autocapture",
+            action=action1,
+            url="https://posthog.com/feedback/123",
+            url_matching=ActionStep.EXACT,
         )
 
         # satiesfies all conditions
         p1 = Person.objects.create(
-            team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test", "email": "test@posthog.com"}
+            team_id=self.team.pk,
+            distinct_ids=["p1"],
+            properties={"name": "test", "email": "test@posthog.com"},
         )
         _create_event(
             team=self.team,
@@ -948,7 +1175,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         # doesn't satisfy action
         Person.objects.create(
-            team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "test", "email": "test@posthog.com"}
+            team_id=self.team.pk,
+            distinct_ids=["p2"],
+            properties={"name": "test", "email": "test@posthog.com"},
         )
         _create_event(
             team=self.team,
@@ -967,7 +1196,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         # satisfies special condition (not pushed down person property in OR group)
         p3 = Person.objects.create(
-            team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "special", "email": "test@posthog.com"}
+            team_id=self.team.pk,
+            distinct_ids=["p3"],
+            properties={"name": "special", "email": "test@posthog.com"},
         )
         _create_event(
             team=self.team,
@@ -991,7 +1222,11 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                             "value": "performed_event_first_time",
                             "type": "behavioral",
                         },
-                        {"key": "email", "value": "test@posthog.com", "type": "person"},  # this is pushed down
+                        {
+                            "key": "email",
+                            "value": "test@posthog.com",
+                            "type": "person",
+                        },  # this is pushed down
                     ],
                 }
             },
@@ -1023,10 +1258,17 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                                     "value": "performed_event",
                                     "type": "behavioral",
                                 },
-                                {"key": "name", "value": "special", "type": "person"},  # this is NOT pushed down
+                                {
+                                    "key": "name",
+                                    "value": "special",
+                                    "type": "person",
+                                },  # this is NOT pushed down
                             ],
                         },
-                        {"type": "AND", "values": [{"key": "id", "value": cohort2.pk, "type": "cohort"}]},
+                        {
+                            "type": "AND",
+                            "values": [{"key": "id", "value": cohort2.pk, "type": "cohort"}],
+                        },
                     ],
                 }
             },
@@ -1039,9 +1281,21 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertCountEqual([p1.uuid, p3.uuid], [r[0] for r in result])
 
     def test_update_cohort(self):
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"$some_prop": "something"})
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"$another_prop": "something"})
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["3"], properties={"$another_prop": "something"})
+        Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["1"],
+            properties={"$some_prop": "something"},
+        )
+        Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["2"],
+            properties={"$another_prop": "something"},
+        )
+        Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["3"],
+            properties={"$another_prop": "something"},
+        )
 
         cohort1 = Cohort.objects.create(
             team=self.team,
@@ -1072,9 +1326,21 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(results), 1)
 
     def test_cohort_versioning(self):
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"$some_prop": "something"})
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"$another_prop": "something"})
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["3"], properties={"$another_prop": "something"})
+        Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["1"],
+            properties={"$some_prop": "something"},
+        )
+        Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["2"],
+            properties={"$another_prop": "something"},
+        )
+        Person.objects.create(
+            team_id=self.team.pk,
+            distinct_ids=["3"],
+            properties={"$another_prop": "something"},
+        )
 
         # start the cohort at some later version
         cohort1 = Cohort.objects.create(

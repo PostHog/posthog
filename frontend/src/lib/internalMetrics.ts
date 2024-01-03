@@ -1,5 +1,5 @@
-import posthog from 'posthog-js'
 import api, { getJSONOrThrow } from 'lib/api'
+import posthog from 'posthog-js'
 import { getResponseBytes } from 'scenes/insights/utils'
 
 export interface TimeToSeeDataPayload {
@@ -58,7 +58,7 @@ export async function apiGetWithTimeToSeeDataTracking<T>(
         error = e
     }
     const requestDurationMs = performance.now() - requestStartMs
-    captureTimeToSeeData(teamId, {
+    void captureTimeToSeeData(teamId, {
         ...timeToSeeDataPayload,
         api_url: url,
         status: error ? 'failure' : 'success',
