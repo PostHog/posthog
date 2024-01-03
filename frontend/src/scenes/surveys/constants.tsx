@@ -177,7 +177,6 @@ export const defaultSurveyTemplates = [
                 type: SurveyQuestionType.Link,
                 question: 'Would you be interested in participating in a customer interview?',
                 description: 'We are looking for feedback on our product and would love to hear from you!',
-                link: 'https://calendly.com/',
                 buttonText: 'Schedule',
             },
         ],
