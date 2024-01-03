@@ -325,8 +325,8 @@ export function ExperimentPreview({
                                                     {experiment.parameters?.custom_exposure_filter && (
                                                         <LemonButton
                                                             type="secondary"
-                                                            size="small"
                                                             status="danger"
+                                                            size="small"
                                                             className="mr-2"
                                                             onClick={() => updateExperimentExposure(null)}
                                                         >

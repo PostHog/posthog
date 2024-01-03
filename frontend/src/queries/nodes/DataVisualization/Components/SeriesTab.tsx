@@ -48,7 +48,7 @@ export const SeriesTab = (): JSX.Element => {
                     <LemonButton
                         key="delete"
                         icon={<IconDelete />}
-                        status="primary-alt"
+                        status="danger"
                         title="Delete Y-series"
                         noPadding
                         onClick={() => deleteYSeries(index)}

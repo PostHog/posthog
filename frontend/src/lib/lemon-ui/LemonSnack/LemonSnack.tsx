@@ -48,7 +48,6 @@ export function LemonSnack({
             {onClose && (
                 <span className={clsx('LemonSnack__close shrink-0 ml-1', isRegular || '-mr-1')}>
                     <LemonButton
-                        status="stealth"
                         size="small"
                         noPadding
                         icon={<IconClose />}

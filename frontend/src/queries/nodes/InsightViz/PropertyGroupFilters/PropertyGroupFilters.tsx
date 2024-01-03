@@ -84,13 +84,11 @@ export function PropertyGroupFilters({
                                                     <div className="flex items-center space-x-2">
                                                         <LemonButton
                                                             icon={<IconCopy />}
-                                                            status="primary-alt"
                                                             onClick={() => duplicateFilterGroup(propertyGroupIndex)}
                                                             size="small"
                                                         />
                                                         <LemonButton
                                                             icon={<IconDelete />}
-                                                            status="primary-alt"
                                                             onClick={() => removeFilterGroup(propertyGroupIndex)}
                                                             size="small"
                                                         />
