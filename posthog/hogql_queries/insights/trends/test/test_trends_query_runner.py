@@ -1100,3 +1100,17 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert response.results[0]["data"] == [1]
+
+    def test_smoothing(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(smoothing_intervals=7),
+            None,
+        )
+
+        assert response.results[0]["data"] == [1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0]
