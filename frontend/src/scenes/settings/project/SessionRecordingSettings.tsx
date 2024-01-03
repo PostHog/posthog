@@ -82,7 +82,7 @@ export function ReplayGeneral(): JSX.Element {
                             updateCurrentTeam({
                                 session_recording_config: {
                                     ...currentTeam?.session_recording_config,
-                                    recordCanvas: checked,
+                                    record_canvas: checked,
                                 },
                             })
                         }}
@@ -90,7 +90,7 @@ export function ReplayGeneral(): JSX.Element {
                         bordered
                         checked={
                             currentTeam?.session_recording_config
-                                ? !!currentTeam?.session_recording_config?.recordCanvas
+                                ? !!currentTeam?.session_recording_config?.record_canvas
                                 : false
                         }
                     />
