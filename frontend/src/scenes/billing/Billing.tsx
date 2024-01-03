@@ -279,7 +279,7 @@ export function Billing(): JSX.Element {
                     )}
                 </div>
                 {!isOnboarding && over20kAnnual && !perksCTADismissed && (
-                    <div className="bg-glass-bg-3000-light flex flex-row gap-2 relative pl-6 p-4 border rounded mt-4 mx-4 min-w-120">
+                    <div className="bg-glass-bg-3000-light flex flex-row gap-2 relative pl-6 p-4 border rounded min-w-120">
                         <div className="flex flex-col pl-2">
                             <h3>You've unlocked enterprise-grade perks:</h3>
                             <ul className="pl-4">
