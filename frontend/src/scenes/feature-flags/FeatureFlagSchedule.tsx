@@ -33,6 +33,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
     const {
         setFeatureFlagId,
         setFeatureFlag,
+        setAggregationGroupTypeIndex,
         loadScheduledChanges,
         createScheduledChange,
         deleteScheduledChange,
@@ -42,10 +43,12 @@ export default function FeatureFlagSchedule(): JSX.Element {
     const { aggregationLabel } = useValues(groupsModel)
 
     const featureFlagId = useValues(featureFlagLogic).featureFlag.id
+    const aggregationGroupTypeIndex = useValues(featureFlagLogic).featureFlag.filters.aggregation_group_type_index
 
     useEffect(() => {
         // Set the feature flag ID from the main flag logic to the current logic
         setFeatureFlagId(featureFlagId)
+        setAggregationGroupTypeIndex(aggregationGroupTypeIndex || null)
 
         loadScheduledChanges()
     }, [])
