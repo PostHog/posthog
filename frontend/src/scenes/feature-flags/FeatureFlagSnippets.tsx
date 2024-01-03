@@ -336,6 +336,17 @@ export function AndroidSnippet({ flagKey, multivariant, payload }: FeatureFlagSn
     )
 }
 
+export function FlutterSnippet({ flagKey }: FeatureFlagSnippet): JSX.Element {
+    return (
+        <CodeSnippet language={Language.Dart} wrap>
+            {`if (await Posthog().isFeatureEnabled('${flagKey}') ?? false) {
+    // do something
+}
+            `}
+        </CodeSnippet>
+    )
+}
+
 export function iOSSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'posthog.'
 
