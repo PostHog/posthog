@@ -20,6 +20,7 @@
     --lemon-button-border-color-hover: none;
     --lemon-button-frame-bg-color: none;
     --lemon-button-font-size: 0.875rem;
+    --lemon-button-icon-size: 1.5rem;
     --lemon-button-height: 2.3125rem;
     --lemon-button-gap: 0.5rem;
     --lemon-button-icon-opacity: 0.5;
@@ -77,7 +78,8 @@
             display: flex;
             flex-shrink: 0;
             place-items: center center;
-            font-size: 1.5rem;
+            font-size: var(--lemon-button-icon-size);
+            transition: color 200ms ease;
 
             > * {
                 opacity: var(--lemon-button-icon-opacity);
@@ -165,6 +167,7 @@
         --lemon-button-padding-horizontal: 0.375rem;
         --lemon-button-padding-adjacent-icon: 0.25rem;
         --lemon-button-font-size: 0.75rem;
+        --lemon-button-icon-size: 0.875rem;
         --lemon-button-height: 1.625rem;
         --lemon-button-gap: 0.25rem;
         --lemon-button-side-action-width: 1.5rem;
@@ -175,10 +178,12 @@
         --lemon-button-height: 2.0625rem;
         --lemon-button-gap: 0.25rem;
         --lemon-button-side-action-width: 1.75rem;
+        --lemon-button-icon-size: 1.25rem;
     }
 
     &.LemonButton--large {
         --lemon-button-font-size: 1rem;
+        --lemon-button-icon-size: 1.75rem;
         --lemon-button-padding-adjacent-icon: 0.75rem;
         --lemon-button-height: 3.0625rem;
         --lemon-button-gap: 0.75rem;
