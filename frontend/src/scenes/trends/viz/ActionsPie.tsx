@@ -92,7 +92,7 @@ export function ActionsPie({
                   const dataset = points.referencePoint.dataset
                   const label = dataset.labels?.[index]
 
-                  const urls = urlsForDatasets(crossDataset, index)
+                  const urls = urlsForDatasets(crossDataset, index, cohorts, formatPropertyValueForDisplay)
                   const selectedUrl = urls[index]?.value
 
                   if (selectedUrl) {

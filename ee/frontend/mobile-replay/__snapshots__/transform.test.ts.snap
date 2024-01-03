@@ -667,7 +667,7 @@ exports[`replay/transform transform inputs input - $inputType - hello 1`] = `
                 {
                   "attributes": {},
                   "childNodes": [],
-                  "id": 224,
+                  "id": 322,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -734,7 +734,7 @@ exports[`replay/transform transform inputs input - button - click me 1`] = `
                       },
                       "childNodes": [
                         {
-                          "id": 216,
+                          "id": 314,
                           "textContent": "click me",
                           "type": 3,
                         },
@@ -744,7 +744,7 @@ exports[`replay/transform transform inputs input - button - click me 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 215,
+                  "id": 313,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -821,17 +821,17 @@ exports[`replay/transform transform inputs input - checkbox - $value 1`] = `
                           "type": 2,
                         },
                         {
-                          "id": 184,
+                          "id": 282,
                           "textContent": "first",
                           "type": 3,
                         },
                       ],
-                      "id": 185,
+                      "id": 283,
                       "tagName": "label",
                       "type": 2,
                     },
                   ],
-                  "id": 183,
+                  "id": 281,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -907,17 +907,17 @@ exports[`replay/transform transform inputs input - checkbox - $value 2`] = `
                           "type": 2,
                         },
                         {
-                          "id": 187,
+                          "id": 285,
                           "textContent": "second",
                           "type": 3,
                         },
                       ],
-                      "id": 188,
+                      "id": 286,
                       "tagName": "label",
                       "type": 2,
                     },
                   ],
-                  "id": 186,
+                  "id": 284,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -995,17 +995,17 @@ exports[`replay/transform transform inputs input - checkbox - $value 3`] = `
                           "type": 2,
                         },
                         {
-                          "id": 190,
+                          "id": 288,
                           "textContent": "third",
                           "type": 3,
                         },
                       ],
-                      "id": 191,
+                      "id": 289,
                       "tagName": "label",
                       "type": 2,
                     },
                   ],
-                  "id": 189,
+                  "id": 287,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -1077,7 +1077,7 @@ exports[`replay/transform transform inputs input - checkbox - $value 4`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 192,
+                  "id": 290,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -1149,7 +1149,7 @@ exports[`replay/transform transform inputs input - email - $value 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 176,
+                  "id": 274,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -1221,7 +1221,7 @@ exports[`replay/transform transform inputs input - number - $value 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 177,
+                  "id": 275,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -1293,7 +1293,7 @@ exports[`replay/transform transform inputs input - password - $value 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 175,
+                  "id": 273,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -1369,17 +1369,17 @@ exports[`replay/transform transform inputs input - progress - $value 1`] = `
                               },
                               "childNodes": [
                                 {
-                                  "id": 227,
+                                  "id": 325,
                                   "textContent": "@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }",
                                   "type": 3,
                                 },
                               ],
-                              "id": 226,
+                              "id": 324,
                               "tagName": "style",
                               "type": 2,
                             },
                           ],
-                          "id": 228,
+                          "id": 326,
                           "tagName": "div",
                           "type": 2,
                         },
@@ -1389,7 +1389,7 @@ exports[`replay/transform transform inputs input - progress - $value 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 225,
+                  "id": 323,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -1462,7 +1462,7 @@ exports[`replay/transform transform inputs input - progress - $value 2`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 229,
+                  "id": 327,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -1535,7 +1535,7 @@ exports[`replay/transform transform inputs input - progress - 0.75 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 230,
+                  "id": 328,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -1608,7 +1608,7 @@ exports[`replay/transform transform inputs input - progress - 0.75 2`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 231,
+                  "id": 329,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -1680,7 +1680,7 @@ exports[`replay/transform transform inputs input - search - $value 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 178,
+                  "id": 276,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -1753,12 +1753,12 @@ exports[`replay/transform transform inputs input - select - hello 1`] = `
                           },
                           "childNodes": [
                             {
-                              "id": 221,
+                              "id": 319,
                               "textContent": "hello",
                               "type": 3,
                             },
                           ],
-                          "id": 220,
+                          "id": 318,
                           "tagName": "option",
                           "type": 2,
                         },
@@ -1766,12 +1766,12 @@ exports[`replay/transform transform inputs input - select - hello 1`] = `
                           "attributes": {},
                           "childNodes": [
                             {
-                              "id": 223,
+                              "id": 321,
                               "textContent": "world",
                               "type": 3,
                             },
                           ],
-                          "id": 222,
+                          "id": 320,
                           "tagName": "option",
                           "type": 2,
                         },
@@ -1781,7 +1781,7 @@ exports[`replay/transform transform inputs input - select - hello 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 219,
+                  "id": 317,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -1854,7 +1854,7 @@ exports[`replay/transform transform inputs input - tel - $value 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 179,
+                  "id": 277,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -1926,7 +1926,7 @@ exports[`replay/transform transform inputs input - text - $value 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 174,
+                  "id": 272,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -1998,7 +1998,7 @@ exports[`replay/transform transform inputs input - text - hello 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 173,
+                  "id": 271,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -2070,7 +2070,7 @@ exports[`replay/transform transform inputs input - textArea - $value 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 218,
+                  "id": 316,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -2142,7 +2142,7 @@ exports[`replay/transform transform inputs input - textArea - hello 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 217,
+                  "id": 315,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -2208,7 +2208,7 @@ exports[`replay/transform transform inputs input - toggle - $value 1`] = `
                       },
                       "childNodes": [
                         {
-                          "id": 197,
+                          "id": 295,
                           "textContent": "first",
                           "type": 3,
                         },
@@ -2228,7 +2228,7 @@ exports[`replay/transform transform inputs input - toggle - $value 1`] = `
                                     "style": "position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;background-color:#1d4aff;opacity: 0.2;border-radius:7.5%;",
                                   },
                                   "childNodes": [],
-                                  "id": 195,
+                                  "id": 293,
                                   "tagName": "div",
                                   "type": 2,
                                 },
@@ -2238,12 +2238,12 @@ exports[`replay/transform transform inputs input - toggle - $value 1`] = `
                                     "style": "position:absolute;top:1.5%;right:5%;display:flex;align-items:center;justify-content:center;width:40%;height:75%;cursor:inherit;background-color:#1d4aff;border:2px solid #1d4aff;border-radius:50%;",
                                   },
                                   "childNodes": [],
-                                  "id": 196,
+                                  "id": 294,
                                   "tagName": "div",
                                   "type": 2,
                                 },
                               ],
-                              "id": 194,
+                              "id": 292,
                               "tagName": "div",
                               "type": 2,
                             },
@@ -2253,12 +2253,12 @@ exports[`replay/transform transform inputs input - toggle - $value 1`] = `
                           "type": 2,
                         },
                       ],
-                      "id": 198,
+                      "id": 296,
                       "tagName": "label",
                       "type": 2,
                     },
                   ],
-                  "id": 193,
+                  "id": 291,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -2324,7 +2324,7 @@ exports[`replay/transform transform inputs input - toggle - $value 2`] = `
                       },
                       "childNodes": [
                         {
-                          "id": 203,
+                          "id": 301,
                           "textContent": "second",
                           "type": 3,
                         },
@@ -2344,7 +2344,7 @@ exports[`replay/transform transform inputs input - toggle - $value 2`] = `
                                     "style": "position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;background-color:#f3f4ef;opacity: 0.2;border-radius:7.5%;",
                                   },
                                   "childNodes": [],
-                                  "id": 201,
+                                  "id": 299,
                                   "tagName": "div",
                                   "type": 2,
                                 },
@@ -2354,12 +2354,12 @@ exports[`replay/transform transform inputs input - toggle - $value 2`] = `
                                     "style": "position:absolute;top:1.5%;left:5%;display:flex;align-items:center;justify-content:center;width:40%;height:75%;cursor:inherit;background-color:#f3f4ef;border:2px solid #f3f4ef;border-radius:50%;",
                                   },
                                   "childNodes": [],
-                                  "id": 202,
+                                  "id": 300,
                                   "tagName": "div",
                                   "type": 2,
                                 },
                               ],
-                              "id": 200,
+                              "id": 298,
                               "tagName": "div",
                               "type": 2,
                             },
@@ -2369,12 +2369,12 @@ exports[`replay/transform transform inputs input - toggle - $value 2`] = `
                           "type": 2,
                         },
                       ],
-                      "id": 204,
+                      "id": 302,
                       "tagName": "label",
                       "type": 2,
                     },
                   ],
-                  "id": 199,
+                  "id": 297,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -2440,7 +2440,7 @@ exports[`replay/transform transform inputs input - toggle - $value 3`] = `
                       },
                       "childNodes": [
                         {
-                          "id": 209,
+                          "id": 307,
                           "textContent": "third",
                           "type": 3,
                         },
@@ -2460,7 +2460,7 @@ exports[`replay/transform transform inputs input - toggle - $value 3`] = `
                                     "style": "position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;background-color:#1d4aff;opacity: 0.2;border-radius:7.5%;",
                                   },
                                   "childNodes": [],
-                                  "id": 207,
+                                  "id": 305,
                                   "tagName": "div",
                                   "type": 2,
                                 },
@@ -2470,12 +2470,12 @@ exports[`replay/transform transform inputs input - toggle - $value 3`] = `
                                     "style": "position:absolute;top:1.5%;right:5%;display:flex;align-items:center;justify-content:center;width:40%;height:75%;cursor:inherit;background-color:#1d4aff;border:2px solid #1d4aff;border-radius:50%;",
                                   },
                                   "childNodes": [],
-                                  "id": 208,
+                                  "id": 306,
                                   "tagName": "div",
                                   "type": 2,
                                 },
                               ],
-                              "id": 206,
+                              "id": 304,
                               "tagName": "div",
                               "type": 2,
                             },
@@ -2485,12 +2485,12 @@ exports[`replay/transform transform inputs input - toggle - $value 3`] = `
                           "type": 2,
                         },
                       ],
-                      "id": 210,
+                      "id": 308,
                       "tagName": "label",
                       "type": 2,
                     },
                   ],
-                  "id": 205,
+                  "id": 303,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -2566,7 +2566,7 @@ exports[`replay/transform transform inputs input - toggle - $value 4`] = `
                                 "style": "position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;background-color:#1d4aff;opacity: 0.2;border-radius:7.5%;",
                               },
                               "childNodes": [],
-                              "id": 213,
+                              "id": 311,
                               "tagName": "div",
                               "type": 2,
                             },
@@ -2576,12 +2576,12 @@ exports[`replay/transform transform inputs input - toggle - $value 4`] = `
                                 "style": "position:absolute;top:1.5%;right:5%;display:flex;align-items:center;justify-content:center;width:40%;height:75%;cursor:inherit;background-color:#1d4aff;border:2px solid #1d4aff;border-radius:50%;",
                               },
                               "childNodes": [],
-                              "id": 214,
+                              "id": 312,
                               "tagName": "div",
                               "type": 2,
                             },
                           ],
-                          "id": 212,
+                          "id": 310,
                           "tagName": "div",
                           "type": 2,
                         },
@@ -2591,7 +2591,7 @@ exports[`replay/transform transform inputs input - toggle - $value 4`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 211,
+                  "id": 309,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -2663,7 +2663,7 @@ exports[`replay/transform transform inputs input - url - https://example.io 1`] 
                       "type": 2,
                     },
                   ],
-                  "id": 180,
+                  "id": 278,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -2684,6 +2684,993 @@ exports[`replay/transform transform inputs input - url - https://example.io 1`] 
   },
   "timestamp": 1,
   "type": 2,
+}
+`;
+
+exports[`replay/transform transform inputs isolated add mutation 1`] = `
+{
+  "data": {
+    "adds": [
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "style": "position: relative; display: flex; flex-direction: row; padding: 2px 4px;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "fill": "currentColor",
+                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                    "viewBox": "0 0 24 24",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {},
+                      "childNodes": [
+                        {
+                          "id": 174,
+                          "textContent": "filled star",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 173,
+                      "isSVG": true,
+                      "tagName": "title",
+                      "type": 2,
+                    },
+                    {
+                      "attributes": {
+                        "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+                      },
+                      "childNodes": [],
+                      "id": 175,
+                      "isSVG": true,
+                      "tagName": "path",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 172,
+                  "isSVG": true,
+                  "tagName": "svg",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "fill": "currentColor",
+                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                    "viewBox": "0 0 24 24",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {},
+                      "childNodes": [
+                        {
+                          "id": 178,
+                          "textContent": "filled star",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 177,
+                      "isSVG": true,
+                      "tagName": "title",
+                      "type": 2,
+                    },
+                    {
+                      "attributes": {
+                        "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+                      },
+                      "childNodes": [],
+                      "id": 179,
+                      "isSVG": true,
+                      "tagName": "path",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 176,
+                  "isSVG": true,
+                  "tagName": "svg",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "fill": "currentColor",
+                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                    "viewBox": "0 0 24 24",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {},
+                      "childNodes": [
+                        {
+                          "id": 182,
+                          "textContent": "filled star",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 181,
+                      "isSVG": true,
+                      "tagName": "title",
+                      "type": 2,
+                    },
+                    {
+                      "attributes": {
+                        "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+                      },
+                      "childNodes": [],
+                      "id": 183,
+                      "isSVG": true,
+                      "tagName": "path",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 180,
+                  "isSVG": true,
+                  "tagName": "svg",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "fill": "currentColor",
+                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                    "viewBox": "0 0 24 24",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {},
+                      "childNodes": [
+                        {
+                          "id": 186,
+                          "textContent": "filled star",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 185,
+                      "isSVG": true,
+                      "tagName": "title",
+                      "type": 2,
+                    },
+                    {
+                      "attributes": {
+                        "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+                      },
+                      "childNodes": [],
+                      "id": 187,
+                      "isSVG": true,
+                      "tagName": "path",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 184,
+                  "isSVG": true,
+                  "tagName": "svg",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "fill": "currentColor",
+                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                    "viewBox": "0 0 24 24",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {},
+                      "childNodes": [
+                        {
+                          "id": 190,
+                          "textContent": "filled star",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 189,
+                      "isSVG": true,
+                      "tagName": "title",
+                      "type": 2,
+                    },
+                    {
+                      "attributes": {
+                        "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+                      },
+                      "childNodes": [],
+                      "id": 191,
+                      "isSVG": true,
+                      "tagName": "path",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 188,
+                  "isSVG": true,
+                  "tagName": "svg",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "fill": "currentColor",
+                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                    "viewBox": "0 0 24 24",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {},
+                      "childNodes": [
+                        {
+                          "id": 194,
+                          "textContent": "filled star",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 193,
+                      "isSVG": true,
+                      "tagName": "title",
+                      "type": 2,
+                    },
+                    {
+                      "attributes": {
+                        "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+                      },
+                      "childNodes": [],
+                      "id": 195,
+                      "isSVG": true,
+                      "tagName": "path",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 192,
+                  "isSVG": true,
+                  "tagName": "svg",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "fill": "currentColor",
+                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                    "viewBox": "0 0 24 24",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {},
+                      "childNodes": [
+                        {
+                          "id": 198,
+                          "textContent": "half-filled star",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 197,
+                      "isSVG": true,
+                      "tagName": "title",
+                      "type": 2,
+                    },
+                    {
+                      "attributes": {
+                        "d": "M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+                      },
+                      "childNodes": [],
+                      "id": 199,
+                      "isSVG": true,
+                      "tagName": "path",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 196,
+                  "isSVG": true,
+                  "tagName": "svg",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "fill": "currentColor",
+                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                    "viewBox": "0 0 24 24",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {},
+                      "childNodes": [
+                        {
+                          "id": 202,
+                          "textContent": "empty star",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 201,
+                      "isSVG": true,
+                      "tagName": "title",
+                      "type": 2,
+                    },
+                    {
+                      "attributes": {
+                        "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+                      },
+                      "childNodes": [],
+                      "id": 203,
+                      "isSVG": true,
+                      "tagName": "path",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 200,
+                  "isSVG": true,
+                  "tagName": "svg",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "fill": "currentColor",
+                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                    "viewBox": "0 0 24 24",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {},
+                      "childNodes": [
+                        {
+                          "id": 206,
+                          "textContent": "empty star",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 205,
+                      "isSVG": true,
+                      "tagName": "title",
+                      "type": 2,
+                    },
+                    {
+                      "attributes": {
+                        "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+                      },
+                      "childNodes": [],
+                      "id": 207,
+                      "isSVG": true,
+                      "tagName": "path",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 204,
+                  "isSVG": true,
+                  "tagName": "svg",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "fill": "currentColor",
+                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                    "viewBox": "0 0 24 24",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {},
+                      "childNodes": [
+                        {
+                          "id": 210,
+                          "textContent": "empty star",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 209,
+                      "isSVG": true,
+                      "tagName": "title",
+                      "type": 2,
+                    },
+                    {
+                      "attributes": {
+                        "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+                      },
+                      "childNodes": [],
+                      "id": 211,
+                      "isSVG": true,
+                      "tagName": "path",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 208,
+                  "isSVG": true,
+                  "tagName": "svg",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "fill": "currentColor",
+                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                    "viewBox": "0 0 24 24",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {},
+                      "childNodes": [
+                        {
+                          "id": 214,
+                          "textContent": "empty star",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 213,
+                      "isSVG": true,
+                      "tagName": "title",
+                      "type": 2,
+                    },
+                    {
+                      "attributes": {
+                        "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+                      },
+                      "childNodes": [],
+                      "id": 215,
+                      "isSVG": true,
+                      "tagName": "path",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 212,
+                  "isSVG": true,
+                  "tagName": "svg",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "fill": "currentColor",
+                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                    "viewBox": "0 0 24 24",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {},
+                      "childNodes": [
+                        {
+                          "id": 218,
+                          "textContent": "empty star",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 217,
+                      "isSVG": true,
+                      "tagName": "title",
+                      "type": 2,
+                    },
+                    {
+                      "attributes": {
+                        "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+                      },
+                      "childNodes": [],
+                      "id": 219,
+                      "isSVG": true,
+                      "tagName": "path",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 216,
+                  "isSVG": true,
+                  "tagName": "svg",
+                  "type": 2,
+                },
+              ],
+              "id": 220,
+              "tagName": "div",
+              "type": 2,
+            },
+          ],
+          "id": 12365,
+          "tagName": "div",
+          "type": 2,
+        },
+        "parentId": 54321,
+      },
+    ],
+    "attributes": [],
+    "removes": [],
+    "source": 0,
+    "texts": [],
+  },
+  "timestamp": 1,
+  "type": 3,
+}
+`;
+
+exports[`replay/transform transform inputs isolated remove mutation 1`] = `
+{
+  "data": {
+    "removes": [
+      {
+        "id": 12345,
+        "parentId": 54321,
+      },
+    ],
+    "source": 0,
+  },
+  "timestamp": 1,
+  "type": 3,
+}
+`;
+
+exports[`replay/transform transform inputs isolated update mutation 1`] = `
+{
+  "data": {
+    "adds": [
+      {
+        "nextId": null,
+        "node": {
+          "attributes": {
+            "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
+          },
+          "childNodes": [
+            {
+              "attributes": {
+                "style": "position: relative; display: flex; flex-direction: row; padding: 2px 4px;",
+              },
+              "childNodes": [
+                {
+                  "attributes": {
+                    "fill": "currentColor",
+                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                    "viewBox": "0 0 24 24",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {},
+                      "childNodes": [
+                        {
+                          "id": 223,
+                          "textContent": "filled star",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 222,
+                      "isSVG": true,
+                      "tagName": "title",
+                      "type": 2,
+                    },
+                    {
+                      "attributes": {
+                        "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+                      },
+                      "childNodes": [],
+                      "id": 224,
+                      "isSVG": true,
+                      "tagName": "path",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 221,
+                  "isSVG": true,
+                  "tagName": "svg",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "fill": "currentColor",
+                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                    "viewBox": "0 0 24 24",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {},
+                      "childNodes": [
+                        {
+                          "id": 227,
+                          "textContent": "filled star",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 226,
+                      "isSVG": true,
+                      "tagName": "title",
+                      "type": 2,
+                    },
+                    {
+                      "attributes": {
+                        "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+                      },
+                      "childNodes": [],
+                      "id": 228,
+                      "isSVG": true,
+                      "tagName": "path",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 225,
+                  "isSVG": true,
+                  "tagName": "svg",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "fill": "currentColor",
+                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                    "viewBox": "0 0 24 24",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {},
+                      "childNodes": [
+                        {
+                          "id": 231,
+                          "textContent": "filled star",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 230,
+                      "isSVG": true,
+                      "tagName": "title",
+                      "type": 2,
+                    },
+                    {
+                      "attributes": {
+                        "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+                      },
+                      "childNodes": [],
+                      "id": 232,
+                      "isSVG": true,
+                      "tagName": "path",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 229,
+                  "isSVG": true,
+                  "tagName": "svg",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "fill": "currentColor",
+                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                    "viewBox": "0 0 24 24",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {},
+                      "childNodes": [
+                        {
+                          "id": 235,
+                          "textContent": "filled star",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 234,
+                      "isSVG": true,
+                      "tagName": "title",
+                      "type": 2,
+                    },
+                    {
+                      "attributes": {
+                        "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+                      },
+                      "childNodes": [],
+                      "id": 236,
+                      "isSVG": true,
+                      "tagName": "path",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 233,
+                  "isSVG": true,
+                  "tagName": "svg",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "fill": "currentColor",
+                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                    "viewBox": "0 0 24 24",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {},
+                      "childNodes": [
+                        {
+                          "id": 239,
+                          "textContent": "filled star",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 238,
+                      "isSVG": true,
+                      "tagName": "title",
+                      "type": 2,
+                    },
+                    {
+                      "attributes": {
+                        "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+                      },
+                      "childNodes": [],
+                      "id": 240,
+                      "isSVG": true,
+                      "tagName": "path",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 237,
+                  "isSVG": true,
+                  "tagName": "svg",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "fill": "currentColor",
+                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                    "viewBox": "0 0 24 24",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {},
+                      "childNodes": [
+                        {
+                          "id": 243,
+                          "textContent": "filled star",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 242,
+                      "isSVG": true,
+                      "tagName": "title",
+                      "type": 2,
+                    },
+                    {
+                      "attributes": {
+                        "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
+                      },
+                      "childNodes": [],
+                      "id": 244,
+                      "isSVG": true,
+                      "tagName": "path",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 241,
+                  "isSVG": true,
+                  "tagName": "svg",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "fill": "currentColor",
+                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                    "viewBox": "0 0 24 24",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {},
+                      "childNodes": [
+                        {
+                          "id": 247,
+                          "textContent": "half-filled star",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 246,
+                      "isSVG": true,
+                      "tagName": "title",
+                      "type": 2,
+                    },
+                    {
+                      "attributes": {
+                        "d": "M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+                      },
+                      "childNodes": [],
+                      "id": 248,
+                      "isSVG": true,
+                      "tagName": "path",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 245,
+                  "isSVG": true,
+                  "tagName": "svg",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "fill": "currentColor",
+                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                    "viewBox": "0 0 24 24",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {},
+                      "childNodes": [
+                        {
+                          "id": 251,
+                          "textContent": "empty star",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 250,
+                      "isSVG": true,
+                      "tagName": "title",
+                      "type": 2,
+                    },
+                    {
+                      "attributes": {
+                        "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+                      },
+                      "childNodes": [],
+                      "id": 252,
+                      "isSVG": true,
+                      "tagName": "path",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 249,
+                  "isSVG": true,
+                  "tagName": "svg",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "fill": "currentColor",
+                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                    "viewBox": "0 0 24 24",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {},
+                      "childNodes": [
+                        {
+                          "id": 255,
+                          "textContent": "empty star",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 254,
+                      "isSVG": true,
+                      "tagName": "title",
+                      "type": 2,
+                    },
+                    {
+                      "attributes": {
+                        "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+                      },
+                      "childNodes": [],
+                      "id": 256,
+                      "isSVG": true,
+                      "tagName": "path",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 253,
+                  "isSVG": true,
+                  "tagName": "svg",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "fill": "currentColor",
+                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                    "viewBox": "0 0 24 24",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {},
+                      "childNodes": [
+                        {
+                          "id": 259,
+                          "textContent": "empty star",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 258,
+                      "isSVG": true,
+                      "tagName": "title",
+                      "type": 2,
+                    },
+                    {
+                      "attributes": {
+                        "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+                      },
+                      "childNodes": [],
+                      "id": 260,
+                      "isSVG": true,
+                      "tagName": "path",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 257,
+                  "isSVG": true,
+                  "tagName": "svg",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "fill": "currentColor",
+                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                    "viewBox": "0 0 24 24",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {},
+                      "childNodes": [
+                        {
+                          "id": 263,
+                          "textContent": "empty star",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 262,
+                      "isSVG": true,
+                      "tagName": "title",
+                      "type": 2,
+                    },
+                    {
+                      "attributes": {
+                        "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+                      },
+                      "childNodes": [],
+                      "id": 264,
+                      "isSVG": true,
+                      "tagName": "path",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 261,
+                  "isSVG": true,
+                  "tagName": "svg",
+                  "type": 2,
+                },
+                {
+                  "attributes": {
+                    "fill": "currentColor",
+                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
+                    "viewBox": "0 0 24 24",
+                  },
+                  "childNodes": [
+                    {
+                      "attributes": {},
+                      "childNodes": [
+                        {
+                          "id": 267,
+                          "textContent": "empty star",
+                          "type": 3,
+                        },
+                      ],
+                      "id": 266,
+                      "isSVG": true,
+                      "tagName": "title",
+                      "type": 2,
+                    },
+                    {
+                      "attributes": {
+                        "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
+                      },
+                      "childNodes": [],
+                      "id": 268,
+                      "isSVG": true,
+                      "tagName": "path",
+                      "type": 2,
+                    },
+                  ],
+                  "id": 265,
+                  "isSVG": true,
+                  "tagName": "svg",
+                  "type": 2,
+                },
+              ],
+              "id": 269,
+              "tagName": "div",
+              "type": 2,
+            },
+          ],
+          "id": 12365,
+          "tagName": "div",
+          "type": 2,
+        },
+        "parentId": 54321,
+      },
+    ],
+    "attributes": [],
+    "removes": [
+      {
+        "id": 12365,
+        "parentId": 54321,
+      },
+    ],
+    "source": 0,
+    "texts": [],
+  },
+  "timestamp": 1,
+  "type": 3,
 }
 `;
 
@@ -2772,7 +3759,7 @@ exports[`replay/transform transform inputs placeholder - $inputType - $value 1`]
                       },
                       "childNodes": [
                         {
-                          "id": 233,
+                          "id": 331,
                           "textContent": "hello",
                           "type": 3,
                         },
@@ -2782,7 +3769,7 @@ exports[`replay/transform transform inputs placeholder - $inputType - $value 1`]
                       "type": 2,
                     },
                   ],
-                  "id": 232,
+                  "id": 330,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -3367,7 +4354,7 @@ exports[`replay/transform transform inputs radio group - $inputType - $value 1`]
                 {
                   "attributes": {},
                   "childNodes": [],
-                  "id": 182,
+                  "id": 280,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -3437,7 +4424,7 @@ exports[`replay/transform transform inputs radio_group - $inputType - $value 1`]
                       "type": 2,
                     },
                   ],
-                  "id": 181,
+                  "id": 279,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -3507,7 +4494,7 @@ exports[`replay/transform transform inputs radio_group 1`] = `
                       "type": 2,
                     },
                   ],
-                  "id": 172,
+                  "id": 270,
                   "tagName": "div",
                   "type": 2,
                 },
@@ -3573,7 +4560,7 @@ exports[`replay/transform transform inputs web_view - $inputType - $value 1`] = 
                       },
                       "childNodes": [
                         {
-                          "id": 235,
+                          "id": 333,
                           "textContent": "web_view",
                           "type": 3,
                         },
@@ -3583,7 +4570,7 @@ exports[`replay/transform transform inputs web_view - $inputType - $value 1`] = 
                       "type": 2,
                     },
                   ],
-                  "id": 234,
+                  "id": 332,
                   "tagName": "div",
                   "type": 2,
                 },
