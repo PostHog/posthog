@@ -69,14 +69,16 @@ class Test0010MoveOldPartitions(AsyncMigrationBaseTest):
     def test_completes_successfully(self):
         self.assertTrue(run_migration())
 
-        print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-        print(MIGRATION_DEFINITION.operations)
         # create table + 3 move operations
         self.assertEqual(len(MIGRATION_DEFINITION.operations), 5)
 
         self.assertTrue(
             "ALTER TABLE sharded_events MOVE PARTITION '190001' TO TABLE events_backup"
             in MIGRATION_DEFINITION.operations[1].sql  # type: ignore
+        )
+        self.assertTrue(
+            "ALTER TABLE sharded_events MOVE PARTITION '202201' TO TABLE events_backup"
+            in MIGRATION_DEFINITION.operations[2].sql  # type: ignore
         )
         self.assertTrue(
             "ALTER TABLE sharded_events MOVE PARTITION '202202' TO TABLE events_backup"
