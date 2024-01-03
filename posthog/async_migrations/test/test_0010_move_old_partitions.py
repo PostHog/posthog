@@ -77,7 +77,7 @@ class Test0010MoveOldPartitions(AsyncMigrationBaseTest):
             MIGRATION_DEFINITION.operations[1].sql,  # type: ignore
         )
         self.assertIn(
-            "ALTER TABLE sharded_events MOVE PARTITION '202201' TO TABLE events_backup",
+            "ALTER TABLE sharded_events MOVE PARTITION '201901' TO TABLE events_backup",
             MIGRATION_DEFINITION.operations[2].sql,  # type: ignore
         )
         self.assertIn(
