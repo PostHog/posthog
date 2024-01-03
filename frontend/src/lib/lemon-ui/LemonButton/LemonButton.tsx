@@ -1,5 +1,4 @@
 import './LemonButton.scss'
-import './LemonButton3000.scss'
 
 import { IconChevronDown } from '@posthog/icons'
 import clsx from 'clsx'
