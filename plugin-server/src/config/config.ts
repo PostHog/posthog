@@ -131,6 +131,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         POE_DEFERRED_WRITES_ENABLED: false,
         POE_DEFERRED_WRITES_USE_FLAT_OVERRIDES: false,
         POE_EMBRACE_JOIN_FOR_TEAMS: '',
+        POE_WRITES_ENABLED_MAX_TEAM_ID: 0,
         RELOAD_PLUGIN_JITTER_MAX_MS: 60000,
         RUSTY_HOOK_FOR_TEAMS: '',
         RUSTY_HOOK_URL: '',
