@@ -1,0 +1,5 @@
+target
+docker
+.env
+.git
+.github

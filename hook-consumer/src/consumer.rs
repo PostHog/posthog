@@ -13,7 +13,7 @@ use tokio::sync;
 
 use crate::error::{ConsumerError, WebhookError};
 
-/// A WebhookJob is any PgQueueJob with WebhookJobParameters and WebhookJobMetadata.
+/// A WebhookJob is any `PgQueueJob` with `WebhookJobParameters` and `WebhookJobMetadata`.
 trait WebhookJob: PgQueueJob + std::marker::Send {
     fn parameters(&self) -> &WebhookJobParameters;
     fn metadata(&self) -> &WebhookJobMetadata;
@@ -147,7 +147,7 @@ impl<'p> WebhookConsumer<'p> {
                 spawn_webhook_job_processing_task(
                     self.client.clone(),
                     semaphore.clone(),
-                    self.retry_policy,
+                    self.retry_policy.clone(),
                     webhook_job,
                 )
                 .await;
@@ -155,10 +155,11 @@ impl<'p> WebhookConsumer<'p> {
         } else {
             loop {
                 let webhook_job = self.wait_for_job().await?;
+
                 spawn_webhook_job_processing_task(
                     self.client.clone(),
                     semaphore.clone(),
-                    self.retry_policy,
+                    self.retry_policy.clone(),
                     webhook_job,
                 )
                 .await;
@@ -173,6 +174,7 @@ impl<'p> WebhookConsumer<'p> {
 ///
 /// * `client`: An HTTP client to execute the webhook job request.
 /// * `semaphore`: A semaphore used for rate limiting purposes. This function will panic if this semaphore is closed.
+/// * `retry_policy`: The retry policy used to set retry parameters if a job fails and has remaining attempts.
 /// * `webhook_job`: The webhook job to process as dequeued from `hook_common::pgqueue::PgQueue`.
 async fn spawn_webhook_job_processing_task<W: WebhookJob + 'static>(
     client: reqwest::Client,
@@ -212,6 +214,7 @@ async fn spawn_webhook_job_processing_task<W: WebhookJob + 'static>(
 ///
 /// * `client`: An HTTP client to execute the webhook job request.
 /// * `webhook_job`: The webhook job to process as dequeued from `hook_common::pgqueue::PgQueue`.
+/// * `retry_policy`: The retry policy used to set retry parameters if a job fails and has remaining attempts.
 async fn process_webhook_job<W: WebhookJob>(
     client: reqwest::Client,
     webhook_job: W,
@@ -281,10 +284,12 @@ async fn process_webhook_job<W: WebhookJob>(
         }
         Err(WebhookError::RetryableRequestError { error, retry_after }) => {
             let retry_interval =
-                retry_policy.time_until_next_retry(webhook_job.attempt() as u32, retry_after);
+                retry_policy.retry_interval(webhook_job.attempt() as u32, retry_after);
+            let current_queue = webhook_job.queue();
+            let retry_queue = retry_policy.retry_queue(&current_queue);
 
             match webhook_job
-                .retry(WebhookJobError::from(&error), retry_interval)
+                .retry(WebhookJobError::from(&error), retry_interval, retry_queue)
                 .await
             {
                 Ok(_) => {

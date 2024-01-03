@@ -1,3 +1,4 @@
+//! Consume `PgQueue` jobs to run webhook calls.
 use envconfig::Envconfig;
 
 use hook_common::{
@@ -11,11 +12,13 @@ use hook_consumer::error::ConsumerError;
 async fn main() -> Result<(), ConsumerError> {
     let config = Config::init_from_env().expect("Invalid configuration:");
 
-    let retry_policy = RetryPolicy::new(
+    let retry_policy = RetryPolicy::build(
         config.retry_policy.backoff_coefficient,
         config.retry_policy.initial_interval.0,
-        Some(config.retry_policy.maximum_interval.0),
-    );
+    )
+    .maximum_interval(config.retry_policy.maximum_interval.0)
+    .queue(&config.retry_policy.retry_queue_name)
+    .provide();
     let queue = PgQueue::new(&config.queue_name, &config.table_name, &config.database_url)
         .await
         .expect("failed to initialize queue");
