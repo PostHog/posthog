@@ -31,13 +31,7 @@ export function DebugNotice(): JSX.Element | null {
         <div className="bg-bg-light cursor-pointer border-t" onClick={() => setNoticeHidden(true)}>
             <div className="p-2 border-l-4 border-primary text-primary-3000 truncate flex justify-between">
                 <b>DEBUG mode</b>
-                <LemonButton
-                    status="primary-alt"
-                    icon={<IconClose />}
-                    size="small"
-                    noPadding
-                    onClick={() => setNoticeHidden(true)}
-                />
+                <LemonButton icon={<IconClose />} size="small" noPadding onClick={() => setNoticeHidden(true)} />
             </div>
             <div className="p-2 border-l-4 border-danger text-danger-dark truncate">
                 Branch: <b>{debugInfo.branch}</b>

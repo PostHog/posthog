@@ -117,12 +117,11 @@ export function InsightMeta({
                 <>
                     {allInteractionsAllowed && (
                         <>
-                            <LemonButton status="stealth" to={urls.insightView(short_id)} fullWidth>
+                            <LemonButton to={urls.insightView(short_id)} fullWidth>
                                 View
                             </LemonButton>
                             {refresh && (
                                 <LemonButton
-                                    status="stealth"
                                     onClick={() => {
                                         refresh()
                                         reportDashboardItemRefreshed(insight)
@@ -136,13 +135,11 @@ export function InsightMeta({
                     )}
                     {editable && updateColor && (
                         <LemonButtonWithDropdown
-                            status="stealth"
                             dropdown={{
                                 overlay: Object.values(InsightColor).map((availableColor) => (
                                     <LemonButton
                                         key={availableColor}
                                         active={availableColor === (ribbonColor || InsightColor.White)}
-                                        status="stealth"
                                         onClick={() => updateColor(availableColor)}
                                         icon={
                                             availableColor !== InsightColor.White ? (
@@ -168,12 +165,10 @@ export function InsightMeta({
                     )}
                     {editable && moveToDashboard && otherDashboards.length > 0 && (
                         <LemonButtonWithDropdown
-                            status="stealth"
                             dropdown={{
                                 overlay: otherDashboards.map((otherDashboard) => (
                                     <LemonButton
                                         key={otherDashboard.id}
-                                        status="stealth"
                                         onClick={() => {
                                             moveToDashboard(otherDashboard)
                                         }}
@@ -194,17 +189,16 @@ export function InsightMeta({
                     )}
                     <LemonDivider />
                     {editable && allInteractionsAllowed && (
-                        <LemonButton status="stealth" to={urls.insightEdit(short_id)} fullWidth>
+                        <LemonButton to={urls.insightEdit(short_id)} fullWidth>
                             Edit
                         </LemonButton>
                     )}
                     {editable && (
-                        <LemonButton status="stealth" onClick={rename} fullWidth>
+                        <LemonButton onClick={rename} fullWidth>
                             Rename
                         </LemonButton>
                     )}
                     <LemonButton
-                        status="stealth"
                         onClick={duplicate}
                         fullWidth
                         data-attr={

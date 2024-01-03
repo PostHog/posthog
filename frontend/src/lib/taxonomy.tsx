@@ -807,6 +807,76 @@ export const KEY_MAPPING: KeyMappingInterface = {
             description: 'UTM Source. (First-touch, session-scoped)',
             examples: ['free goodies'],
         },
+        // Mobile SDKs events
+        'Application Opened': {
+            label: 'Application Opened',
+            description: 'When a user opens the app either for the first time or from the foreground.',
+        },
+        'Application Backgrounded': {
+            label: 'Application Backgrounded',
+            description: 'When a user puts the app in the background.',
+        },
+        'Application Updated': {
+            label: 'Application Updated',
+            description: 'When a user upgrades the app.',
+        },
+        'Application Installed': {
+            label: 'Application Installed',
+            description: 'When a user installs the app.',
+        },
+        'Application Became Active': {
+            label: 'Application Became Active',
+            description: 'When a user puts the app in the foreground.',
+        },
+        'Deep Link Opened': {
+            label: 'Deep Link Opened',
+            description: 'When a user opens the app via a deep link.',
+        },
+        $network_carrier: {
+            label: 'Network Carrier',
+            description: 'The network carrier that the user is on.',
+            examples: ['cricket', 'telecom'],
+        },
+        // set by the Application Opened event
+        from_background: {
+            label: 'From Background',
+            description: 'Whether the app was opened for the first time or from the background.',
+            examples: ['true', 'false'],
+        },
+        // set by the Application Opened/Deep Link Opened event
+        url: {
+            label: 'URL',
+            description: 'The deep link URL that the app was opened from.',
+            examples: ['https://open.my.app'],
+        },
+        referring_application: {
+            label: 'Referrer Application',
+            description: 'The namespace of the app that made the request.',
+            examples: ['com.posthog.app'],
+        },
+        // set by the Application Installed/Application Updated/Application Opened events
+        // similar to $app_version
+        version: {
+            label: 'App Version',
+            description: 'The version of the app',
+            examples: ['1.0.0'],
+        },
+        previous_version: {
+            label: 'App Previous Version',
+            description: 'The previous version of the app',
+            examples: ['1.0.0'],
+        },
+        // similar to $app_build
+        build: {
+            label: 'App Build',
+            description: 'The build number for the app',
+            examples: ['1'],
+        },
+        previous_build: {
+            label: 'App Previous Build',
+            description: 'The previous build number for the app',
+            examples: ['1'],
+        },
     },
     element: {
         tag_name: {

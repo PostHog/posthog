@@ -21,6 +21,7 @@ export const SearchInput = forwardRef(function _SearchInput(_, ref: Ref<HTMLInpu
     return (
         <div className="border-b">
             <LemonInput
+                data-attr="search-bar-input"
                 ref={ref}
                 type="search"
                 className="CommandBar__input"

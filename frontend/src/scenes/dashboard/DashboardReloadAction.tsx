@@ -36,7 +36,6 @@ export function DashboardReloadAction(): JSX.Element {
             <LemonButton
                 onClick={() => refreshAllDashboardItemsManual()}
                 type="secondary"
-                status="muted"
                 icon={itemsLoading ? <Spinner textColored /> : <IconRefresh />}
                 size="small"
                 data-attr="dashboard-items-action-refresh"

@@ -2,6 +2,7 @@ import './Experiment.scss'
 
 import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
+// eslint-disable-next-line no-restricted-imports
 import { Col, Progress } from 'antd'
 import { useValues } from 'kea'
 import { getSeriesColor } from 'lib/colors'

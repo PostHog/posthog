@@ -73,7 +73,6 @@ export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2T
                     <div className="flex justify-end gap-4">
                         <LemonButton
                             type="tertiary"
-                            status="muted"
                             onClick={() => {
                                 reportSurveyDismissed(surveyID)
                             }}
@@ -82,7 +81,6 @@ export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2T
                         </LemonButton>
                         <LemonButton
                             type={textAreaNotEmpty ? 'primary' : 'tertiary'}
-                            status={textAreaNotEmpty ? 'primary' : 'muted'}
                             onClick={() => {
                                 textAreaNotEmpty
                                     ? reportSurveySent(surveyID, surveyResponse)

@@ -219,7 +219,6 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                             className="ml-2"
                                             icon={<IconClose />}
                                             size="small"
-                                            status="stealth"
                                             onClick={() => onChange(undefined)}
                                             aria-label="close"
                                         />

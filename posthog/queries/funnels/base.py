@@ -834,7 +834,7 @@ class ClickhouseFunnelBase(ABC):
             ON events.distinct_id = cohort_join.distinct_id
         """
 
-    def _get_breakdown_conditions(self) -> Optional[str]:
+    def _get_breakdown_conditions(self) -> Optional[List[str]]:
         """
         For people, pagination sets the offset param, which is common across filters
         and gives us the wrong breakdown values here, so we override it.
@@ -862,7 +862,7 @@ class ClickhouseFunnelBase(ABC):
             ):
                 target_entity = self._filter.entities[self._filter.breakdown_attribution_value]
 
-            return get_breakdown_prop_values(
+            values, has_more_values = get_breakdown_prop_values(
                 self._filter,
                 target_entity,
                 "count(*)",
@@ -871,6 +871,7 @@ class ClickhouseFunnelBase(ABC):
                 use_all_funnel_entities=use_all_funnel_entities,
                 person_properties_mode=get_person_properties_mode(self._team),
             )
+            return values
 
         return None
 

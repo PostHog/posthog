@@ -6,7 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Team, Person, Group
-from posthog.schema import PersonsQuery
+from posthog.schema import ActorsQuery
 
 
 class ActorStrategy:
@@ -14,7 +14,7 @@ class ActorStrategy:
     origin: str
     origin_id: str
 
-    def __init__(self, team: Team, query: PersonsQuery, paginator: HogQLHasMorePaginator):
+    def __init__(self, team: Team, query: ActorsQuery, paginator: HogQLHasMorePaginator):
         self.team = team
         self.paginator = paginator
         self.query = query
