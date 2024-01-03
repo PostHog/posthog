@@ -1,0 +1,13 @@
+@import '../../styles/mixins';
+
+.dashboard-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    align-items: center;
+    justify-content: space-between;
+
+    @include screen($md) {
+        flex-direction: row;
+    }
+}
