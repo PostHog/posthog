@@ -46,8 +46,6 @@ export const ProductIntroduction = ({
                     <div>
                         <LemonButton
                             icon={<IconClose />}
-                            type="tertiary"
-                            status="stealth"
                             onClick={() => {
                                 updateHasSeenProductIntroFor(productKey, true)
                             }}
@@ -103,7 +101,6 @@ export const ProductIntroduction = ({
                         {docsURL && (
                             <LemonButton
                                 type={actionable ? 'tertiary' : 'secondary'}
-                                status="muted"
                                 sideIcon={<IconOpenSidebar className="w-4 h-4" />}
                                 to={`${docsURL}?utm_medium=in-product&utm_campaign=empty-state-docs-link`}
                                 data-attr="product-introduction-docs-link"

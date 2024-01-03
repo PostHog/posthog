@@ -56,7 +56,6 @@ export function NotebookPopoverCard(): JSX.Element | null {
                         size="small"
                         to={urls.notebook(selectedNotebook)}
                         onClick={() => setPopoverVisibility('hidden')}
-                        status="primary-alt"
                         icon={<IconOpenInNew />}
                         tooltip="View notebook outside of popover"
                         tooltipPlacement="left"
@@ -64,18 +63,16 @@ export function NotebookPopoverCard(): JSX.Element | null {
                     <LemonButton
                         size="small"
                         onClick={() => openNotebookShareDialog({ shortId: selectedNotebook })}
-                        status="primary-alt"
                         icon={<IconShare />}
                         tooltip="Share notebook"
                         tooltipPlacement="left"
                     />
 
-                    {contentWidthHasEffect && <NotebookExpandButton status="primary-alt" size="small" />}
+                    {contentWidthHasEffect && <NotebookExpandButton size="small" />}
 
                     <LemonButton
                         size="small"
                         onClick={() => setFullScreen(!fullScreen)}
-                        status="primary-alt"
                         active={fullScreen}
                         icon={<IconFullScreen />}
                         tooltip="Toggle full screen"
@@ -85,7 +82,6 @@ export function NotebookPopoverCard(): JSX.Element | null {
                     <LemonButton
                         size="small"
                         onClick={() => setPopoverVisibility('hidden')}
-                        status="primary-alt"
                         icon={<IconChevronRight />}
                         tooltip="Hide Notebook Sidebar"
                         tooltipPlacement="left"

@@ -1,0 +1,51 @@
+@import '../../../styles/mixins';
+
+.Announcement {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    height: 3rem;
+    padding: 0 1rem 0 0.5rem; // padding is larger on the right to accommodate the close button
+    font-size: 1rem;
+    font-weight: 500;
+    color: white;
+    text-align: center;
+    background: #000;
+    transition: margin 200ms ease;
+
+    &.Announcement--hidden {
+        margin-top: -3rem;
+    }
+
+    p {
+        margin: 0;
+    }
+
+    b,
+    strong {
+        font-weight: 700;
+    }
+
+    a {
+        color: var(--brand-red);
+        text-decoration: underline;
+    }
+
+    @include screen($sm) {
+        padding: 0 1rem;
+    }
+}
+
+.Announcement__close {
+    position: absolute;
+    right: 0.5rem;
+    display: flex;
+    padding: 0.125rem;
+    font-size: 1.25rem;
+    cursor: pointer;
+
+    @include screen($sm) {
+        right: 1rem;
+    }
+}

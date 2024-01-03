@@ -1,3 +1,4 @@
+import { IconNotebook } from '@posthog/icons'
 import { LemonDivider, LemonDropdown, ProfilePicture } from '@posthog/lemon-ui'
 import { BuiltLogic, useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
@@ -15,7 +16,6 @@ import {
 import { notebooksModel, openNotebook } from '~/models/notebooksModel'
 import { NotebookListItemType, NotebookTarget } from '~/types'
 
-import { IconNotebook } from '../IconNotebook'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { notebookLogicType } from '../Notebook/notebookLogicType'
 

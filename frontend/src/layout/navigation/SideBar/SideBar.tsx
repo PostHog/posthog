@@ -1,5 +1,6 @@
 import './SideBar.scss'
 
+import { IconNotebook } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ActivationSidebar } from 'lib/components/ActivationSidebar/ActivationSidebar'
@@ -37,7 +38,6 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useState } from 'react'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
-import { IconNotebook } from 'scenes/notebooks/IconNotebook'
 import { NotebookPopover } from 'scenes/notebooks/NotebookPanel/NotebookPopover'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -314,7 +314,6 @@ function AppUrls({ setIsToolbarLaunchShown }: { setIsToolbarLaunchShown: (state:
                     {authorizedUrls.map((appUrl, index) => (
                         <LemonButton
                             className="LaunchToolbarButton"
-                            status="stealth"
                             fullWidth
                             key={index}
                             onClick={() => setIsToolbarLaunchShown(false)}
@@ -330,7 +329,6 @@ function AppUrls({ setIsToolbarLaunchShown }: { setIsToolbarLaunchShown: (state:
                         </LemonButton>
                     ))}
                     <LemonButton
-                        status="stealth"
                         data-attr="sidebar-launch-toolbar-add-new-url"
                         fullWidth
                         to={`${urls.toolbarLaunch()}?addNew=true`}

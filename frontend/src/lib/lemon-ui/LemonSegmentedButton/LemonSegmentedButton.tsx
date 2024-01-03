@@ -86,7 +86,6 @@ export function LemonSegmentedButton<T extends React.Key>({
                     >
                         <LemonButton
                             type="secondary"
-                            status="stealth"
                             size={size}
                             fullWidth
                             disabledReason={option.disabledReason}

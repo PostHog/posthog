@@ -2,7 +2,9 @@ import { Spinner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { PluginLogs } from 'scenes/plugins/plugin/PluginLogs'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -20,6 +22,10 @@ export const scene: SceneExport = {
 }
 
 export function PipelineApp({ id }: { id?: string } = {}): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    if (!featureFlags[FEATURE_FLAGS.PIPELINE_UI]) {
+        return <></>
+    }
     const { currentTab } = useValues(pipelineAppLogic)
 
     const confId = id ? parseInt(id) : undefined

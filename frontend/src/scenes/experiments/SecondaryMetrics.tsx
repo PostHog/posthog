@@ -83,7 +83,6 @@ export function SecondaryMetrics({
                         <LemonButton
                             icon={<IconEdit />}
                             size="small"
-                            status="muted"
                             onClick={() => openModalToEditSecondaryMetric(metric, idx)}
                         />
                     </div>
@@ -178,13 +177,11 @@ export function SecondaryMetrics({
                                         <LemonButton
                                             icon={<IconEdit />}
                                             size="small"
-                                            status="muted"
                                             onClick={() => openModalToEditSecondaryMetric(metric, idx)}
                                         />
                                         <LemonButton
                                             icon={<IconDelete />}
                                             size="small"
-                                            status="muted"
                                             onClick={() => deleteMetric(idx)}
                                         />
                                     </div>
