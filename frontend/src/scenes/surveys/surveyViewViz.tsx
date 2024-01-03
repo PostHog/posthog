@@ -327,6 +327,7 @@ export function SingleChoiceQuestionPieChart({
                         <div
                             className={`grid h-full pl-4 ${(() => {
                                 const dataLength = surveySingleChoiceResults[questionIndex].data.length
+                                // We need to return the whole class for Tailwind to see them when scanning code
                                 if (dataLength < 5) {
                                     return 'py-20'
                                 } else if (dataLength < 7) {
