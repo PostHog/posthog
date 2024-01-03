@@ -67,12 +67,12 @@ export function SignupPanel1(): JSX.Element | null {
                 <LemonButton
                     fullWidth
                     type="primary"
+                    status="alt"
                     center
                     htmlType="submit"
                     data-attr="signup-start"
                     loading={isSignupPanel1Submitting}
                     disabled={isSignupPanel1Submitting}
-                    status="primary-alt"
                     size="large"
                 >
                     Continue

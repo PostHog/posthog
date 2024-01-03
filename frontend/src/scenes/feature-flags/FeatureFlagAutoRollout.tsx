@@ -102,7 +102,6 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                     </div>
                                     <LemonButton
                                         icon={<IconDelete />}
-                                        status="muted"
                                         noPadding
                                         onClick={() => {
                                             removeRollbackCondition(index)
@@ -239,12 +238,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                     </>
                 ))}
             {!readOnly && (
-                <LemonButton
-                    type="secondary"
-                    onClick={() => {
-                        addRollbackCondition()
-                    }}
-                >
+                <LemonButton type="secondary" onClick={addRollbackCondition}>
                     Add condition
                 </LemonButton>
             )}
