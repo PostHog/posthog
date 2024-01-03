@@ -878,6 +878,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (scheduledChange && scheduledChange) {
                 lemonToast.success('Change scheduled successfully')
                 actions.loadScheduledChanges()
+                actions.setFeatureFlag({
+                    ...values.featureFlag,
+                    filters: NEW_FLAG.filters,
+                    active: NEW_FLAG.active,
+                })
             }
         },
         deleteScheduledChangeSuccess: ({ scheduledChange }) => {
