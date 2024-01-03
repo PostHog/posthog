@@ -22,19 +22,52 @@ const AbTestingFeatures = [
         name: 'Customizable goals',
         description: 'Conversion funnels or trends, secondary metrics, and range for statistical significance',
         // image: <StaticImage src="./images/goals.png" width={428} />,
-        image: 'https://posthog.com/images/products/ab-testing.png',
+        image: 'https://posthog.com/images/products/ab-testing/ab-testing.png',
     },
     {
         name: 'Targeting & exclusion rules',
         description: 'Set criteria for user location, user property, cohort, or group',
         // image: <StaticImage src="./images/targeting-ab.png" width={428} />,
-        image: 'https://posthog.com/images/products/ab-testing.png',
+        image: 'https://posthog.com/images/products/ab-testing/ab-testing.png',
     },
     {
         name: 'Recommendations',
         description: 'Automatic suggestions for duration, sample size, and confidence threshold in a winning variant',
         // image: <StaticImage src="./images/recommendations.png" width={428} />,
-        image: 'https://posthog.com/images/products/ab-testing.png',
+        image: 'https://posthog.com/images/products/ab-testing/ab-testing.png',
+    },
+]
+
+const AbTestingSubfeatures = [
+    {
+        name: 'Built on Feature Flags',
+        description: 'All the benefits of feature flags with added functionality around stat-sig experiments',
+        // icon: <IconToggle />,
+        icon: 'https://posthog.com/images/products/ab-testing/ab-testing.png',
+    },
+    {
+        name: 'JSON payloads',
+        description: 'Modify website content per-variant without additional deployments',
+        // icon: <IconBrackets />,
+        icon: 'https://posthog.com/images/products/ab-testing/ab-testing.png',
+    },
+    {
+        name: 'Split testing',
+        description: 'Automatically split traffic between variants',
+        icon: 'https://posthog.com/images/products/ab-testing/ab-testing.png',
+        // icon: <SplitTesting />,
+    },
+    {
+        name: 'Multivariate testing',
+        description: 'Test up to 9 variants against a control',
+        icon: 'https://posthog.com/images/products/ab-testing/ab-testing.png',
+        // icon: <MultivariateTesting />,
+    },
+    {
+        name: 'Dynamic cohort support',
+        description: 'Add new users to an experiment automatically by setting a user property',
+        icon: 'https://posthog.com/images/products/ab-testing/ab-testing.png',
+        // icon: <IconPeople />,
     },
 ]
 
@@ -52,6 +85,20 @@ export const Feature = ({ name, description, image }: FeatureProps): JSX.Element
             </div>
             <h4 className="mb-1 leading-tight text-lg">{name}</h4>
             <p className="text-[15px]" dangerouslySetInnerHTML={{ __html: description }} />
+        </li>
+    )
+}
+
+export const Subfeature = ({ name, description, icon }: ''): JSX.Element => {
+    return (
+        <li className={`bg-accent dark:bg-accent-dark rounded-lg p-4 sm:p-6 sm:pb-8`}>
+            <span className="inline-block w-10 h-10 mb-4 opacity-50">
+                <img src={icon} />
+            </span>
+            <h3 className={`text-[17px] mb-1 leading-tight`}>{name}</h3>
+            <p className={`m-0 text-[15px]`}>
+                <div dangerouslySetInnerHTML={{ __html: description }} />
+            </p>
         </li>
     )
 }
@@ -111,7 +158,10 @@ export function PayGatePage({
                         </p>
                     </div>
                     <aside className="text-right">
-                        <img src="https://posthog.com/images/products/ab-testing.png" className="max-w-full" />
+                        <img
+                            src="https://posthog.com/images/products/ab-testing/ab-testing.png"
+                            className="max-w-full"
+                        />
                     </aside>
                 </header>
                 <div className="flex gap-12 p-8">
@@ -163,6 +213,12 @@ export function PayGatePage({
                     <ul className="list-none p-0 grid grid-cols-3 gap-8">
                         {AbTestingFeatures.map((feature, index) => {
                             return <Feature {...feature} key={index} />
+                        })}
+                    </ul>
+
+                    <ul className={`list-none p-0 grid grid-cols-2 md:grid-cols-3 gap-4`}>
+                        {AbTestingSubfeatures.map((subfeature, index) => {
+                            return <Subfeature {...subfeature} key={index} />
                         })}
                     </ul>
                 </div>
