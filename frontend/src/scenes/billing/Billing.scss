@@ -32,15 +32,3 @@
         }
     }
 }
-
-.LargeCustomerCTA {
-    @media screen and (max-width: $lg) {
-        float: unset;
-        padding-left: 0;
-    }
-
-    @media screen and (min-width: $lg) {
-        float: right;
-        padding-left: 2rem;
-    }
-}

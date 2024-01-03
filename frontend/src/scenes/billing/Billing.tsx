@@ -163,154 +163,172 @@ export function Billing(): JSX.Element {
                 </>
             )}
 
-            {!isOnboarding && over20kAnnual && !perksCTADismissed && (
-                <div className="LargeCustomerCTA flex flex-row gap-2 relative">
-                    <div className="flex flex-col">
-                        <LemonLabel className="py-2">You've unlocked enterprise-grade perks:</LemonLabel>
-                        <div className="flex gap-2 items-center">
-                            <IconCheckCircleOutline className="text-success shrink-0" />
-                            Save 20% by switching to up-front annual billing
-                        </div>
-                        <div className="flex gap-2 items-center">
-                            <IconCheckCircleOutline className="text-success shrink-0" />
-                            Discounts for bundling subscriptions to multiple products
-                        </div>
-                        <div className="flex gap-2 items-center">
-                            <IconCheckCircleOutline className="text-success shrink-0" />
-                            Team training
-                        </div>
-                        <div className="flex gap-2 items-center">
-                            <IconCheckCircleOutline className="text-success shrink-0" />
-                            Dedicated support in a Slack channel
-                        </div>
-                        <div className="flex gap-2 items-center">
-                            <IconCheckCircleOutline className="text-success shrink-0" />
-                            Free merch
-                        </div>
-                        <div className="pt-1 self-start flex flex-row gap-1">
-                            <LemonButton type="secondary" to="mailto:sales@posthog.com">
-                                Get in touch!
-                            </LemonButton>
-                            <LemonButton type="tertiary" onClick={() => setPerksCTADismissed(true)}>
-                                Dismiss
-                            </LemonButton>
-                        </div>
-                    </div>
-                    <div className="h-30 self-center -scale-x-1">
-                        <SurprisedHog className="max-h-full w-auto object-contain" />
-                    </div>
-                </div>
-            )}
-
-            <div
-                className={clsx('flex flex-wrap gap-4 pb-4 w-fit', {
-                    'flex-col items-stretch': size === 'small',
-                    'items-center': size !== 'small',
-                })}
-            >
-                {!isOnboarding && billing?.billing_period && (
-                    <div className="flex-1">
-                        <div className="space-y-2">
-                            {billing?.has_active_subscription && (
-                                <>
-                                    <LemonLabel
-                                        info={`This is the current amount you have been billed for this ${billing.billing_period.interval} so far.`}
-                                    >
-                                        Current bill total
-                                    </LemonLabel>
-                                    <div className="font-bold text-6xl">
-                                        ${billing.current_total_amount_usd_after_discount}
-                                    </div>
-                                    {billing.discount_percent && (
-                                        <div>
-                                            <p className="ml-0">
-                                                <strong>{billing.discount_percent}%</strong> off discount applied
-                                            </p>
-                                        </div>
-                                    )}
-                                    {billing.discount_amount_usd && (
-                                        <div>
-                                            <p className="ml-0">
-                                                <Tooltip
-                                                    title={
-                                                        billing?.amount_off_expires_at
-                                                            ? `Expires on ${billing?.amount_off_expires_at?.format(
-                                                                  'LL'
-                                                              )}`
-                                                            : null
-                                                    }
-                                                    placement="bottomLeft"
-                                                >
-                                                    <strong>
-                                                        ${parseInt(billing.discount_amount_usd).toLocaleString()}
-                                                    </strong>{' '}
-                                                </Tooltip>
-                                                remaining credits applied to your bill.
-                                            </p>
-                                        </div>
-                                    )}
-                                </>
-                            )}
-                            <div>
-                                <p className="ml-0 mb-0">
-                                    {billing?.has_active_subscription ? 'Billing period' : 'Cycle'}:{' '}
-                                    <b>{billing.billing_period.current_period_start.format('LL')}</b> to{' '}
-                                    <b>{billing.billing_period.current_period_end.format('LL')}</b> (
-                                    {billing.billing_period.current_period_end.diff(dayjs(), 'days')} days remaining)
-                                </p>
-                                {!billing.has_active_subscription && (
-                                    <p className="italic ml-0 text-muted">
-                                        Monthly free allocation resets at the end of the cycle.
-                                    </p>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {!cloudOrDev && (billing?.license?.plan || !billing?.has_active_subscription) && (
+            <div className="flex flex-row justify-between flex-wrap">
+                <div>
                     <div
-                        className={clsx('space-y-2', {
-                            'p-4': size === 'medium',
+                        className={clsx('flex flex-wrap gap-4 pb-4 w-fit', {
+                            'flex-col items-stretch': size === 'small',
+                            'items-center': size !== 'small',
                         })}
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ width: size === 'medium' ? '20rem' : undefined }}
                     >
-                        {!cloudOrDev && billing?.license?.plan ? (
-                            <div className="bg-primary-alt-highlight text-primary-alt rounded p-2 px-4">
-                                <div className="text-center font-bold">
-                                    {capitalizeFirstLetter(billing.license.plan)} license
+                        {!isOnboarding && billing?.billing_period && (
+                            <div className="flex-1">
+                                <div className="space-y-2">
+                                    {billing?.has_active_subscription && (
+                                        <>
+                                            <LemonLabel
+                                                info={`This is the current amount you have been billed for this ${billing.billing_period.interval} so far.`}
+                                            >
+                                                Current bill total
+                                            </LemonLabel>
+                                            <div className="font-bold text-6xl">
+                                                ${billing.current_total_amount_usd_after_discount}
+                                            </div>
+                                            {billing.discount_percent && (
+                                                <div>
+                                                    <p className="ml-0">
+                                                        <strong>{billing.discount_percent}%</strong> off discount
+                                                        applied
+                                                    </p>
+                                                </div>
+                                            )}
+                                            {billing.discount_amount_usd && (
+                                                <div>
+                                                    <p className="ml-0">
+                                                        <Tooltip
+                                                            title={
+                                                                billing?.amount_off_expires_at
+                                                                    ? `Expires on ${billing?.amount_off_expires_at?.format(
+                                                                          'LL'
+                                                                      )}`
+                                                                    : null
+                                                            }
+                                                            placement="bottomLeft"
+                                                        >
+                                                            <strong>
+                                                                $
+                                                                {parseInt(billing.discount_amount_usd).toLocaleString()}
+                                                            </strong>{' '}
+                                                        </Tooltip>
+                                                        remaining credits applied to your bill.
+                                                    </p>
+                                                </div>
+                                            )}
+                                        </>
+                                    )}
+                                    <div>
+                                        <p className="ml-0 mb-0">
+                                            {billing?.has_active_subscription ? 'Billing period' : 'Cycle'}:{' '}
+                                            <b>{billing.billing_period.current_period_start.format('LL')}</b> to{' '}
+                                            <b>{billing.billing_period.current_period_end.format('LL')}</b> (
+                                            {billing.billing_period.current_period_end.diff(dayjs(), 'days')} days
+                                            remaining)
+                                        </p>
+                                        {!billing.has_active_subscription && (
+                                            <p className="italic ml-0 text-muted">
+                                                Monthly free allocation resets at the end of the cycle.
+                                            </p>
+                                        )}
+                                    </div>
                                 </div>
-                                <span>
-                                    Please contact <Link to="mailto:sales@posthog.com">sales@posthog.com</Link> if you
-                                    would like to make any changes to your license.
-                                </span>
                             </div>
-                        ) : null}
+                        )}
 
-                        {!cloudOrDev && !billing?.has_active_subscription ? (
-                            <p>
-                                Self-hosted licenses are no longer available for purchase. Please contact{' '}
-                                <Link to="mailto:sales@posthog.com">sales@posthog.com</Link> to discuss options.
-                            </p>
-                        ) : null}
+                        {!cloudOrDev && (billing?.license?.plan || !billing?.has_active_subscription) && (
+                            <div
+                                className={clsx('space-y-2', {
+                                    'p-4': size === 'medium',
+                                })}
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ width: size === 'medium' ? '20rem' : undefined }}
+                            >
+                                {!cloudOrDev && billing?.license?.plan ? (
+                                    <div className="bg-primary-alt-highlight text-primary-alt rounded p-2 px-4">
+                                        <div className="text-center font-bold">
+                                            {capitalizeFirstLetter(billing.license.plan)} license
+                                        </div>
+                                        <span>
+                                            Please contact <Link to="mailto:sales@posthog.com">sales@posthog.com</Link>{' '}
+                                            if you would like to make any changes to your license.
+                                        </span>
+                                    </div>
+                                ) : null}
+
+                                {!cloudOrDev && !billing?.has_active_subscription ? (
+                                    <p>
+                                        Self-hosted licenses are no longer available for purchase. Please contact{' '}
+                                        <Link to="mailto:sales@posthog.com">sales@posthog.com</Link> to discuss options.
+                                    </p>
+                                ) : null}
+                            </div>
+                        )}
+                    </div>
+
+                    {!isOnboarding && billing?.has_active_subscription && (
+                        <div className="w-fit">
+                            <LemonButton
+                                type="primary"
+                                htmlType="submit"
+                                to={billing.stripe_portal_url}
+                                disableClientSideRouting
+                                center
+                            >
+                                Manage card details and view past invoices
+                            </LemonButton>
+                        </div>
+                    )}
+                </div>
+                {!isOnboarding && over20kAnnual && !perksCTADismissed && (
+                    <div className="bg-glass-bg-3000-light flex flex-row gap-2 relative pl-6 p-4 border rounded mt-4 mx-4 min-w-120">
+                        <div className="flex flex-col pl-2">
+                            <h3>You've unlocked enterprise-grade perks:</h3>
+                            <ul className="pl-4">
+                                <li className="flex gap-2 items-center">
+                                    <IconCheckCircleOutline className="text-success shrink-0" />
+                                    <span>
+                                        <strong>Save 20%</strong> by switching to up-front annual billing
+                                    </span>
+                                </li>
+                                <li className="flex gap-2 items-center">
+                                    <IconCheckCircleOutline className="text-success shrink-0" />
+                                    <span>
+                                        Get <strong>discounts on bundled subscriptions</strong> to multiple products
+                                    </span>
+                                </li>
+                                <li className="flex gap-2 items-center">
+                                    <IconCheckCircleOutline className="text-success shrink-0" />
+                                    <span>
+                                        Get <strong>customized training</strong> for you and your team
+                                    </span>
+                                </li>
+                                <li className="flex gap-2 items-center">
+                                    <IconCheckCircleOutline className="text-success shrink-0" />
+                                    <span>
+                                        Get dedicated support via <strong>private Slack channel</strong>
+                                    </span>
+                                </li>
+                                <li className="flex gap-2 items-center">
+                                    <IconCheckCircleOutline className="text-success shrink-0" />
+                                    <span>
+                                        We'll even send you <strong>awesome free merch</strong>
+                                    </span>
+                                </li>
+                            </ul>
+                            <div className="pt-1 self-start flex flex-row gap-1 mt-2">
+                                <LemonButton type="secondary" to="mailto:sales@posthog.com">
+                                    Let's chat
+                                </LemonButton>
+                                <LemonButton type="tertiary" onClick={() => setPerksCTADismissed(true)}>
+                                    Dismiss
+                                </LemonButton>
+                            </div>
+                        </div>
+                        <div className="h-24 self-end -scale-x-1 -ml-20 -mb-2">
+                            <SurprisedHog className="max-h-full w-auto object-contain" />
+                        </div>
                     </div>
                 )}
             </div>
-
-            {!isOnboarding && billing?.has_active_subscription && (
-                <div className="w-fit">
-                    <LemonButton
-                        type="primary"
-                        htmlType="submit"
-                        to={billing.stripe_portal_url}
-                        disableClientSideRouting
-                        center
-                    >
-                        Manage card details and view past invoices
-                    </LemonButton>
-                </div>
-            )}
 
             <div className="flex justify-between mt-4">
                 <h2>Products</h2>
