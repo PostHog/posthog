@@ -202,6 +202,7 @@ export interface PluginsServerConfig {
     POE_DEFERRED_WRITES_ENABLED: boolean
     POE_DEFERRED_WRITES_USE_FLAT_OVERRIDES: boolean
     POE_WRITES_ENABLED_MAX_TEAM_ID: number
+    POE_WRITES_EXCLUDE_TEAMS: string
     RELOAD_PLUGIN_JITTER_MAX_MS: number
     RUSTY_HOOK_FOR_TEAMS: string
     RUSTY_HOOK_URL: string
@@ -280,6 +281,7 @@ export interface Hub extends PluginsServerConfig {
     // ValueMatchers used for various opt-in/out features
     pluginConfigsToSkipElementsParsing: ValueMatcher<number>
     poeEmbraceJoinForTeams: ValueMatcher<number>
+    poeWritesExcludeTeams: ValueMatcher<number>
     rustyHookForTeams: ValueMatcher<number>
     // lookups
     eventsToDropByToken: Map<string, string[]>
