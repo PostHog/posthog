@@ -68,11 +68,6 @@ export async function getPlugin(hub: Hub, pluginId: number): Promise<Plugin | un
 export async function getPluginRows(hub: Hub): Promise<Plugin[]> {
     const { rows }: { rows: Plugin[] } = await hub.db.postgres.query(
         PostgresUse.COMMON_READ,
-        // `posthog_plugin` columns have to be listed individually, as we want to exclude a few columns
-        // and Postgres syntax unfortunately doesn't have a column exclusion feature. The excluded columns are:
-        // - archive - this is a potentially large blob, only extracted in Django as a plugin server optimization
-        // - latest_tag - not used in this service
-        // - latest_tag_checked_at - not used in this service
         `${PLUGIN_SELECT}
         WHERE posthog_plugin.id IN (${pluginConfigsInForceQuery('plugin_id')}
         GROUP BY posthog_pluginconfig.plugin_id)`,

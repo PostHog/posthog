@@ -399,7 +399,7 @@ export async function startPluginsServer(
                 },
                 'populate-plugin-capabilities': async (message) => {
                     // We need this to be done in only once
-                    if (hub?.capabilities.pluginScheduledTasks && piscina) {
+                    if (hub?.capabilities.appManagementSingleton && piscina) {
                         await piscina?.broadcastTask({ task: 'populatePluginCapabilities', args: JSON.parse(message) })
                     }
                 },

@@ -296,7 +296,7 @@ export interface PluginServerCapabilities {
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestion?: boolean
     personOverrides?: boolean
-    transpileFrontendApps?: boolean // TODO: move this away from pod startup, into a graphile job
+    appManagementSingleton?: boolean
     preflightSchedules?: boolean // Used for instance health checks on hobby deploy, not useful on cloud
     http?: boolean
     mmdb?: boolean
