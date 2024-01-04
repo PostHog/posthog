@@ -1,0 +1,6 @@
+.LemonTreeRow {
+    &:hover {
+        cursor: pointer;
+        background-color: var(--primary-bg-hover);
+    }
+}

@@ -5,15 +5,14 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconSettings } from 'lib/lemon-ui/icons'
+import { LemonTree } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/types'
 
-import { DataWarehousePageTabs, DataWarehouseTab } from '../DataWarehousePageTabs'
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
-import { DataWarehouseTablesContainer } from './DataWarehouseTables'
 import SourceModal from './SourceModal'
 
 export const scene: SceneExport = {
@@ -22,7 +21,7 @@ export const scene: SceneExport = {
 }
 
 export function DataWarehouseExternalScene(): JSX.Element {
-    const { shouldShowEmptyState, shouldShowProductIntroduction, isSourceModalOpen } =
+    const { shouldShowEmptyState, shouldShowProductIntroduction, isSourceModalOpen, tables, posthogTables } =
         useValues(dataWarehouseSceneLogic)
     const { toggleSourceModal } = useActions(dataWarehouseSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -70,7 +69,6 @@ export function DataWarehouseExternalScene(): JSX.Element {
                     </div>
                 }
             />
-            <DataWarehousePageTabs tab={DataWarehouseTab.External} />
             {(shouldShowProductIntroduction || shouldShowEmptyState) && (
                 <ProductIntroduction
                     productName={'Data Warehouse'}
@@ -88,7 +86,22 @@ export function DataWarehouseExternalScene(): JSX.Element {
                     productKey={ProductKey.DATA_WAREHOUSE}
                 />
             )}
-            {!shouldShowEmptyState && <DataWarehouseTablesContainer />}
+            <LemonTree
+                items={[
+                    {
+                        name: 'External',
+                        items: tables.map((table) => ({
+                            name: table.name,
+                        })),
+                    },
+                    {
+                        name: 'PostHog',
+                        items: posthogTables.map((table) => ({
+                            name: table.name,
+                        })),
+                    },
+                ]}
+            />
             <SourceModal isOpen={isSourceModalOpen} onClose={() => toggleSourceModal(false)} />
         </div>
     )

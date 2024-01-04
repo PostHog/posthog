@@ -1,17 +1,18 @@
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { PaginatedResponse } from 'lib/api'
+import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { DataWarehouseTable, ProductKey } from '~/types'
 
-import { DataWarehouseSceneRow } from '../types'
+import { DatabaseTableListRow, DataWarehouseSceneRow } from '../types'
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
 
 export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     path(['scenes', 'warehouse', 'dataWarehouseSceneLogic']),
     connect(() => ({
-        values: [userLogic, ['user']],
+        values: [userLogic, ['user'], databaseTableListLogic, ['filteredTables']],
     })),
     actions({
         toggleSourceModal: (isOpen?: boolean) => ({ isOpen }),
@@ -51,6 +52,22 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                             format: table.format,
                             external_data_source: table.external_data_source,
                             external_schema: table.external_schema,
+                        } as DataWarehouseSceneRow)
+                )
+            },
+        ],
+        posthogTables: [
+            (s) => [s.filteredTables],
+            (tables): DataWarehouseSceneRow[] => {
+                if (!tables) {
+                    return []
+                }
+
+                return tables.map(
+                    (table: DatabaseTableListRow) =>
+                        ({
+                            name: table.name,
+                            columns: table.columns,
                         } as DataWarehouseSceneRow)
                 )
             },
