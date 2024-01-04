@@ -158,7 +158,7 @@ jobs:
 
             - name: Archive failure screenshots
               if: ${{ failure() }}
-              uses: actions/upload-artifact@v3
+              uses: actions/upload-artifact@v4
               with:
                   name: failure-screenshots-${{ matrix.browser }}
                   path: frontend/__snapshots__/__failures__/

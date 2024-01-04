@@ -271,7 +271,7 @@ jobs:
                   ./bin/ci_functional_tests.sh
 
             - name: Upload coverage report
-              uses: actions/upload-artifact@v3
+              uses: actions/upload-artifact@v4
               if: always()
               with:
                   name: functional-coverage

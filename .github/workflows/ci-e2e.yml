@@ -243,21 +243,21 @@ jobs:
                   GITHUB_ACTION_RUN_URL: '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
 
             - name: Archive test screenshots
-              uses: actions/upload-artifact@v3
+              uses: actions/upload-artifact@v4
               with:
                   name: screenshots
                   path: cypress/screenshots
               if: ${{ failure() }}
 
             - name: Archive test downloads
-              uses: actions/upload-artifact@v3
+              uses: actions/upload-artifact@v4
               with:
                   name: downloads
                   path: cypress/downloads
               if: ${{ failure() }}
 
             - name: Archive test videos
-              uses: actions/upload-artifact@v3
+              uses: actions/upload-artifact@v4
               with:
                   name: videos
                   path: cypress/videos
@@ -265,7 +265,7 @@ jobs:
 
             - name: Archive accessibility violations
               if: needs.changes.outputs.shouldTriggerCypress == 'true'
-              uses: actions/upload-artifact@v3
+              uses: actions/upload-artifact@v4
               with:
                   name: accessibility-violations
                   path: '**/a11y/'
@@ -273,7 +273,7 @@ jobs:
 
             - name: Show logs on failure
               # use artefact here, as I think the output will be too large for display in an action
-              uses: actions/upload-artifact@v3
+              uses: actions/upload-artifact@v4
               with:
                   name: logs-${{ strategy.job-index }}
                   path: /tmp/logs

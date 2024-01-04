@@ -299,7 +299,7 @@ jobs:
                   exit 1
 
             - name: Archive email renders
-              uses: actions/upload-artifact@v3
+              uses: actions/upload-artifact@v4
               if: needs.changes.outputs.backend == 'true' && matrix.segment == 'FOSS' && matrix.person-on-events == false
               with:
                   name: email_renders
