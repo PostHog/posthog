@@ -37,7 +37,6 @@ export const ActivationTask = ({
         fullWidth: true,
         type: 'secondary',
         icon: completed ? <IconCheckmark /> : skipped ? <IconClose /> : null,
-        status: completed ? 'primary-alt' : skipped ? 'muted' : undefined,
         tooltip: name,
     }
     if (url) {
@@ -58,7 +57,6 @@ export const ActivationTask = ({
                         icon: <IconClose />,
                         tooltip: 'Skip task',
                         onClick: () => skipTask(id),
-                        status: 'muted',
                     }}
                 >
                     {content}

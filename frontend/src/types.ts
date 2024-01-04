@@ -41,7 +41,7 @@ import { NodeKind } from './queries/schema'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
-// Keep this in sync with backend constants (constants.py)
+// Keep this in sync with backend constants/features/{product_name}.yml
 export enum AvailableFeature {
     EVENTS = 'events',
     TRACKED_USERS = 'tracked_users',
@@ -91,6 +91,9 @@ export enum AvailableFeature {
     SURVEYS_STYLING = 'surveys_styling',
     SURVEYS_TEXT_HTML = 'surveys_text_html',
     SURVEYS_MULTIPLE_QUESTIONS = 'surveys_multiple_questions',
+    SESSION_REPLAY_SAMPLING = 'session_replay_sampling',
+    RECORDING_DURATION_MINIMUM = 'replay_recording_duration_minimum',
+    FEATURE_FLAG_BASED_RECORDING = 'replay_feature_flag_based_recording',
 }
 
 export enum ProductKey {
@@ -592,6 +595,7 @@ export interface SessionPropertyFilter extends BasePropertyFilter {
 export interface CohortPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Cohort
     key: 'id'
+    /**  @asType integer */
     value: number
 }
 
@@ -1873,7 +1877,7 @@ export interface RetentionEntity {
     kind?: NodeKind.ActionsNode | NodeKind.EventsNode
     name?: string
     type?: EntityType
-    // @asType integer
+    /**  @asType integer */
     order?: number
     uuid?: string
     custom_name?: string
@@ -2445,12 +2449,21 @@ export enum ScheduledChangeModels {
     FeatureFlag = 'FeatureFlag',
 }
 
+export enum ScheduledChangeOperationType {
+    UpdateStatus = 'update_status',
+    AddReleaseCondition = 'add_release_condition',
+}
+
+export type ScheduledChangePayload =
+    | { operation: ScheduledChangeOperationType.UpdateStatus; value: boolean }
+    | { operation: ScheduledChangeOperationType.AddReleaseCondition; value: FeatureFlagFilters }
+
 export interface ScheduledChangeType {
     id: number
     team_id: number
     record_id: number | string
     model_name: ScheduledChangeModels
-    payload: Record<string, any>
+    payload: ScheduledChangePayload
     scheduled_at: string
     executed_at: string | null
     failure_reason: string | null

@@ -4,8 +4,6 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isEventPropertyOrPersonPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
 import { TabsTile, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsNotice } from 'scenes/web-analytics/WebAnalyticsNotice'
@@ -25,21 +23,15 @@ const Filters = (): JSX.Element => {
         dateFilter: { dateTo, dateFrom },
     } = useValues(webAnalyticsLogic)
     const { setWebAnalyticsFilters, setDates } = useActions(webAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const hasPosthog3000 = featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test'
 
     return (
         <div
-            className={clsx('sticky z-20 pt-2', !hasPosthog3000 && 'top-0 bg-white')}
+            className="sticky z-20 pt-2"
             // eslint-disable-next-line react/forbid-dom-props
-            style={
-                hasPosthog3000
-                    ? {
-                          backgroundColor: 'var(--bg-3000)',
-                          top: 'var(--breadcrumbs-height)',
-                      }
-                    : undefined
-            }
+            style={{
+                backgroundColor: 'var(--bg-3000)',
+                top: 'var(--breadcrumbs-height)',
+            }}
         >
             <div className="flex flex-row flex-wrap gap-2">
                 <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />

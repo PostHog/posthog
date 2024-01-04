@@ -1,14 +1,13 @@
-import { IconChevronDown, IconFeatures, IconLive } from '@posthog/icons'
+import './SitePopover.scss'
+
+import { IconFeatures, IconLive } from '@posthog/icons'
 import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 import {
     IconBill,
     IconCheckmark,
     IconCorporate,
-    IconExclamation,
     IconLogout,
     IconOffline,
     IconPlus,
@@ -19,7 +18,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link'
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -68,7 +66,6 @@ function AccountInfo(): JSX.Element {
                 to={urls.settings('user')}
                 onClick={closeSitePopover}
                 data-attr="top-menu-item-me"
-                status="stealth"
                 fullWidth
                 tooltip="Account settings"
                 tooltipPlacement="left"
@@ -95,12 +92,11 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
                 data-attr="top-menu-item-org-settings"
                 icon={<Lettermark name={organization.name} />}
                 sideIcon={<IconSettings />}
-                status="stealth"
                 fullWidth
                 to={urls.settings('organization')}
                 onClick={closeSitePopover}
             >
-                <div className="SitePopover__main-info SitePopover__organization">
+                <div className="grow">
                     <span className="font-medium">{organization.name}</span>
                     <AccessLevelIndicator organization={organization} />
                 </div>
@@ -231,7 +227,7 @@ function SignOutButton(): JSX.Element {
     const { logout } = useActions(userLogic)
 
     return (
-        <LemonButton onClick={logout} icon={<IconLogout />} status="stealth" fullWidth data-attr="top-menu-item-logout">
+        <LemonButton onClick={logout} icon={<IconLogout />} fullWidth data-attr="top-menu-item-logout">
             Sign out
         </LemonButton>
     )
@@ -284,9 +280,7 @@ export function SitePopoverOverlay(): JSX.Element {
                 </SitePopoverSection>
             )}
             <SitePopoverSection>
-                <FlaggedFeature flag={FEATURE_FLAGS.POSTHOG_3000} match="test">
-                    <ThemeSwitcher fullWidth type="tertiary" />
-                </FlaggedFeature>
+                <ThemeSwitcher fullWidth type="tertiary" />
                 <LemonButton
                     onClick={closeSitePopover}
                     to={'https://posthog.com/changelog'}
@@ -303,28 +297,5 @@ export function SitePopoverOverlay(): JSX.Element {
                 <SignOutButton />
             </SitePopoverSection>
         </>
-    )
-}
-
-export function SitePopover(): JSX.Element {
-    const { user } = useValues(userLogic)
-    const { isSitePopoverOpen, systemStatusHealthy } = useValues(navigationLogic)
-    const { toggleSitePopover, closeSitePopover } = useActions(navigationLogic)
-
-    return (
-        <Popover
-            visible={isSitePopoverOpen}
-            className="SitePopover"
-            onClickOutside={closeSitePopover}
-            overlay={<SitePopoverOverlay />}
-        >
-            <div className="SitePopover__crumb" onClick={toggleSitePopover} data-attr="top-menu-toggle">
-                <div className="SitePopover__profile-picture" title="Potential system issue">
-                    <ProfilePicture user={user} size="md" />
-                    {!systemStatusHealthy && <IconExclamation className="SitePopover__danger" />}
-                </div>
-                <IconChevronDown />
-            </div>
-        </Popover>
     )
 }

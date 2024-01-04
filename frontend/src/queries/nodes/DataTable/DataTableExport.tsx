@@ -208,9 +208,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                         actor={isPersonsNode(query.source) ? 'persons' : 'events'}
                         limit={EXPORT_MAX_LIMIT}
                     >
-                        <LemonButton fullWidth status="stealth">
-                            Export current columns
-                        </LemonButton>
+                        <LemonButton fullWidth>Export current columns</LemonButton>
                     </ExportWithConfirmation>,
                 ]
                     .concat(
@@ -223,9 +221,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                       actor={isPersonsNode(query.source) ? 'persons' : 'events'}
                                       limit={EXPORT_MAX_LIMIT}
                                   >
-                                      <LemonButton fullWidth status="stealth">
-                                          Export all columns
-                                      </LemonButton>
+                                      <LemonButton fullWidth>Export all columns</LemonButton>
                                   </ExportWithConfirmation>,
                               ]
                             : []
@@ -237,7 +233,6 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                   <LemonButton
                                       key={3}
                                       fullWidth
-                                      status="stealth"
                                       data-attr={'copy-csv-to-clipboard'}
                                       onClick={() => {
                                           if (dataTableRows) {
@@ -254,7 +249,6 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                   <LemonButton
                                       key={4}
                                       fullWidth
-                                      status="stealth"
                                       data-attr={'copy-json-to-clipboard'}
                                       onClick={() => {
                                           if (dataTableRows) {
@@ -278,8 +272,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                   <LemonButton
                                       key={6}
                                       fullWidth
-                                      status="stealth"
-                                      data-attr={'open-json-editor-button'}
+                                      data-attr="open-json-editor-button"
                                       to={
                                           query
                                               ? urls.insightNew(undefined, undefined, JSON.stringify(query))
@@ -298,8 +291,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                   <LemonButton
                                       key={8}
                                       fullWidth
-                                      status="stealth"
-                                      data-attr={'open-sql-editor-button'}
+                                      data-attr="open-sql-editor-button"
                                       to={urls.insightNew(
                                           undefined,
                                           undefined,

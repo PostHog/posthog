@@ -1,7 +1,7 @@
 import './FeatureFlag.scss'
 
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
-import { Card, Popconfirm, Skeleton } from 'antd'
+import { Popconfirm, Skeleton } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
@@ -172,6 +172,14 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         })
     }
 
+    if (featureFlags[FEATURE_FLAGS.SCHEDULED_CHANGES_FEATURE_FLAGS]) {
+        tabs.push({
+            label: 'Schedule',
+            key: FeatureFlagsTab.SCHEDULE,
+            content: <FeatureFlagSchedule />,
+        })
+    }
+
     if (featureFlags[FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES] && featureFlag.key && id) {
         tabs.push({
             label: (
@@ -219,14 +227,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                     />
                 </PayGateMini>
             ),
-        })
-    }
-
-    if (featureFlags[FEATURE_FLAGS.SCHEDULED_CHANGES_FEATURE_FLAGS]) {
-        tabs.push({
-            label: 'Schedule',
-            key: FeatureFlagsTab.SCHEDULE,
-            content: <FeatureFlagSchedule />,
         })
     }
 
@@ -403,7 +403,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 <div>
                                     <LemonButton
                                         fullWidth
-                                        status="stealth"
                                         onClick={() => setAdvancedSettingsExpanded(!advancedSettingsExpanded)}
                                         sideIcon={advancedSettingsExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                     >
@@ -421,23 +420,27 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <FeatureFlagAutoRollback />
                                         )}
                                         {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
-                                            <Card title="Permissions" className="mb-4">
-                                                <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-                                                    <ResourcePermission
-                                                        resourceType={Resource.FEATURE_FLAGS}
-                                                        onChange={(roleIds) => setRolesToAdd(roleIds)}
-                                                        rolesToAdd={rolesToAdd}
-                                                        addableRoles={addableRoles}
-                                                        addableRolesLoading={unfilteredAddableRolesLoading}
-                                                        onAdd={() => addAssociatedRoles()}
-                                                        roles={derivedRoles}
-                                                        deleteAssociatedRole={(id) =>
-                                                            deleteAssociatedRole({ roleId: id })
-                                                        }
-                                                        canEdit={featureFlag.can_edit}
-                                                    />
-                                                </PayGateMini>
-                                            </Card>
+                                            <div className="border rounded bg-bg-light">
+                                                <h3 className="p-2 mb-0">Permissions</h3>
+                                                <LemonDivider className="my-0" />
+                                                <div className="p-3">
+                                                    <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                                                        <ResourcePermission
+                                                            resourceType={Resource.FEATURE_FLAGS}
+                                                            onChange={(roleIds) => setRolesToAdd(roleIds)}
+                                                            rolesToAdd={rolesToAdd}
+                                                            addableRoles={addableRoles}
+                                                            addableRolesLoading={unfilteredAddableRolesLoading}
+                                                            onAdd={() => addAssociatedRoles()}
+                                                            roles={derivedRoles}
+                                                            deleteAssociatedRole={(id) =>
+                                                                deleteAssociatedRole({ roleId: id })
+                                                            }
+                                                            canEdit={featureFlag.can_edit}
+                                                        />
+                                                    </PayGateMini>
+                                                </div>
+                                            </div>
                                         )}
                                     </>
                                 )}
@@ -678,7 +681,7 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
                     {featureFlagLoading ? (
                         <EmptyDashboardComponent loading={true} canEdit={false} />
                     ) : (
-                        <LemonButton type={'primary'} onClick={() => generateUsageDashboard()}>
+                        <LemonButton type="primary" onClick={() => generateUsageDashboard()}>
                             Generate Usage Dashboard
                         </LemonButton>
                     )}
@@ -929,9 +932,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             </div>
                             <div className="col-span-4 flex items-center gap-1">
                                 <span>Rollout</span>
-                                <LemonButton type="tertiary" onClick={distributeVariantsEqually}>
-                                    (Redistribute)
-                                </LemonButton>
+                                <LemonButton onClick={distributeVariantsEqually}>(Redistribute)</LemonButton>
                             </div>
                         </div>
                         {variants.map((variant, index) => (
@@ -1032,7 +1033,6 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                         {variants.length > 1 && (
                                             <LemonButton
                                                 icon={<IconDelete />}
-                                                status="primary-alt"
                                                 data-attr={`delete-prop-filter-${index}`}
                                                 noPadding
                                                 onClick={() => removeVariant(index)}

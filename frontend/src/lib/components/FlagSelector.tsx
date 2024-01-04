@@ -42,7 +42,11 @@ export function FlagSelector({ value, onChange, readOnly }: FlagSelectorProps): 
             {readOnly ? (
                 <div>{featureFlag.key}</div>
             ) : (
-                <LemonButton type="secondary" onClick={() => setVisible(!visible)}>
+                <LemonButton
+                    data-attr={'session-recording-config-linked-flag-selector'}
+                    type="secondary"
+                    onClick={() => setVisible(!visible)}
+                >
                     {featureFlag.key ? featureFlag.key : 'Select flag'}
                 </LemonButton>
             )}

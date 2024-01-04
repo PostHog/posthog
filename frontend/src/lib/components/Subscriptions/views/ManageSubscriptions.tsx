@@ -21,8 +21,7 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
     return (
         <LemonButton
             type="secondary"
-            status="stealth"
-            onClick={() => onClick()}
+            onClick={onClick}
             data-attr="subscription-list-item"
             fullWidth
             sideAction={{
@@ -33,7 +32,7 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
                         <>
                             {onDelete && (
                                 <LemonButton
-                                    onClick={() => onDelete()}
+                                    onClick={onDelete}
                                     data-attr="subscription-list-item-delete"
                                     status="danger"
                                     fullWidth
