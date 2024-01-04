@@ -23,7 +23,7 @@ export function ExportsUnsubscribeTable(): JSX.Element {
             loading={loading}
             columns={[
                 {
-                    title: 'Team',
+                    title: 'Project',
                     render: function RenderTeam(_, item) {
                         return currentOrganization.teams.find((team) => team.id === item.team_id)?.name
                     },
