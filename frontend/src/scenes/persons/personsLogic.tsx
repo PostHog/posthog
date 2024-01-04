@@ -256,7 +256,7 @@ export const personsLogic = kea<personsLogicType>([
                 ]
                 if (showPerson) {
                     breadcrumbs.push({
-                        key: person.id || 'unknown',
+                        key: [Scene.Person, person.id || 'unknown'],
                         name: asDisplay(person),
                     })
                 }

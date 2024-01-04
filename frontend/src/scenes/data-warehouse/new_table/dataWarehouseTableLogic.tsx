@@ -108,7 +108,7 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
                     path: urls.dataWarehouseExternal(),
                 },
                 {
-                    key: 'new',
+                    key: [Scene.DataWarehouseTable, 'new'],
                     name: 'New',
                 },
             ],

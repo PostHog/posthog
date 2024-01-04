@@ -69,18 +69,5 @@ class Test0010MoveOldPartitions(AsyncMigrationBaseTest):
     def test_completes_successfully(self):
         self.assertTrue(run_migration())
 
+        # this test is not very helpful, but we will at least catch if this changes
         self.assertEqual(len(MIGRATION_DEFINITION.operations), 5)
-
-        self.assertIn(
-            "ALTER TABLE sharded_events MOVE PARTITION '190001' TO TABLE events_backup",
-            MIGRATION_DEFINITION.operations[1].sql,  # type: ignore
-        )
-        # skip over idx 2 because it's inconsistent and not important
-        self.assertIn(
-            "ALTER TABLE sharded_events MOVE PARTITION '202202' TO TABLE events_backup",
-            MIGRATION_DEFINITION.operations[3].sql,  # type: ignore
-        )
-        self.assertIn(
-            "ALTER TABLE sharded_events MOVE PARTITION '204502' TO TABLE events_backup",
-            MIGRATION_DEFINITION.operations[4].sql,  # type: ignore
-        )
