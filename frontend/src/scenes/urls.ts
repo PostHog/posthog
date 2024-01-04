@@ -31,6 +31,7 @@ import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
  */
 export const urls = {
     default: (): string => '/',
+    project: (id: string | number, path = ''): string => `/project/${id}` + path,
     dashboards: (): string => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,

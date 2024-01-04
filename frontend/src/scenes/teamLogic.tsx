@@ -39,7 +39,7 @@ export interface FrequentMistakeAdvice {
 export const teamLogic = kea<teamLogicType>([
     path(['scenes', 'teamLogic']),
     connect(() => ({
-        actions: [userLogic, ['loadUser']],
+        actions: [userLogic, ['loadUser', 'switchTeam']],
     })),
     actions({
         deleteTeam: (team: TeamType) => ({ team }),
@@ -110,8 +110,9 @@ export const teamLogic = kea<teamLogicType>([
 
                     return patchedTeam
                 },
-                createTeam: async ({ name, is_demo }: { name: string; is_demo: boolean }): Promise<TeamType> =>
-                    await api.create('api/projects/', { name, is_demo }),
+                createTeam: async ({ name, is_demo }: { name: string; is_demo: boolean }) => {
+                    return await api.create('api/projects/', { name, is_demo })
+                },
                 resetToken: async () => await api.update(`api/projects/${values.currentTeamId}/reset_token`, {}),
             },
         ],
@@ -215,8 +216,10 @@ export const teamLogic = kea<teamLogicType>([
                 ApiConfig.setCurrentTeamId(currentTeam.id)
             }
         },
-        createTeamSuccess: () => {
-            organizationLogic.actions.loadCurrentOrganization()
+        createTeamSuccess: ({ currentTeam }) => {
+            if (currentTeam) {
+                actions.switchTeam(currentTeam.id)
+            }
         },
         deleteTeam: async ({ team }) => {
             try {

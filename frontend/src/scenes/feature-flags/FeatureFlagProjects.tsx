@@ -6,7 +6,7 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { useEffect } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
-import { userLogic } from 'scenes/userLogic'
+import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -38,7 +38,6 @@ function checkHasStaticCohort(featureFlag: FeatureFlagType): boolean {
 const getColumns = (): LemonTableColumns<OrganizationFeatureFlag> => {
     const { currentTeamId } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { updateCurrentTeam } = useActions(userLogic)
     const { aggregationLabel } = useValues(groupsModel)
 
     return [
@@ -59,9 +58,7 @@ const getColumns = (): LemonTableColumns<OrganizationFeatureFlag> => {
                 ) : (
                     <Link
                         className="row-name"
-                        onClick={() => {
-                            updateCurrentTeam(team.id, `/feature_flags/${record.flag_id}`)
-                        }}
+                        to={urls.project(team.id, record.flag_id ? urls.featureFlag(record.flag_id) : '')}
                     >
                         {linkText}
                     </Link>

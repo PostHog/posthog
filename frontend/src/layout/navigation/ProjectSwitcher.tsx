@@ -8,7 +8,6 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, TeamBasicType } from '~/types'
 
@@ -86,22 +85,14 @@ function CurrentProjectButton({ onClickInside }: { onClickInside?: () => void })
     ) : null
 }
 
-function OtherProjectButton({ team, onClickInside }: { team: TeamBasicType; onClickInside?: () => void }): JSX.Element {
-    const { updateCurrentTeam } = useActions(userLogic)
-
+function OtherProjectButton({ team }: { team: TeamBasicType; onClickInside?: () => void }): JSX.Element {
     return (
         <LemonButton
-            onClick={() => {
-                onClickInside?.()
-                updateCurrentTeam(team.id, '/')
-            }}
+            to={urls.project(team.id)}
             sideAction={{
                 icon: <IconSettings className="text-muted-alt" />,
                 tooltip: `Go to ${team.name} settings`,
-                onClick: () => {
-                    onClickInside?.()
-                    updateCurrentTeam(team.id, urls.settings())
-                },
+                to: urls.project(team.id, urls.settings()),
             }}
             title={`Switch to project ${team.name}`}
             fullWidth
