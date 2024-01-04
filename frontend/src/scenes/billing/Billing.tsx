@@ -325,7 +325,7 @@ export function Billing(): JSX.Element {
                                 </LemonButton>
                             </div>
                         </div>
-                        <div className="h-24 self-end -scale-x-1 -ml-20 -mb-2">
+                        <div className="h-24 self-end -scale-x-100 -ml-20 -mb-2">
                             <SurprisedHog className="max-h-full w-auto object-contain" />
                         </div>
                     </div>
