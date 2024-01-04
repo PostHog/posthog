@@ -28,7 +28,7 @@ from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import generate_exception_response
 from posthog.metrics import LABEL_TEAM_ID
-from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, User, Team
+from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Notebook, User, Team
 from posthog.rate_limit import DecideRateThrottle
 from posthog.settings import SITE_URL, DEBUG
 from posthog.user_permissions import UserPermissions
@@ -170,13 +170,13 @@ class AutoProjectMiddleware:
                 and request.user.team is not None
                 and request.user.team.pk != project_id_in_url
             ):
-                new_team = request.user.teams.get(pk=project_id_in_url)
-                self.switch_team(new_team, request)
+                new_team = Team.objects.get(pk=project_id_in_url)
+                self.switch_team_if_allowed(new_team, request)
                 return self.get_response(request)
 
             target_queryset = self.get_target_queryset(request)
             if target_queryset is not None:
-                self.switch_team_if_needed_and_possible(request, target_queryset)
+                self.switch_team_if_needed_and_allowed(request, target_queryset)
         return self.get_response(request)
 
     def get_target_queryset(self, request: HttpRequest) -> Optional[QuerySet]:
@@ -190,6 +190,9 @@ class AutoProjectMiddleware:
             elif path_parts[0] == "insights":
                 insight_short_id = path_parts[1]
                 return Insight.objects.filter(deleted=False, short_id=insight_short_id)
+            elif path_parts[0] == "notebooks":
+                notebook_short_id = path_parts[1]
+                return Notebook.objects.filter(deleted=False, short_id=notebook_short_id)
             elif path_parts[0] == "feature_flags":
                 feature_flag_id = path_parts[1]
                 if feature_flag_id.isnumeric():
@@ -204,7 +207,7 @@ class AutoProjectMiddleware:
                     return Cohort.objects.filter(deleted=False, id=cohort_id)
         return None
 
-    def switch_team_if_needed_and_possible(self, request: HttpRequest, target_queryset: QuerySet):
+    def switch_team_if_needed_and_allowed(self, request: HttpRequest, target_queryset: QuerySet):
         user = cast(User, request.user)
         current_team = user.team
         if current_team is not None and not target_queryset.filter(team=current_team).exists():
@@ -212,19 +215,23 @@ class AutoProjectMiddleware:
             if actual_item is not None:
                 self.switch_team(actual_item.team, request)
 
-    def switch_team(self, new_team: Team, request: HttpRequest):
+    def switch_team_if_allowed(self, new_team: Team, request: HttpRequest):
+        return
         user = cast(User, request.user)
         user_permissions = UserPermissions(user)
         # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
         #   However this should be a rare operation!
-        if user_permissions.team(new_team).effective_membership_level is not None:
-            old_team_id = user.current_team_id
-            user.team = new_team
-            user.current_team = new_team
-            user.current_organization_id = new_team.organization_id
-            user.save()
-            # Information for POSTHOG_APP_CONTEXT
-            request.switched_team = old_team_id  # type: ignore
+        if user_permissions.team(new_team).effective_membership_level is None:
+            # Do something to indicate that they don't have access to the team...
+            return
+
+        old_team_id = user.current_team_id
+        user.team = new_team
+        user.current_team = new_team
+        user.current_organization_id = new_team.organization_id
+        user.save()
+        # Information for POSTHOG_APP_CONTEXT
+        request.switched_team = old_team_id  # type: ignore
 
 
 class CHQueries:
