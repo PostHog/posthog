@@ -15,7 +15,6 @@ export function PathsHogQL({ insightProps }: EditorFilterProps): JSX.Element {
             groupType={TaxonomicFilterGroupType.HogQLExpression}
             value={pathsFilter?.paths_hogql_expression || 'event'}
             data-attr="paths-hogql-expression"
-            type="secondary"
             fullWidth
             onChange={(v, g) => {
                 const hogQl = taxonomicEventFilterToHogQL(g, v)

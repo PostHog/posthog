@@ -26,6 +26,7 @@ from posthog.warehouse.models import (
 )
 from posthog.temporal.common.logger import bind_temporal_worker_logger
 from typing import Tuple
+import asyncio
 
 
 @dataclasses.dataclass
@@ -151,11 +152,25 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
         stripe_secret_key = model.pipeline.job_inputs.get("stripe_secret_key", None)
         if not stripe_secret_key:
             raise ValueError(f"Stripe secret key not found for job {model.id}")
-        source = stripe_source(api_key=stripe_secret_key, endpoints=tuple(inputs.schemas))
+        source = stripe_source(
+            api_key=stripe_secret_key, endpoints=tuple(inputs.schemas), job_id=str(model.id), team_id=inputs.team_id
+        )
     else:
         raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 
-    await DataImportPipeline(job_inputs, source, logger).run()
+    # Temp background heartbeat for now
+    async def heartbeat() -> None:
+        while True:
+            await asyncio.sleep(10)
+            activity.heartbeat()
+
+    heartbeat_task = asyncio.create_task(heartbeat())
+
+    try:
+        await DataImportPipeline(job_inputs, source, logger).run()
+    finally:
+        heartbeat_task.cancel()
+        await asyncio.wait([heartbeat_task])
 
 
 # TODO: update retry policies
@@ -203,8 +218,9 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 run_external_data_job,
                 job_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=90),
+                start_to_close_timeout=dt.timedelta(hours=4),
                 retry_policy=RetryPolicy(maximum_attempts=5),
+                heartbeat_timeout=dt.timedelta(minutes=1),
             )
 
             # check schema first

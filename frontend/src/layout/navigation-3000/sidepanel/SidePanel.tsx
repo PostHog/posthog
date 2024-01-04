@@ -151,7 +151,7 @@ export function SidePanel(): JSX.Element | null {
                                     data-attr={`sidepanel-tab-${tab}`}
                                     active={activeTab === tab}
                                     type="secondary"
-                                    stealth={true}
+                                    status="alt"
                                 >
                                     {label}
                                 </LemonButton>
@@ -162,7 +162,7 @@ export function SidePanel(): JSX.Element | null {
                 {menuOptions ? (
                     <div className="shrink-0 flex items-center m-2">
                         <LemonMenu items={menuOptions}>
-                            <LemonButton size="small" status="stealth" icon={<IconEllipsis />} />
+                            <LemonButton size="small" icon={<IconEllipsis />} />
                         </LemonMenu>
                     </div>
                 ) : null}

@@ -6,10 +6,10 @@ from posthog.hogql.constants import (
 )
 from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.persons_query_runner import PersonsQueryRunner
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.models.utils import UUIDT
 from posthog.schema import (
-    PersonsQuery,
+    ActorsQuery,
     PersonPropertyFilter,
     PropertyOperator,
 )
@@ -49,8 +49,8 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
         return random_uuid
 
-    def _create_runner(self, query: PersonsQuery) -> PersonsQueryRunner:
-        return PersonsQueryRunner(team=self.team, query=query)
+    def _create_runner(self, query: ActorsQuery) -> ActorsQueryRunner:
+        return ActorsQueryRunner(team=self.team, query=query)
 
     def setUp(self):
         super().setUp()
@@ -58,14 +58,14 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
 
     def test_persons_query_limit(self):
         runner = self._create_runner(
-            PersonsQuery(select=["properties.email"], orderBy=["properties.email DESC"], limit=1)
+            ActorsQuery(select=["properties.email"], orderBy=["properties.email DESC"], limit=1)
         )
         response = runner.calculate()
         self.assertEqual(response.results, [[f"jacob9@{self.random_uuid}.posthog.com"]])
         self.assertEqual(response.hasMore, True)
 
         runner = self._create_runner(
-            PersonsQuery(
+            ActorsQuery(
                 select=["properties.email"],
                 orderBy=["properties.email DESC"],
                 limit=1,
@@ -78,7 +78,7 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
 
     def test_zero_limit(self):
         """Test behavior with limit set to zero."""
-        runner = self._create_runner(PersonsQuery(select=["properties.email"], limit=0))
+        runner = self._create_runner(ActorsQuery(select=["properties.email"], limit=0))
         response = runner.calculate()
         self.assertEqual(runner.paginator.limit, 100)
         self.assertEqual(response.limit, 100)
@@ -87,7 +87,7 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
 
     def test_negative_limit(self):
         """Test behavior with negative limit value."""
-        runner = self._create_runner(PersonsQuery(select=["properties.email"], limit=-1))
+        runner = self._create_runner(ActorsQuery(select=["properties.email"], limit=-1))
         response = runner.calculate()
         self.assertEqual(runner.paginator.limit, 100)
         self.assertEqual(response.limit, 100)
@@ -96,7 +96,7 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
 
     def test_exact_limit_match(self):
         """Test when available items equal the limit."""
-        runner = self._create_runner(PersonsQuery(select=["properties.email"], limit=10))
+        runner = self._create_runner(ActorsQuery(select=["properties.email"], limit=10))
         response = runner.calculate()
         self.assertEqual(len(response.results), 10)
         self.assertFalse(response.hasMore)
@@ -104,7 +104,7 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
     def test_empty_result_set(self):
         """Test behavior when query returns no results."""
         runner = self._create_runner(
-            PersonsQuery(
+            ActorsQuery(
                 select=["properties.email"],
                 limit=10,
                 properties=[
@@ -119,14 +119,14 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
     def test_large_offset(self):
         """Test behavior with offset larger than the total number of items."""
         self.random_uuid = self._create_random_persons()
-        runner = self._create_runner(PersonsQuery(select=["properties.email"], limit=5, offset=100))
+        runner = self._create_runner(ActorsQuery(select=["properties.email"], limit=5, offset=100))
         response = runner.calculate()
         self.assertEqual(len(response.results), 0)
         self.assertFalse(response.hasMore)
 
     def test_offset_plus_limit_exceeding_total(self):
         """Test when sum of offset and limit exceeds total items."""
-        runner = self._create_runner(PersonsQuery(select=["properties.email"], limit=10, offset=5))
+        runner = self._create_runner(ActorsQuery(select=["properties.email"], limit=10, offset=5))
         response = runner.calculate()
         self.assertEqual(runner.paginator.offset, 5)
         self.assertEqual(len(response.results), 5)

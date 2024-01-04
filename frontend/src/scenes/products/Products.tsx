@@ -34,12 +34,11 @@ function OnboardingCompletedButton({
 
     return (
         <>
-            <LemonButton type="secondary" status="muted" to={productUrl}>
+            <LemonButton type="secondary" to={productUrl}>
                 Go to product
             </LemonButton>
             <LemonButton
                 type="tertiary"
-                status="muted"
                 onClick={() => {
                     onSelectProduct(productKey)
                     router.actions.push(onboardingUrl)

@@ -90,7 +90,7 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
 
                           const dataset = points.referencePoint.dataset
                           const label = dataset.labels?.[point.index]
-                          const urls = urlsForDatasets(crossDataset, index)
+                          const urls = urlsForDatasets(crossDataset, index, cohorts, formatPropertyValueForDisplay)
                           const selectedUrl = urls[index]?.value
 
                           if (selectedUrl) {

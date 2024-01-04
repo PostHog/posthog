@@ -338,7 +338,7 @@ class TestResolver(BaseTest):
     def test_visit_hogqlx_tag_source(self):
         query = """
             select id, email from (
-                <PersonsQuery
+                <ActorsQuery
                     select={['id', 'properties.email as email']}
                     source={
                         <HogQLQuery query='select distinct person_id from events' />

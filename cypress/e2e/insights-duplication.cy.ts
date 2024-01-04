@@ -45,9 +45,9 @@ describe('Insights', () => {
         })
 
         it('can duplicate from insight view', () => {
-            cy.get('.page-buttons [data-attr="more-button"]').click()
+            cy.get('.TopBar3000 [data-attr="more-button"]').click()
             cy.get('[data-attr="duplicate-insight-from-insight-view"]').click()
-            cy.get('[data-attr="insight-name"]').should('contain', `${insightName} (copy)`)
+            cy.get('[data-attr="top-bar-name"] .EditableField__display').should('contain', `${insightName} (copy)`)
 
             savedInsights.checkInsightIsInListView(`${insightName} (copy)`)
         })
@@ -58,7 +58,7 @@ describe('Insights', () => {
             cy.get('[data-attr="insight-save-dropdown"]').click()
             cy.get('[data-attr="insight-save-as-new-insight"]').click()
             cy.get('.ant-modal-content .ant-btn-primary').click()
-            cy.get('[data-attr="insight-name"]').should('contain', `${insightName} (copy)`)
+            cy.get('[data-attr="top-bar-name"] .EditableField__display').should('contain', `${insightName} (copy)`)
 
             savedInsights.checkInsightIsInListView(`${insightName} (copy)`)
         })

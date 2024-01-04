@@ -1,5 +1,3 @@
-import './Breadcrumbs.scss'
-
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'

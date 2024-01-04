@@ -190,20 +190,10 @@ export function UserInterviewSchedulerHeaderButtons(): JSX.Element {
     return (
         <>
             <div className="flex gap-2">
-                <LemonButton
-                    onClick={() => {
-                        toggleSchedulerInstructions()
-                    }}
-                    sideIcon={<IconHelpOutline />}
-                >
+                <LemonButton onClick={toggleSchedulerInstructions} sideIcon={<IconHelpOutline />}>
                     Scheduler instructions
                 </LemonButton>
-                <LemonButton
-                    type="primary"
-                    onClick={() => {
-                        toggleInterviewFlagModal()
-                    }}
-                >
+                <LemonButton type="primary" onClick={toggleInterviewFlagModal}>
                     Create interview invitation
                 </LemonButton>
             </div>

@@ -144,7 +144,6 @@ export function LemonSelect<T extends string | number | boolean | null>({
                 className={clsx(className, 'LemonSelect')}
                 icon={activeLeaf?.icon}
                 type="secondary"
-                status="stealth"
                 sideAction={
                     isClearButtonShown
                         ? {
