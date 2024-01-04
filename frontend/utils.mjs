@@ -130,6 +130,7 @@ export const commonConfig = {
     plugins: [
         sassPlugin({
             async transform(source, resolveDir, filePath) {
+                // Sync the plugins list with postcss.config.js
                 const plugins = [tailwindcss, autoprefixer, postcssPresetEnv({ stage: 0 })]
                 if (!isDev) {
                     plugins.push(cssnano({ preset: 'default' }))
