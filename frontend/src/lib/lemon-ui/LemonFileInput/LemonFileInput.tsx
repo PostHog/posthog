@@ -18,6 +18,8 @@ export interface LemonFileInputProps extends Pick<HTMLInputElement, 'multiple' |
      * styling is applied to the alternativeDropTargetRef
      * **/
     alternativeDropTargetRef?: RefObject<HTMLElement>
+    // the text to display to the user, a sensible default is used if not provided
+    callToAction?: string | JSX.Element
 }
 
 export const LemonFileInput = ({
@@ -28,6 +30,7 @@ export const LemonFileInput = ({
     // e.g. '.json' or 'image/*'
     accept,
     alternativeDropTargetRef,
+    callToAction,
 }: LemonFileInputProps): JSX.Element => {
     const [files, setFiles] = useState(value || value || ([] as File[]))
 
@@ -36,6 +39,13 @@ export const LemonFileInput = ({
     let dragCounter = 0
     const [drag, setDrag] = useState(false)
     const dropRef = createRef<HTMLDivElement>()
+
+    callToAction = callToAction || (
+        <>
+            <IconUploadFile className={'text-2xl'} /> Click or drag and drop to upload
+            {accept ? ` ${acceptToDisplayName(accept)}` : ''}
+        </>
+    )
 
     useEffect(() => {
         if (value && value !== files) {
@@ -134,8 +144,7 @@ export const LemonFileInput = ({
                         accept={accept}
                         onChange={onInputChange}
                     />
-                    <IconUploadFile className={'text-2xl'} /> Click or drag and drop to upload
-                    {accept ? ` ${acceptToDisplayName(accept)}` : ''}
+                    {callToAction}
                 </label>
                 {files.length > 0 && (
                     <div className={'flex flex-row gap-2'}>
