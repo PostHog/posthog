@@ -496,23 +496,14 @@ export class PersonState {
 
                 const deletePersonMessages = await this.db.deletePerson(otherPerson, tx)
 
-                let personOverrideMessages: ProducerRecord[] = []
                 if (this.personOverrideWriter) {
-                    personOverrideMessages = await this.personOverrideWriter.addPersonOverride(
+                    await this.personOverrideWriter.addPersonOverride(
                         tx,
                         getPersonOverrideDetails(this.teamId, otherPerson, mergeInto)
                     )
                 }
 
-                return [
-                    [
-                        ...personOverrideMessages,
-                        ...updatePersonMessages,
-                        ...distinctIdMessages,
-                        ...deletePersonMessages,
-                    ],
-                    person,
-                ]
+                return [[...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages], person]
             }
         )
 
@@ -848,10 +839,7 @@ export class DeferredPersonOverrideWriter {
     /**
      * Enqueue an override for deferred processing.
      */
-    public async addPersonOverride(
-        tx: TransactionClient,
-        overrideDetails: PersonOverrideDetails
-    ): Promise<ProducerRecord[]> {
+    public async addPersonOverride(tx: TransactionClient, overrideDetails: PersonOverrideDetails): Promise<void> {
         await this.postgres.query(
             tx,
             SQL`
@@ -870,7 +858,6 @@ export class DeferredPersonOverrideWriter {
             'pendingPersonOverride'
         )
         deferredPersonOverridesWrittenCounter.inc()
-        return []
     }
 }
 
