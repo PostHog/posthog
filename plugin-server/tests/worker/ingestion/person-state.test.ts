@@ -2075,11 +2075,7 @@ describe('PersonState.update()', () => {
     })
 })
 
-const PersonOverridesWriterMode = {
-    flat: (hub: Hub) => new FlatPersonOverrideWriter(hub.db.postgres),
-}
-
-describe.each(Object.keys(PersonOverridesWriterMode))('person overrides writer: %s', (mode) => {
+describe('flat person overrides writer', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
 
@@ -2090,7 +2086,7 @@ describe.each(Object.keys(PersonOverridesWriterMode))('person overrides writer: 
     beforeAll(async () => {
         ;[hub, closeHub] = await createHub({})
         organizationId = await createOrganization(hub.db.postgres)
-        writer = PersonOverridesWriterMode[mode](hub)
+        writer = new FlatPersonOverrideWriter(hub.db.postgres)
     })
 
     beforeEach(async () => {
