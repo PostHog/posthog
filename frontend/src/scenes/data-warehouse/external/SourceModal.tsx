@@ -4,7 +4,7 @@ import { Form } from 'kea-forms'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Field } from 'lib/forms/Field'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import hubspotLogo from 'public/hubspot-logo.png'
+import hubspotLogo from 'public/hubspot-logo.svg'
 import stripeLogo from 'public/stripe-logo.svg'
 
 import { ExternalDataSourceType } from '~/types'
@@ -37,8 +37,7 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
             return (
                 <Link to={addToHubspotButtonUrl() || ''}>
                     <LemonButton className="w-100" center type="secondary">
-                        <img src={hubspotLogo} alt={`hubspot logo`} height={50} />
-                        Hubspot
+                        <img src={hubspotLogo} alt={`hubspot logo`} height={45} />
                     </LemonButton>
                 </Link>
             )
