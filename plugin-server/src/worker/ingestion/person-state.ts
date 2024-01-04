@@ -99,7 +99,7 @@ export class PersonState {
         distinctId: string,
         timestamp: DateTime,
         db: DB,
-        private personOverrideWriter?: PersonOverrideWriter | DeferredPersonOverrideWriter,
+        private personOverrideWriter?: DeferredPersonOverrideWriter,
         uuid: UUIDT | undefined = undefined,
         maxMergeAttempts: number = MAX_FAILED_PERSON_MERGE_ATTEMPTS
     ) {

@@ -19,7 +19,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 processAsyncOnEventHandlers: true,
                 processAsyncWebhooksHandlers: true,
                 sessionRecordingBlobIngestion: true,
-                personOverrides: config.POE_DEFERRED_WRITES_ENABLED,
+                personOverrides: false, // not on by default, yet
                 appManagementSingleton: true,
                 preflightSchedules: true,
                 ...sharedCapabilities,
