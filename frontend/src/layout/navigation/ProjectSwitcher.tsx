@@ -4,6 +4,8 @@ import { IconPlus, IconSettings } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { useMemo } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
@@ -86,9 +88,20 @@ function CurrentProjectButton({ onClickInside }: { onClickInside?: () => void })
 }
 
 function OtherProjectButton({ team }: { team: TeamBasicType; onClickInside?: () => void }): JSX.Element {
+    const { location } = useValues(router)
+
+    const relativeOtherProjectPath = useMemo(() => {
+        // NOTE: There is a tradeoff here - because we choose keep the whole path it could be that the
+        // project switch lands on something like insight/abc that won't exist.
+        // On the other hand, if we remove the ID, it could be that someone opens a page, realizes they're in the wrong project
+        // and after switching is on a different page than before.
+        const route = removeProjectIdIfPresent(location.pathname)
+        return urls.project(team.id, route)
+    }, [location.pathname])
+
     return (
         <LemonButton
-            to={urls.project(team.id)}
+            to={relativeOtherProjectPath}
             sideAction={{
                 icon: <IconSettings className="text-muted-alt" />,
                 tooltip: `Go to ${team.name} settings`,
