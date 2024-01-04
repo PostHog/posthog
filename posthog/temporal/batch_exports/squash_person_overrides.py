@@ -137,176 +137,6 @@ class PersonOverrideTuple(NamedTuple):
     override_person_id: UUID
 
 
-class PostgresPersonOverridesManager:
-    def __init__(self, connection):
-        self.connection = connection
-
-    def fetchall(self, team_id: int) -> Sequence[PersonOverrideTuple]:
-        with self.connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT
-                    old_person.uuid,
-                    override_person.uuid
-                FROM posthog_personoverride override
-                LEFT OUTER JOIN
-                    posthog_personoverridemapping old_person
-                    ON override.team_id = old_person.team_id AND override.old_person_id = old_person.id
-                LEFT OUTER JOIN
-                    posthog_personoverridemapping override_person
-                    ON override.team_id = override_person.team_id AND override.override_person_id = override_person.id
-                WHERE override.team_id = %(team_id)s
-                """,
-                {"team_id": team_id},
-            )
-            return [PersonOverrideTuple(*row) for row in cursor.fetchall()]
-
-    def insert(self, team_id: int, override: PersonOverrideTuple) -> None:
-        with self.connection.cursor() as cursor:
-            mapping_ids = []
-            for person_uuid in (override.override_person_id, override.old_person_id):
-                cursor.execute(
-                    """
-                    INSERT INTO posthog_personoverridemapping(
-                        team_id,
-                        uuid
-                    )
-                    VALUES (
-                        %(team_id)s,
-                        %(uuid)s
-                    )
-                    ON CONFLICT("team_id", "uuid") DO NOTHING
-                    RETURNING id
-                    """,
-                    {"team_id": team_id, "uuid": person_uuid},
-                )
-                mapping_ids.append(cursor.fetchone())
-
-            cursor.execute(
-                """
-                INSERT INTO posthog_personoverride(
-                    team_id,
-                    old_person_id,
-                    override_person_id,
-                    oldest_event,
-                    version
-                )
-                VALUES (
-                    %(team_id)s,
-                    %(old_person_id)s,
-                    %(override_person_id)s,
-                    NOW(),
-                    1
-                );
-                """,
-                {
-                    "team_id": team_id,
-                    "old_person_id": mapping_ids[1],
-                    "override_person_id": mapping_ids[0],
-                },
-            )
-
-    def delete(self, person_override: SerializablePersonOverrideToDelete, dry_run: bool = False) -> None:
-        with self.connection.cursor() as cursor:
-            SELECT_ID_FROM_OVERRIDE_UUID = """
-                SELECT
-                    id
-                FROM
-                    posthog_personoverridemapping
-                WHERE
-                    team_id = %(team_id)s
-                    AND uuid = %(uuid)s;
-            """
-
-            cursor.execute(
-                SELECT_ID_FROM_OVERRIDE_UUID,
-                {
-                    "team_id": person_override.team_id,
-                    "uuid": person_override.old_person_id,
-                },
-            )
-            row = cursor.fetchone()
-            if not row:
-                return
-
-            old_person_id = row[0]
-
-            cursor.execute(
-                SELECT_ID_FROM_OVERRIDE_UUID,
-                {
-                    "team_id": person_override.team_id,
-                    "uuid": person_override.override_person_id,
-                },
-            )
-            row = cursor.fetchone()
-            if not row:
-                return
-
-            override_person_id = row[0]
-
-            DELETE_FROM_PERSON_OVERRIDES = """
-                DELETE FROM
-                    posthog_personoverride
-                WHERE
-                    team_id = %(team_id)s
-                    AND old_person_id = %(old_person_id)s
-                    AND override_person_id = %(override_person_id)s
-                    AND version = %(latest_version)s
-                RETURNING
-                    old_person_id;
-            """
-
-            parameters = {
-                "team_id": person_override.team_id,
-                "old_person_id": old_person_id,
-                "override_person_id": override_person_id,
-                "latest_version": person_override.latest_version,
-            }
-
-            if dry_run is True:
-                activity.logger.info("This is a DRY RUN so nothing will be deleted.")
-                activity.logger.info(
-                    "Would have run query: %s with parameters %s",
-                    DELETE_FROM_PERSON_OVERRIDES,
-                    parameters,
-                )
-                return
-
-            cursor.execute(DELETE_FROM_PERSON_OVERRIDES, parameters)
-            row = cursor.fetchone()
-            if not row:
-                # There is no existing mapping for this (old_person_id, override_person_id) pair.
-                # It could be that a newer one was added (with a later version).
-                return
-
-            deleted_id = row[0]
-
-            DELETE_FROM_PERSON_OVERRIDE_MAPPINGS = """
-                DELETE FROM
-                    posthog_personoverridemapping
-                WHERE
-                    id = %(deleted_id)s;
-            """
-
-            cursor.execute(
-                DELETE_FROM_PERSON_OVERRIDE_MAPPINGS,
-                {
-                    "deleted_id": deleted_id,
-                },
-            )
-
-    def clear(self, team_id: int) -> None:
-        with self.connection.cursor() as cursor:
-            cursor.execute(
-                "DELETE FROM posthog_personoverride WHERE team_id = %s",
-                [team_id],
-            )
-            cursor.execute(
-                "DELETE FROM posthog_personoverridemapping WHERE team_id = %s",
-                [team_id],
-            )
-
-
 class FlatPostgresPersonOverridesManager:
     def __init__(self, connection):
         self.connection = connection
@@ -389,15 +219,6 @@ class FlatPostgresPersonOverridesManager:
             )
 
 
-POSTGRES_PERSON_OVERRIDES_MANAGERS = {
-    "mappings": PostgresPersonOverridesManager,
-    "flat": FlatPostgresPersonOverridesManager,
-}
-
-DEFAULT_POSTGRES_PERSON_OVERRIDES_MANAGER = "flat"
-assert DEFAULT_POSTGRES_PERSON_OVERRIDES_MANAGER in POSTGRES_PERSON_OVERRIDES_MANAGERS
-
-
 @dataclass
 class QueryInputs:
     """Inputs for activities that run queries in the SquashPersonOverrides workflow.
@@ -421,7 +242,6 @@ class QueryInputs:
     dictionary_name: str = "person_overrides_join_dict"
     dry_run: bool = True
     _latest_created_at: str | datetime | None = None
-    postgres_person_overrides_manager: str = DEFAULT_POSTGRES_PERSON_OVERRIDES_MANAGER
 
     def __post_init__(self) -> None:
         if isinstance(self._latest_created_at, datetime):
@@ -449,9 +269,6 @@ class QueryInputs:
         """
         for person_override_to_delete in self.person_overrides_to_delete:
             yield SerializablePersonOverrideToDelete(*person_override_to_delete)
-
-    def get_postgres_person_overrides_manager(self, connection):
-        return POSTGRES_PERSON_OVERRIDES_MANAGERS[self.postgres_person_overrides_manager](connection)
 
 
 @activity.defn
@@ -695,7 +512,7 @@ async def delete_squashed_person_overrides_from_postgres(inputs: QueryInputs) ->
         port=settings.DATABASES["default"]["PORT"],
         **settings.DATABASES["default"].get("SSL_OPTIONS", {}),
     ) as connection:
-        overrides_manager = inputs.get_postgres_person_overrides_manager(connection)
+        overrides_manager = FlatPostgresPersonOverridesManager(connection)
         for person_override_to_delete in inputs.iter_person_overides_to_delete():
             activity.logger.debug("%s", person_override_to_delete)
             overrides_manager.delete(person_override_to_delete, inputs.dry_run)
@@ -762,7 +579,6 @@ class SquashPersonOverridesInputs:
     dictionary_name: str = "person_overrides_join_dict"
     last_n_months: int = 1
     dry_run: bool = True
-    postgres_person_overrides_manager: str = DEFAULT_POSTGRES_PERSON_OVERRIDES_MANAGER
 
     def iter_partition_ids(self) -> Iterator[str]:
         """Iterate over configured partition ids.
@@ -800,6 +616,8 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
     Squashing refers to the process of updating the person_id associated with an event
     to match the new id assigned via a person override. This process must be done
     regularly to control the size of the person_overrides table.
+
+    TODO: This comment should be rewritten!
 
     For example, let's imagine the initial state of tables as:
 
@@ -882,7 +700,6 @@ class SquashPersonOverridesWorkflow(PostHogWorkflow):
             dictionary_name=inputs.dictionary_name,
             team_ids=inputs.team_ids,
             dry_run=inputs.dry_run,
-            postgres_person_overrides_manager=inputs.postgres_person_overrides_manager,
         )
 
         async with person_overrides_dictionary(
