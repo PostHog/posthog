@@ -21,15 +21,15 @@ from posthog.batch_exports.models import (
     BatchExportBackfill,
     BatchExportRun,
 )
+from posthog.constants import BATCH_EXPORTS_TASK_QUEUE
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     create_schedule,
-    update_schedule,
-    unpause_schedule,
-    pause_schedule,
     delete_schedule,
+    pause_schedule,
+    unpause_schedule,
+    update_schedule,
 )
-from posthog.constants import BATCH_EXPORTS_TASK_QUEUE
 
 
 class BatchExportsInputsProtocol(typing.Protocol):
@@ -132,6 +132,7 @@ class BigQueryBatchExportInputs:
     data_interval_end: str | None = None
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
+    use_json_type: bool = False
 
 
 @dataclass

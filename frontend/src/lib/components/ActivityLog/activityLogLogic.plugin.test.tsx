@@ -2,7 +2,8 @@ import '@testing-library/jest-dom'
 
 import { render } from '@testing-library/react'
 import { makeTestSetup } from 'lib/components/ActivityLog/activityLogLogic.test.setup'
-import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+
+import { ActivityScope } from '~/types'
 
 describe('the activity log logic', () => {
     describe('humanizing plugins', () => {
@@ -28,7 +29,7 @@ describe('the activity log logic', () => {
         it('can handle enabling a plugin', async () => {
             const logic = await pluginTestSetup('the removed plugin', 'enabled', [
                 {
-                    type: 'Plugin',
+                    type: ActivityScope.PLUGIN,
                     action: 'created',
                     field: 'name',
                     after: 'world',
@@ -44,13 +45,13 @@ describe('the activity log logic', () => {
         it('can handle enabling a plugin with a secret value', async () => {
             const logic = await pluginTestSetup('the removed plugin', 'enabled', [
                 {
-                    type: 'Plugin',
+                    type: ActivityScope.PLUGIN,
                     action: 'created',
                     field: 'name',
                     after: 'world',
                 },
                 {
-                    type: 'Plugin',
+                    type: ActivityScope.PLUGIN,
                     action: 'created',
                     field: 'super secret password',
                     after: '**************** POSTHOG SECRET FIELD ****************',
@@ -66,7 +67,7 @@ describe('the activity log logic', () => {
         it('can handle disabling a plugin', async () => {
             const logic = await pluginTestSetup('the removed plugin', 'disabled', [
                 {
-                    type: 'Plugin',
+                    type: ActivityScope.PLUGIN,
                     action: 'created',
                     field: 'name',
                     after: 'world',
@@ -82,21 +83,21 @@ describe('the activity log logic', () => {
         it('can handle config_update ', async () => {
             const logic = await pluginTestSetup('the changed plugin', 'config_updated', [
                 {
-                    type: 'Plugin',
+                    type: ActivityScope.PLUGIN,
                     action: 'created',
                     field: 'first example',
                     after: 'added this config',
                 },
 
                 {
-                    type: 'Plugin',
+                    type: ActivityScope.PLUGIN,
                     action: 'deleted',
                     field: 'second example',
                     before: 'removed this config',
                 },
 
                 {
-                    type: 'Plugin',
+                    type: ActivityScope.PLUGIN,
                     action: 'changed',
                     field: 'third example',
                     before: 'changed from this config',
@@ -182,7 +183,7 @@ describe('the activity log logic', () => {
         it('can handle new plugin attachments', async () => {
             const logic = await pluginTestSetup('the changed plugin', 'attachment_created', [
                 {
-                    type: 'PluginConfig',
+                    type: ActivityScope.PLUGIN_CONFIG,
                     action: 'created',
                     field: undefined,
                     before: undefined,
@@ -199,7 +200,7 @@ describe('the activity log logic', () => {
         it('can handle updated plugin attachments', async () => {
             const logic = await pluginTestSetup('the changed plugin', 'attachment_updated', [
                 {
-                    type: 'PluginConfig',
+                    type: ActivityScope.PLUGIN_CONFIG,
                     action: 'changed',
                     field: undefined,
                     before: 'attachment.txt',
@@ -216,7 +217,7 @@ describe('the activity log logic', () => {
         it('can handle renamed plugin attachments', async () => {
             const logic = await pluginTestSetup('the changed plugin', 'attachment_updated', [
                 {
-                    type: 'PluginConfig',
+                    type: ActivityScope.PLUGIN_CONFIG,
                     action: 'changed',
                     field: undefined,
                     before: 'attachment1.txt',
@@ -233,7 +234,7 @@ describe('the activity log logic', () => {
         it('can handle deleted plugin attachments', async () => {
             const logic = await pluginTestSetup('the changed plugin', 'attachment_deleted', [
                 {
-                    type: 'PluginConfig',
+                    type: ActivityScope.PLUGIN_CONFIG,
                     action: 'deleted',
                     field: undefined,
                     before: 'attachment.txt',

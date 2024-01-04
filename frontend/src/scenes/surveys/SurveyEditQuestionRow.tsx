@@ -84,7 +84,7 @@ export function SurveyEditQuestionHeader({
 
 export function SurveyEditQuestionGroup({ index, question }: { index: number; question: any }): JSX.Element {
     const { survey, writingHTMLDescription } = useValues(surveyLogic)
-    const { setDefaultForQuestionType, setWritingHTMLDescription } = useActions(surveyLogic)
+    const { setDefaultForQuestionType, setWritingHTMLDescription, setSurveyValue } = useActions(surveyLogic)
     return (
         <Group name={`questions.${index}`} key={index}>
             <div className="flex flex-col gap-2">
@@ -249,6 +249,12 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                         { label: 'Number', value: 'number' },
                                         { label: 'Emoji', value: 'emoji' },
                                     ]}
+                                    onChange={(val) => {
+                                        const newQuestion = { ...survey.questions[index], display: val, scale: 5 }
+                                        const newQuestions = [...survey.questions]
+                                        newQuestions[index] = newQuestion
+                                        setSurveyValue('questions', newQuestions)
+                                    }}
                                 />
                             </Field>
                             <Field name="scale" label="Scale" className="w-1/2">

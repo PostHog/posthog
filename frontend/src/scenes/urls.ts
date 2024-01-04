@@ -124,6 +124,7 @@ export const urls = {
     dataWarehouse: (): string => '/data-warehouse',
     dataWarehouseTable: (): string => `/data-warehouse/new`,
     dataWarehouseSettings: (): string => '/data-warehouse/settings',
+    dataWarehouseRedirect: (kind: string): string => `/data-warehouse/${kind}/redirect`,
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     projectApps: (tab?: PluginTab): string => `/project/apps${tab ? `?tab=${tab}` : ''}`,

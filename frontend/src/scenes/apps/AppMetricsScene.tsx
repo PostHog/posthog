@@ -1,7 +1,6 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { PageHeader } from 'lib/components/PageHeader'
 import { IconSettings } from 'lib/lemon-ui/icons'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -12,7 +11,7 @@ import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginTags } from 'scenes/plugins/tabs/apps/components'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { AppMetricsTab } from '~/types'
+import { ActivityScope, AppMetricsTab } from '~/types'
 
 import { AppLogsTab } from './AppLogsTab'
 import { ErrorDetailsModal } from './ErrorDetailsModal'
