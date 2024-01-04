@@ -71,7 +71,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
 
     connect((props: NotebookNodeLogicProps) => ({
         actions: [props.notebookLogic, ['onUpdateEditor', 'setTextSelection']],
-        values: [props.notebookLogic, ['editor', 'isEditable']],
+        values: [props.notebookLogic, ['editor', 'isEditable', 'comments']],
     })),
 
     reducers(({ props }) => ({
@@ -160,6 +160,15 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                     return true
                 }
             },
+        ],
+
+        sourceComment: [
+            (s) => [s.comments, s.nodeId],
+            (comments, nodeId) =>
+                comments &&
+                comments.find(
+                    (comment) => comment.item_context?.type === 'node' && comment.item_context?.id === nodeId
+                ),
         ],
     }),
 

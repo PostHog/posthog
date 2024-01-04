@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import ActivityLog, FeatureFlag, Insight, NotificationViewed, User
+from posthog.models.comment import Comment
 from posthog.models.notebook.notebook import Notebook
 
 
@@ -59,6 +60,10 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins
 
         if params.get("user"):
             queryset = queryset.filter(user=params.get("user"))
+        if params.get("scope"):
+            queryset = queryset.filter(scope=params.get("scope"))
+        if params.get("item_id"):
+            queryset = queryset.filter(item_id=params.get("item_id"))
 
         return queryset
 
@@ -76,7 +81,10 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins
         my_feature_flags = list(
             FeatureFlag.objects.filter(created_by=user, team_id=self.team.pk).values_list("id", flat=True)
         )
-        my_notebooks = list(Notebook.objects.filter(created_by=user, team_id=self.team.pk).values_list("id", flat=True))
+        my_notebooks = list(
+            Notebook.objects.filter(created_by=user, team_id=self.team.pk).values_list("short_id", flat=True)
+        )
+        my_comments = list(Comment.objects.filter(created_by=user, team_id=self.team.pk).values_list("id", flat=True))
 
         # then things they edited
         interesting_changes = [
@@ -85,6 +93,7 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins
             "sharing enabled",
             "sharing disabled",
             "deleted",
+            "commented",
         ]
         my_changed_insights = list(
             ActivityLog.objects.filter(
@@ -116,6 +125,17 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins
                 scope="FeatureFlag",
             )
             .exclude(item_id__in=my_feature_flags)
+            .values_list("item_id", flat=True)
+        )
+
+        my_changed_comments = list(
+            ActivityLog.objects.filter(
+                team_id=self.team.id,
+                activity__in=interesting_changes,
+                user_id=user.pk,
+                scope="Comment",
+            )
+            .exclude(item_id__in=my_comments)
             .values_list("item_id", flat=True)
         )
 
@@ -156,6 +176,7 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins
                     Q(Q(scope="FeatureFlag") & Q(item_id__in=my_feature_flags))
                     | Q(Q(scope="Insight") & Q(item_id__in=my_insights))
                     | Q(Q(scope="Notebook") & Q(item_id__in=my_notebooks))
+                    | Q(Q(scope="Comment") & Q(item_id__in=my_comments))
                 )
                 | Q(
                     # don't want to see creation of these things since that was before the user edited these things
@@ -164,6 +185,7 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins
                         Q(Q(scope="FeatureFlag") & Q(item_id__in=my_changed_feature_flags))
                         | Q(Q(scope="Insight") & Q(item_id__in=my_changed_insights))
                         | Q(Q(scope="Notebook") & Q(item_id__in=my_changed_notebooks))
+                        | Q(Q(scope="Comment") & Q(item_id__in=my_changed_comments))
                     )
                 )
             )
