@@ -193,7 +193,7 @@ export class EventsProcessor {
 
     async createEvent(
         preIngestionEvent: PreIngestionEvent,
-        person: Person
+        person: Person | null
     ): Promise<[RawClickHouseEvent, Promise<void>]> {
         const { eventUuid: uuid, event, teamId, distinctId, properties, timestamp } = preIngestionEvent
 
@@ -213,13 +213,21 @@ export class EventsProcessor {
         const groupIdentifiers = this.getGroupIdentifiers(properties)
         const groupsColumns = await this.db.getGroupsColumns(teamId, groupIdentifiers)
 
-        const eventPersonProperties: string = JSON.stringify({
-            ...person.properties,
-            // For consistency, we'd like events to contain the properties that they set, even if those were changed
-            // before the event is ingested.
-            ...(properties.$set || {}),
-        })
-        // TODO: Remove Redis caching for person that's not used anymore
+        // Person is null iff this is a `$delete_person` event
+        const personUUID = person === null ? '00000000-0000-0000-0000-000000000000' : person.uuid
+        const eventPersonProperties: string | undefined =
+            person === null
+                ? undefined
+                : JSON.stringify({
+                      ...person.properties,
+                      // For consistency, we'd like events to contain the properties that they set, even if those were changed
+                      // before the event is ingested.
+                      ...(properties.$set || {}),
+                  }) ?? undefined
+        const personCreatedAt =
+            person === null
+                ? undefined
+                : castTimestampOrNow(person.created_at, TimestampFormat.ClickHouseSecondPrecision)
 
         const rawEvent: RawClickHouseEvent = {
             uuid,
@@ -230,9 +238,9 @@ export class EventsProcessor {
             distinct_id: safeClickhouseString(distinctId),
             elements_chain: safeClickhouseString(elementsChain),
             created_at: castTimestampOrNow(null, TimestampFormat.ClickHouse),
-            person_id: person.uuid,
-            person_properties: eventPersonProperties ?? undefined,
-            person_created_at: castTimestampOrNow(person.created_at, TimestampFormat.ClickHouseSecondPrecision),
+            person_id: personUUID,
+            person_properties: eventPersonProperties,
+            person_created_at: personCreatedAt,
             ...groupsColumns,
         }
 

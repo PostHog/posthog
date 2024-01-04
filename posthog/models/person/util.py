@@ -55,16 +55,6 @@ if TEST:
             sync=True,
         )
 
-    @receiver(post_delete, sender=Person)
-    def person_deleted(sender, instance: Person, **kwargs):
-        _delete_person(
-            instance.team.id,
-            instance.uuid,
-            int(instance.version or 0),
-            instance.created_at,
-            sync=True,
-        )
-
     @receiver(post_delete, sender=PersonDistinctId)
     def person_distinct_id_deleted(sender, instance: PersonDistinctId, **kwargs):
         _delete_ch_distinct_id(
@@ -225,40 +215,6 @@ def get_persons_by_distinct_ids(team_id: int, distinct_ids: List[str]) -> QueryS
 
 def get_persons_by_uuids(team: Team, uuids: List[str]) -> QuerySet:
     return Person.objects.filter(team_id=team.pk, uuid__in=uuids)
-
-
-def delete_person(person: Person, sync: bool = False) -> None:
-    # This is racy https://github.com/PostHog/posthog/issues/11590
-    distinct_ids_to_version = _get_distinct_ids_with_version(person)
-    _delete_person(person.team.id, person.uuid, int(person.version or 0), person.created_at, sync)
-    for distinct_id, version in distinct_ids_to_version.items():
-        _delete_ch_distinct_id(person.team.id, person.uuid, distinct_id, version, sync)
-
-
-def _delete_person(
-    team_id: int,
-    uuid: UUID,
-    version: int,
-    created_at: Optional[datetime.datetime] = None,
-    sync: bool = False,
-) -> None:
-    create_person(
-        uuid=str(uuid),
-        team_id=team_id,
-        version=version + 100,  # keep in sync with deletePerson in plugin-server/src/utils/db/db.ts
-        created_at=created_at,
-        is_deleted=True,
-        sync=sync,
-    )
-
-
-def _get_distinct_ids_with_version(person: Person) -> Dict[str, int]:
-    return {
-        distinct_id: int(version or 0)
-        for distinct_id, version in PersonDistinctId.objects.filter(person=person, team_id=person.team_id)
-        .order_by("id")
-        .values_list("distinct_id", "version")
-    }
 
 
 def _delete_ch_distinct_id(team_id: int, uuid: UUID, distinct_id: str, version: int, sync: bool = False) -> None:

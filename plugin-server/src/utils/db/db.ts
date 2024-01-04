@@ -812,12 +812,23 @@ export class DB {
                     person.team_id,
                     person.is_identified,
                     person.uuid,
-                    Number(result.rows[0].version || 0) + 100, // keep in sync with delete_person in posthog/models/person/util.py
+                    Number(result.rows[0].version || 0) + 100, // Keep in sync with `deleteDistinctIds`
                     1
                 ),
             ]
         }
         return kafkaMessages
+    }
+
+    public async asyncEventsDeletion(person: Person, creator_id?: number, tx?: TransactionClient): Promise<void> {
+        const PERSON_DELETION_TYPE = 1 // from posthog/models/async_deletion/async_deletion.py
+        await this.postgres.query<{ version: string }>(
+            tx ?? PostgresUse.COMMON_WRITE,
+            `INSERT INTO posthog_asyncdeletion (deletion_type, team_id, key, created_by_id, created_at)
+            VALUES ($1, $2, $3, $4, $5)`,
+            [PERSON_DELETION_TYPE, person.team_id, person.uuid, creator_id ?? null, new Date().toISOString()],
+            'createPersonalApiKey'
+        )
     }
 
     // PersonDistinctId
@@ -857,6 +868,31 @@ export class DB {
     public async fetchDistinctIdValues(person: Person, database: Database = Database.Postgres): Promise<string[]> {
         const personDistinctIds = await this.fetchDistinctIds(person, database as any)
         return personDistinctIds.map((pdi) => pdi.distinct_id)
+    }
+
+    public async deleteDistinctIds(person: Person, tx?: TransactionClient): Promise<ProducerRecord[]> {
+        const result = await this.postgres.query<{ version: string }>(
+            tx ?? PostgresUse.COMMON_WRITE,
+            'DELETE FROM posthog_persondistinctid WHERE team_id = $1 AND person_id = $2 RETURNING *',
+            [person.team_id, person.id],
+            'deleteDistinctId'
+        )
+
+        const kafkaMessages: ProducerRecord[] = []
+        for (const row of result.rows) {
+            const { id, version: versionStr, ...usefulColumns } = row as PersonDistinctId
+            const version = Number(versionStr || 0) + 100 // Keep in sync with `deletePerson`
+            kafkaMessages.push({
+                topic: KAFKA_PERSON_DISTINCT_ID,
+                messages: [
+                    {
+                        value: JSON.stringify({ ...usefulColumns, version, is_deleted: 1 }),
+                    },
+                ],
+            })
+        }
+
+        return kafkaMessages
     }
 
     public async addDistinctId(person: Person, distinctId: string): Promise<void> {

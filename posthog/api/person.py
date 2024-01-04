@@ -50,14 +50,12 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort.util import get_all_cohort_ids_by_person_uuid
 from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.models.person.util import delete_person
 from posthog.permissions import (
     ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
@@ -397,33 +395,42 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         ],
     )
     def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
+        """
+        The deletion request will be completed via sending a "$delete_person" event.
+        """
         try:
             person = self.get_object()
             person_id = person.id
-            delete_person(person=person)
-            self.perform_destroy(person)
+            user = cast(User, request.user)
+            capture_internal(
+                distinct_id=person.distinct_ids[0],
+                ip=None,
+                site_url=None,
+                token=person.team.api_token,
+                now=datetime.now(),
+                sent_at=None,
+                event={
+                    "event": "$delete_person",
+                    "distinct_id": person.distinct_ids[0],
+                    "properties": {
+                        "person_id": person.id,
+                        # "person_uuid": person.uuid,
+                        "delete_events": "delete_events" in request.GET,
+                        "created_by_email": user.email,
+                        "created_by_id": user.id,
+                    },
+                    "timestamp": datetime.now().isoformat(),
+                },
+            )
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team_id,
-                user=cast(User, request.user),
+                user=user,
                 item_id=person_id,
                 scope="Person",
                 activity="deleted",
                 detail=Detail(name=str(person.uuid)),
             )
-            # Once the person is deleted, queue deletion of associated data, if that was requested
-            if "delete_events" in request.GET:
-                AsyncDeletion.objects.bulk_create(
-                    [
-                        AsyncDeletion(
-                            deletion_type=DeletionType.Person,
-                            team_id=self.team_id,
-                            key=str(person.uuid),
-                            created_by=cast(User, self.request.user),
-                        )
-                    ],
-                    ignore_conflicts=True,
-                )
             return response.Response(status=202)
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
@@ -579,7 +586,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             detail=Detail(name=str(person.uuid), changes=[Change(type="Person", action="changed")]),
         )
 
-        return response.Response({"success": True}, status=201)
+        return response.Response({"success": True}, status=202)
 
     @action(methods=["GET"], detail=False)
     def cohorts(self, request: request.Request) -> response.Response:

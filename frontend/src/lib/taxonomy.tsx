@@ -332,6 +332,10 @@ export const KEY_MAPPING: KeyMappingInterface = {
             label: 'Identify',
             description: 'A user has been identified with properties',
         },
+        $delete_person: {
+            label: 'Person Deletion',
+            description: 'A user has been deleted',
+        },
         $create_alias: {
             label: 'Alias',
             description: 'An alias ID has been added to a user',

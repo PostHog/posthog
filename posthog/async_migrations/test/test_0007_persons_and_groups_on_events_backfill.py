@@ -11,7 +11,6 @@ from posthog.async_migrations.setup import (
 )
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest
 from posthog.client import query_with_columns, sync_execute
-from posthog.models import Person
 from posthog.models.async_migration import (
     AsyncMigration,
     AsyncMigrationError,
@@ -22,7 +21,6 @@ from posthog.models.group.util import create_group
 from posthog.models.person.util import (
     create_person,
     create_person_distinct_id,
-    delete_person,
 )
 from posthog.models.utils import UUIDT
 from posthog.test.base import ClickhouseTestMixin, run_clickhouse_statement_in_parallel
@@ -214,33 +212,6 @@ class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
                 "person_id": uuid1,
                 "person_properties": json.dumps({"personprop": 2}),
                 "person_created_at": "2022-01-02T00:00:00Z",
-            },
-            events[0],
-        )
-
-    def test_deleted_data_persons(self):
-        distinct_id = "not-reused-id"  # distinct ID re-use isn't supported after person deletion
-        create_event(event_uuid=uuid1, team=self.team, distinct_id=distinct_id, event="$pageview")
-        person = Person.objects.create(
-            team_id=self.team.pk,
-            distinct_ids=[distinct_id],
-            properties={"$some_prop": "something", "$another_prop": "something"},
-        )
-        create_person_distinct_id(self.team.pk, distinct_id, str(person.uuid))
-        delete_person(person)
-
-        # the mutation will run as noted by person_properties becoming '{}' instead of ''
-        # but the migration will be marked as false as it will fail the postcheck indicating some investigation is needed into the instance's data
-        self.assertFalse(run_migration())
-
-        events = query_events()
-        self.assertEqual(len(events), 1)
-        self.assertDictContainsSubset(
-            {
-                "distinct_id": distinct_id,
-                "person_id": ZERO_UUID,
-                "person_properties": "{}",
-                "person_created_at": ZERO_DATE,
             },
             events[0],
         )
