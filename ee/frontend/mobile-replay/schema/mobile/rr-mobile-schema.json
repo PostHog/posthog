@@ -271,7 +271,7 @@
                     "type": "array"
                 }
             },
-            "required": ["source", "updates", "adds", "removes"],
+            "required": ["source"],
             "type": "object"
         },
         "MobileNodeType": {

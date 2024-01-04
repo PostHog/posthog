@@ -295,12 +295,12 @@ export type MobileNodeMutationData = {
     /**
      * @description An update is implemented as a remove and then an add, so the updates array contains the ID of the removed node and the wireframe for the added node
      */
-    updates: MobileNodeMutation[]
-    adds: MobileNodeMutation[]
+    updates?: MobileNodeMutation[]
+    adds?: MobileNodeMutation[]
     /**
      * @description A mobile remove is identical to a web remove
      */
-    removes: removedNodeMutation[]
+    removes?: removedNodeMutation[]
 }
 
 export type MobileIncrementalSnapshotEvent = {
