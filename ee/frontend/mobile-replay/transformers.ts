@@ -189,6 +189,7 @@ function makeDivElement(wireframe: wireframeDiv, children: serializedNodeWithId[
         tagName: 'div',
         attributes: {
             style: makeStylesString(wireframe) + 'overflow:hidden;white-space:nowrap;',
+            'data-rrweb-id': _id,
         },
         id: _id,
         childNodes: children,
@@ -203,18 +204,21 @@ function makeTextElement(wireframe: wireframeText, children: serializedNodeWithI
 
     // because we might have to style the text, we always wrap it in a div
     // and apply styles to that
+    const id = idSequence.next().value
     return {
         type: NodeType.Element,
         tagName: 'div',
         attributes: {
             style: makeStylesString(wireframe) + 'overflow:hidden;white-space:nowrap;',
+            'data-rrweb-id': wireframe.id,
         },
-        id: idSequence.next().value,
+        id: wireframe.id,
         childNodes: [
             {
                 type: NodeType.Text,
                 textContent: wireframe.text,
-                id: wireframe.id,
+                // since the text node is wrapped, we assign it a synthetic id
+                id: id,
             },
             ...children,
         ],
@@ -247,11 +251,13 @@ function makePlaceholderElement(
                 color: wireframe.style?.color || FOREGROUND,
                 ...styleOverride,
             }),
+            'data-rrweb-id': wireframe.id,
         },
         id: wireframe.id,
         childNodes: [
             {
                 type: NodeType.Text,
+                // since the text node is wrapped, we assign it a synthetic id
                 id: idSequence.next().value,
                 textContent: txt,
             },
@@ -276,6 +282,7 @@ function makeImageElement(wireframe: wireframeImage, children: serializedNodeWit
             width: wireframe.width,
             height: wireframe.height,
             style: makeStylesString(wireframe),
+            'data-rrweb-id': wireframe.id,
         },
         id: wireframe.id,
         childNodes: children,
@@ -287,6 +294,7 @@ function inputAttributes<T extends wireframeInputComponent>(wireframe: T): attri
         style: makeStylesString(wireframe),
         type: wireframe.inputType,
         ...(wireframe.disabled ? { disabled: wireframe.disabled } : {}),
+        'data-rrweb-id': wireframe.id,
     }
 
     switch (wireframe.inputType) {
@@ -357,13 +365,15 @@ function makeButtonElement(wireframe: wireframeButton, children: serializedNodeW
 }
 
 function makeSelectOptionElement(option: string, selected: boolean): serializedNodeWithId {
+    const optionId = idSequence.next().value
     return {
         type: NodeType.Element,
         tagName: 'option',
         attributes: {
             ...(selected ? { selected: selected } : {}),
+            'data-rrweb-id': optionId,
         },
-        id: idSequence.next().value,
+        id: optionId,
         childNodes: [
             {
                 type: NodeType.Text,
@@ -395,6 +405,7 @@ function groupRadioButtons(children: serializedNodeWithId[], radioGroupName: str
                 attributes: {
                     ...child.attributes,
                     name: radioGroupName,
+                    'data-rrweb-id': child.id,
                 },
             }
         }
@@ -412,6 +423,7 @@ function makeRadioGroupElement(
         tagName: 'div',
         attributes: {
             style: makeStylesString(wireframe),
+            'data-rrweb-id': wireframe.id,
         },
         id: wireframe.id,
         childNodes: groupRadioButtons(children, radioGroupName),
@@ -419,6 +431,9 @@ function makeRadioGroupElement(
 }
 
 function makeStar(title: string, path: string): serializedNodeWithId {
+    const svgId = idSequence.next().value
+    const titleId = idSequence.next().value
+    const pathId = idSequence.next().value
     return {
         type: NodeType.Element,
         tagName: 'svg',
@@ -427,15 +442,18 @@ function makeStar(title: string, path: string): serializedNodeWithId {
             style: 'height: 100%;overflow-clip-margin: content-box;overflow:hidden',
             viewBox: '0 0 24 24',
             fill: 'currentColor',
+            'data-rrweb-id': svgId,
         },
-        id: idSequence.next().value,
+        id: svgId,
         childNodes: [
             {
                 type: NodeType.Element,
                 tagName: 'title',
                 isSVG: true,
-                attributes: {},
-                id: idSequence.next().value,
+                attributes: {
+                    'data-rrweb-id': titleId,
+                },
+                id: titleId,
                 childNodes: [
                     {
                         type: NodeType.Text,
@@ -450,8 +468,9 @@ function makeStar(title: string, path: string): serializedNodeWithId {
                 isSVG: true,
                 attributes: {
                     d: path,
+                    'data-rrweb-id': pathId,
                 },
-                id: idSequence.next().value,
+                id: pathId,
                 childNodes: [],
             },
         ],
@@ -501,14 +520,16 @@ function makeRatingBar(wireframe: wireframeProgress, children: serializedNodeWit
         .fill(undefined)
         .map(() => emptyStar())
 
+    const ratingBarId = idSequence.next().value
     const ratingBar = {
         type: NodeType.Element,
         tagName: 'div',
-        id: idSequence.next().value,
+        id: ratingBarId,
         attributes: {
             style:
                 makeColorStyles(wireframe) +
                 'position: relative; display: flex; flex-direction: row; padding: 2px 4px;',
+            'data-rrweb-id': ratingBarId,
         },
         childNodes: [...filledStars, ...halfStars, ...emptyStars],
     } as serializedNodeWithId
@@ -518,6 +539,7 @@ function makeRatingBar(wireframe: wireframeProgress, children: serializedNodeWit
         tagName: 'div',
         attributes: {
             style: makeStylesString(wireframe),
+            'data-rrweb-id': wireframe.id,
         },
         id: wireframe.id,
         childNodes: [ratingBar, ...children],
@@ -565,11 +587,13 @@ function makeProgressElement(
                   },
               ]
 
+        const wrappingDivId = idSequence.next().value
         return {
             type: NodeType.Element,
             tagName: 'div',
             attributes: {
                 style: makeMinimalStyles(wireframe),
+                'data-rrweb-id': wireframe.id,
             },
             id: wireframe.id,
             childNodes: [
@@ -581,8 +605,9 @@ function makeProgressElement(
                         style: _isPositiveInteger(value)
                             ? makeDeterminateProgressStyles(wireframe, styleOverride)
                             : makeIndeterminateProgressStyles(wireframe, styleOverride),
+                        'data-rrweb-id': wrappingDivId,
                     },
-                    id: idSequence.next().value,
+                    id: wrappingDivId,
                     childNodes: stylingChildren,
                 },
                 ...children,
@@ -604,6 +629,8 @@ function makeProgressElement(
 function makeToggleParts(wireframe: wireframeToggle): serializedNodeWithId[] {
     const togglePosition = wireframe.checked ? 'right' : 'left'
     const defaultColor = wireframe.checked ? '#1d4aff' : BACKGROUND
+    const sliderPartId = idSequence.next().value
+    const handlePartId = idSequence.next().value
     return [
         {
             type: NodeType.Element,
@@ -613,8 +640,9 @@ function makeToggleParts(wireframe: wireframeToggle): serializedNodeWithId[] {
                 style: `position:absolute;top:33%;left:5%;display:inline-block;width:75%;height:33%;background-color:${
                     wireframe.style?.color || defaultColor
                 };opacity: 0.2;border-radius:7.5%;`,
+                'data-rrweb-id': sliderPartId,
             },
-            id: idSequence.next().value,
+            id: sliderPartId,
             childNodes: [],
         },
         {
@@ -627,8 +655,9 @@ function makeToggleParts(wireframe: wireframeToggle): serializedNodeWithId[] {
                 };border:2px solid ${
                     wireframe.style?.borderColor || wireframe.style?.color || defaultColor
                 };border-radius:50%;`,
+                'data-rrweb-id': handlePartId,
             },
-            id: idSequence.next().value,
+            id: handlePartId,
             childNodes: [],
         },
     ]
@@ -636,12 +665,14 @@ function makeToggleParts(wireframe: wireframeToggle): serializedNodeWithId[] {
 
 function makeToggleElement(wireframe: wireframeToggle): (elementNode & { id: number }) | null {
     const isLabelled = 'label' in wireframe
+    const wrappingDivId = idSequence.next().value
     return {
         type: NodeType.Element,
         tagName: 'div',
         attributes: {
             // if labelled take up available space, otherwise use provided positioning
             style: isLabelled ? `height:100%;flex:1` : makePositionStyles(wireframe),
+            'data-rrweb-id': wireframe.id,
         },
         id: wireframe.id,
         childNodes: [
@@ -651,8 +682,9 @@ function makeToggleElement(wireframe: wireframeToggle): (elementNode & { id: num
                 attributes: {
                     // relative position, fills parent
                     style: 'position:relative;width:100%;height:100%;',
+                    'data-rrweb-id': wrappingDivId,
                 },
-                id: idSequence.next().value,
+                id: wrappingDivId,
                 childNodes: makeToggleParts(wireframe),
             },
         ],
@@ -671,13 +703,15 @@ function makeLabelledInput(
 
     const orderedChildren = wireframe.inputType === 'toggle' ? [theLabel, theInputElement] : [theInputElement, theLabel]
 
+    const labelId = idSequence.next().value
     return {
         type: NodeType.Element,
         tagName: 'label',
         attributes: {
             style: makeStylesString(wireframe),
+            'data-rrweb-id': labelId,
         },
-        id: idSequence.next().value,
+        id: labelId,
         childNodes: orderedChildren,
     }
 }
@@ -740,6 +774,7 @@ function makeRectangleElement(
         tagName: 'div',
         attributes: {
             style: makeStylesString(wireframe),
+            'data-rrweb-id': wireframe.id,
         },
         id: wireframe.id,
         childNodes: children,
@@ -926,30 +961,22 @@ export const makeFullEvent = (
                     {
                         type: NodeType.Element,
                         tagName: 'html',
-                        attributes: { style: makeHTMLStyles() },
+                        attributes: { style: makeHTMLStyles(), 'data-rrweb-id': HTML_ELEMENT_ID },
                         id: HTML_ELEMENT_ID,
                         childNodes: [
                             {
                                 type: NodeType.Element,
                                 tagName: 'head',
-                                attributes: {},
+                                attributes: { 'data-rrweb-id': HEAD_ID },
                                 id: HEAD_ID,
                                 childNodes: [],
                             },
                             {
                                 type: NodeType.Element,
                                 tagName: 'body',
-                                attributes: { style: makeBodyStyles() },
+                                attributes: { style: makeBodyStyles(), 'data-rrweb-id': BODY_ID },
                                 id: BODY_ID,
-                                childNodes: [
-                                    {
-                                        type: NodeType.Element,
-                                        tagName: 'div',
-                                        attributes: {},
-                                        id: idSequence.next().value,
-                                        childNodes: convertWireframesFor(mobileEvent.data.wireframes),
-                                    },
-                                ],
+                                childNodes: convertWireframesFor(mobileEvent.data.wireframes) || [],
                             },
                         ],
                     },
