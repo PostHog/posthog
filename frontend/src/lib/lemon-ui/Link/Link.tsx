@@ -3,11 +3,10 @@ import './Link.scss'
 import clsx from 'clsx'
 import { router } from 'kea-router'
 import { isExternalLink } from 'lib/utils'
-import { getCurrentTeamId } from 'lib/utils/logics'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import React from 'react'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-
-import { addProjectIdIfMissing } from '~/initKea'
 
 import { IconOpenInNew } from '../icons'
 import { Tooltip } from '../Tooltip'

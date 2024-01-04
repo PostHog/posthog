@@ -4,7 +4,7 @@ import { now } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { delay, flattenObject, toParams } from 'lib/utils'
-import { getCurrentTeamId } from 'lib/utils/logics'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import posthog from 'posthog-js'
 import {
     filterTrendsClientSideParams,

@@ -1,4 +1,4 @@
-import { getCurrentTeamId } from './logics'
+import { getCurrentTeamId } from './getAppContext'
 
 const pathsWithoutProjectId = ['api', 'me', 'instance', 'organization', 'preflight', 'login', 'signup']
 
