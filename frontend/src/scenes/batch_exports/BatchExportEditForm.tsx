@@ -457,28 +457,26 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                         <LemonInput placeholder="dataset" />
                                     </Field>
 
-                                    <Field name="use_json_type" label="Use JSON data type">
-                                        <LemonCheckbox
-                                            bordered
-                                            disabled={!isNew}
-                                            disabledReason={
-                                                isNew ? null : 'Cannot modify data type for running export.'
-                                            }
-                                            label={
-                                                <span className="flex items-center gap-2">
-                                                    Export `properties`, `set`, and `set_once` fields as BigQuery JSON
-                                                    type
-                                                    <Tooltip
-                                                        title={
-                                                            'If left unchecked, these fields will be sent as STRING type'
-                                                        }
-                                                    >
-                                                        <IconInfo className=" text-lg text-muted-alt" />
-                                                    </Tooltip>
-                                                </span>
-                                            }
-                                        />
-                                    </Field>
+                                    {isNew ? (
+                                        <Field name="use_json_type" label="Structured fields data type">
+                                            <LemonCheckbox
+                                                bordered
+                                                label={
+                                                    <span className="flex items-center gap-2">
+                                                        Export 'properties', 'set', and 'set_once' fields as BigQuery
+                                                        JSON type
+                                                        <Tooltip
+                                                            title={
+                                                                'If left unchecked, these fields will be sent as STRING type. This setting cannot be changed after batch export is created.'
+                                                            }
+                                                        >
+                                                            <IconInfo className=" text-lg text-muted-alt" />
+                                                        </Tooltip>
+                                                    </span>
+                                                }
+                                            />
+                                        </Field>
+                                    ) : null}
 
                                     <Field name="exclude_events" label="Events to exclude" className="flex-1">
                                         <LemonSelectMultiple
