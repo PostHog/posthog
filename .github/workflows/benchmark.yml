@@ -123,14 +123,14 @@ jobs:
             - name: Read benchmark output
               if: ${{ github.event_name == 'pull_request' }}
               id: pr_vs_master_changed
-              uses: juliangruber/read-file-action@v1.0.0
+              uses: juliangruber/read-file-action@v1.1.6
               with:
                   path: pr_vs_master_changed.txt
 
             - name: Read benchmark output (full)
               if: ${{ github.event_name == 'pull_request' }}
               id: pr_vs_master
-              uses: juliangruber/read-file-action@v1.0.0
+              uses: juliangruber/read-file-action@v1.1.6
               with:
                   path: pr_vs_master.txt
 
