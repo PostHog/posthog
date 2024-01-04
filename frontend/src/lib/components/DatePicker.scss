@@ -93,16 +93,8 @@
         color: var(--primary);
     }
 
-    // HACKY: replace 'Ok' with 'OK'
     .ant-picker-ok .ant-btn-primary span {
-        font-size: 0;
-        visibility: hidden;
-    }
-
-    .ant-picker-ok .ant-btn-primary span::after {
-        font-size: 14px;
-        visibility: visible;
-        content: 'OK';
+        text-transform: uppercase;
     }
 }
 
