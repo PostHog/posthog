@@ -2,9 +2,7 @@ import { TZLabel } from '@posthog/apps-common'
 import { LemonButton, LemonDialog, LemonSwitch, LemonTable, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -33,7 +31,6 @@ export function DataWarehouseSettingsScene(): JSX.Element {
     const { deleteSource, reloadSource } = useActions(dataWarehouseSettingsLogic)
     const { toggleSourceModal } = useActions(dataWarehouseSceneLogic)
     const { isSourceModalOpen } = useValues(dataWarehouseSceneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const renderExpandable = (source: ExternalDataStripeSource): JSX.Element => {
         return (
@@ -59,16 +56,14 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                     </div>
                 }
                 buttons={
-                    featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_EXTERNAL_LINK] ? (
-                        <LemonButton
-                            type="primary"
-                            data-attr="new-data-warehouse-easy-link"
-                            key={'new-data-warehouse-easy-link'}
-                            onClick={() => toggleSourceModal()}
-                        >
-                            Link Source
-                        </LemonButton>
-                    ) : undefined
+                    <LemonButton
+                        type="primary"
+                        data-attr="new-data-warehouse-easy-link"
+                        key={'new-data-warehouse-easy-link'}
+                        onClick={() => toggleSourceModal()}
+                    >
+                        Link Source
+                    </LemonButton>
                 }
                 caption={
                     <div>
