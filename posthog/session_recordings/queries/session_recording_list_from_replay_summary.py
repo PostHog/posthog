@@ -118,7 +118,7 @@ class LogQuery:
 
     @staticmethod
     def _get_console_log_clause(
-        console_logs_filter: List[Literal["error", "warn", "log"]]
+        console_logs_filter: List[Literal["error", "warn", "log"]],
     ) -> Tuple[str, Dict[str, Any]]:
         return (
             (
@@ -425,6 +425,11 @@ class SessionIdEventsQuery(EventQuery):
                 ],
             ),
             person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
+            # TRICKY: we saw unusual memory usage behavior in EU clickhouse cluster
+            # when allowing use of denormalized properties in this query
+            # it is likely this can be returned to the default of True in future
+            # but would need careful monitoring
+            allow_denormalized_props=False,
         )
 
         (

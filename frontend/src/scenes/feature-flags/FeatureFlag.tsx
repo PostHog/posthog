@@ -6,7 +6,6 @@ import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -49,6 +48,7 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
 import {
+    ActivityScope,
     AnyPropertyFilter,
     AvailableFeature,
     DashboardPlacement,
@@ -172,6 +172,14 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         })
     }
 
+    if (featureFlags[FEATURE_FLAGS.SCHEDULED_CHANGES_FEATURE_FLAGS]) {
+        tabs.push({
+            label: 'Schedule',
+            key: FeatureFlagsTab.SCHEDULE,
+            content: <FeatureFlagSchedule />,
+        })
+    }
+
     if (featureFlags[FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES] && featureFlag.key && id) {
         tabs.push({
             label: (
@@ -219,14 +227,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                     />
                 </PayGateMini>
             ),
-        })
-    }
-
-    if (featureFlags[FEATURE_FLAGS.SCHEDULED_CHANGES_FEATURE_FLAGS]) {
-        tabs.push({
-            label: 'Schedule',
-            key: FeatureFlagsTab.SCHEDULE,
-            content: <FeatureFlagSchedule />,
         })
     }
 

@@ -1029,7 +1029,7 @@ Using the correct cache and enriching the response with dashboard specific confi
         activity_page = load_activity(
             scope="Insight",
             team_id=self.team_id,
-            item_id=item_id,
+            item_ids=[str(item_id)],
             limit=limit,
             page=page,
         )
