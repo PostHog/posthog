@@ -23,18 +23,12 @@ export function ExportsUnsubscribeTable(): JSX.Element {
             loading={loading}
             columns={[
                 {
-                    title: 'Project',
-                    render: function RenderTeam(_, item) {
-                        return currentOrganization.teams.find((team) => team.id === item.team_id)?.name
-                    },
-                },
-                {
+                    title: 'App name',
                     render: function RenderAppInfo(_, item) {
                         return item.icon
                     },
                 },
                 {
-                    title: 'Name',
                     render: function RenderPluginName(_, item) {
                         return (
                             <>
@@ -46,6 +40,12 @@ export function ExportsUnsubscribeTable(): JSX.Element {
                                 )}
                             </>
                         )
+                    },
+                },
+                {
+                    title: 'Project',
+                    render: function RenderTeam(_, item) {
+                        return currentOrganization.teams.find((team) => team.id === item.team_id)?.name
                     },
                 },
                 {
