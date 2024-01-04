@@ -211,6 +211,7 @@ export function ReplayCostControl(): JSX.Element {
                     <div className={'flex flex-row justify-between'}>
                         <LemonLabel className="text-base">Sampling</LemonLabel>
                         <LemonSelect
+                            data-attr={'session-recording-config-sampling'}
                             onChange={(v) => {
                                 updateCurrentTeam({ session_recording_sample_rate: v })
                             }}
@@ -320,6 +321,7 @@ export function ReplayCostControl(): JSX.Element {
                     <div className={'flex flex-row justify-between'}>
                         <LemonLabel className="text-base">Minimum session duration (seconds)</LemonLabel>
                         <LemonSelect
+                            data-attr={'session-recording-config-minimum-duration'}
                             dropdownMatchSelectWidth={false}
                             onChange={(v) => {
                                 updateCurrentTeam({ session_recording_minimum_duration_milliseconds: v })
@@ -353,6 +355,7 @@ export function ReplayCostControl(): JSX.Element {
                                     type="secondary"
                                     onClick={() => updateCurrentTeam({ session_recording_linked_flag: null })}
                                     title="Clear selected flag"
+                                    data-attr={'session-recording-config-clear-linked-flag'}
                                 />
                             )}
                         </div>

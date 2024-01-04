@@ -2449,12 +2449,21 @@ export enum ScheduledChangeModels {
     FeatureFlag = 'FeatureFlag',
 }
 
+export enum ScheduledChangeOperationType {
+    UpdateStatus = 'update_status',
+    AddReleaseCondition = 'add_release_condition',
+}
+
+export type ScheduledChangePayload =
+    | { operation: ScheduledChangeOperationType.UpdateStatus; value: boolean }
+    | { operation: ScheduledChangeOperationType.AddReleaseCondition; value: FeatureFlagFilters }
+
 export interface ScheduledChangeType {
     id: number
     team_id: number
     record_id: number | string
     model_name: ScheduledChangeModels
-    payload: Record<string, any>
+    payload: ScheduledChangePayload
     scheduled_at: string
     executed_at: string | null
     failure_reason: string | null
@@ -3247,8 +3256,39 @@ export type PromptFlag = {
     tooltipCSS?: Partial<CSSStyleDeclaration>
 }
 
+// Should be kept in sync with "posthog/models/activity_logging/activity_log.py"
+export enum ActivityScope {
+    FEATURE_FLAG = 'FeatureFlag',
+    PERSON = 'Person',
+    INSIGHT = 'Insight',
+    PLUGIN = 'Plugin',
+    PLUGIN_CONFIG = 'PluginConfig',
+    DATA_MANAGEMENT = 'DataManagement',
+    EVENT_DEFINITION = 'EventDefinition',
+    PROPERTY_DEFINITION = 'PropertyDefinition',
+    NOTEBOOK = 'Notebook',
+    DASHBOARD = 'Dashboard',
+    REPLAY = 'Replay',
+    EXPERIMENT = 'Experiment',
+    SURVEY = 'Survey',
+    EARLY_ACCESS_FEATURE = 'EarlyAccessFeature',
+    COMMENT = 'Comment',
+}
+
+export type CommentType = {
+    id: string
+    content: string
+    version: number
+    created_at: string
+    created_by: UserBasicType | null
+    source_comment?: string | null
+    scope: ActivityScope
+    item_id?: string
+    item_context: Record<string, any> | null
+}
+
 export type NotebookListItemType = {
-    // id: string
+    id: string
     short_id: string
     title?: string
     is_template?: boolean
@@ -3430,6 +3470,7 @@ export type BatchExportDestinationBigQuery = {
         table_id: string
         exclude_events: string[]
         include_events: string[]
+        use_json_type: boolean
     }
 }
 
@@ -3568,4 +3609,5 @@ export enum SidePanelTab {
     Welcome = 'welcome',
     FeaturePreviews = 'feature-previews',
     Activity = 'activity',
+    Discussion = 'discussion',
 }

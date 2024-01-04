@@ -87,6 +87,8 @@ export const defaultMocks: Mocks = {
         ],
         '/api/projects/@current/': MOCK_DEFAULT_TEAM,
         '/api/billing-v2/': (): MockSignature => [200, {}],
+        '/api/projects/:team_id/comments/count': { count: 0 },
+        '/api/projects/:team_id/comments': { results: [] },
         '/_preflight': require('./fixtures/_preflight.json'),
         '/_system_status': require('./fixtures/_system_status.json'),
         '/api/instance_status': require('./fixtures/_instance_status.json'),
