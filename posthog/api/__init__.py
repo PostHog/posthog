@@ -11,6 +11,7 @@ from . import (
     app_metrics,
     async_migration,
     authentication,
+    comments,
     dead_letter_queue,
     early_access_feature,
     event_definition,
@@ -359,6 +360,13 @@ projects_router.register(
     r"notebooks",
     notebook.NotebookViewSet,
     "project_notebooks",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"comments",
+    comments.CommentViewSet,
+    "project_comments",
     ["team_id"],
 )
 

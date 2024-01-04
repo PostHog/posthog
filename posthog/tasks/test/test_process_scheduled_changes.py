@@ -63,6 +63,57 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         updated_flag = FeatureFlag.objects.get(key="flag-1")
         self.assertEqual(updated_flag.filters["groups"][0], new_release_condition)
 
+    def test_schedule_feature_flag_add_release_condition_preserve_variants(self) -> None:
+        variants = [
+            {
+                "key": "first-variant",
+                "name": "First Variant",
+                "rollout_percentage": 25,
+            },
+            {
+                "key": "second-variant",
+                "name": "Second Variant",
+                "rollout_percentage": 75,
+            },
+        ]
+
+        feature_flag = FeatureFlag.objects.create(
+            name="Flag 1",
+            key="flag-1",
+            active=False,
+            team=self.team,
+            created_by=self.user,
+            filters={
+                "groups": [],
+                "multivariate": {"variants": variants},
+            },
+        )
+
+        new_release_condition = {
+            "variant": None,
+            "properties": [{"key": "$browser", "type": "person", "value": ["Chrome"], "operator": "exact"}],
+            "rollout_percentage": 30,
+        }
+
+        payload = {
+            "operation": "add_release_condition",
+            "value": {"groups": [new_release_condition], "payloads": {}, "multivariate": None},
+        }
+
+        ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload=payload,
+            scheduled_at=(datetime.now(timezone.utc) - timedelta(seconds=30)),
+        )
+
+        process_scheduled_changes()
+
+        updated_flag = FeatureFlag.objects.get(key="flag-1")
+        self.assertEqual(updated_flag.filters["groups"][0], new_release_condition)
+        self.assertEqual(updated_flag.filters["multivariate"]["variants"], variants)
+
     def test_schedule_feature_flag_invalid_payload(self) -> None:
         feature_flag = FeatureFlag.objects.create(
             name="Flag 1",

@@ -19,6 +19,7 @@ import { DashboardType, NotebookListItemType, NotebookNodeType, NotebookTarget }
 import type { notebooksModelType } from './notebooksModelType'
 
 export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
+    id: 'scratchpad',
     short_id: 'scratchpad',
     title: 'My scratchpad',
     created_at: '',
