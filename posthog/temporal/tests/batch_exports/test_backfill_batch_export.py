@@ -199,7 +199,7 @@ async def test_backfill_batch_export_workflow(temporal_worker, temporal_schedule
 
     desc = await temporal_schedule.describe()
     result = desc.info.num_actions
-    expected = 10
+    expected = 11
 
     assert result == expected
 
