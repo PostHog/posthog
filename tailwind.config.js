@@ -51,7 +51,7 @@ const config = {
                 xl: '1200px',
                 '2xl': '1600px',
             },
-            width: {
+            spacing: {
                 // Some additional larger widths for compatibility with our pre-Tailwind system
                 // Don't add new ones here, in new code just use the `w-[32rem]` style for arbitrary values
                 18: '4.5rem',
@@ -69,6 +69,9 @@ const config = {
                 248: '62rem',
                 300: '75rem',
             },
+            maxWidth: {
+                '1/2': '50%'
+            },
             boxShadow: {
                 DEFAULT: 'var(--shadow-elevation)',
             },
@@ -83,9 +86,5 @@ const config = {
     },
     plugins: [require('@tailwindcss/container-queries')],
 }
-config.theme.extend.maxWidth = { ...config.theme.extend.width, '1/2': '50%' }
-config.theme.extend.height = config.theme.extend.width
-config.theme.extend.maxHeight = config.theme.extend.width
-config.theme.extend.minHeight = config.theme.extend.width
 
 module.exports = config
