@@ -21,20 +21,17 @@ const AbTestingFeatures = [
     {
         name: 'Customizable goals',
         description: 'Conversion funnels or trends, secondary metrics, and range for statistical significance',
-        // image: <StaticImage src="./images/goals.png" width={428} />,
-        image: 'https://posthog.com/images/products/ab-testing/ab-testing.png',
+        image: 'https://posthog.com/images/products/ab-testing/goals.png',
     },
     {
         name: 'Targeting & exclusion rules',
         description: 'Set criteria for user location, user property, cohort, or group',
-        // image: <StaticImage src="./images/targeting-ab.png" width={428} />,
-        image: 'https://posthog.com/images/products/ab-testing/ab-testing.png',
+        image: 'https://posthog.com/images/products/ab-testing/targeting-ab.png',
     },
     {
         name: 'Recommendations',
         description: 'Automatic suggestions for duration, sample size, and confidence threshold in a winning variant',
-        // image: <StaticImage src="./images/recommendations.png" width={428} />,
-        image: 'https://posthog.com/images/products/ab-testing/ab-testing.png',
+        image: 'https://posthog.com/images/products/ab-testing/recommendations.png',
     },
 ]
 
