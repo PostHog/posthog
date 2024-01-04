@@ -820,7 +820,10 @@ function makeIncrementalAdd(add: MobileNodeMutation): addedNodeMutation | null {
         : null
 }
 
-function makeIncrementalRemove(update: MobileNodeMutation): removedNodeMutation {
+/**
+ * When processing an update we remove the entire item, and then add it back in.
+ */
+function makeIncrementalRemoveForUpdate(update: MobileNodeMutation): removedNodeMutation {
     return {
         parentId: update.parentId,
         id: update.wireframe.id,
@@ -857,7 +860,7 @@ export const makeIncrementalEvent = (
 
     if (isMobileIncrementalSnapshotEvent(mobileEvent)) {
         const adds: addedNodeMutation[] = []
-        const removes: removedNodeMutation[] = []
+        const removes: removedNodeMutation[] = mobileEvent.data.removes
         if ('adds' in mobileEvent.data && Array.isArray(mobileEvent.data.adds)) {
             mobileEvent.data.adds.forEach((add) => {
                 const converted = makeIncrementalAdd(add)
@@ -869,7 +872,7 @@ export const makeIncrementalEvent = (
         }
         if ('updates' in mobileEvent.data && Array.isArray(mobileEvent.data.updates)) {
             mobileEvent.data.updates.forEach((update) => {
-                const removal = makeIncrementalRemove(update)
+                const removal = makeIncrementalRemoveForUpdate(update)
                 if (removal) {
                     removes.push(removal)
                 }

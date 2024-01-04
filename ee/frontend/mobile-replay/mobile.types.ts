@@ -1,5 +1,5 @@
 // copied from rrweb-snapshot, not included in rrweb types
-import { customEvent, EventType, IncrementalSource } from '@rrweb/types'
+import { customEvent, EventType, IncrementalSource, removedNodeMutation } from '@rrweb/types'
 
 export enum NodeType {
     Document = 0,
@@ -290,17 +290,17 @@ export type MobileNodeMutation = {
     wireframe: wireframe
 }
 
-export type MobileAddedNodeMutationData = {
-    source: IncrementalSource.Mutation
-    adds: MobileNodeMutation[]
-}
-
-export type MobileUpdatedNodeMutationData = {
+export type MobileNodeMutationData = {
     source: IncrementalSource.Mutation
     /**
      * @description An update is implemented as a remove and then an add, so the updates array contains the ID of the removed node and the wireframe for the added node
      */
     updates: MobileNodeMutation[]
+    adds: MobileNodeMutation[]
+    /**
+     * @description A mobile remove is identical to a web remove
+     */
+    removes: removedNodeMutation[]
 }
 
 export type MobileIncrementalSnapshotEvent = {
@@ -308,7 +308,7 @@ export type MobileIncrementalSnapshotEvent = {
     /**
      * @description This sits alongside the RRWeb incremental snapshot event type, mobile replay can send any of the RRWeb incremental snapshot event types, which will be passed unchanged to the player - for example to send touch events. removed node mutations are passed unchanged to the player.
      */
-    data: MobileAddedNodeMutationData | MobileUpdatedNodeMutationData
+    data: MobileNodeMutationData
 }
 
 export type metaEvent = {
