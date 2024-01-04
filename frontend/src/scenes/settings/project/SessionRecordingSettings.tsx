@@ -42,7 +42,7 @@ export function ReplayGeneral(): JSX.Element {
                     Please note your website needs to have the{' '}
                     <Link to={urls.settings('project', 'snippet')}>PostHog snippet</Link> or the latest version of{' '}
                     <Link
-                        to="https://posthog.com/docs/integrations/js-integration?utm_campaign=session-recording&utm_medium=in-product"
+                        to="https://posthog.com/docs/libraries/js?utm_campaign=session-recording&utm_medium=in-product"
                         target="_blank"
                     >
                         posthog-js
@@ -211,6 +211,7 @@ export function ReplayCostControl(): JSX.Element {
                     <div className={'flex flex-row justify-between'}>
                         <LemonLabel className="text-base">Sampling</LemonLabel>
                         <LemonSelect
+                            data-attr={'session-recording-config-sampling'}
                             onChange={(v) => {
                                 updateCurrentTeam({ session_recording_sample_rate: v })
                             }}
@@ -320,6 +321,7 @@ export function ReplayCostControl(): JSX.Element {
                     <div className={'flex flex-row justify-between'}>
                         <LemonLabel className="text-base">Minimum session duration (seconds)</LemonLabel>
                         <LemonSelect
+                            data-attr={'session-recording-config-minimum-duration'}
                             dropdownMatchSelectWidth={false}
                             onChange={(v) => {
                                 updateCurrentTeam({ session_recording_minimum_duration_milliseconds: v })
@@ -353,6 +355,7 @@ export function ReplayCostControl(): JSX.Element {
                                     type="secondary"
                                     onClick={() => updateCurrentTeam({ session_recording_linked_flag: null })}
                                     title="Clear selected flag"
+                                    data-attr={'session-recording-config-clear-linked-flag'}
                                 />
                             )}
                         </div>

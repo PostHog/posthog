@@ -28,7 +28,7 @@ describe('Feature Flags', () => {
         cy.get('[data-attr=feature-flag-doc-link]').should(
             'have.attr',
             'href',
-            'https://posthog.com/docs/integrations/php-integration?utm_medium=in-product&utm_campaign=feature-flag#feature-flags'
+            'https://posthog.com/docs/libraries/php?utm_medium=in-product&utm_campaign=feature-flag#feature-flags'
         )
 
         // select "add filter" and "property"

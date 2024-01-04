@@ -1,4 +1,5 @@
 import json
+from django.http import HttpRequest
 import structlog
 from typing import Dict, List, Optional, cast
 
@@ -303,16 +304,21 @@ class FeatureFlag(models.Model):
         if "operation" not in payload or "value" not in payload:
             raise Exception("Invalid payload")
 
+        http_request = HttpRequest()
+        http_request.user = self.created_by
         context = {
-            "request": {"user": self.created_by},
+            "request": http_request,
             "team_id": self.team_id,
         }
+
         serializer_data = {}
 
         if payload["operation"] == "add_release_condition":
-            existing_groups = self.get_filters().get("groups", [])
+            current_filters = self.get_filters()
+            current_groups = current_filters.get("groups", [])
             new_groups = payload["value"].get("groups", [])
-            serializer_data["filters"] = {"groups": existing_groups + new_groups}
+
+            serializer_data["filters"] = {**current_filters, "groups": current_groups + new_groups}
         elif payload["operation"] == "update_status":
             serializer_data["active"] = payload["value"]
         else:

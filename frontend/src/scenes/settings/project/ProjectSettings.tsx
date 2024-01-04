@@ -55,7 +55,7 @@ export function WebSnippet(): JSX.Element {
             </p>
             <p>
                 For more guidance, including on identifying users,{' '}
-                <Link to="https://posthog.com/docs/integrations/js-integration">see PostHog Docs</Link>.
+                <Link to="https://posthog.com/docs/libraries/js">see PostHog Docs</Link>.
             </p>
             {currentTeamLoading && !currentTeam ? (
                 <div className="space-y-4">
@@ -97,7 +97,7 @@ export function ProjectVariables(): JSX.Element {
                 </h3>
                 <p>
                     You can use this write-only key in any one of{' '}
-                    <Link to="https://posthog.com/docs/integrations">our libraries</Link>.
+                    <Link to="https://posthog.com/docs/libraries">our libraries</Link>.
                 </p>
                 <CodeSnippet
                     actions={
