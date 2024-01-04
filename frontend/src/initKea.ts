@@ -62,16 +62,11 @@ export const loggerPlugin: () => KeaPlugin = () => ({
     },
 })
 
-export function pathsWithoutProjectId(path: string): boolean {
-    return !!(
-        path.match(/^\/api\//) ||
-        path.match(/^\/me\//) ||
-        path.match(/^\/instance\//) ||
-        path.match(/^\/organization\//) ||
-        path.match(/^\/preflight/) ||
-        path.match(/^\/login/) ||
-        path.match(/^\/signup/)
-    )
+const pathsWithoutProjectId = ['api', 'me', 'instance', 'organization', 'preflight', 'login', 'signup']
+
+function isPathWithoutProjectId(path: string): boolean {
+    const firstPart = path.split('/')[1]
+    return pathsWithoutProjectId.includes(firstPart)
 }
 
 function addProjectIdUnlessPresent(path: string): string {
@@ -102,7 +97,7 @@ export function removeProjectIdIfPresent(path: string): string {
 }
 
 export function addProjectIdIfMissing(path: string): string {
-    return pathsWithoutProjectId(path) ? removeProjectIdIfPresent(path) : addProjectIdUnlessPresent(path)
+    return isPathWithoutProjectId(path) ? removeProjectIdIfPresent(path) : addProjectIdUnlessPresent(path)
 }
 
 export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKeaProps = {}): void {
