@@ -7,6 +7,7 @@ import {
     IconCheckCircleOutline,
     IconCheckmark,
     IconChevronRight,
+    IconClose,
     IconExpandMore,
     IconInfo,
     IconPlus,
@@ -14,6 +15,7 @@ import {
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, compactNumber } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getProductIcon } from 'scenes/products/Products'
@@ -50,6 +52,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
     const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse } = useActions(
         billingProductLogic({ product: addon })
     )
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const productType = { plural: `${addon.unit}s`, singular: addon.unit }
     const tierDisplayOptions: LemonSelectOptions<string> = [
@@ -61,90 +64,119 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
     }
 
     return (
-        <div className="bg-side rounded p-6 flex flex-col">
-            <div className="flex justify-between gap-x-4">
-                <div className="flex gap-x-4">
-                    <div className="w-8">{getProductIcon(addon.icon_key, 'text-2xl')}</div>
-                    <div>
-                        <div className="flex gap-x-2 items-center mt-0 mb-2 ">
-                            <h4 className="leading-5 mb-1 font-bold">{addon.name}</h4>
-                            {addon.subscribed && (
-                                <div>
-                                    <LemonTag type="completion" icon={<IconCheckmark />}>
-                                        Subscribed
-                                    </LemonTag>
-                                </div>
-                            )}
+        <Tooltip
+            visible={addon.type === 'data_pipelines' && addon.subscribed && !!featureFlags['data-pipelines-notice']}
+            placement="bottomLeft"
+            delayMs={0}
+            title={
+                <div
+                    className="flex items-center gap-1"
+                    onClick={
+                        // onAcknowledged
+                        undefined
+                    }
+                >
+                    <div className="flex-1">
+                        <h3 className="text-white">Welcome to data pipelines!</h3>
+                        <p className="mb-0">
+                            We've split features (and cost) for product analytics to better reflect users' needs. Your
+                            overall price hasn't changed.{' '}
+                            <Link to={'https://posthog.com'} target="_blank" targetBlankIcon>
+                                Learn more
+                            </Link>
+                            .
+                        </p>
+                    </div>
+
+                    <LemonButton size="small" onClick={undefined} icon={<IconClose />} />
+                </div>
+            }
+        >
+            <div className="bg-side rounded p-6 flex flex-col">
+                <div className="flex justify-between gap-x-4">
+                    <div className="flex gap-x-4">
+                        <div className="w-8">{getProductIcon(addon.icon_key, 'text-2xl')}</div>
+                        <div>
+                            <div className="flex gap-x-2 items-center mt-0 mb-2 ">
+                                <h4 className="leading-5 mb-1 font-bold">{addon.name}</h4>
+                                {addon.subscribed && (
+                                    <div>
+                                        <LemonTag type="completion" icon={<IconCheckmark />}>
+                                            Subscribed
+                                        </LemonTag>
+                                    </div>
+                                )}
+                            </div>
+                            <p className="ml-0 mb-0">{addon.description}</p>
                         </div>
-                        <p className="ml-0 mb-0">{addon.description}</p>
+                    </div>
+                    <div className="ml-4 mr-4 mt-2 self-center flex gap-x-2 whitespace-nowrap">
+                        {addon.docs_url && (
+                            <Tooltip title="Read the docs">
+                                <LemonButton icon={<IconArticle />} size="small" to={addon.docs_url} />
+                            </Tooltip>
+                        )}
+                        {addon.subscribed ? (
+                            <>
+                                <More
+                                    overlay={
+                                        <>
+                                            <LemonButton
+                                                fullWidth
+                                                onClick={() => {
+                                                    setSurveyResponse(addon.type, '$survey_response_1')
+                                                    reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, addon.type)
+                                                }}
+                                            >
+                                                Remove addon
+                                            </LemonButton>
+                                        </>
+                                    }
+                                />
+                            </>
+                        ) : addon.included_with_main_product ? (
+                            <LemonTag type="completion" icon={<IconCheckmark />}>
+                                Included with plan
+                            </LemonTag>
+                        ) : (
+                            <>
+                                <LemonButton
+                                    type="secondary"
+                                    disableClientSideRouting
+                                    onClick={() => {
+                                        toggleIsPricingModalOpen()
+                                    }}
+                                >
+                                    View pricing
+                                </LemonButton>
+                                <LemonButton
+                                    type="primary"
+                                    icon={<IconPlus />}
+                                    size="small"
+                                    to={`/api/billing-v2/activation?products=${addon.type}:${
+                                        currentAndUpgradePlans?.upgradePlan?.plan_key
+                                    }${redirectPath && `&redirect_path=${redirectPath}`}`}
+                                    disableClientSideRouting
+                                >
+                                    Add
+                                </LemonButton>
+                            </>
+                        )}
                     </div>
                 </div>
-                <div className="ml-4 mr-4 mt-2 self-center flex gap-x-2 whitespace-nowrap">
-                    {addon.docs_url && (
-                        <Tooltip title="Read the docs">
-                            <LemonButton icon={<IconArticle />} size="small" to={addon.docs_url} />
-                        </Tooltip>
-                    )}
-                    {addon.subscribed ? (
-                        <>
-                            <More
-                                overlay={
-                                    <>
-                                        <LemonButton
-                                            fullWidth
-                                            onClick={() => {
-                                                setSurveyResponse(addon.type, '$survey_response_1')
-                                                reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, addon.type)
-                                            }}
-                                        >
-                                            Remove addon
-                                        </LemonButton>
-                                    </>
-                                }
-                            />
-                        </>
-                    ) : addon.included_with_main_product ? (
-                        <LemonTag type="completion" icon={<IconCheckmark />}>
-                            Included with plan
-                        </LemonTag>
-                    ) : (
-                        <>
-                            <LemonButton
-                                type="secondary"
-                                disableClientSideRouting
-                                onClick={() => {
-                                    toggleIsPricingModalOpen()
-                                }}
-                            >
-                                View pricing
-                            </LemonButton>
-                            <LemonButton
-                                type="primary"
-                                icon={<IconPlus />}
-                                size="small"
-                                to={`/api/billing-v2/activation?products=${addon.type}:${
-                                    currentAndUpgradePlans?.upgradePlan?.plan_key
-                                }${redirectPath && `&redirect_path=${redirectPath}`}`}
-                                disableClientSideRouting
-                            >
-                                Add
-                            </LemonButton>
-                        </>
-                    )}
-                </div>
+                <ProductPricingModal
+                    modalOpen={isPricingModalOpen}
+                    onClose={toggleIsPricingModalOpen}
+                    product={addon}
+                    planKey={
+                        addon.subscribed
+                            ? currentAndUpgradePlans?.currentPlan?.plan_key
+                            : currentAndUpgradePlans?.upgradePlan?.plan_key
+                    }
+                />
+                {surveyID && <UnsubscribeSurveyModal product={addon} />}
             </div>
-            <ProductPricingModal
-                modalOpen={isPricingModalOpen}
-                onClose={toggleIsPricingModalOpen}
-                product={addon}
-                planKey={
-                    addon.subscribed
-                        ? currentAndUpgradePlans?.currentPlan?.plan_key
-                        : currentAndUpgradePlans?.upgradePlan?.plan_key
-                }
-            />
-            {surveyID && <UnsubscribeSurveyModal product={addon} />}
-        </div>
+        </Tooltip>
     )
 }
 
