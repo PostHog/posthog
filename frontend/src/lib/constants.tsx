@@ -155,7 +155,6 @@ export const FEATURE_FLAGS = {
     EXCEPTION_AUTOCAPTURE: 'exception-autocapture',
     DATA_WAREHOUSE: 'data-warehouse', // owner: @EDsCODE
     DATA_WAREHOUSE_VIEWS: 'data-warehouse-views', // owner: @EDsCODE
-    DATA_WAREHOUSE_EXTERNAL_LINK: 'data-warehouse-external-link', // owner: @EDsCODE
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS: 'show-product-intro-existing-products', // owner: @raquelmsmith
     ARTIFICIAL_HOG: 'artificial-hog', // owner: @Twixes
@@ -189,6 +188,7 @@ export const FEATURE_FLAGS = {
     SESSION_REPLAY_IOS: 'session-replay-ios', // owner: #team-replay
     YEAR_IN_HOG: 'year-in-hog', // owner: #team-replay
     SESSION_REPLAY_EXPORT_MOBILE_DATA: 'session-replay-export-mobile-data', // owner: #team-replay
+    DISCUSSIONS: 'discussions', // owner: #team-replay
     REDIRECT_INGESTION_PRODUCT_ANALYTICS_ONBOARDING: 'redirect-ingestion-product-analytics-onboarding', // owner: @biancayang
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]

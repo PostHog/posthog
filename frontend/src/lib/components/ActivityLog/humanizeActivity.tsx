@@ -1,10 +1,11 @@
 import { dayjs } from 'lib/dayjs'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { fullName } from 'lib/utils'
 
-import { InsightShortId, PersonType } from '~/types'
+import { ActivityScope, InsightShortId, PersonType } from '~/types'
 
 export interface ActivityChange {
-    type: 'FeatureFlag' | 'Person' | 'Insight' | 'Plugin' | 'PluginConfig' | 'Notebook'
+    type: ActivityScope
     action: 'changed' | 'created' | 'deleted' | 'exported' | 'split'
     field?: string
     before?: string | number | Record<string, any> | boolean | null
@@ -37,18 +38,6 @@ export interface ActivityUser {
     email: string | null
     first_name: string
     is_system?: boolean
-}
-
-export enum ActivityScope {
-    FEATURE_FLAG = 'FeatureFlag',
-    PERSON = 'Person',
-    INSIGHT = 'Insight',
-    PLUGIN = 'Plugin',
-    PLUGIN_CONFIG = 'PluginConfig',
-    DATA_MANAGEMENT = 'DataManagement',
-    EVENT_DEFINITION = 'EventDefinition',
-    PROPERTY_DEFINITION = 'PropertyDefinition',
-    NOTEBOOK = 'Notebook',
 }
 
 export type ActivityLogItem = {
@@ -101,6 +90,10 @@ export function humanize(
     const logLines: HumanizedActivityLogItem[] = []
 
     for (const logItem of results) {
+        if (!logItem.detail || !logItem.scope) {
+            // Sometimes we can end up with bad payloads from the backend so we check for some required fields here
+            continue
+        }
         const describer = describerFor?.(logItem)
 
         if (!describer) {
@@ -128,4 +121,69 @@ export function userNameForLogItem(logItem: ActivityLogItem): string {
         return 'PostHog'
     }
     return logItem.user ? fullName(logItem.user) : 'A user'
+}
+
+const NO_PLURAL_SCOPES: ActivityScope[] = [
+    ActivityScope.DATA_MANAGEMENT,
+    ActivityScope.EVENT_DEFINITION,
+    ActivityScope.PROPERTY_DEFINITION,
+]
+
+export function humanizeScope(scope: ActivityScope, singular = false): string {
+    let output = scope.split(/(?=[A-Z])/).join(' ')
+
+    if (!singular && !NO_PLURAL_SCOPES.includes(scope)) {
+        output += 's'
+    }
+
+    return output
+}
+
+export function defaultDescriber(
+    logItem: ActivityLogItem,
+    asNotification = false,
+    resource?: string | JSX.Element
+): HumanizedChange {
+    resource = resource || logItem.detail.name || `a ${humanizeScope(logItem.scope, true)}`
+
+    if (logItem.activity == 'deleted') {
+        return {
+            description: (
+                <>
+                    <strong>{userNameForLogItem(logItem)}</strong> deleted <b>{resource}</b>
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity == 'commented') {
+        let description: JSX.Element | string
+
+        if (logItem.scope === 'Comment') {
+            description = (
+                <>
+                    <strong>{userNameForLogItem(logItem)}</strong> replied to a {humanizeScope(logItem.scope, true)}
+                </>
+            )
+        } else {
+            description = (
+                <>
+                    <strong>{userNameForLogItem(logItem)}</strong> commented
+                    {asNotification ? <> on a {humanizeScope(logItem.scope, true)}</> : null}
+                </>
+            )
+        }
+        const commentContent = logItem.detail.changes?.[0].after as string | undefined
+
+        return {
+            description,
+            extendedDescription: commentContent ? (
+                <div className="border rounded bg-bg-light p-4">
+                    <LemonMarkdown lowKeyHeadings>{commentContent}</LemonMarkdown>
+                </div>
+            ) : undefined,
+        }
+    }
+
+    return { description: null }
 }

@@ -1,7 +1,6 @@
 import { actions, connect, kea, path, reducers, selectors, useActions, useValues } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -18,7 +17,7 @@ import { NewAnnotationButton } from 'scenes/annotations/AnnotationModal'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb } from '~/types'
+import { ActivityScope, Breadcrumb } from '~/types'
 
 import { ActionsTable } from './actions/ActionsTable'
 import { DatabaseTableList } from './database/DatabaseTableList'

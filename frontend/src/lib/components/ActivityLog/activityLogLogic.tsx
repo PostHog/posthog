@@ -4,7 +4,7 @@ import { router, urlToAction } from 'kea-router'
 import api, { ActivityLogPaginatedResponse } from 'lib/api'
 import {
     ActivityLogItem,
-    ActivityScope,
+    defaultDescriber,
     Describer,
     humanize,
     HumanizedActivityLogItem,
@@ -18,6 +18,8 @@ import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { pluginActivityDescriber } from 'scenes/plugins/pluginActivityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { urls } from 'scenes/urls'
+
+import { ActivityScope } from '~/types'
 
 import type { activityLogLogicType } from './activityLogLogicType'
 
@@ -43,7 +45,7 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
         case ActivityScope.NOTEBOOK:
             return notebookActivityDescriber
         default:
-            return undefined
+            return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
     }
 }
 
@@ -64,7 +66,7 @@ export const activityLogLogic = kea<activityLogLogicType>([
         activity: [
             { results: [], total_count: 0 } as ActivityLogPaginatedResponse<ActivityLogItem>,
             {
-                fetchActivity: async () => await api.activity.list(props, values.page),
+                fetchActivity: async () => await api.activity.listLegacy(props, values.page),
             },
         ],
     })),
