@@ -9,7 +9,9 @@ import { ChangeEvent, createRef, RefObject, useEffect, useState } from 'react'
 export interface LemonFileInputProps extends Pick<HTMLInputElement, 'multiple' | 'accept'> {
     value?: File[]
     onChange?: (newValue: File[]) => void
-    // are the files currently being uploaded?
+    /**
+     * are the files currently being uploaded?
+     */
     loading?: boolean
     /** if this is not provided then this component is the drop target
      * and is styled when a file is dragged over it
@@ -18,7 +20,9 @@ export interface LemonFileInputProps extends Pick<HTMLInputElement, 'multiple' |
      * styling is applied to the alternativeDropTargetRef
      * **/
     alternativeDropTargetRef?: RefObject<HTMLElement>
-    // the text to display to the user, a sensible default is used if not provided
+    /**
+     * the text to display to the user, a sensible default is used if not provided
+     */
     callToAction?: string | JSX.Element
 }
 

@@ -4,7 +4,7 @@ import { IconUploadFile } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { createRef } from 'react'
+import { useRef } from 'react'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'
@@ -18,7 +18,7 @@ export function SessionRecordingFilePlayback(): JSX.Element {
     const { hasAvailableFeature } = useValues(userLogic)
     const filePlaybackEnabled = hasAvailableFeature(AvailableFeature.RECORDINGS_FILE_EXPORT)
 
-    const dropRef = createRef<HTMLDivElement>()
+    const dropRef = useRef<HTMLDivElement>(null)
 
     if (!filePlaybackEnabled) {
         return (
@@ -65,9 +65,9 @@ export function SessionRecordingFilePlayback(): JSX.Element {
                         alternativeDropTargetRef={dropRef}
                         callToAction={
                             <div className={'flex flex-col items-center justify-center space-y-2'}>
-                                <p className="flex items-center gap-2 font-semibold">
+                                <span className="flex items-center gap-2 font-semibold">
                                     <IconUploadFile className={'text-2xl'} /> Load recording
-                                </p>
+                                </span>
                                 <div>Drag and drop your exported recording here or click to open the file browser.</div>
                             </div>
                         }
