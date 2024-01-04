@@ -144,7 +144,7 @@ export function SidePanel(): JSX.Element | null {
                             return (
                                 <LemonButton
                                     key={tab}
-                                    icon={<Icon className="rotate-270 w-6" />}
+                                    icon={<Icon />}
                                     onClick={() =>
                                         activeTab === tab ? closeSidePanel() : openSidePanel(tab as SidePanelTab)
                                     }

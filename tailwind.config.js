@@ -79,9 +79,6 @@ const config = {
                 2: '2 2 0%',
                 3: '3 3 0%',
             },
-            rotate: {
-                270: '270deg',
-            },
         },
     },
     plugins: [require('@tailwindcss/container-queries')],
