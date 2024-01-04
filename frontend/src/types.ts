@@ -3251,8 +3251,39 @@ export type PromptFlag = {
     tooltipCSS?: Partial<CSSStyleDeclaration>
 }
 
+// Should be kept in sync with "posthog/models/activity_logging/activity_log.py"
+export enum ActivityScope {
+    FEATURE_FLAG = 'FeatureFlag',
+    PERSON = 'Person',
+    INSIGHT = 'Insight',
+    PLUGIN = 'Plugin',
+    PLUGIN_CONFIG = 'PluginConfig',
+    DATA_MANAGEMENT = 'DataManagement',
+    EVENT_DEFINITION = 'EventDefinition',
+    PROPERTY_DEFINITION = 'PropertyDefinition',
+    NOTEBOOK = 'Notebook',
+    DASHBOARD = 'Dashboard',
+    REPLAY = 'Replay',
+    EXPERIMENT = 'Experiment',
+    SURVEY = 'Survey',
+    EARLY_ACCESS_FEATURE = 'EarlyAccessFeature',
+    COMMENT = 'Comment',
+}
+
+export type CommentType = {
+    id: string
+    content: string
+    version: number
+    created_at: string
+    created_by: UserBasicType | null
+    source_comment?: string | null
+    scope: ActivityScope
+    item_id?: string
+    item_context: Record<string, any> | null
+}
+
 export type NotebookListItemType = {
-    // id: string
+    id: string
     short_id: string
     title?: string
     is_template?: boolean
@@ -3573,4 +3604,5 @@ export enum SidePanelTab {
     Welcome = 'welcome',
     FeaturePreviews = 'feature-previews',
     Activity = 'activity',
+    Discussion = 'discussion',
 }
