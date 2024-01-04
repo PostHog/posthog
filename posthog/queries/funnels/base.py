@@ -719,9 +719,9 @@ class ClickhouseFunnelBase(ABC):
     def get_step_counts_without_aggregation_query(self) -> str:
         raise NotImplementedError()
 
-    def _get_breakdown_select_prop(self) -> (str, Dict[str, Any]):
+    def _get_breakdown_select_prop(self) -> Tuple[str, Dict[str, Any]]:
         basic_prop_selector = ""
-        basic_prop_params = {}
+        basic_prop_params: Dict[str, Any] = {}
         if not self._filter.breakdown:
             return basic_prop_selector, basic_prop_params
 

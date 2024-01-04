@@ -252,7 +252,7 @@ def _to_value_expression(
     breakdown_normalize_url: bool = False,
     direct_on_events: bool = False,
     cast_as_float: bool = False,
-) -> (str, Dict):
+) -> Tuple[str, Dict]:
     params = {}
     if breakdown_type == "session":
         if breakdown == "$session_duration":

@@ -651,7 +651,7 @@ def get_single_or_multi_property_string_expr(
     allow_denormalized_props=True,
     materialised_table_column: str = "properties",
     normalize_url: bool = False,
-) -> (str, Dict[str, Any]):
+) -> Tuple[str, Dict[str, Any]]:
     """
     When querying for breakdown properties:
      * If the breakdown provided is a string, we extract the JSON from the properties object stored in the DB
@@ -665,7 +665,7 @@ def get_single_or_multi_property_string_expr(
         no alias will be appended.
 
     """
-    breakdown_params = {}
+    breakdown_params: Dict[str, Any] = {}
     if isinstance(breakdown, str) or isinstance(breakdown, int):
         breakdown_key = f"breakdown_param_{len(breakdown_params) + 1}"
         breakdown_key = f"breakdown_param_{len(breakdown_params) + 1}"
