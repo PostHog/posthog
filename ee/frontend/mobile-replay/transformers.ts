@@ -850,18 +850,36 @@ function isNodeWithChildren(x: unknown): x is elementNode | documentNode {
     return isNode(x) && 'childNodes' in x && Array.isArray(x.childNodes)
 }
 
+/**
+ * when creating incremental adds we have to flatten the node tree structure
+ * there's no point, then keeping those child nodes in place
+ */
+function cloneWithoutChildren(converted: addedNodeMutation): addedNodeMutation {
+    const cloned = { ...converted }
+    const clonedNode: serializedNodeWithId = { ...converted.node }
+    if (isNodeWithChildren(clonedNode)) {
+        clonedNode.childNodes = []
+    }
+    cloned.node = clonedNode
+    return cloned
+}
+
 function flattenMutationAdds(converted: addedNodeMutation): addedNodeMutation[] {
     const flattened: addedNodeMutation[] = []
-    flattened.push(converted)
+
+    flattened.push(cloneWithoutChildren(converted))
+
     const node: unknown = converted.node
     const newParentId = converted.node.id
     if (isNodeWithChildren(node)) {
         node.childNodes.forEach((child) => {
-            flattened.push({
-                parentId: newParentId,
-                nextId: null,
-                node: child,
-            })
+            flattened.push(
+                cloneWithoutChildren({
+                    parentId: newParentId,
+                    nextId: null,
+                    node: child,
+                })
+            )
             if (isNodeWithChildren(child)) {
                 flattened.push(...flattenMutationAdds({ parentId: newParentId, nextId: null, node: child }))
             }

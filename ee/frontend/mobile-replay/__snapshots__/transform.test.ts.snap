@@ -2697,462 +2697,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "attributes": {
             "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
           },
-          "childNodes": [
-            {
-              "attributes": {
-                "style": "position: relative; display: flex; flex-direction: row; padding: 2px 4px;",
-              },
-              "childNodes": [
-                {
-                  "attributes": {
-                    "fill": "currentColor",
-                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                    "viewBox": "0 0 24 24",
-                  },
-                  "childNodes": [
-                    {
-                      "attributes": {},
-                      "childNodes": [
-                        {
-                          "id": 174,
-                          "textContent": "filled star",
-                          "type": 3,
-                        },
-                      ],
-                      "id": 173,
-                      "isSVG": true,
-                      "tagName": "title",
-                      "type": 2,
-                    },
-                    {
-                      "attributes": {
-                        "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                      },
-                      "childNodes": [],
-                      "id": 175,
-                      "isSVG": true,
-                      "tagName": "path",
-                      "type": 2,
-                    },
-                  ],
-                  "id": 172,
-                  "isSVG": true,
-                  "tagName": "svg",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "fill": "currentColor",
-                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                    "viewBox": "0 0 24 24",
-                  },
-                  "childNodes": [
-                    {
-                      "attributes": {},
-                      "childNodes": [
-                        {
-                          "id": 178,
-                          "textContent": "filled star",
-                          "type": 3,
-                        },
-                      ],
-                      "id": 177,
-                      "isSVG": true,
-                      "tagName": "title",
-                      "type": 2,
-                    },
-                    {
-                      "attributes": {
-                        "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                      },
-                      "childNodes": [],
-                      "id": 179,
-                      "isSVG": true,
-                      "tagName": "path",
-                      "type": 2,
-                    },
-                  ],
-                  "id": 176,
-                  "isSVG": true,
-                  "tagName": "svg",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "fill": "currentColor",
-                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                    "viewBox": "0 0 24 24",
-                  },
-                  "childNodes": [
-                    {
-                      "attributes": {},
-                      "childNodes": [
-                        {
-                          "id": 182,
-                          "textContent": "filled star",
-                          "type": 3,
-                        },
-                      ],
-                      "id": 181,
-                      "isSVG": true,
-                      "tagName": "title",
-                      "type": 2,
-                    },
-                    {
-                      "attributes": {
-                        "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                      },
-                      "childNodes": [],
-                      "id": 183,
-                      "isSVG": true,
-                      "tagName": "path",
-                      "type": 2,
-                    },
-                  ],
-                  "id": 180,
-                  "isSVG": true,
-                  "tagName": "svg",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "fill": "currentColor",
-                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                    "viewBox": "0 0 24 24",
-                  },
-                  "childNodes": [
-                    {
-                      "attributes": {},
-                      "childNodes": [
-                        {
-                          "id": 186,
-                          "textContent": "filled star",
-                          "type": 3,
-                        },
-                      ],
-                      "id": 185,
-                      "isSVG": true,
-                      "tagName": "title",
-                      "type": 2,
-                    },
-                    {
-                      "attributes": {
-                        "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                      },
-                      "childNodes": [],
-                      "id": 187,
-                      "isSVG": true,
-                      "tagName": "path",
-                      "type": 2,
-                    },
-                  ],
-                  "id": 184,
-                  "isSVG": true,
-                  "tagName": "svg",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "fill": "currentColor",
-                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                    "viewBox": "0 0 24 24",
-                  },
-                  "childNodes": [
-                    {
-                      "attributes": {},
-                      "childNodes": [
-                        {
-                          "id": 190,
-                          "textContent": "filled star",
-                          "type": 3,
-                        },
-                      ],
-                      "id": 189,
-                      "isSVG": true,
-                      "tagName": "title",
-                      "type": 2,
-                    },
-                    {
-                      "attributes": {
-                        "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                      },
-                      "childNodes": [],
-                      "id": 191,
-                      "isSVG": true,
-                      "tagName": "path",
-                      "type": 2,
-                    },
-                  ],
-                  "id": 188,
-                  "isSVG": true,
-                  "tagName": "svg",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "fill": "currentColor",
-                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                    "viewBox": "0 0 24 24",
-                  },
-                  "childNodes": [
-                    {
-                      "attributes": {},
-                      "childNodes": [
-                        {
-                          "id": 194,
-                          "textContent": "filled star",
-                          "type": 3,
-                        },
-                      ],
-                      "id": 193,
-                      "isSVG": true,
-                      "tagName": "title",
-                      "type": 2,
-                    },
-                    {
-                      "attributes": {
-                        "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                      },
-                      "childNodes": [],
-                      "id": 195,
-                      "isSVG": true,
-                      "tagName": "path",
-                      "type": 2,
-                    },
-                  ],
-                  "id": 192,
-                  "isSVG": true,
-                  "tagName": "svg",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "fill": "currentColor",
-                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                    "viewBox": "0 0 24 24",
-                  },
-                  "childNodes": [
-                    {
-                      "attributes": {},
-                      "childNodes": [
-                        {
-                          "id": 198,
-                          "textContent": "half-filled star",
-                          "type": 3,
-                        },
-                      ],
-                      "id": 197,
-                      "isSVG": true,
-                      "tagName": "title",
-                      "type": 2,
-                    },
-                    {
-                      "attributes": {
-                        "d": "M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                      },
-                      "childNodes": [],
-                      "id": 199,
-                      "isSVG": true,
-                      "tagName": "path",
-                      "type": 2,
-                    },
-                  ],
-                  "id": 196,
-                  "isSVG": true,
-                  "tagName": "svg",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "fill": "currentColor",
-                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                    "viewBox": "0 0 24 24",
-                  },
-                  "childNodes": [
-                    {
-                      "attributes": {},
-                      "childNodes": [
-                        {
-                          "id": 202,
-                          "textContent": "empty star",
-                          "type": 3,
-                        },
-                      ],
-                      "id": 201,
-                      "isSVG": true,
-                      "tagName": "title",
-                      "type": 2,
-                    },
-                    {
-                      "attributes": {
-                        "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                      },
-                      "childNodes": [],
-                      "id": 203,
-                      "isSVG": true,
-                      "tagName": "path",
-                      "type": 2,
-                    },
-                  ],
-                  "id": 200,
-                  "isSVG": true,
-                  "tagName": "svg",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "fill": "currentColor",
-                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                    "viewBox": "0 0 24 24",
-                  },
-                  "childNodes": [
-                    {
-                      "attributes": {},
-                      "childNodes": [
-                        {
-                          "id": 206,
-                          "textContent": "empty star",
-                          "type": 3,
-                        },
-                      ],
-                      "id": 205,
-                      "isSVG": true,
-                      "tagName": "title",
-                      "type": 2,
-                    },
-                    {
-                      "attributes": {
-                        "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                      },
-                      "childNodes": [],
-                      "id": 207,
-                      "isSVG": true,
-                      "tagName": "path",
-                      "type": 2,
-                    },
-                  ],
-                  "id": 204,
-                  "isSVG": true,
-                  "tagName": "svg",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "fill": "currentColor",
-                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                    "viewBox": "0 0 24 24",
-                  },
-                  "childNodes": [
-                    {
-                      "attributes": {},
-                      "childNodes": [
-                        {
-                          "id": 210,
-                          "textContent": "empty star",
-                          "type": 3,
-                        },
-                      ],
-                      "id": 209,
-                      "isSVG": true,
-                      "tagName": "title",
-                      "type": 2,
-                    },
-                    {
-                      "attributes": {
-                        "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                      },
-                      "childNodes": [],
-                      "id": 211,
-                      "isSVG": true,
-                      "tagName": "path",
-                      "type": 2,
-                    },
-                  ],
-                  "id": 208,
-                  "isSVG": true,
-                  "tagName": "svg",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "fill": "currentColor",
-                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                    "viewBox": "0 0 24 24",
-                  },
-                  "childNodes": [
-                    {
-                      "attributes": {},
-                      "childNodes": [
-                        {
-                          "id": 214,
-                          "textContent": "empty star",
-                          "type": 3,
-                        },
-                      ],
-                      "id": 213,
-                      "isSVG": true,
-                      "tagName": "title",
-                      "type": 2,
-                    },
-                    {
-                      "attributes": {
-                        "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                      },
-                      "childNodes": [],
-                      "id": 215,
-                      "isSVG": true,
-                      "tagName": "path",
-                      "type": 2,
-                    },
-                  ],
-                  "id": 212,
-                  "isSVG": true,
-                  "tagName": "svg",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "fill": "currentColor",
-                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                    "viewBox": "0 0 24 24",
-                  },
-                  "childNodes": [
-                    {
-                      "attributes": {},
-                      "childNodes": [
-                        {
-                          "id": 218,
-                          "textContent": "empty star",
-                          "type": 3,
-                        },
-                      ],
-                      "id": 217,
-                      "isSVG": true,
-                      "tagName": "title",
-                      "type": 2,
-                    },
-                    {
-                      "attributes": {
-                        "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                      },
-                      "childNodes": [],
-                      "id": 219,
-                      "isSVG": true,
-                      "tagName": "path",
-                      "type": 2,
-                    },
-                  ],
-                  "id": 216,
-                  "isSVG": true,
-                  "tagName": "svg",
-                  "type": 2,
-                },
-              ],
-              "id": 220,
-              "tagName": "div",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 12365,
           "tagName": "div",
           "type": 2,
@@ -3165,452 +2710,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "attributes": {
             "style": "position: relative; display: flex; flex-direction: row; padding: 2px 4px;",
           },
-          "childNodes": [
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 174,
-                      "textContent": "filled star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 173,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                  },
-                  "childNodes": [],
-                  "id": 175,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 172,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 178,
-                      "textContent": "filled star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 177,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                  },
-                  "childNodes": [],
-                  "id": 179,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 176,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 182,
-                      "textContent": "filled star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 181,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                  },
-                  "childNodes": [],
-                  "id": 183,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 180,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 186,
-                      "textContent": "filled star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 185,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                  },
-                  "childNodes": [],
-                  "id": 187,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 184,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 190,
-                      "textContent": "filled star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 189,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                  },
-                  "childNodes": [],
-                  "id": 191,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 188,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 194,
-                      "textContent": "filled star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 193,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                  },
-                  "childNodes": [],
-                  "id": 195,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 192,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 198,
-                      "textContent": "half-filled star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 197,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                  },
-                  "childNodes": [],
-                  "id": 199,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 196,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 202,
-                      "textContent": "empty star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 201,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                  },
-                  "childNodes": [],
-                  "id": 203,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 200,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 206,
-                      "textContent": "empty star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 205,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                  },
-                  "childNodes": [],
-                  "id": 207,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 204,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 210,
-                      "textContent": "empty star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 209,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                  },
-                  "childNodes": [],
-                  "id": 211,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 208,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 214,
-                      "textContent": "empty star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 213,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                  },
-                  "childNodes": [],
-                  "id": 215,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 212,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 218,
-                      "textContent": "empty star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 217,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                  },
-                  "childNodes": [],
-                  "id": 219,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 216,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 220,
           "tagName": "div",
           "type": 2,
@@ -3623,452 +2723,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
           "attributes": {
             "style": "position: relative; display: flex; flex-direction: row; padding: 2px 4px;",
           },
-          "childNodes": [
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 174,
-                      "textContent": "filled star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 173,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                  },
-                  "childNodes": [],
-                  "id": 175,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 172,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 178,
-                      "textContent": "filled star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 177,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                  },
-                  "childNodes": [],
-                  "id": 179,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 176,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 182,
-                      "textContent": "filled star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 181,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                  },
-                  "childNodes": [],
-                  "id": 183,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 180,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 186,
-                      "textContent": "filled star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 185,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                  },
-                  "childNodes": [],
-                  "id": 187,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 184,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 190,
-                      "textContent": "filled star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 189,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                  },
-                  "childNodes": [],
-                  "id": 191,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 188,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 194,
-                      "textContent": "filled star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 193,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                  },
-                  "childNodes": [],
-                  "id": 195,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 192,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 198,
-                      "textContent": "half-filled star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 197,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                  },
-                  "childNodes": [],
-                  "id": 199,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 196,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 202,
-                      "textContent": "empty star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 201,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                  },
-                  "childNodes": [],
-                  "id": 203,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 200,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 206,
-                      "textContent": "empty star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 205,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                  },
-                  "childNodes": [],
-                  "id": 207,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 204,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 210,
-                      "textContent": "empty star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 209,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                  },
-                  "childNodes": [],
-                  "id": 211,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 208,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 214,
-                      "textContent": "empty star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 213,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                  },
-                  "childNodes": [],
-                  "id": 215,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 212,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 218,
-                      "textContent": "empty star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 217,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                  },
-                  "childNodes": [],
-                  "id": 219,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 216,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 220,
           "tagName": "div",
           "type": 2,
@@ -4083,32 +2738,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 174,
-                  "textContent": "filled star",
-                  "type": 3,
-                },
-              ],
-              "id": 173,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-              },
-              "childNodes": [],
-              "id": 175,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 172,
           "isSVG": true,
           "tagName": "svg",
@@ -4124,32 +2754,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 174,
-                  "textContent": "filled star",
-                  "type": 3,
-                },
-              ],
-              "id": 173,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-              },
-              "childNodes": [],
-              "id": 175,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 172,
           "isSVG": true,
           "tagName": "svg",
@@ -4161,13 +2766,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 174,
-              "textContent": "filled star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 173,
           "isSVG": true,
           "tagName": "title",
@@ -4179,13 +2778,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 174,
-              "textContent": "filled star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 173,
           "isSVG": true,
           "tagName": "title",
@@ -4238,32 +2831,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 178,
-                  "textContent": "filled star",
-                  "type": 3,
-                },
-              ],
-              "id": 177,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-              },
-              "childNodes": [],
-              "id": 179,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 176,
           "isSVG": true,
           "tagName": "svg",
@@ -4279,32 +2847,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 178,
-                  "textContent": "filled star",
-                  "type": 3,
-                },
-              ],
-              "id": 177,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-              },
-              "childNodes": [],
-              "id": 179,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 176,
           "isSVG": true,
           "tagName": "svg",
@@ -4316,13 +2859,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 178,
-              "textContent": "filled star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 177,
           "isSVG": true,
           "tagName": "title",
@@ -4334,13 +2871,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 178,
-              "textContent": "filled star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 177,
           "isSVG": true,
           "tagName": "title",
@@ -4393,32 +2924,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 182,
-                  "textContent": "filled star",
-                  "type": 3,
-                },
-              ],
-              "id": 181,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-              },
-              "childNodes": [],
-              "id": 183,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 180,
           "isSVG": true,
           "tagName": "svg",
@@ -4434,32 +2940,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 182,
-                  "textContent": "filled star",
-                  "type": 3,
-                },
-              ],
-              "id": 181,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-              },
-              "childNodes": [],
-              "id": 183,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 180,
           "isSVG": true,
           "tagName": "svg",
@@ -4471,13 +2952,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 182,
-              "textContent": "filled star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 181,
           "isSVG": true,
           "tagName": "title",
@@ -4489,13 +2964,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 182,
-              "textContent": "filled star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 181,
           "isSVG": true,
           "tagName": "title",
@@ -4548,32 +3017,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 186,
-                  "textContent": "filled star",
-                  "type": 3,
-                },
-              ],
-              "id": 185,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-              },
-              "childNodes": [],
-              "id": 187,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 184,
           "isSVG": true,
           "tagName": "svg",
@@ -4589,32 +3033,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 186,
-                  "textContent": "filled star",
-                  "type": 3,
-                },
-              ],
-              "id": 185,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-              },
-              "childNodes": [],
-              "id": 187,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 184,
           "isSVG": true,
           "tagName": "svg",
@@ -4626,13 +3045,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 186,
-              "textContent": "filled star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 185,
           "isSVG": true,
           "tagName": "title",
@@ -4644,13 +3057,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 186,
-              "textContent": "filled star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 185,
           "isSVG": true,
           "tagName": "title",
@@ -4703,32 +3110,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 190,
-                  "textContent": "filled star",
-                  "type": 3,
-                },
-              ],
-              "id": 189,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-              },
-              "childNodes": [],
-              "id": 191,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 188,
           "isSVG": true,
           "tagName": "svg",
@@ -4744,32 +3126,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 190,
-                  "textContent": "filled star",
-                  "type": 3,
-                },
-              ],
-              "id": 189,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-              },
-              "childNodes": [],
-              "id": 191,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 188,
           "isSVG": true,
           "tagName": "svg",
@@ -4781,13 +3138,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 190,
-              "textContent": "filled star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 189,
           "isSVG": true,
           "tagName": "title",
@@ -4799,13 +3150,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 190,
-              "textContent": "filled star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 189,
           "isSVG": true,
           "tagName": "title",
@@ -4858,32 +3203,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 194,
-                  "textContent": "filled star",
-                  "type": 3,
-                },
-              ],
-              "id": 193,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-              },
-              "childNodes": [],
-              "id": 195,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 192,
           "isSVG": true,
           "tagName": "svg",
@@ -4899,32 +3219,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 194,
-                  "textContent": "filled star",
-                  "type": 3,
-                },
-              ],
-              "id": 193,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-              },
-              "childNodes": [],
-              "id": 195,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 192,
           "isSVG": true,
           "tagName": "svg",
@@ -4936,13 +3231,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 194,
-              "textContent": "filled star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 193,
           "isSVG": true,
           "tagName": "title",
@@ -4954,13 +3243,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 194,
-              "textContent": "filled star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 193,
           "isSVG": true,
           "tagName": "title",
@@ -5013,32 +3296,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 198,
-                  "textContent": "half-filled star",
-                  "type": 3,
-                },
-              ],
-              "id": 197,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-              },
-              "childNodes": [],
-              "id": 199,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 196,
           "isSVG": true,
           "tagName": "svg",
@@ -5054,32 +3312,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 198,
-                  "textContent": "half-filled star",
-                  "type": 3,
-                },
-              ],
-              "id": 197,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-              },
-              "childNodes": [],
-              "id": 199,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 196,
           "isSVG": true,
           "tagName": "svg",
@@ -5091,13 +3324,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 198,
-              "textContent": "half-filled star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 197,
           "isSVG": true,
           "tagName": "title",
@@ -5109,13 +3336,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 198,
-              "textContent": "half-filled star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 197,
           "isSVG": true,
           "tagName": "title",
@@ -5168,32 +3389,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 202,
-                  "textContent": "empty star",
-                  "type": 3,
-                },
-              ],
-              "id": 201,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-              },
-              "childNodes": [],
-              "id": 203,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 200,
           "isSVG": true,
           "tagName": "svg",
@@ -5209,32 +3405,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 202,
-                  "textContent": "empty star",
-                  "type": 3,
-                },
-              ],
-              "id": 201,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-              },
-              "childNodes": [],
-              "id": 203,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 200,
           "isSVG": true,
           "tagName": "svg",
@@ -5246,13 +3417,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 202,
-              "textContent": "empty star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 201,
           "isSVG": true,
           "tagName": "title",
@@ -5264,13 +3429,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 202,
-              "textContent": "empty star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 201,
           "isSVG": true,
           "tagName": "title",
@@ -5323,32 +3482,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 206,
-                  "textContent": "empty star",
-                  "type": 3,
-                },
-              ],
-              "id": 205,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-              },
-              "childNodes": [],
-              "id": 207,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 204,
           "isSVG": true,
           "tagName": "svg",
@@ -5364,32 +3498,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 206,
-                  "textContent": "empty star",
-                  "type": 3,
-                },
-              ],
-              "id": 205,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-              },
-              "childNodes": [],
-              "id": 207,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 204,
           "isSVG": true,
           "tagName": "svg",
@@ -5401,13 +3510,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 206,
-              "textContent": "empty star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 205,
           "isSVG": true,
           "tagName": "title",
@@ -5419,13 +3522,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 206,
-              "textContent": "empty star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 205,
           "isSVG": true,
           "tagName": "title",
@@ -5478,32 +3575,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 210,
-                  "textContent": "empty star",
-                  "type": 3,
-                },
-              ],
-              "id": 209,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-              },
-              "childNodes": [],
-              "id": 211,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 208,
           "isSVG": true,
           "tagName": "svg",
@@ -5519,32 +3591,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 210,
-                  "textContent": "empty star",
-                  "type": 3,
-                },
-              ],
-              "id": 209,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-              },
-              "childNodes": [],
-              "id": 211,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 208,
           "isSVG": true,
           "tagName": "svg",
@@ -5556,13 +3603,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 210,
-              "textContent": "empty star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 209,
           "isSVG": true,
           "tagName": "title",
@@ -5574,13 +3615,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 210,
-              "textContent": "empty star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 209,
           "isSVG": true,
           "tagName": "title",
@@ -5633,32 +3668,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 214,
-                  "textContent": "empty star",
-                  "type": 3,
-                },
-              ],
-              "id": 213,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-              },
-              "childNodes": [],
-              "id": 215,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 212,
           "isSVG": true,
           "tagName": "svg",
@@ -5674,32 +3684,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 214,
-                  "textContent": "empty star",
-                  "type": 3,
-                },
-              ],
-              "id": 213,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-              },
-              "childNodes": [],
-              "id": 215,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 212,
           "isSVG": true,
           "tagName": "svg",
@@ -5711,13 +3696,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 214,
-              "textContent": "empty star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 213,
           "isSVG": true,
           "tagName": "title",
@@ -5729,13 +3708,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 214,
-              "textContent": "empty star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 213,
           "isSVG": true,
           "tagName": "title",
@@ -5788,32 +3761,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 218,
-                  "textContent": "empty star",
-                  "type": 3,
-                },
-              ],
-              "id": 217,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-              },
-              "childNodes": [],
-              "id": 219,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 216,
           "isSVG": true,
           "tagName": "svg",
@@ -5829,32 +3777,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 218,
-                  "textContent": "empty star",
-                  "type": 3,
-                },
-              ],
-              "id": 217,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-              },
-              "childNodes": [],
-              "id": 219,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 216,
           "isSVG": true,
           "tagName": "svg",
@@ -5866,13 +3789,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 218,
-              "textContent": "empty star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 217,
           "isSVG": true,
           "tagName": "title",
@@ -5884,13 +3801,7 @@ exports[`replay/transform transform inputs isolated add mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 218,
-              "textContent": "empty star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 217,
           "isSVG": true,
           "tagName": "title",
@@ -5972,462 +3883,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "attributes": {
             "style": "width: 100px;height: 30px;position: fixed;left: 0px;top: 0px;",
           },
-          "childNodes": [
-            {
-              "attributes": {
-                "style": "position: relative; display: flex; flex-direction: row; padding: 2px 4px;",
-              },
-              "childNodes": [
-                {
-                  "attributes": {
-                    "fill": "currentColor",
-                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                    "viewBox": "0 0 24 24",
-                  },
-                  "childNodes": [
-                    {
-                      "attributes": {},
-                      "childNodes": [
-                        {
-                          "id": 223,
-                          "textContent": "filled star",
-                          "type": 3,
-                        },
-                      ],
-                      "id": 222,
-                      "isSVG": true,
-                      "tagName": "title",
-                      "type": 2,
-                    },
-                    {
-                      "attributes": {
-                        "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                      },
-                      "childNodes": [],
-                      "id": 224,
-                      "isSVG": true,
-                      "tagName": "path",
-                      "type": 2,
-                    },
-                  ],
-                  "id": 221,
-                  "isSVG": true,
-                  "tagName": "svg",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "fill": "currentColor",
-                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                    "viewBox": "0 0 24 24",
-                  },
-                  "childNodes": [
-                    {
-                      "attributes": {},
-                      "childNodes": [
-                        {
-                          "id": 227,
-                          "textContent": "filled star",
-                          "type": 3,
-                        },
-                      ],
-                      "id": 226,
-                      "isSVG": true,
-                      "tagName": "title",
-                      "type": 2,
-                    },
-                    {
-                      "attributes": {
-                        "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                      },
-                      "childNodes": [],
-                      "id": 228,
-                      "isSVG": true,
-                      "tagName": "path",
-                      "type": 2,
-                    },
-                  ],
-                  "id": 225,
-                  "isSVG": true,
-                  "tagName": "svg",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "fill": "currentColor",
-                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                    "viewBox": "0 0 24 24",
-                  },
-                  "childNodes": [
-                    {
-                      "attributes": {},
-                      "childNodes": [
-                        {
-                          "id": 231,
-                          "textContent": "filled star",
-                          "type": 3,
-                        },
-                      ],
-                      "id": 230,
-                      "isSVG": true,
-                      "tagName": "title",
-                      "type": 2,
-                    },
-                    {
-                      "attributes": {
-                        "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                      },
-                      "childNodes": [],
-                      "id": 232,
-                      "isSVG": true,
-                      "tagName": "path",
-                      "type": 2,
-                    },
-                  ],
-                  "id": 229,
-                  "isSVG": true,
-                  "tagName": "svg",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "fill": "currentColor",
-                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                    "viewBox": "0 0 24 24",
-                  },
-                  "childNodes": [
-                    {
-                      "attributes": {},
-                      "childNodes": [
-                        {
-                          "id": 235,
-                          "textContent": "filled star",
-                          "type": 3,
-                        },
-                      ],
-                      "id": 234,
-                      "isSVG": true,
-                      "tagName": "title",
-                      "type": 2,
-                    },
-                    {
-                      "attributes": {
-                        "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                      },
-                      "childNodes": [],
-                      "id": 236,
-                      "isSVG": true,
-                      "tagName": "path",
-                      "type": 2,
-                    },
-                  ],
-                  "id": 233,
-                  "isSVG": true,
-                  "tagName": "svg",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "fill": "currentColor",
-                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                    "viewBox": "0 0 24 24",
-                  },
-                  "childNodes": [
-                    {
-                      "attributes": {},
-                      "childNodes": [
-                        {
-                          "id": 239,
-                          "textContent": "filled star",
-                          "type": 3,
-                        },
-                      ],
-                      "id": 238,
-                      "isSVG": true,
-                      "tagName": "title",
-                      "type": 2,
-                    },
-                    {
-                      "attributes": {
-                        "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                      },
-                      "childNodes": [],
-                      "id": 240,
-                      "isSVG": true,
-                      "tagName": "path",
-                      "type": 2,
-                    },
-                  ],
-                  "id": 237,
-                  "isSVG": true,
-                  "tagName": "svg",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "fill": "currentColor",
-                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                    "viewBox": "0 0 24 24",
-                  },
-                  "childNodes": [
-                    {
-                      "attributes": {},
-                      "childNodes": [
-                        {
-                          "id": 243,
-                          "textContent": "filled star",
-                          "type": 3,
-                        },
-                      ],
-                      "id": 242,
-                      "isSVG": true,
-                      "tagName": "title",
-                      "type": 2,
-                    },
-                    {
-                      "attributes": {
-                        "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                      },
-                      "childNodes": [],
-                      "id": 244,
-                      "isSVG": true,
-                      "tagName": "path",
-                      "type": 2,
-                    },
-                  ],
-                  "id": 241,
-                  "isSVG": true,
-                  "tagName": "svg",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "fill": "currentColor",
-                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                    "viewBox": "0 0 24 24",
-                  },
-                  "childNodes": [
-                    {
-                      "attributes": {},
-                      "childNodes": [
-                        {
-                          "id": 247,
-                          "textContent": "half-filled star",
-                          "type": 3,
-                        },
-                      ],
-                      "id": 246,
-                      "isSVG": true,
-                      "tagName": "title",
-                      "type": 2,
-                    },
-                    {
-                      "attributes": {
-                        "d": "M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                      },
-                      "childNodes": [],
-                      "id": 248,
-                      "isSVG": true,
-                      "tagName": "path",
-                      "type": 2,
-                    },
-                  ],
-                  "id": 245,
-                  "isSVG": true,
-                  "tagName": "svg",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "fill": "currentColor",
-                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                    "viewBox": "0 0 24 24",
-                  },
-                  "childNodes": [
-                    {
-                      "attributes": {},
-                      "childNodes": [
-                        {
-                          "id": 251,
-                          "textContent": "empty star",
-                          "type": 3,
-                        },
-                      ],
-                      "id": 250,
-                      "isSVG": true,
-                      "tagName": "title",
-                      "type": 2,
-                    },
-                    {
-                      "attributes": {
-                        "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                      },
-                      "childNodes": [],
-                      "id": 252,
-                      "isSVG": true,
-                      "tagName": "path",
-                      "type": 2,
-                    },
-                  ],
-                  "id": 249,
-                  "isSVG": true,
-                  "tagName": "svg",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "fill": "currentColor",
-                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                    "viewBox": "0 0 24 24",
-                  },
-                  "childNodes": [
-                    {
-                      "attributes": {},
-                      "childNodes": [
-                        {
-                          "id": 255,
-                          "textContent": "empty star",
-                          "type": 3,
-                        },
-                      ],
-                      "id": 254,
-                      "isSVG": true,
-                      "tagName": "title",
-                      "type": 2,
-                    },
-                    {
-                      "attributes": {
-                        "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                      },
-                      "childNodes": [],
-                      "id": 256,
-                      "isSVG": true,
-                      "tagName": "path",
-                      "type": 2,
-                    },
-                  ],
-                  "id": 253,
-                  "isSVG": true,
-                  "tagName": "svg",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "fill": "currentColor",
-                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                    "viewBox": "0 0 24 24",
-                  },
-                  "childNodes": [
-                    {
-                      "attributes": {},
-                      "childNodes": [
-                        {
-                          "id": 259,
-                          "textContent": "empty star",
-                          "type": 3,
-                        },
-                      ],
-                      "id": 258,
-                      "isSVG": true,
-                      "tagName": "title",
-                      "type": 2,
-                    },
-                    {
-                      "attributes": {
-                        "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                      },
-                      "childNodes": [],
-                      "id": 260,
-                      "isSVG": true,
-                      "tagName": "path",
-                      "type": 2,
-                    },
-                  ],
-                  "id": 257,
-                  "isSVG": true,
-                  "tagName": "svg",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "fill": "currentColor",
-                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                    "viewBox": "0 0 24 24",
-                  },
-                  "childNodes": [
-                    {
-                      "attributes": {},
-                      "childNodes": [
-                        {
-                          "id": 263,
-                          "textContent": "empty star",
-                          "type": 3,
-                        },
-                      ],
-                      "id": 262,
-                      "isSVG": true,
-                      "tagName": "title",
-                      "type": 2,
-                    },
-                    {
-                      "attributes": {
-                        "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                      },
-                      "childNodes": [],
-                      "id": 264,
-                      "isSVG": true,
-                      "tagName": "path",
-                      "type": 2,
-                    },
-                  ],
-                  "id": 261,
-                  "isSVG": true,
-                  "tagName": "svg",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "fill": "currentColor",
-                    "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                    "viewBox": "0 0 24 24",
-                  },
-                  "childNodes": [
-                    {
-                      "attributes": {},
-                      "childNodes": [
-                        {
-                          "id": 267,
-                          "textContent": "empty star",
-                          "type": 3,
-                        },
-                      ],
-                      "id": 266,
-                      "isSVG": true,
-                      "tagName": "title",
-                      "type": 2,
-                    },
-                    {
-                      "attributes": {
-                        "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                      },
-                      "childNodes": [],
-                      "id": 268,
-                      "isSVG": true,
-                      "tagName": "path",
-                      "type": 2,
-                    },
-                  ],
-                  "id": 265,
-                  "isSVG": true,
-                  "tagName": "svg",
-                  "type": 2,
-                },
-              ],
-              "id": 269,
-              "tagName": "div",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 12365,
           "tagName": "div",
           "type": 2,
@@ -6440,452 +3896,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "attributes": {
             "style": "position: relative; display: flex; flex-direction: row; padding: 2px 4px;",
           },
-          "childNodes": [
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 223,
-                      "textContent": "filled star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 222,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                  },
-                  "childNodes": [],
-                  "id": 224,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 221,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 227,
-                      "textContent": "filled star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 226,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                  },
-                  "childNodes": [],
-                  "id": 228,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 225,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 231,
-                      "textContent": "filled star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 230,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                  },
-                  "childNodes": [],
-                  "id": 232,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 229,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 235,
-                      "textContent": "filled star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 234,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                  },
-                  "childNodes": [],
-                  "id": 236,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 233,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 239,
-                      "textContent": "filled star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 238,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                  },
-                  "childNodes": [],
-                  "id": 240,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 237,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 243,
-                      "textContent": "filled star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 242,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                  },
-                  "childNodes": [],
-                  "id": 244,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 241,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 247,
-                      "textContent": "half-filled star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 246,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                  },
-                  "childNodes": [],
-                  "id": 248,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 245,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 251,
-                      "textContent": "empty star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 250,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                  },
-                  "childNodes": [],
-                  "id": 252,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 249,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 255,
-                      "textContent": "empty star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 254,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                  },
-                  "childNodes": [],
-                  "id": 256,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 253,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 259,
-                      "textContent": "empty star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 258,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                  },
-                  "childNodes": [],
-                  "id": 260,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 257,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 263,
-                      "textContent": "empty star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 262,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                  },
-                  "childNodes": [],
-                  "id": 264,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 261,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 267,
-                      "textContent": "empty star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 266,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                  },
-                  "childNodes": [],
-                  "id": 268,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 265,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 269,
           "tagName": "div",
           "type": 2,
@@ -6898,452 +3909,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
           "attributes": {
             "style": "position: relative; display: flex; flex-direction: row; padding: 2px 4px;",
           },
-          "childNodes": [
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 223,
-                      "textContent": "filled star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 222,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                  },
-                  "childNodes": [],
-                  "id": 224,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 221,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 227,
-                      "textContent": "filled star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 226,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                  },
-                  "childNodes": [],
-                  "id": 228,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 225,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 231,
-                      "textContent": "filled star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 230,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                  },
-                  "childNodes": [],
-                  "id": 232,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 229,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 235,
-                      "textContent": "filled star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 234,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                  },
-                  "childNodes": [],
-                  "id": 236,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 233,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 239,
-                      "textContent": "filled star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 238,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                  },
-                  "childNodes": [],
-                  "id": 240,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 237,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 243,
-                      "textContent": "filled star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 242,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-                  },
-                  "childNodes": [],
-                  "id": 244,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 241,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 247,
-                      "textContent": "half-filled star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 246,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                  },
-                  "childNodes": [],
-                  "id": 248,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 245,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 251,
-                      "textContent": "empty star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 250,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                  },
-                  "childNodes": [],
-                  "id": 252,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 249,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 255,
-                      "textContent": "empty star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 254,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                  },
-                  "childNodes": [],
-                  "id": 256,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 253,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 259,
-                      "textContent": "empty star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 258,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                  },
-                  "childNodes": [],
-                  "id": 260,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 257,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 263,
-                      "textContent": "empty star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 262,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                  },
-                  "childNodes": [],
-                  "id": 264,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 261,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "fill": "currentColor",
-                "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
-                "viewBox": "0 0 24 24",
-              },
-              "childNodes": [
-                {
-                  "attributes": {},
-                  "childNodes": [
-                    {
-                      "id": 267,
-                      "textContent": "empty star",
-                      "type": 3,
-                    },
-                  ],
-                  "id": 266,
-                  "isSVG": true,
-                  "tagName": "title",
-                  "type": 2,
-                },
-                {
-                  "attributes": {
-                    "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-                  },
-                  "childNodes": [],
-                  "id": 268,
-                  "isSVG": true,
-                  "tagName": "path",
-                  "type": 2,
-                },
-              ],
-              "id": 265,
-              "isSVG": true,
-              "tagName": "svg",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 269,
           "tagName": "div",
           "type": 2,
@@ -7358,32 +3924,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 223,
-                  "textContent": "filled star",
-                  "type": 3,
-                },
-              ],
-              "id": 222,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-              },
-              "childNodes": [],
-              "id": 224,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 221,
           "isSVG": true,
           "tagName": "svg",
@@ -7399,32 +3940,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 223,
-                  "textContent": "filled star",
-                  "type": 3,
-                },
-              ],
-              "id": 222,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-              },
-              "childNodes": [],
-              "id": 224,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 221,
           "isSVG": true,
           "tagName": "svg",
@@ -7436,13 +3952,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 223,
-              "textContent": "filled star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 222,
           "isSVG": true,
           "tagName": "title",
@@ -7454,13 +3964,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 223,
-              "textContent": "filled star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 222,
           "isSVG": true,
           "tagName": "title",
@@ -7513,32 +4017,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 227,
-                  "textContent": "filled star",
-                  "type": 3,
-                },
-              ],
-              "id": 226,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-              },
-              "childNodes": [],
-              "id": 228,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 225,
           "isSVG": true,
           "tagName": "svg",
@@ -7554,32 +4033,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 227,
-                  "textContent": "filled star",
-                  "type": 3,
-                },
-              ],
-              "id": 226,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-              },
-              "childNodes": [],
-              "id": 228,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 225,
           "isSVG": true,
           "tagName": "svg",
@@ -7591,13 +4045,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 227,
-              "textContent": "filled star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 226,
           "isSVG": true,
           "tagName": "title",
@@ -7609,13 +4057,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 227,
-              "textContent": "filled star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 226,
           "isSVG": true,
           "tagName": "title",
@@ -7668,32 +4110,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 231,
-                  "textContent": "filled star",
-                  "type": 3,
-                },
-              ],
-              "id": 230,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-              },
-              "childNodes": [],
-              "id": 232,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 229,
           "isSVG": true,
           "tagName": "svg",
@@ -7709,32 +4126,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 231,
-                  "textContent": "filled star",
-                  "type": 3,
-                },
-              ],
-              "id": 230,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-              },
-              "childNodes": [],
-              "id": 232,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 229,
           "isSVG": true,
           "tagName": "svg",
@@ -7746,13 +4138,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 231,
-              "textContent": "filled star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 230,
           "isSVG": true,
           "tagName": "title",
@@ -7764,13 +4150,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 231,
-              "textContent": "filled star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 230,
           "isSVG": true,
           "tagName": "title",
@@ -7823,32 +4203,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 235,
-                  "textContent": "filled star",
-                  "type": 3,
-                },
-              ],
-              "id": 234,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-              },
-              "childNodes": [],
-              "id": 236,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 233,
           "isSVG": true,
           "tagName": "svg",
@@ -7864,32 +4219,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 235,
-                  "textContent": "filled star",
-                  "type": 3,
-                },
-              ],
-              "id": 234,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-              },
-              "childNodes": [],
-              "id": 236,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 233,
           "isSVG": true,
           "tagName": "svg",
@@ -7901,13 +4231,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 235,
-              "textContent": "filled star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 234,
           "isSVG": true,
           "tagName": "title",
@@ -7919,13 +4243,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 235,
-              "textContent": "filled star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 234,
           "isSVG": true,
           "tagName": "title",
@@ -7978,32 +4296,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 239,
-                  "textContent": "filled star",
-                  "type": 3,
-                },
-              ],
-              "id": 238,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-              },
-              "childNodes": [],
-              "id": 240,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 237,
           "isSVG": true,
           "tagName": "svg",
@@ -8019,32 +4312,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 239,
-                  "textContent": "filled star",
-                  "type": 3,
-                },
-              ],
-              "id": 238,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-              },
-              "childNodes": [],
-              "id": 240,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 237,
           "isSVG": true,
           "tagName": "svg",
@@ -8056,13 +4324,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 239,
-              "textContent": "filled star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 238,
           "isSVG": true,
           "tagName": "title",
@@ -8074,13 +4336,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 239,
-              "textContent": "filled star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 238,
           "isSVG": true,
           "tagName": "title",
@@ -8133,32 +4389,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 243,
-                  "textContent": "filled star",
-                  "type": 3,
-                },
-              ],
-              "id": 242,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-              },
-              "childNodes": [],
-              "id": 244,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 241,
           "isSVG": true,
           "tagName": "svg",
@@ -8174,32 +4405,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 243,
-                  "textContent": "filled star",
-                  "type": 3,
-                },
-              ],
-              "id": 242,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z",
-              },
-              "childNodes": [],
-              "id": 244,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 241,
           "isSVG": true,
           "tagName": "svg",
@@ -8211,13 +4417,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 243,
-              "textContent": "filled star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 242,
           "isSVG": true,
           "tagName": "title",
@@ -8229,13 +4429,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 243,
-              "textContent": "filled star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 242,
           "isSVG": true,
           "tagName": "title",
@@ -8288,32 +4482,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 247,
-                  "textContent": "half-filled star",
-                  "type": 3,
-                },
-              ],
-              "id": 246,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-              },
-              "childNodes": [],
-              "id": 248,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 245,
           "isSVG": true,
           "tagName": "svg",
@@ -8329,32 +4498,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 247,
-                  "textContent": "half-filled star",
-                  "type": 3,
-                },
-              ],
-              "id": 246,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,15.4V6.1L13.71,10.13L18.09,10.5L14.77,13.39L15.76,17.67M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-              },
-              "childNodes": [],
-              "id": 248,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 245,
           "isSVG": true,
           "tagName": "svg",
@@ -8366,13 +4510,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 247,
-              "textContent": "half-filled star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 246,
           "isSVG": true,
           "tagName": "title",
@@ -8384,13 +4522,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 247,
-              "textContent": "half-filled star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 246,
           "isSVG": true,
           "tagName": "title",
@@ -8443,32 +4575,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 251,
-                  "textContent": "empty star",
-                  "type": 3,
-                },
-              ],
-              "id": 250,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-              },
-              "childNodes": [],
-              "id": 252,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 249,
           "isSVG": true,
           "tagName": "svg",
@@ -8484,32 +4591,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 251,
-                  "textContent": "empty star",
-                  "type": 3,
-                },
-              ],
-              "id": 250,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-              },
-              "childNodes": [],
-              "id": 252,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 249,
           "isSVG": true,
           "tagName": "svg",
@@ -8521,13 +4603,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 251,
-              "textContent": "empty star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 250,
           "isSVG": true,
           "tagName": "title",
@@ -8539,13 +4615,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 251,
-              "textContent": "empty star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 250,
           "isSVG": true,
           "tagName": "title",
@@ -8598,32 +4668,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 255,
-                  "textContent": "empty star",
-                  "type": 3,
-                },
-              ],
-              "id": 254,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-              },
-              "childNodes": [],
-              "id": 256,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 253,
           "isSVG": true,
           "tagName": "svg",
@@ -8639,32 +4684,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 255,
-                  "textContent": "empty star",
-                  "type": 3,
-                },
-              ],
-              "id": 254,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-              },
-              "childNodes": [],
-              "id": 256,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 253,
           "isSVG": true,
           "tagName": "svg",
@@ -8676,13 +4696,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 255,
-              "textContent": "empty star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 254,
           "isSVG": true,
           "tagName": "title",
@@ -8694,13 +4708,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 255,
-              "textContent": "empty star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 254,
           "isSVG": true,
           "tagName": "title",
@@ -8753,32 +4761,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 259,
-                  "textContent": "empty star",
-                  "type": 3,
-                },
-              ],
-              "id": 258,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-              },
-              "childNodes": [],
-              "id": 260,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 257,
           "isSVG": true,
           "tagName": "svg",
@@ -8794,32 +4777,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 259,
-                  "textContent": "empty star",
-                  "type": 3,
-                },
-              ],
-              "id": 258,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-              },
-              "childNodes": [],
-              "id": 260,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 257,
           "isSVG": true,
           "tagName": "svg",
@@ -8831,13 +4789,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 259,
-              "textContent": "empty star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 258,
           "isSVG": true,
           "tagName": "title",
@@ -8849,13 +4801,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 259,
-              "textContent": "empty star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 258,
           "isSVG": true,
           "tagName": "title",
@@ -8908,32 +4854,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 263,
-                  "textContent": "empty star",
-                  "type": 3,
-                },
-              ],
-              "id": 262,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-              },
-              "childNodes": [],
-              "id": 264,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 261,
           "isSVG": true,
           "tagName": "svg",
@@ -8949,32 +4870,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 263,
-                  "textContent": "empty star",
-                  "type": 3,
-                },
-              ],
-              "id": 262,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-              },
-              "childNodes": [],
-              "id": 264,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 261,
           "isSVG": true,
           "tagName": "svg",
@@ -8986,13 +4882,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 263,
-              "textContent": "empty star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 262,
           "isSVG": true,
           "tagName": "title",
@@ -9004,13 +4894,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 263,
-              "textContent": "empty star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 262,
           "isSVG": true,
           "tagName": "title",
@@ -9063,32 +4947,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 267,
-                  "textContent": "empty star",
-                  "type": 3,
-                },
-              ],
-              "id": 266,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-              },
-              "childNodes": [],
-              "id": 268,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 265,
           "isSVG": true,
           "tagName": "svg",
@@ -9104,32 +4963,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
             "style": "height: 100%;overflow-clip-margin: content-box;overflow:hidden",
             "viewBox": "0 0 24 24",
           },
-          "childNodes": [
-            {
-              "attributes": {},
-              "childNodes": [
-                {
-                  "id": 267,
-                  "textContent": "empty star",
-                  "type": 3,
-                },
-              ],
-              "id": 266,
-              "isSVG": true,
-              "tagName": "title",
-              "type": 2,
-            },
-            {
-              "attributes": {
-                "d": "M12,15.39L8.24,17.66L9.23,13.38L5.91,10.5L10.29,10.13L12,6.09L13.71,10.13L18.09,10.5L14.77,13.38L15.76,17.66M22,9.24L14.81,8.63L12,2L9.19,8.63L2,9.24L7.45,13.97L5.82,21L12,17.27L18.18,21L16.54,13.97L22,9.24Z",
-              },
-              "childNodes": [],
-              "id": 268,
-              "isSVG": true,
-              "tagName": "path",
-              "type": 2,
-            },
-          ],
+          "childNodes": [],
           "id": 265,
           "isSVG": true,
           "tagName": "svg",
@@ -9141,13 +4975,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 267,
-              "textContent": "empty star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 266,
           "isSVG": true,
           "tagName": "title",
@@ -9159,13 +4987,7 @@ exports[`replay/transform transform inputs isolated update mutation 1`] = `
         "nextId": null,
         "node": {
           "attributes": {},
-          "childNodes": [
-            {
-              "id": 267,
-              "textContent": "empty star",
-              "type": 3,
-            },
-          ],
+          "childNodes": [],
           "id": 266,
           "isSVG": true,
           "tagName": "title",
