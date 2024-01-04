@@ -878,7 +878,7 @@ export class DeferredPersonOverrideWorker {
     constructor(
         private postgres: PostgresRouter,
         private kafkaProducer: KafkaProducerWrapper,
-        private writer: PersonOverrideWriter | FlatPersonOverrideWriter
+        private writer: FlatPersonOverrideWriter
     ) {}
 
     /**
