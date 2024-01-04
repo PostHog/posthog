@@ -1,6 +1,7 @@
 import autoprefixer from 'autoprefixer'
 import chokidar from 'chokidar'
 import cors from 'cors'
+import cssnano from 'cssnano'
 import { analyzeMetafile, context } from 'esbuild'
 import { lessLoader } from 'esbuild-plugin-less'
 import { sassPlugin } from 'esbuild-sass-plugin'
@@ -129,10 +130,12 @@ export const commonConfig = {
     plugins: [
         sassPlugin({
             async transform(source, resolveDir, filePath) {
-                const { css } = await postcss([tailwindcss, autoprefixer, postcssPresetEnv({ stage: 0 })]).process(
-                    source,
-                    { from: filePath }
-                )
+                const { css } = await postcss([
+                    tailwindcss,
+                    autoprefixer,
+                    postcssPresetEnv({ stage: 0 }),
+                    cssnano({ preset: 'default' }),
+                ]).process(source, { from: filePath })
                 return css
             },
         }),
