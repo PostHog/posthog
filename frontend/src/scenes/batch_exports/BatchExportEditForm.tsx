@@ -460,6 +460,10 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                     <Field name="use_json_type" label="Use JSON data type">
                                         <LemonCheckbox
                                             bordered
+                                            disabled={!isNew}
+                                            disabledReason={
+                                                isNew ? null : 'Cannot modify data type for running export.'
+                                            }
                                             label={
                                                 <span className="flex items-center gap-2">
                                                     Export `properties`, `set`, and `set_once` fields as BigQuery JSON
