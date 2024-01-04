@@ -27,6 +27,7 @@ import { LogLevel } from 'rrweb'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
+import { Scene } from 'scenes/sceneTypes'
 
 import { QueryContext } from '~/queries/types'
 
@@ -2859,8 +2860,8 @@ export interface DateMappingOption {
 }
 
 interface BreadcrumbBase {
-    /** E.g. scene identifier or item ID. Particularly important if `onRename` is used. */
-    key: string | number
+    /** E.g. scene, tab, or scene with item ID. Particularly important for `onRename`. */
+    key: string | number | [scene: Scene, key: string | number]
     /** Name to display. */
     name: string | null | undefined
     /** Symbol, e.g. a lettermark or a profile picture. */
@@ -2881,9 +2882,6 @@ interface RenamableBreadcrumb extends BreadcrumbBase {
     forceEditMode?: boolean
 }
 export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb
-export type FinalizedBreadcrumb =
-    | (LinkBreadcrumb & { globalKey: string })
-    | (RenamableBreadcrumb & { globalKey: string })
 
 export enum GraphType {
     Bar = 'bar',

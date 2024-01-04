@@ -117,7 +117,7 @@ export const groupLogic = kea<groupLogicType>([
                     path: urls.groups(String(groupTypeIndex)),
                 },
                 {
-                    key: `${groupTypeIndex}-${groupKey}`,
+                    key: [Scene.Group, `${groupTypeIndex}-${groupKey}`],
                     name: groupDisplayId(groupKey, groupData?.group_properties || {}),
                     path: urls.group(String(groupTypeIndex), groupKey),
                 },
