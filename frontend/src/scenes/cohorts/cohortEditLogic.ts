@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
 import api from 'lib/api'
 import { ENTITY_MATCH_TYPE, FEATURE_FLAGS } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
 import {
@@ -70,7 +70,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     }),
 
     selectors({
-        usePersonsQuery: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.PERSONS_HOGQL_QUERY]],
+        useActorsQuery: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.PERSONS_HOGQL_QUERY]],
     }),
 
     reducers(({ props, selectors }) => ({
@@ -167,11 +167,11 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         ],
         query: [
             ((state: Record<string, any>) =>
-                selectors.usePersonsQuery(state)
+                selectors.useActorsQuery(state)
                     ? {
                           kind: NodeKind.DataTableNode,
                           source: {
-                              kind: NodeKind.PersonsQuery,
+                              kind: NodeKind.ActorsQuery,
                               fixedProperties: [
                                   { type: PropertyFilterType.Cohort, key: 'id', value: parseInt(String(props.id)) },
                               ],

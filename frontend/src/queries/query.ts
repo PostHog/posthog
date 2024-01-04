@@ -21,6 +21,7 @@ import { AnyPartialFilterType, OnlineExportContext, QueryExportContext } from '~
 import { queryNodeToFilter } from './nodes/InsightQuery/utils/queryNodeToFilter'
 import { DataNode, HogQLQuery, HogQLQueryResponse, NodeKind, PersonsNode } from './schema'
 import {
+    isActorsQuery,
     isDataTableNode,
     isDataVisualizationNode,
     isEventsQuery,
@@ -29,7 +30,6 @@ import {
     isInsightVizNode,
     isLifecycleQuery,
     isPersonsNode,
-    isPersonsQuery,
     isRetentionQuery,
     isTimeToSeeDataQuery,
     isTimeToSeeDataSessionsNode,
@@ -52,7 +52,7 @@ export function queryExportContext<N extends DataNode = DataNode>(
         return queryExportContext(query.source, methodOptions, refresh)
     } else if (isDataVisualizationNode(query)) {
         return queryExportContext(query.source, methodOptions, refresh)
-    } else if (isEventsQuery(query) || isPersonsQuery(query)) {
+    } else if (isEventsQuery(query) || isActorsQuery(query)) {
         return {
             source: query,
         }
@@ -107,7 +107,7 @@ async function executeQuery<N extends DataNode = DataNode>(
     queryId?: string
 ): Promise<NonNullable<N['response']>> {
     const queryAsyncEnabled = Boolean(featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.QUERY_ASYNC])
-    const excludedKinds = ['HogQLMetadata', 'EventsQuery', 'DataVisualizationNode']
+    const excludedKinds = ['HogQLMetadata', 'EventsQuery']
     const queryAsync = queryAsyncEnabled && !excludedKinds.includes(queryNode.kind)
     const response = await api.query(queryNode, methodOptions, queryId, refresh, queryAsync)
 

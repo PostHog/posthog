@@ -62,7 +62,6 @@ export const BreakdownTagMenu = (): JSX.Element => {
                         onClick={() => {
                             setHistogramBinsUsed(true)
                         }}
-                        status="stealth"
                         active={histogramBinsUsed}
                         fullWidth
                     >
@@ -83,7 +82,6 @@ export const BreakdownTagMenu = (): JSX.Element => {
                         onClick={() => {
                             setHistogramBinsUsed(false)
                         }}
-                        status="stealth"
                         active={!histogramBinsUsed}
                         className="mt-2"
                         fullWidth
@@ -125,7 +123,6 @@ export const BreakdownTagMenu = (): JSX.Element => {
                             onClick={() => {
                                 updateBreakdown({ breakdown_limit: breakdownLimit })
                             }}
-                            status="stealth"
                             active={histogramBinsUsed}
                             fullWidth
                         >

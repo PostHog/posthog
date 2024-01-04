@@ -23,6 +23,7 @@ import {
     check,
     dissatisfiedEmoji,
     getTextColor,
+    getTextColorComponents,
     neutralEmoji,
     posthogLogoSVG,
     satisfiedEmoji,
@@ -56,7 +57,7 @@ interface ButtonProps {
     children: React.ReactNode
 }
 
-const Button = ({
+const SurveyButton = ({
     link,
     type,
     onSubmit,
@@ -285,7 +286,7 @@ export function BaseAppearance({
     preview?: boolean
     isWidgetSurvey?: boolean
 }): JSX.Element {
-    const [textColor, setTextColor] = useState('black')
+    const [textColor, setTextColor] = useState<'white' | 'black'>('black')
     const ref = useRef(null)
 
     useEffect(() => {
@@ -300,11 +301,14 @@ export function BaseAppearance({
             ref={ref}
             className={`survey-form ${isWidgetSurvey ? 'widget-survey' : ''}`}
             // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                backgroundColor: appearance.backgroundColor,
-                border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
-                color: textColor,
-            }}
+            style={
+                {
+                    backgroundColor: appearance.backgroundColor,
+                    border: `1.5px solid ${appearance.borderColor || defaultSurveyAppearance.borderColor}`,
+                    color: textColor,
+                    '--survey-text-color': getTextColorComponents(textColor),
+                } as React.CSSProperties
+            }
         >
             <div className="survey-box">
                 {!preview && (
@@ -351,7 +355,7 @@ export function BaseAppearance({
 
                 <div className="bottom-section">
                     <div className="buttons">
-                        <Button
+                        <SurveyButton
                             {...(preview ? { tabIndex: -1 } : null)}
                             appearance={appearance}
                             link={question.type === SurveyQuestionType.Link ? question.link : null}
@@ -359,7 +363,7 @@ export function BaseAppearance({
                             type={question.type}
                         >
                             {question.buttonText || appearance.submitButtonText}
-                        </Button>
+                        </SurveyButton>
                     </div>
 
                     {!preview && !appearance.whiteLabel && (
@@ -572,13 +576,13 @@ export function SurveyRatingAppearance({
 
                     <div className="bottom-section">
                         <div className="buttons">
-                            <Button
+                            <SurveyButton
                                 {...(preview ? { tabIndex: -1 } : null)}
                                 appearance={appearance}
                                 onSubmit={onSubmit}
                             >
                                 {ratingSurveyQuestion.buttonText || appearance.submitButtonText}
-                            </Button>
+                            </SurveyButton>
                         </div>
 
                         {!preview && !appearance.whiteLabel && (
@@ -739,9 +743,13 @@ export function SurveyMultipleChoiceAppearance({
                 </div>
                 <div className="bottom-section">
                     <div className="buttons">
-                        <Button {...(preview ? { tabIndex: -1 } : null)} appearance={appearance} onSubmit={onSubmit}>
+                        <SurveyButton
+                            {...(preview ? { tabIndex: -1 } : null)}
+                            appearance={appearance}
+                            onSubmit={onSubmit}
+                        >
                             {multipleChoiceQuestion.buttonText || appearance.submitButtonText}
-                        </Button>
+                        </SurveyButton>
                     </div>
 
                     {!preview && !appearance.whiteLabel && (
@@ -797,9 +805,9 @@ export function SurveyThankYou({ appearance }: { appearance: SurveyAppearanceTyp
                     className="thank-you-message-body"
                     dangerouslySetInnerHTML={{ __html: sanitizeHTML(appearance?.thankYouMessageDescription || '') }}
                 />
-                <Button appearance={appearance} onSubmit={() => undefined}>
+                <SurveyButton appearance={appearance} onSubmit={() => undefined}>
                     Close
-                </Button>
+                </SurveyButton>
                 {!appearance.whiteLabel && (
                     <Link to="https://posthog.com" target="_blank" className="footer-branding">
                         Survey by {posthogLogoSVG}

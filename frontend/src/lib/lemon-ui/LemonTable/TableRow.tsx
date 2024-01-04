@@ -69,7 +69,6 @@ function TableRowRaw<T extends Record<string, any>>({
                         {!!rowExpandable && (
                             <LemonButton
                                 noPadding
-                                status="stealth"
                                 active={isRowExpanded}
                                 onClick={() => {
                                     setIsRowExpanded(!isRowExpanded)

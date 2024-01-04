@@ -4,6 +4,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.web_analytics.ctes import (
     COUNTS_CTE,
     BOUNCE_RATE_CTE,
+    PATHNAME_SCROLL_CTE,
 )
 from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
     WebAnalyticsQueryRunner,
@@ -45,20 +46,36 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner):
                 },
                 backend="cpp",
             )
-        with self.timings.measure("top_pages_query"):
-            top_sources_query = parse_select(
+        if self.query.includeScrollDepth:
+            with self.timings.measure("scroll_depth_query"):
+                scroll_depth_query = parse_select(
+                    PATHNAME_SCROLL_CTE,
+                    timings=self.timings,
+                    placeholders={
+                        "pathname_scroll_where": self.events_where(),
+                        "breakdown_by": self.counts_breakdown(),
+                    },
+                    backend="cpp",
+                )
+            return parse_select(
                 """
 SELECT
     counts.breakdown_value as "context.columns.breakdown_value",
     counts.total_pageviews as "context.columns.views",
     counts.unique_visitors as "context.columns.visitors",
-    bounce_rate.bounce_rate as "context.columns.bounce_rate"
+    bounce_rate.bounce_rate as "context.columns.bounce_rate",
+    scroll_depth.average_scroll_percentage as "context.columns.average_scroll_percentage",
+    scroll_depth.scroll_gt80_percentage as "context.columns.scroll_gt80_percentage"
 FROM
     {counts_query} AS counts
 LEFT OUTER JOIN
     {bounce_rate_query} AS bounce_rate
 ON
     counts.breakdown_value = bounce_rate.breakdown_value
+LEFT OUTER JOIN
+    {scroll_depth_query} AS scroll_depth
+ON
+    counts.breakdown_value = scroll_depth.pathname
 WHERE
     {where_breakdown}
 ORDER BY
@@ -70,11 +87,41 @@ LIMIT 10
                 placeholders={
                     "counts_query": counts_query,
                     "bounce_rate_query": bounce_rate_query,
+                    "scroll_depth_query": scroll_depth_query,
                     "where_breakdown": self.where_breakdown(),
                 },
                 backend="cpp",
             )
-        return top_sources_query
+        else:
+            with self.timings.measure("stats_table_query"):
+                return parse_select(
+                    """
+    SELECT
+        counts.breakdown_value as "context.columns.breakdown_value",
+        counts.total_pageviews as "context.columns.views",
+        counts.unique_visitors as "context.columns.visitors",
+        bounce_rate.bounce_rate as "context.columns.bounce_rate"
+    FROM
+        {counts_query} AS counts
+    LEFT OUTER JOIN
+        {bounce_rate_query} AS bounce_rate
+    ON
+        counts.breakdown_value = bounce_rate.breakdown_value
+    WHERE
+        {where_breakdown}
+    ORDER BY
+        "context.columns.views" DESC,
+        "context.columns.breakdown_value" DESC
+    LIMIT 10
+                    """,
+                    timings=self.timings,
+                    placeholders={
+                        "counts_query": counts_query,
+                        "bounce_rate_query": bounce_rate_query,
+                        "where_breakdown": self.where_breakdown(),
+                    },
+                    backend="cpp",
+                )
 
     def calculate(self):
         response = execute_hogql_query(

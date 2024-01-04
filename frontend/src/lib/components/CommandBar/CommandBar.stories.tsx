@@ -329,14 +329,6 @@ const SEARCH_RESULT = {
         },
         {
             type: 'feature_flag',
-            result_id: '161',
-            extra_fields: {
-                key: 'console-recording-search',
-                name: 'console-recording-search',
-            },
-        },
-        {
-            type: 'feature_flag',
             result_id: '134',
             extra_fields: {
                 key: 'early-access-feature',
@@ -505,7 +497,6 @@ const meta: Meta<typeof CommandBar> = {
         layout: 'fullscreen',
         testOptions: {
             snapshotTargetSelector: '[data-attr="command-bar"]',
-            include3000: true,
         },
         viewMode: 'story',
     },

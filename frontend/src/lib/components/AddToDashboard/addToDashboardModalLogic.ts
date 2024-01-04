@@ -1,7 +1,7 @@
 import FuseClass from 'fuse.js'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'

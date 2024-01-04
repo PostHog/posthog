@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { SECURE_URL_REGEX } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { AvailableFeature, OrganizationDomainType } from '~/types'

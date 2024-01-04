@@ -7,6 +7,8 @@ import { capitalizeFirstLetter, isMultiSeriesFormula } from 'lib/utils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
+import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { NodeKind } from '~/queries/schema'
 import { isInsightVizNode, isLifecycleQuery } from '~/queries/utils'
 import { ChartDisplayType, ChartParams, GraphType } from '~/types'
@@ -24,6 +26,8 @@ export function ActionsLineGraph({
 }: ChartParams): JSX.Element | null {
     const { insightProps, hiddenLegendKeys } = useValues(insightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { cohorts } = useValues(cohortsModel)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const { query } = useValues(insightDataLogic(insightProps))
     const {
         indexedResults,
@@ -119,14 +123,19 @@ export function ActionsLineGraph({
                               openPersonsModal({
                                   title,
                                   query: {
-                                      kind: NodeKind.InsightPersonsQuery,
+                                      kind: NodeKind.InsightActorsQuery,
                                       source: query.source,
                                       day,
                                       status: dataset.status,
                                   },
                               })
                           } else {
-                              const datasetUrls = urlsForDatasets(crossDataset, index)
+                              const datasetUrls = urlsForDatasets(
+                                  crossDataset,
+                                  index,
+                                  cohorts,
+                                  formatPropertyValueForDisplay
+                              )
                               if (datasetUrls?.length) {
                                   openPersonsModal({
                                       urls: datasetUrls,

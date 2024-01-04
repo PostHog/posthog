@@ -79,7 +79,6 @@ function CurrentProjectButton({ onClickInside }: { onClickInside?: () => void })
                 },
             }}
             title={`Switch to project ${currentTeam.name}`}
-            status="stealth"
             fullWidth
         >
             <ProjectName team={currentTeam} />
@@ -105,7 +104,6 @@ function OtherProjectButton({ team, onClickInside }: { team: TeamBasicType; onCl
                 },
             }}
             title={`Switch to project ${team.name}`}
-            status="stealth"
             fullWidth
         >
             <ProjectName team={team} />

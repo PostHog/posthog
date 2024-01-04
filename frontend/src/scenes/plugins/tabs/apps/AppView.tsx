@@ -38,7 +38,7 @@ export function AppView({
     if (isConfigured) {
         menuItems.push({
             label: pluginConfig?.enabled ? 'Disable' : 'Enable',
-            status: pluginConfig.enabled ? 'danger' : 'primary',
+            status: pluginConfig.enabled ? 'danger' : 'default',
             onClick: () =>
                 toggleEnabled({
                     id: pluginConfig.id,

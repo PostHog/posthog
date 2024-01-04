@@ -70,7 +70,6 @@ export function DurationFilter({ recordingDurationFilter, durationTypeFilter, on
         >
             <LemonButton
                 type="secondary"
-                status="stealth"
                 size="small"
                 onClick={() => {
                     setIsOpen(true)

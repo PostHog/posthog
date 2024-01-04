@@ -312,8 +312,17 @@ if ${conditional}:
     )
 }
 
-export function AndroidSnippet({ flagKey, multivariant }: FeatureFlagSnippet): JSX.Element {
+export function AndroidSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'PostHog.'
+
+    if (payload) {
+        return (
+            <CodeSnippet language={Language.Kotlin} wrap>
+                {`${clientSuffix}getFeatureFlagPayload("${flagKey}")`}
+            </CodeSnippet>
+        )
+    }
+
     const flagFunction = multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
 
     const variantSuffix = multivariant ? ` == "example-variant"` : ''
@@ -327,16 +336,10 @@ export function AndroidSnippet({ flagKey, multivariant }: FeatureFlagSnippet): J
     )
 }
 
-export function iOSSnippet({ flagKey, multivariant }: FeatureFlagSnippet): JSX.Element {
-    const clientSuffix = 'posthog.'
-    const flagFunction = multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
-
-    const variantSuffix = multivariant ? ` == 'example-variant'` : ''
+export function FlutterSnippet({ flagKey }: FeatureFlagSnippet): JSX.Element {
     return (
-        <CodeSnippet language={Language.Swift} wrap>
-            {`// In Swift
-
-if (${clientSuffix}${flagFunction}('${flagKey}') ${variantSuffix}) {
+        <CodeSnippet language={Language.Dart} wrap>
+            {`if (await Posthog().isFeatureEnabled('${flagKey}') ?? false) {
     // do something
 }
             `}
@@ -344,8 +347,43 @@ if (${clientSuffix}${flagFunction}('${flagKey}') ${variantSuffix}) {
     )
 }
 
-export function ReactNativeSnippet({ flagKey, multivariant }: FeatureFlagSnippet): JSX.Element {
+export function iOSSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'posthog.'
+
+    if (payload) {
+        return (
+            <CodeSnippet language={Language.Swift} wrap>
+                {`${clientSuffix}getFeatureFlagStringPayload("${flagKey}", defaultValue: "myDefaultValue")`}
+            </CodeSnippet>
+        )
+    }
+
+    const flagFunction = multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
+
+    const variantSuffix = multivariant ? ` == "example-variant"` : ''
+    return (
+        <CodeSnippet language={Language.Swift} wrap>
+            {`// In Swift
+
+if (${clientSuffix}${flagFunction}("${flagKey}") ${variantSuffix}) {
+    // do something
+}
+            `}
+        </CodeSnippet>
+    )
+}
+
+export function ReactNativeSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippet): JSX.Element {
+    const clientSuffix = 'posthog.'
+
+    if (payload) {
+        return (
+            <CodeSnippet language={Language.JSX} wrap>
+                {`${clientSuffix}getFeatureFlagPayload('${flagKey}')`}
+            </CodeSnippet>
+        )
+    }
+
     const flagFunction = multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
 
     const variantSuffix = multivariant ? ` == 'example-variant'` : ''

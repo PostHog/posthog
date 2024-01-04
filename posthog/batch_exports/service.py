@@ -196,7 +196,7 @@ def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None 
         raise BatchExportServiceRPCError(f"BatchExport {batch_export_id} could not be paused") from exc
 
     batch_export.paused = True
-    batch_export.last_paused_at = dt.datetime.utcnow()
+    batch_export.last_paused_at = dt.datetime.now(dt.timezone.utc)
     batch_export.save()
 
 

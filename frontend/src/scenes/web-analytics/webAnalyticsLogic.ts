@@ -30,9 +30,10 @@ import {
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 
 export interface WebTileLayout {
-    colSpan?: number
+    colSpan?: number | 'full'
     rowSpan?: number
     className?: string
+    orderLarge?: number
 }
 
 interface BaseTile {
@@ -93,8 +94,9 @@ export enum GeographyTab {
 }
 
 export interface WebAnalyticsStatusCheck {
-    shouldWarnAboutNoPageviews: boolean
-    shouldWarnAboutNoPageleaves: boolean
+    isSendingPageViews: boolean
+    isSendingPageLeaves: boolean
+    isSendingPageLeavesScroll: boolean
 }
 
 export const GEOIP_PLUGIN_URLS = [
@@ -298,6 +300,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.pathTab,
                 s.geographyTab,
                 s.dateFilter,
+                () => values.statusCheck,
                 () => values.isGreaterThanMd,
                 () => values.shouldShowGeographyTile,
             ],
@@ -309,6 +312,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 pathTab,
                 geographyTab,
                 { dateFrom, dateTo, interval },
+                statusCheck,
                 isGreaterThanMd: boolean,
                 shouldShowGeographyTile
             ): WebDashboardTile[] => {
@@ -321,7 +325,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 const tiles: (WebDashboardTile | null)[] = [
                     {
                         layout: {
-                            colSpan: 12,
+                            colSpan: 'full',
+                            orderLarge: 0,
                         },
                         query: {
                             kind: NodeKind.WebOverviewQuery,
@@ -331,7 +336,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                     {
                         layout: {
-                            colSpan: 6,
+                            colSpan: 2,
+                            orderLarge: 1,
                         },
                         activeTabId: graphsTab,
                         setTabId: actions.setGraphsTab,
@@ -431,7 +437,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                     {
                         layout: {
-                            colSpan: 6,
+                            colSpan: 2,
+                            orderLarge: 4,
                         },
                         activeTabId: pathTab,
                         setTabId: actions.setPathTab,
@@ -448,6 +455,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         properties: webAnalyticsFilters,
                                         breakdownBy: WebStatsBreakdown.Page,
                                         dateRange,
+                                        includeScrollDepth: statusCheck?.isSendingPageLeavesScroll,
                                     },
                                     embedded: false,
                                 },
@@ -464,6 +472,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         properties: webAnalyticsFilters,
                                         breakdownBy: WebStatsBreakdown.InitialPage,
                                         dateRange,
+                                        includeScrollDepth: statusCheck?.isSendingPageLeavesScroll,
                                     },
                                     embedded: false,
                                 },
@@ -472,7 +481,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                     {
                         layout: {
-                            colSpan: 6,
+                            colSpan: 1,
+                            orderLarge: 2,
                         },
                         activeTabId: sourceTab,
                         setTabId: actions.setSourceTab,
@@ -586,15 +596,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                     {
                         layout: {
-                            colSpan: 6,
+                            colSpan: 1,
+                            orderLarge: 3,
                         },
                         activeTabId: deviceTab,
                         setTabId: actions.setDeviceTab,
                         tabs: [
                             {
                                 id: DeviceTab.DEVICE_TYPE,
-                                title: 'Top Device Types',
-                                linkText: 'Device Type',
+                                title: 'Device types',
+                                linkText: 'Device type',
                                 query: {
                                     kind: NodeKind.InsightVizNode,
                                     source: {
@@ -659,39 +670,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                         ],
                     },
-                    {
-                        title: 'Retention',
-                        layout: {
-                            colSpan: 12,
-                        },
-                        query: {
-                            kind: NodeKind.InsightVizNode,
-                            source: {
-                                kind: NodeKind.RetentionQuery,
-                                properties: webAnalyticsFilters,
-                                dateRange,
-                                filterTestAccounts: true,
-                                retentionFilter: {
-                                    retention_type: RETENTION_FIRST_TIME,
-                                    retention_reference: 'total',
-                                    total_intervals: isGreaterThanMd ? 8 : 5,
-                                    period: RetentionPeriod.Week,
-                                },
-                            },
-                            vizSpecificOptions: {
-                                [InsightType.RETENTION]: {
-                                    hideLineGraph: true,
-                                    hideSizeColumn: !isGreaterThanMd,
-                                    useSmallLayout: !isGreaterThanMd,
-                                },
-                            },
-                            embedded: true,
-                        },
-                    },
+
                     shouldShowGeographyTile
                         ? {
                               layout: {
-                                  colSpan: 12,
+                                  colSpan: 'full',
                               },
                               activeTabId: geographyTab || GeographyTab.MAP,
                               setTabId: actions.setGeographyTab,
@@ -774,6 +757,35 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               ],
                           }
                         : null,
+                    {
+                        title: 'Retention',
+                        layout: {
+                            colSpan: 2,
+                        },
+                        query: {
+                            kind: NodeKind.InsightVizNode,
+                            source: {
+                                kind: NodeKind.RetentionQuery,
+                                properties: webAnalyticsFilters,
+                                dateRange,
+                                filterTestAccounts: true,
+                                retentionFilter: {
+                                    retention_type: RETENTION_FIRST_TIME,
+                                    retention_reference: 'total',
+                                    total_intervals: isGreaterThanMd ? 8 : 5,
+                                    period: RetentionPeriod.Week,
+                                },
+                            },
+                            vizSpecificOptions: {
+                                [InsightType.RETENTION]: {
+                                    hideLineGraph: true,
+                                    hideSizeColumn: !isGreaterThanMd,
+                                    useSmallLayout: !isGreaterThanMd,
+                                },
+                            },
+                            embedded: true,
+                        },
+                    },
                 ]
                 return tiles.filter(isNotNil)
             },
@@ -809,7 +821,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         statusCheck: {
             __default: null as WebAnalyticsStatusCheck | null,
             loadStatusCheck: async (): Promise<WebAnalyticsStatusCheck> => {
-                const [pageviewResult, pageleaveResult] = await Promise.allSettled([
+                const [pageviewResult, pageleaveResult, pageleaveScroll] = await Promise.allSettled([
                     api.eventDefinitions.list({
                         event_type: EventDefinitionType.Event,
                         search: '$pageview',
@@ -817,6 +829,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     api.eventDefinitions.list({
                         event_type: EventDefinitionType.Event,
                         search: '$pageleave',
+                    }),
+                    api.propertyDefinitions.list({
+                        event_names: ['$pageleave'],
+                        properties: ['$prev_pageview_max_content_percentage'],
                     }),
                 ])
 
@@ -832,12 +848,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         ? pageleaveResult.value.results.find((r) => r.name === '$pageleave')
                         : undefined
 
-                const shouldWarnAboutNoPageviews = !pageviewEntry || isDefinitionStale(pageviewEntry)
-                const shouldWarnAboutNoPageleaves = !pageleaveEntry || isDefinitionStale(pageleaveEntry)
+                const pageleaveScrollEntry =
+                    pageleaveScroll.status === 'fulfilled'
+                        ? pageleaveScroll.value.results.find((r) => r.name === '$prev_pageview_max_content_percentage')
+                        : undefined
+
+                const isSendingPageViews = !!pageviewEntry && !isDefinitionStale(pageviewEntry)
+                const isSendingPageLeaves = !!pageleaveEntry && !isDefinitionStale(pageleaveEntry)
+                const isSendingPageLeavesScroll = !!pageleaveScrollEntry && !isDefinitionStale(pageleaveScrollEntry)
 
                 return {
-                    shouldWarnAboutNoPageviews,
-                    shouldWarnAboutNoPageleaves,
+                    isSendingPageViews,
+                    isSendingPageLeaves,
+                    isSendingPageLeavesScroll,
                 }
             },
         },

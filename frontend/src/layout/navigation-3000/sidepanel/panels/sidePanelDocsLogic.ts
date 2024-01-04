@@ -1,7 +1,6 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
-
-import { SidePanelTab } from '~/types'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import type { sidePanelDocsLogicType } from './sidePanelDocsLogicType'
@@ -26,10 +25,10 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelDocsLogic']),
     connect({
         actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
+        values: [sceneLogic, ['sceneConfig']],
     }),
 
     actions({
-        openDocsPage: (urlOrPath: string) => ({ urlOrPath }),
         updatePath: (path: string) => ({ path }),
         setInitialPath: (path: string) => ({ path }),
         unmountIframe: true,
@@ -68,9 +67,11 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        openDocsPage: ({ urlOrPath }) => {
-            actions.setInitialPath(getPathFromUrl(urlOrPath))
-            actions.openSidePanel(SidePanelTab.Docs)
+        openSidePanel: ({ options }) => {
+            if (options) {
+                const initialPath = getPathFromUrl(options)
+                actions.setInitialPath(initialPath)
+            }
         },
 
         unmountIframe: () => {
@@ -82,4 +83,14 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
             router.actions.push(getPathFromUrl(urlOrPath))
         },
     })),
+
+    afterMount(({ actions, values }) => {
+        if (values.sceneConfig?.defaultDocsPath) {
+            actions.setInitialPath(values.sceneConfig?.defaultDocsPath)
+        }
+    }),
+
+    beforeUnmount(({ actions, values }) => {
+        actions.setInitialPath(values.currentPath ?? '/docs')
+    }),
 ])
