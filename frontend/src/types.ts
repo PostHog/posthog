@@ -354,9 +354,9 @@ export interface TeamType extends TeamBasicType {
     session_recording_minimum_duration_milliseconds: number | null
     session_recording_linked_flag: Pick<FeatureFlagBasicType, 'id' | 'key'> | null
     session_recording_network_payload_capture_config:
-    | { recordHeaders?: boolean; recordBody?: boolean }
-    | undefined
-    | null
+        | { recordHeaders?: boolean; recordBody?: boolean }
+        | undefined
+        | null
     autocapture_exceptions_opt_in: boolean
     surveys_opt_in?: boolean
     autocapture_exceptions_errors_to_ignore: string[]
@@ -1036,7 +1036,7 @@ export interface RecordingTimeMixinType {
 
 export interface RecordingEventType
     extends Pick<EventType, 'id' | 'event' | 'properties' | 'timestamp' | 'elements'>,
-    RecordingTimeMixinType {
+        RecordingTimeMixinType {
     fullyLoaded: boolean
 }
 
@@ -2156,9 +2156,9 @@ export interface FunnelCorrelation {
     failure_people_url: string
     correlation_type: FunnelCorrelationType.Failure | FunnelCorrelationType.Success
     result_type:
-    | FunnelCorrelationResultsType.Events
-    | FunnelCorrelationResultsType.Properties
-    | FunnelCorrelationResultsType.EventWithProperties
+        | FunnelCorrelationResultsType.Events
+        | FunnelCorrelationResultsType.Properties
+        | FunnelCorrelationResultsType.EventWithProperties
 }
 
 export enum FunnelCorrelationType {
@@ -3488,12 +3488,12 @@ export type SDK = {
     recommended?: boolean
     tags: string[]
     image:
-    | string
-    | JSX.Element
-    // storybook handles require() differently, so we need to support both
-    | {
-        default: string
-    }
+        | string
+        | JSX.Element
+        // storybook handles require() differently, so we need to support both
+        | {
+              default: string
+          }
     docsLink: string
 }
 
