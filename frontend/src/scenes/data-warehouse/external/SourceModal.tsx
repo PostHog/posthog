@@ -1,7 +1,9 @@
 import { LemonButton, LemonDivider, LemonInput, LemonModal, LemonModalProps, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Field } from 'lib/forms/Field'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import hubspotLogo from 'public/hubspot-logo.png'
 import stripeLogo from 'public/stripe-logo.svg'
 
@@ -17,6 +19,7 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
     const { tableLoading, selectedConnector, isManualLinkFormVisible, connectors, addToHubspotButtonUrl } =
         useValues(sourceModalLogic)
     const { selectConnector, toggleManualLinkFormVisible, onClear } = useActions(sourceModalLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const MenuButton = (config: ConnectorConfigType): JSX.Element => {
         const onClick = (): void => {
@@ -30,7 +33,7 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
                 </LemonButton>
             )
         }
-        if (config.name === 'Hubspot') {
+        if (config.name === 'Hubspot' && featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_HUBSPOT_IMPORT]) {
             return (
                 <Link to={addToHubspotButtonUrl() || ''}>
                     <LemonButton className="w-100" center type="secondary">
