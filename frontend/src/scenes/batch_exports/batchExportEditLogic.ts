@@ -109,6 +109,7 @@ const formFields = (
                   table_id: !config.table_id ? 'This field is required' : '',
                   exclude_events: '',
                   include_events: '',
+                  use_json_type: '',
               }
             : destination === 'Snowflake'
             ? {

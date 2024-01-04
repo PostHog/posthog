@@ -1,10 +1,15 @@
-import { ActivityLogItem, HumanizedChange, userNameForLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import {
+    ActivityLogItem,
+    defaultDescriber,
+    HumanizedChange,
+    userNameForLogItem,
+} from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { Link } from 'lib/lemon-ui/Link'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
-export function personActivityDescriber(logItem: ActivityLogItem): HumanizedChange {
+export function personActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope != 'Person') {
         console.error('person describer received a non-person activity')
         return { description: null }
@@ -77,5 +82,5 @@ export function personActivityDescriber(logItem: ActivityLogItem): HumanizedChan
         }
     }
 
-    return { description: null }
+    return defaultDescriber(logItem, asNotification)
 }
