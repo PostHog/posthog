@@ -253,7 +253,7 @@ def _to_value_expression(
     direct_on_events: bool = False,
     cast_as_float: bool = False,
 ) -> Tuple[str, Dict]:
-    params = {}
+    params: Dict[str, Any] = {}
     if breakdown_type == "session":
         if breakdown == "$session_duration":
             # Return the session duration expression right away because it's already an number,
