@@ -15,7 +15,6 @@ from typing import (
 
 from rest_framework import exceptions
 
-from posthog.clickhouse.client.escape import escape_param_for_clickhouse
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import (
     TableWithProperties,
@@ -652,7 +651,7 @@ def get_single_or_multi_property_string_expr(
     allow_denormalized_props=True,
     materialised_table_column: str = "properties",
     normalize_url: bool = False,
-):
+) -> (str, Dict[str, Any]):
     """
     When querying for breakdown properties:
      * If the breakdown provided is a string, we extract the JSON from the properties object stored in the DB
@@ -666,12 +665,16 @@ def get_single_or_multi_property_string_expr(
         no alias will be appended.
 
     """
-
+    breakdown_params = {}
     if isinstance(breakdown, str) or isinstance(breakdown, int):
+        breakdown_key = f"breakdown_param_{len(breakdown_params) + 1}"
+        breakdown_key = f"breakdown_param_{len(breakdown_params) + 1}"
+        breakdown_params[breakdown_key] = breakdown
+
         expression, _ = get_property_string_expr(
             table,
             str(breakdown),
-            escape_param_for_clickhouse(breakdown),
+            f"%({breakdown_key})s",
             column,
             allow_denormalized_props,
             materialised_table_column=materialised_table_column,
@@ -681,10 +684,12 @@ def get_single_or_multi_property_string_expr(
     else:
         expressions = []
         for b in breakdown:
+            breakdown_key = f"breakdown_var_{len(breakdown_params) + 1}"
+            breakdown_params[breakdown_key] = b
             expr, _ = get_property_string_expr(
                 table,
                 b,
-                escape_param_for_clickhouse(b),
+                f"%({breakdown_key})s",
                 column,
                 allow_denormalized_props,
                 materialised_table_column=materialised_table_column,
@@ -694,9 +699,9 @@ def get_single_or_multi_property_string_expr(
         expression = f"array({','.join(expressions)})"
 
     if query_alias is None:
-        return expression
+        return expression, breakdown_params
 
-    return f"{expression} AS {query_alias}"
+    return f"{expression} AS {query_alias}", breakdown_params
 
 
 def normalize_url_breakdown(breakdown_value, breakdown_normalize_url: bool = True):
