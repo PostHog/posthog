@@ -944,7 +944,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     name: 'Feature Flags',
                     path: urls.featureFlags(),
                 },
-                { key: featureFlag.id || 'unknown', name: featureFlag.key || 'Unnamed' },
+                { key: [Scene.FeatureFlag, featureFlag.id || 'unknown'], name: featureFlag.key || 'Unnamed' },
             ],
         ],
         propertySelectErrors: [

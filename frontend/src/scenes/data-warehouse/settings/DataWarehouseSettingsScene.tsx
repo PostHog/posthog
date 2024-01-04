@@ -101,7 +101,7 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                     },
                     {
                         title: 'Sync Frequency',
-                        key: 'prefix',
+                        key: 'frequency',
                         render: function RenderFrequency() {
                             return 'Every 24 hours'
                         },
