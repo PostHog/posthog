@@ -35,7 +35,7 @@ export const dataWarehouseSavedQueriesLogic = kea<dataWarehouseSavedQueriesLogic
     })),
     listeners(() => ({
         createDataWarehouseSavedQuerySuccess: () => {
-            router.actions.push(urls.dataWarehouseSavedQueries())
+            router.actions.push(urls.dataWarehouse())
         },
     })),
     selectors({

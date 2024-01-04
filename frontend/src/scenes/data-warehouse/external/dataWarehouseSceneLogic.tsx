@@ -6,22 +6,37 @@ import { userLogic } from 'scenes/userLogic'
 
 import { DataWarehouseTable, ProductKey } from '~/types'
 
+import { dataWarehouseSavedQueriesLogic } from '../saved_queries/dataWarehouseSavedQueriesLogic'
 import { DatabaseTableListRow, DataWarehouseSceneRow } from '../types'
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
 
 export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     path(['scenes', 'warehouse', 'dataWarehouseSceneLogic']),
     connect(() => ({
-        values: [userLogic, ['user'], databaseTableListLogic, ['filteredTables']],
+        values: [
+            userLogic,
+            ['user'],
+            databaseTableListLogic,
+            ['filteredTables'],
+            dataWarehouseSavedQueriesLogic,
+            ['savedQueries'],
+        ],
     })),
     actions({
         toggleSourceModal: (isOpen?: boolean) => ({ isOpen }),
+        selectRow: (row: DataWarehouseSceneRow) => ({ row }),
     }),
     reducers({
         isSourceModalOpen: [
             false,
             {
                 toggleSourceModal: (state, { isOpen }) => (isOpen != undefined ? isOpen : !state),
+            },
+        ],
+        selectedRow: [
+            null as DataWarehouseSceneRow | null,
+            {
+                selectRow: (_, { row }) => row,
             },
         ],
     }),
@@ -68,6 +83,22 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                         ({
                             name: table.name,
                             columns: table.columns,
+                        } as DataWarehouseSceneRow)
+                )
+            },
+        ],
+        savedQueriesFormatted: [
+            (s) => [s.savedQueries],
+            (savedQueries): DataWarehouseSceneRow[] => {
+                if (!savedQueries) {
+                    return []
+                }
+
+                return savedQueries.map(
+                    (query) =>
+                        ({
+                            name: query.name,
+                            columns: query.columns,
                         } as DataWarehouseSceneRow)
                 )
             },
