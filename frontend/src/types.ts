@@ -3434,6 +3434,7 @@ export type BatchExportDestinationBigQuery = {
         table_id: string
         exclude_events: string[]
         include_events: string[]
+        use_json_type: boolean
     }
 }
 
