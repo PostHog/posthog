@@ -13,8 +13,10 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { ActivityFilters } from '~/layout/navigation-3000/sidepanel/panels/activity/activityForSceneLogic'
 import { hogqlQuery } from '~/queries/query'
 import {
+    ActivityScope,
     AnyPropertyFilter,
     Breadcrumb,
     CohortType,
@@ -259,6 +261,17 @@ export const personsLogic = kea<personsLogicType>([
                     })
                 }
                 return breadcrumbs
+            },
+        ],
+
+        activityFilters: [
+            (s) => [s.person],
+            (person): ActivityFilters => {
+                return {
+                    scope: ActivityScope.PERSON,
+                    // TODO: Is this correct? It doesn't seem to work...
+                    item_id: person?.id ? `${person?.id}` : undefined,
+                }
             },
         ],
 
