@@ -172,6 +172,14 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
         })
     }
 
+    if (featureFlags[FEATURE_FLAGS.SCHEDULED_CHANGES_FEATURE_FLAGS]) {
+        tabs.push({
+            label: 'Schedule',
+            key: FeatureFlagsTab.SCHEDULE,
+            content: <FeatureFlagSchedule />,
+        })
+    }
+
     if (featureFlags[FEATURE_FLAGS.FF_DASHBOARD_TEMPLATES] && featureFlag.key && id) {
         tabs.push({
             label: (
@@ -219,14 +227,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                     />
                 </PayGateMini>
             ),
-        })
-    }
-
-    if (featureFlags[FEATURE_FLAGS.SCHEDULED_CHANGES_FEATURE_FLAGS]) {
-        tabs.push({
-            label: 'Schedule',
-            key: FeatureFlagsTab.SCHEDULE,
-            content: <FeatureFlagSchedule />,
         })
     }
 
