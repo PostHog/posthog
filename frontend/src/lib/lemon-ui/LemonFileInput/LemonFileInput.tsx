@@ -40,13 +40,6 @@ export const LemonFileInput = ({
     const [drag, setDrag] = useState(false)
     const dropRef = createRef<HTMLDivElement>()
 
-    callToAction = callToAction || (
-        <>
-            <IconUploadFile className={'text-2xl'} /> Click or drag and drop to upload
-            {accept ? ` ${acceptToDisplayName(accept)}` : ''}
-        </>
-    )
-
     useEffect(() => {
         if (value && value !== files) {
             setFiles(value)
@@ -144,7 +137,12 @@ export const LemonFileInput = ({
                         accept={accept}
                         onChange={onInputChange}
                     />
-                    {callToAction}
+                    {callToAction || (
+                        <>
+                            <IconUploadFile className={'text-2xl'} /> Click or drag and drop to upload
+                            {accept ? ` ${acceptToDisplayName(accept)}` : ''}
+                        </>
+                    )}
                 </label>
                 {files.length > 0 && (
                     <div className={'flex flex-row gap-2'}>
