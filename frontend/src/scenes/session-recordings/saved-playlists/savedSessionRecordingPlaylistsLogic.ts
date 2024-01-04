@@ -8,9 +8,9 @@ import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { objectClean, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { urls } from 'scenes/urls'
 
-import { removeProjectIdIfPresent } from '~/initKea'
 import { ReplayTabs, SessionRecordingPlaylistType } from '~/types'
 
 import { createPlaylist, deletePlaylist } from '../playlist/playlistUtils'
