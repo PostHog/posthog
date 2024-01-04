@@ -2513,6 +2513,11 @@ export interface PreflightStatus {
         available: boolean
         client_id?: string
     }
+    data_warehouse_integrations: {
+        hubspot: {
+            client_id?: string
+        }
+    }
     /** Whether PostHog is running in DEBUG mode. */
     is_debug?: boolean
     licensed_users_available?: number | null
@@ -3369,13 +3374,13 @@ export interface DataWarehouseViewLink {
     from_join_key?: string
 }
 
-export interface ExternalDataStripeSourceCreatePayload {
-    account_id: string
-    client_secret: string
-    prefix: string
-    source_type: string
-}
+export type ExternalDataSourceType = 'Stripe' | 'Hubspot'
 
+export interface ExternalDataSourceCreatePayload {
+    source_type: ExternalDataSourceType
+    prefix: string
+    payload: Record<string, any>
+}
 export interface ExternalDataStripeSource {
     id: string
     source_id: string

@@ -222,6 +222,9 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Data warehouse settings',
         defaultDocsPath: '/docs/data-warehouse',
     },
+    [Scene.DataWarehouseRedirect]: {
+        name: 'Data warehouse redirect',
+    },
     [Scene.DataWarehouseTable]: {
         projectBased: true,
         name: 'Data warehouse table',
@@ -514,6 +517,7 @@ export const routes: Record<string, Scene> = {
     [urls.dataWarehouseExternal()]: Scene.DataWarehouseExternal,
     [urls.dataWarehouseSavedQueries()]: Scene.DataWarehouseSavedQueries,
     [urls.dataWarehouseSettings()]: Scene.DataWarehouseSettings,
+    [urls.dataWarehouseRedirect(':kind')]: Scene.DataWarehouseRedirect,
     [urls.featureFlags()]: Scene.FeatureFlags,
     [urls.featureFlag(':id')]: Scene.FeatureFlag,
     [urls.annotations()]: Scene.DataManagement,
