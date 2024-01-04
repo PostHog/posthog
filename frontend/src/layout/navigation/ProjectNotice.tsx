@@ -22,7 +22,7 @@ interface ProjectNoticeBlueprint {
 export function ProjectNotice(): JSX.Element | null {
     const { projectNoticeVariantWithClosability } = useValues(navigationLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { logout, switchTeam } = useActions(userLogic)
+    const { logout } = useActions(userLogic)
     const { user } = useValues(userLogic)
     const { closeProjectNotice } = useActions(navigationLogic)
     const { showInviteModal } = useActions(inviteLogic)

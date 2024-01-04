@@ -219,12 +219,13 @@ class AutoProjectMiddleware:
         # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
         #   However this should be a rare operation!
         if user_permissions.team(new_team).effective_membership_level is not None:
+            old_team_id = user.current_team_id
             user.team = new_team
             user.current_team = new_team
             user.current_organization_id = new_team.organization_id
             user.save()
             # Information for POSTHOG_APP_CONTEXT
-            request.switched_team = new_team.id  # type: ignore
+            request.switched_team = old_team_id  # type: ignore
 
 
 class CHQueries:
