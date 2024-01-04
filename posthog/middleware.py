@@ -213,7 +213,7 @@ class AutoProjectMiddleware:
         if current_team is not None and not target_queryset.filter(team=current_team).exists():
             actual_item = target_queryset.only("team").select_related("team").first()
             if actual_item is not None:
-                self.switch_team(actual_item.team, request)
+                self.switch_team_if_allowed(actual_item.team, request)
 
     def switch_team_if_allowed(self, new_team: Team, request: HttpRequest):
         user = cast(User, request.user)
