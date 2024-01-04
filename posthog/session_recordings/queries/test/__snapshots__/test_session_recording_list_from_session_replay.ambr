@@ -3842,7 +3842,7 @@
           AND timestamp >= '2021-01-13 12:00:00'
           AND timestamp <= '2021-01-22 08:00:00'
           WHERE notEmpty(`$session_id`)
-            AND (has(['false'], "mat_is_internal_user"))
+            AND (has(['false'], replaceRegexpAll(JSONExtractRaw(e.properties, \'is_internal_user\'), \'^"|"$\', \'\')))
           GROUP BY `$session_id`
           HAVING 1=1) as session_events_sub_query)
   GROUP BY session_id
