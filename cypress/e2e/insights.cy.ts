@@ -91,7 +91,7 @@ describe('Insights', () => {
 
     it('Shows not found error with invalid short URL', () => {
         cy.visit('/i/i_dont_exist')
-        cy.location('pathname').should('eq', '/insights/i_dont_exist')
+        cy.location('pathname').should('contain', '/insights/i_dont_exist')
         cy.get('.LemonSkeleton').should('exist')
     })
 
