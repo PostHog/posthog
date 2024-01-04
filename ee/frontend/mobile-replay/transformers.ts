@@ -14,6 +14,7 @@ import { isObject } from 'lib/utils'
 
 import {
     attributes,
+    documentNode,
     elementNode,
     fullSnapshotEvent as MobileFullSnapshotEvent,
     keyboardEvent,
@@ -844,22 +845,82 @@ function isMobileIncrementalSnapshotEvent(x: unknown): x is MobileIncrementalSna
     return hasMutationSource && (hasAddedWireframe || hasUpdatedWireframe)
 }
 
-function makeIncrementalAdd(add: MobileNodeMutation): addedNodeMutation | null {
+function makeIncrementalAdd(add: MobileNodeMutation): addedNodeMutation[] | null {
     const converted = convertWireframe(add.wireframe)
-    return converted
-        ? {
-              parentId: add.parentId,
-              nextId: null,
-              node: converted,
-          }
-        : null
+    if (!converted) {
+        return null
+    }
+
+    const addition: addedNodeMutation = {
+        parentId: add.parentId,
+        nextId: null,
+        node: converted,
+    }
+    const adds: addedNodeMutation[] = []
+    if (addition) {
+        const flattened = flattenMutationAdds(addition)
+        flattened.forEach((x) => adds.push(x))
+        return adds
+    } else {
+        return null
+    }
 }
 
-function makeIncrementalRemove(update: MobileNodeMutation): removedNodeMutation {
+/**
+ * When processing an update we remove the entire item, and then add it back in.
+ */
+function makeIncrementalRemoveForUpdate(update: MobileNodeMutation): removedNodeMutation {
     return {
         parentId: update.parentId,
         id: update.wireframe.id,
     }
+}
+
+function isNode(x: unknown): x is serializedNodeWithId {
+    // KLUDGE: really we should check that x.type is valid, but we're safe enough already
+    return isObject(x) && 'type' in x && 'id' in x
+}
+
+function isNodeWithChildren(x: unknown): x is elementNode | documentNode {
+    return isNode(x) && 'childNodes' in x && Array.isArray(x.childNodes)
+}
+
+/**
+ * when creating incremental adds we have to flatten the node tree structure
+ * there's no point, then keeping those child nodes in place
+ */
+function cloneWithoutChildren(converted: addedNodeMutation): addedNodeMutation {
+    const cloned = { ...converted }
+    const clonedNode: serializedNodeWithId = { ...converted.node }
+    if (isNodeWithChildren(clonedNode)) {
+        clonedNode.childNodes = []
+    }
+    cloned.node = clonedNode
+    return cloned
+}
+
+function flattenMutationAdds(converted: addedNodeMutation): addedNodeMutation[] {
+    const flattened: addedNodeMutation[] = []
+
+    flattened.push(cloneWithoutChildren(converted))
+
+    const node: unknown = converted.node
+    const newParentId = converted.node.id
+    if (isNodeWithChildren(node)) {
+        node.childNodes.forEach((child) => {
+            flattened.push(
+                cloneWithoutChildren({
+                    parentId: newParentId,
+                    nextId: null,
+                    node: child,
+                })
+            )
+            if (isNodeWithChildren(child)) {
+                flattened.push(...flattenMutationAdds({ parentId: newParentId, nextId: null, node: child }))
+            }
+        })
+    }
+    return flattened
 }
 
 /**
@@ -868,7 +929,7 @@ function makeIncrementalRemove(update: MobileNodeMutation): removedNodeMutation 
  *
  * For "removes", we don't need to do anything, the id of the element to be removed remains valid. We won't try and remove other elements that we added during transformation in order to show that element.
  *
- * "adds" are converted from wireframes to nodes and converted to incrementalSnapshotEvent.adds
+ * "adds" are converted from wireframes to nodes and converted to `incrementalSnapshotEvent.adds`
  *
  * "updates" are converted to a remove and an add.
  *
@@ -892,26 +953,19 @@ export const makeIncrementalEvent = (
 
     if (isMobileIncrementalSnapshotEvent(mobileEvent)) {
         const adds: addedNodeMutation[] = []
-        const removes: removedNodeMutation[] = []
+        const removes: removedNodeMutation[] = mobileEvent.data.removes || []
         if ('adds' in mobileEvent.data && Array.isArray(mobileEvent.data.adds)) {
             mobileEvent.data.adds.forEach((add) => {
-                const converted = makeIncrementalAdd(add)
-                if (converted) {
-                    // TODO when implementing keyboard placeholder we had to flatten the mutations not nest them
-                    adds.push(converted)
-                }
+                makeIncrementalAdd(add)?.forEach((x) => adds.push(x))
             })
         }
         if ('updates' in mobileEvent.data && Array.isArray(mobileEvent.data.updates)) {
             mobileEvent.data.updates.forEach((update) => {
-                const removal = makeIncrementalRemove(update)
+                const removal = makeIncrementalRemoveForUpdate(update)
                 if (removal) {
                     removes.push(removal)
                 }
-                const addition = makeIncrementalAdd(update)
-                if (addition) {
-                    adds.push(addition)
-                }
+                makeIncrementalAdd(update)?.forEach((x) => adds.push(x))
             })
         }
 
