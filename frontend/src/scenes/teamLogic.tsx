@@ -242,7 +242,7 @@ export const teamLogic = kea<teamLogicType>([
             lemonToast.info(<>You've switched to&nbsp;project {currentTeam?.name}</>, {
                 button: {
                     label: 'Switch back',
-                    action: () => userLogic.actions.updateCurrentTeam(switchedTeam),
+                    action: () => actions.switchTeam(switchedTeam),
                 },
                 icon: <IconSwapHoriz />,
             })
