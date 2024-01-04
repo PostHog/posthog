@@ -130,12 +130,11 @@ export const commonConfig = {
     plugins: [
         sassPlugin({
             async transform(source, resolveDir, filePath) {
-                const { css } = await postcss([
-                    tailwindcss,
-                    autoprefixer,
-                    postcssPresetEnv({ stage: 0 }),
-                    cssnano({ preset: 'default' }),
-                ]).process(source, { from: filePath })
+                const plugins = [tailwindcss, autoprefixer, postcssPresetEnv({ stage: 0 })]
+                if (!isDev) {
+                    plugins.push(cssnano({ preset: 'default' }))
+                }
+                const { css } = await postcss(plugins).process(source, { from: filePath })
                 return css
             },
         }),
