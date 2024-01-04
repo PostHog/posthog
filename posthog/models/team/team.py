@@ -30,7 +30,7 @@ from posthog.models.utils import (
     sane_repr,
 )
 from posthog.settings.utils import get_list
-from posthog.utils import GenericEmails, PersonOnEventsMode
+from posthog.utils import GenericEmails, PersonOnEventsMode, generate_short_id
 
 from .team_caching import get_team_in_cache, set_team_in_cache
 
@@ -138,6 +138,7 @@ class WeekStartDay(models.IntegerChoices):
 
 
 class Team(UUIDClassicModel):
+    short_id: models.CharField = models.CharField(max_length=12, blank=True, default=generate_short_id, null=True)
     organization: models.ForeignKey = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,
