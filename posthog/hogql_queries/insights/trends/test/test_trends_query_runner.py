@@ -955,6 +955,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert len(response.results) == 1
+        assert response.results[0]["count"] == 10
         assert response.results[0]["data"] == [
             1,
             1,
