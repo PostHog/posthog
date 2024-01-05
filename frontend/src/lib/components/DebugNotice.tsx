@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { IconBranch, IconClose } from 'lib/lemon-ui/icons'
+import { IconBranch, IconClose, IconCode } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useEffect, useState } from 'react'
 
@@ -54,18 +54,21 @@ export function DebugNotice(): JSX.Element | null {
     }
     return (
         <div
-            className="cursor-pointer border rounded bg-bg-3000 overflow-hidden w-full"
-            onClick={() => setNoticeHidden(true)}
+            className="border rounded-md bg-bg-3000 overflow-hidden mb-1.5 w-full font-mono"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ fontSize: 13 }} // utility classes don't have a 13px variant
         >
             <div className="p-2 border-l-4 border-primary text-primary-3000 truncate flex justify-between">
                 <b>DEBUG mode</b>
                 <LemonButton icon={<IconClose />} size="small" noPadding onClick={() => setNoticeHidden(true)} />
             </div>
-            <div className="p-2 border-l-4 border-primary text-primary-3000 truncate">
-                Branch: <b>{debugInfo.branch}</b>
+            <div className="flex items-center gap-2 px-2 h-8 border-l-4 border-brand-red truncate" title="Branch">
+                <IconBranch className="text-lg" />
+                <b>{debugInfo.branch}</b>
             </div>
-            <div className="p-2 border-l-4 border-primary text-primary-3000 truncate">
-                Revision: <b>{debugInfo.revision}</b>
+            <div className="flex items-center gap-2 px-2 h-8 border-l-4 border-brand-yellow truncate" title="Revision">
+                <IconCode className="text-lg" />
+                <b>{debugInfo.revision}</b>
             </div>
         </div>
     )
