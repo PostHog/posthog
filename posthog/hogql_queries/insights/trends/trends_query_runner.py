@@ -200,6 +200,11 @@ class TrendsQueryRunner(QueryRunner):
                     },
                 }
             else:
+                if self._trends_display.display_type == ChartDisplayType.ActionsLineGraphCumulative:
+                    count = get_value("total", val)[-1]
+                else:
+                    count = float(sum(get_value("total", val)))
+
                 series_object = {
                     "data": get_value("total", val),
                     "labels": [
@@ -214,7 +219,7 @@ class TrendsQueryRunner(QueryRunner):
                         )
                         for item in get_value("date", val)
                     ],
-                    "count": float(sum(get_value("total", val))),
+                    "count": count,
                     "label": "All events" if series_label is None else series_label,
                     "filter": self._query_to_filter(),
                     "action": {  # TODO: Populate missing props in `action`
