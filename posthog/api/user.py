@@ -501,7 +501,7 @@ def redirect_to_website(request):
                 "iat": int(time.time()),
                 "exp": int((datetime.now() + timedelta(days=30)).timestamp()),
             },
-            os.environ.get("JWT_SECRET_STRAPI"),
+            os.environ.get("JWT_SECRET_STRAPI", "random_fallback_secret"),
             algorithm="HS256",
         )
 
