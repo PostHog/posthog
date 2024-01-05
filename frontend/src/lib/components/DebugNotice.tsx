@@ -9,7 +9,7 @@ import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 export function DebugNotice(): JSX.Element | null {
     const [debugInfo, setDebugInfo] = useState<{ branch: string; revision: string } | undefined>()
     const [noticeHidden, setNoticeHidden] = useState(false)
-    const { isNavCollapsedDesktop } = useValues(navigation3000Logic)
+    const { isNavCollapsed } = useValues(navigation3000Logic)
 
     useEffect(() => {
         const bottomNotice = document.getElementById('bottom-notice')
@@ -32,20 +32,23 @@ export function DebugNotice(): JSX.Element | null {
         return null
     }
 
-    if (isNavCollapsedDesktop) {
+    if (isNavCollapsed) {
         return (
             <NavbarButton
                 identifier="debug-notice"
-                icon={<IconBranch color="var(--primary)" />}
+                icon={<IconBranch className="text-primary" />}
                 title={
-                    <div>
-                        <p>DEBUG mode</p>{' '}
-                        <p>
+                    <div className="font-mono">
+                        <div>
+                            <strong>DEBUG mode!</strong>
+                        </div>
+                        <div>
                             Branch: <b>{debugInfo.branch}</b>
-                        </p>
-                        <p className="mb-0">
+                        </div>
+                        <div>
                             Revision: <b>{debugInfo.revision}</b>
-                        </p>
+                        </div>
+                        <div className="italic">Click to hide</div>
                     </div>
                 }
                 onClick={() => setNoticeHidden(true)}
