@@ -15,6 +15,10 @@ from posthog.caching.utils import is_stale
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql_queries.insights.trends.breakdown_values import (
+    BREAKDOWN_OTHER_NUMERIC_LABEL,
+    BREAKDOWN_OTHER_STRING_LABEL,
+)
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.query_builder import TrendsQueryBuilder
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
@@ -246,7 +250,7 @@ class TrendsQueryRunner(QueryRunner):
                 if self._is_breakdown_field_boolean():
                     remapped_label = self._convert_boolean(get_value("breakdown_value", val))
 
-                    if remapped_label == "" or remapped_label == '["",""]' or remapped_label is None:
+                    if remapped_label == "" or remapped_label is None:
                         # Skip the "none" series if it doesn't have any data
                         if series_object["count"] == 0 and series_object.get("aggregated_value", 0) == 0:
                             continue
@@ -262,7 +266,7 @@ class TrendsQueryRunner(QueryRunner):
                     series_object["breakdown_value"] = "all" if str(cohort_id) == "0" else int(cohort_id)
                 else:
                     remapped_label = get_value("breakdown_value", val)
-                    if remapped_label == "" or remapped_label == '["",""]' or remapped_label is None:
+                    if remapped_label == "" or remapped_label is None:
                         # Skip the "none" series if it doesn't have any data
                         if series_object["count"] == 0 and series_object.get("aggregated_value", 0) == 0:
                             continue
@@ -275,6 +279,15 @@ class TrendsQueryRunner(QueryRunner):
                         series_object["label"] = remapped_label
 
                     series_object["breakdown_value"] = remapped_label
+
+                    # If the breakdown value is the numeric "other", then set it to the string version
+                    if (
+                        remapped_label == BREAKDOWN_OTHER_NUMERIC_LABEL
+                        or remapped_label == str(BREAKDOWN_OTHER_NUMERIC_LABEL)
+                        or remapped_label == float(BREAKDOWN_OTHER_NUMERIC_LABEL)
+                    ):
+                        series_object["breakdown_value"] = BREAKDOWN_OTHER_STRING_LABEL
+                        series_object["label"] = "Other"
 
             res.append(series_object)
         return res
