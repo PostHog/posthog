@@ -471,28 +471,29 @@ def redirect_to_website(request):
     if not team or urllib.parse.urlparse(app_url).hostname not in PERMITTED_FORUM_DOMAINS:
         return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
 
-    token = ''
+    token = ""
 
     # check if a strapi id is attached
     if request.user.strapi_id is None:
-        response = requests.request("POST", "https://squeak.posthog.cc/api/auth/local/register", json={
-            "username": request.user.email,
-            "email": request.user.email,
-            "password": secrets.token_hex(32),
-            "firstName": request.user.first_name,
-            "lastName": request.user.last_name
-        }, headers={
-            "Content-Type": "application/json"
-        })
+        response = requests.request(
+            "POST",
+            "https://squeak.posthog.cc/api/auth/local/register",
+            json={
+                "username": request.user.email,
+                "email": request.user.email,
+                "password": secrets.token_hex(32),
+                "firstName": request.user.first_name,
+                "lastName": request.user.last_name,
+            },
+            headers={"Content-Type": "application/json"},
+        )
 
         if response.status_code == 200:
             json_data = response.json()
-            token = json_data['jwt']
-            strapi_id = json_data['user']['id']
+            token = json_data["jwt"]
+            strapi_id = json_data["user"]["id"]
             request.user.strapi_id = strapi_id
             request.user.save()
-        else:
-            print(f'Failed to retrieve data from the API. Error message: {response.text}')
     else:
         token = jwt.encode(
             {
