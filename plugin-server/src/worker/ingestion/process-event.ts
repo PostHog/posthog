@@ -363,6 +363,9 @@ function safeString(payload: (string | null)[]) {
         .join(' ')
 }
 
+/**
+ * copied from @rrweb-types
+ */
 export enum RRWebEventType {
     DomContentLoaded = 0,
     Load = 1,
@@ -384,12 +387,32 @@ enum RRWebEventSource {
     MediaInteraction = 7,
     StyleSheetRule = 8,
     CanvasMutation = 9,
-    Font = 1,
-    Log = 1,
-    Drag = 1,
-    StyleDeclaration = 1,
-    Selection = 1,
+    Font = 10,
+    Log = 11,
+    Drag = 12,
+    StyleDeclaration = 13,
+    Selection = 14,
+    AdoptedStyleSheet = 15,
 }
+
+enum MouseInteractions {
+    MouseUp = 0,
+    MouseDown = 1,
+    Click = 2,
+    ContextMenu = 3,
+    DblClick = 4,
+    Focus = 5,
+    Blur = 6,
+    TouchStart = 7,
+    TouchMove_Departed = 8,
+    TouchEnd = 9,
+    TouchCancel = 10,
+}
+
+/**
+ * end copied section from @rrweb-types
+ */
+
 export const gatherConsoleLogEvents = (
     team_id: number,
     session_id: string,
@@ -437,6 +460,29 @@ export const getTimestampsFrom = (events: RRWebEvent[]): ClickHouseTimestamp[] =
         .map((e) => castTimestampOrNow(e, TimestampFormat.ClickHouse))
         .sort()
 
+function isClick(event: RRWebEvent) {
+    const couldBeClick =
+        event.type === RRWebEventType.IncrementalSnapshot && event.data?.source === RRWebEventSource.MouseInteraction
+    const isClick =
+        couldBeClick &&
+        [
+            MouseInteractions.Click,
+            MouseInteractions.DblClick,
+            MouseInteractions.TouchEnd,
+            MouseInteractions.ContextMenu, // right click
+        ].includes(event.data?.type || -1)
+    return couldBeClick && isClick
+}
+
+function isAnyMouseActivity(event: RRWebEvent) {
+    return (
+        event.type === RRWebEventType.IncrementalSnapshot &&
+        [RRWebEventSource.MouseInteraction, RRWebEventSource.MouseMove, RRWebEventSource.TouchMove].includes(
+            event.data?.source || -1
+        )
+    )
+}
+
 export const createSessionReplayEvent = (
     uuid: string,
     team_id: number,
@@ -466,9 +512,11 @@ export const createSessionReplayEvent = (
     let url: string | null = null
     events.forEach((event) => {
         if (event.type === RRWebEventType.IncrementalSnapshot) {
-            mouseActivity += 1
-            if (event.data?.source === RRWebEventSource.MouseInteraction) {
+            if (isClick(event)) {
                 clickCount += 1
+            }
+            if (isAnyMouseActivity(event)) {
+                mouseActivity += 1
             }
             if (event.data?.source === RRWebEventSource.Input) {
                 keypressCount += 1
