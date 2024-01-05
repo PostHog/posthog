@@ -79,12 +79,25 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
             action: {
                 onClick: () => {
                     posthog.capture('data pipelines notice clicked')
+                    // if they don't dismiss it now, we won't show it next time they come back
+                    posthog.capture('data pipelines notice dismissed', {
+                        $set: {
+                            dismissedDataPipelinesNotice: true,
+                        },
+                    })
                 },
                 children: 'Learn more',
                 to: 'https://posthog.com',
                 targetBlank: true,
             },
             dismissKey: 'data-pipelines-notice',
+            onClose: () => {
+                posthog.capture('data pipelines notice dismissed', {
+                    $set: {
+                        dismissedDataPipelinesNotice: true,
+                    },
+                })
+            },
         })
     }
     return (
