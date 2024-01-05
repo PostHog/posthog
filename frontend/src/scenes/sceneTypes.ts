@@ -1,5 +1,7 @@
 import { LogicWrapper } from 'kea'
 
+import { ActivityScope } from '~/types'
+
 // The enum here has to match the first and only exported component of the scene.
 // If so, we can preload the scene's required chunks in parallel with the scene itself.
 
@@ -43,6 +45,7 @@ export enum Scene {
     DataWarehouseSavedQueries = 'DataWarehouseSavedQueries',
     DataWarehouseTable = 'DataWarehouseTable',
     DataWarehouseSettings = 'DataWarehouseSettings',
+    DataWarehouseRedirect = 'DataWarehouseRedirect',
     OrganizationCreateFirst = 'OrganizationCreate',
     ProjectHomepage = 'ProjectHomepage',
     ProjectCreateFirst = 'ProjectCreate',
@@ -133,7 +136,8 @@ export interface SceneConfig {
     organizationBased?: boolean
     /** Route requires project access (used e.g. by breadcrumbs). `true` implies also `organizationBased` */
     projectBased?: boolean
-
+    /** Set the scope of the activity (affects activity and discussion panel) */
+    activityScope?: ActivityScope
     /** Default docs path - what the docs side panel will open by default if this scene is active  */
     defaultDocsPath?: string
 }

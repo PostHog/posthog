@@ -671,7 +671,7 @@ class FeatureFlagViewSet(
         activity_page = load_activity(
             scope="FeatureFlag",
             team_id=self.team_id,
-            item_id=item_id,
+            item_ids=[str(item_id)],
             limit=limit,
             page=page,
         )

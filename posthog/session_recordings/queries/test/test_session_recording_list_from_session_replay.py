@@ -2698,7 +2698,9 @@ class TestClickhouseSessionRecordingsListFromSessionReplay(ClickhouseTestMixin, 
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
 
-    @also_test_with_materialized_columns(event_properties=["is_internal_user"])
+    # TRICKY: we had to disable use of materialized columns for part of the query generation
+    # due to RAM usage issues on the EU cluster
+    @also_test_with_materialized_columns(event_properties=["is_internal_user"], verify_no_jsonextract=False)
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
     def test_top_level_event_property_test_account_filter(self):
