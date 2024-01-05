@@ -1,4 +1,4 @@
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { BlushingHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
@@ -40,20 +40,15 @@ export const OnboardingVerificationStep = ({
                 reportIngestionContinueWithoutVerifying()
             }}
             continueOverride={<></>}
-            helpButton={
-                <LemonButton
-                    type="secondary"
-                    onClick={() => openSupportForm({ kind: 'support', target_area: 'onboarding' })}
-                >
-                    Need help?
-                </LemonButton>
-            }
+            helpButtonAction={{
+                type: 'secondary',
+                onClick: () => openSupportForm({ kind: 'support', target_area: 'onboarding' }),
+                children: 'Need help?',
+            }}
         >
-            <>
-                <div className="text-center mt-8">
-                    <Spinner className="text-5xl" />
-                </div>
-            </>
+            <div className="text-center mt-8">
+                <Spinner className="text-5xl" />
+            </div>
         </OnboardingStep>
     ) : (
         <OnboardingStep

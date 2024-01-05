@@ -1,4 +1,4 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonPropsBase, SideAction } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
@@ -9,6 +9,8 @@ import { urls } from 'scenes/urls'
 
 import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
 
+type onboardingButtonAction = SideAction & Pick<LemonButtonPropsBase, 'children'>
+
 export const OnboardingStep = ({
     stepKey,
     title,
@@ -17,7 +19,7 @@ export const OnboardingStep = ({
     showSkip = false,
     onSkip,
     continueAction,
-    helpButton,
+    helpButtonAction,
     continueOverride,
     backActionOverride,
     hedgehog,
@@ -29,7 +31,7 @@ export const OnboardingStep = ({
     showSkip?: boolean
     onSkip?: () => void
     continueAction?: () => void
-    helpButton?: JSX.Element
+    helpButtonAction?: onboardingButtonAction
     continueOverride?: JSX.Element
     backActionOverride?: () => void
     hedgehog?: JSX.Element
@@ -75,7 +77,7 @@ export const OnboardingStep = ({
                 <p>{subtitle}</p>
                 {children}
                 <div className="mt-8 flex justify-end gap-x-2">
-                    {helpButton && helpButton}
+                    {helpButtonAction && <LemonButton {...helpButtonAction} />}
                     {showSkip && (
                         <LemonButton
                             onClick={() => {
