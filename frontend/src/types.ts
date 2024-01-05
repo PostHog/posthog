@@ -231,7 +231,7 @@ export interface OrganizationType extends OrganizationBasicType {
     created_at: string
     updated_at: string
     plugins_access_level: PluginsAccessLevel
-    teams: TeamBasicType[] | null
+    teams: TeamBasicType[]
     available_features: AvailableFeature[]
     available_product_features: BillingV2FeatureType[]
     is_member_join_email_enabled: boolean
@@ -3499,6 +3499,7 @@ export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user
     // provides when creating the export.
     id: string
+    team_id: number
     name: string
     destination: BatchExportDestination
     interval: 'hour' | 'day' | 'every 5 minutes'
