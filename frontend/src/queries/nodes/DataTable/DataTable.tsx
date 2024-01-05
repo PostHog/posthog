@@ -1,7 +1,7 @@
 import './DataTable.scss'
 
 import clsx from 'clsx'
-import { BindLogic, useMountedLogic, useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -100,7 +100,7 @@ export function DataTable({
         key: dataNodeLogicKey ?? dataKey,
         cachedResults: cachedResults,
     }
-    const builtDataNodeLogic = useMountedLogic(dataNodeLogic) ?? dataNodeLogic(dataNodeLogicProps)
+    const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)
 
     const {
         response,
