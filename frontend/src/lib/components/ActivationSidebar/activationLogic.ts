@@ -377,6 +377,10 @@ export const activationLogic = kea<activationLogicType>([
             if (params?.onboarding_completed && !values.hasCompletedAllTasks) {
                 actions.toggleActivationSideBar()
                 actions.openSidePanel(SidePanelTab.Activation)
+                router.actions.replace(router.values.location.pathname, {
+                    ...router.values.searchParams,
+                    onboarding_completed: undefined,
+                })
             } else {
                 actions.hideActivationSideBar()
             }

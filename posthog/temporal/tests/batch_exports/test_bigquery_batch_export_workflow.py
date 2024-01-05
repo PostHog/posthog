@@ -143,12 +143,19 @@ def bigquery_dataset(bigquery_config, bigquery_client) -> typing.Generator[bigqu
 
     yield dataset
 
-    bigquery_client.delete_dataset(dataset_id, delete_contents=True, not_found_ok=True)
+    # bigquery_client.delete_dataset(dataset_id, delete_contents=True, not_found_ok=True)
 
 
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
+@pytest.mark.parametrize("use_json_type", [False, True])
 async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
-    clickhouse_client, activity_environment, bigquery_client, bigquery_config, exclude_events, bigquery_dataset
+    clickhouse_client,
+    activity_environment,
+    bigquery_client,
+    bigquery_config,
+    exclude_events,
+    bigquery_dataset,
+    use_json_type,
 ):
     """Test that the insert_into_bigquery_activity function inserts data into a BigQuery table.
 
@@ -215,6 +222,7 @@ async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
         data_interval_start=data_interval_start.isoformat(),
         data_interval_end=data_interval_end.isoformat(),
         exclude_events=exclude_events,
+        use_json_type=use_json_type,
         **bigquery_config,
     )
 
@@ -272,6 +280,7 @@ async def bigquery_batch_export(
 
 @pytest.mark.parametrize("interval", ["hour", "day"])
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
+@pytest.mark.parametrize("use_json_type", [False, True])
 async def test_bigquery_export_workflow(
     clickhouse_client,
     bigquery_client,
@@ -280,6 +289,7 @@ async def test_bigquery_export_workflow(
     exclude_events,
     ateam,
     table_id,
+    use_json_type,
 ):
     """Test BigQuery Export Workflow end-to-end.
 
@@ -321,6 +331,7 @@ async def test_bigquery_export_workflow(
         batch_export_id=str(bigquery_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
+        use_json_type=use_json_type,
         **bigquery_batch_export.destination.config,
     )
 

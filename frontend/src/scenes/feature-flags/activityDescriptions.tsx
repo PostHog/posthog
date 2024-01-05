@@ -2,6 +2,7 @@ import {
     ActivityChange,
     ActivityLogItem,
     ChangeMapping,
+    defaultDescriber,
     Description,
     detectBoolean,
     HumanizedChange,
@@ -261,21 +262,6 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
         return { description: null }
     }
 
-    if (logItem.activity == 'created') {
-        return {
-            description: <> created {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>,
-        }
-    }
-    if (logItem.activity == 'deleted') {
-        return {
-            description: (
-                <>
-                    deleted {asNotification && ' the flag '}
-                    {logItem.detail.name}
-                </>
-            ),
-        }
-    }
     if (logItem.activity == 'updated') {
         let changes: Description[] = []
         let changeSuffix: Description = (
@@ -319,5 +305,5 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
         }
     }
 
-    return { description: null }
+    return defaultDescriber(logItem, asNotification, nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name))
 }
