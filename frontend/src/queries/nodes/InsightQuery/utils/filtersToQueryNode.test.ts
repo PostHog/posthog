@@ -72,6 +72,14 @@ describe('actionsAndEventsToSeries', () => {
         expect(result[1].name).toEqual('item1')
         expect(result[2].name).toEqual('item2')
     })
+
+    it('assumes typeless series is an event series', () => {
+        const events: ActionFilter[] = [{ id: '$pageview', order: 0, name: 'item1' } as any]
+
+        const result = actionsAndEventsToSeries({ events })
+
+        expect(result[0].kind === NodeKind.EventsNode)
+    })
 })
 
 describe('cleanHiddenLegendIndexes', () => {

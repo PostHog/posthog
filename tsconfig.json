@@ -38,7 +38,7 @@
         "ignoreDeprecations": "5.0",
         "lib": ["dom", "es2019"]
     },
-    "include": ["frontend/**/*", ".storybook/**/*", "ee/frontend/**/*"],
+    "include": ["frontend/**/*", ".storybook/**/*", "playwright/**/*", "ee/frontend/**/*"],
     "exclude": ["frontend/dist/**/*"],
     "ts-node": {
         "compilerOptions": {

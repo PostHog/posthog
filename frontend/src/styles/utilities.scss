@@ -1408,3 +1408,7 @@ $decorations: underline, overline, line-through, no-underline;
 .aspect-video {
     aspect-ratio: 16 / 9;
 }
+
+.-scale-x-1 {
+    transform: scaleX(-1);
+}
