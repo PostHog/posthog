@@ -305,7 +305,7 @@ class TrendsQueryBuilder:
             and self.query.trendsFilter.smoothing_intervals is not None
             and self.query.trendsFilter.smoothing_intervals > 1
         ):
-            smoothing_count = ast.Alias(
+            rolling_average = ast.Alias(
                 alias="count",
                 expr=ast.Call(
                     name="floor",
@@ -326,7 +326,7 @@ class TrendsQueryBuilder:
                     ],
                 ),
             )
-            query.select = [smoothing_count]
+            query.select = [rolling_average]
 
         query.group_by = []
         query.order_by = []
