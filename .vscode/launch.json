@@ -72,7 +72,7 @@
                 "PRINT_SQL": "1",
                 "REPLAY_EVENTS_NEW_CONSUMER_RATIO": "1.0",
                 "AUTO_LOGIN": "True",
-                "BILLING_SERVICE_URL": "http://localhost:8100" // "https://billing.dev.posthog.dev"
+                "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev"
             },
             "console": "integratedTerminal",
             "python": "${workspaceFolder}/env/bin/python",
