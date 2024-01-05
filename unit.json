@@ -38,7 +38,8 @@
             "processes": 4,
             "working_directory": "/code",
             "path": ".",
-            "module": "posthog.wsgi",
+            "module": "posthog.asgi",
+            "protocol": "asgi",
             "user": "nobody",
             "limits": {
                 "requests": 50000
