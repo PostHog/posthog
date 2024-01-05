@@ -145,6 +145,7 @@ services:
         environment:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
+            TEMPORAL_HOST: temporal
 
 volumes:
     zookeeper-data:
