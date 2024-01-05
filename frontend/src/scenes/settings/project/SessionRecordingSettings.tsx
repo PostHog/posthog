@@ -4,6 +4,7 @@ import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUr
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FlagSelector } from 'lib/components/FlagSelector'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
@@ -182,6 +183,7 @@ export function ReplayCostControl(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { openSupportForm } = useActions(supportLogic)
     const samplingControlFeatureEnabled = hasAvailableFeature(AvailableFeature.SESSION_REPLAY_SAMPLING)
     const recordingDurationMinimumFeatureEnabled = hasAvailableFeature(AvailableFeature.RECORDING_DURATION_MINIMUM)
     const featureFlagRecordingFeatureEnabled = hasAvailableFeature(AvailableFeature.FEATURE_FLAG_BASED_RECORDING)
@@ -193,6 +195,14 @@ export function ReplayCostControl(): JSX.Element {
 
     return (
         <>
+            {!costControlFeaturesEnabled && (
+                <LemonBanner className="mb-2" type={'warning'}>
+                    <Link onClick={() => openSupportForm({ kind: 'support', target_area: 'session_replay' })}>
+                        Contact support
+                    </Link>{' '}
+                    to enable these features.
+                </LemonBanner>
+            )}
             <p>
                 PostHog offers several tools to let you control the number of recordings you collect and which users you
                 collect recordings for.{' '}
@@ -200,17 +210,19 @@ export function ReplayCostControl(): JSX.Element {
                     to={'https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record'}
                     target={'blank'}
                 >
-                    Learn more in our docs
+                    Learn more in our docs.
                 </Link>
             </p>
-            <LemonBanner className="mb-4" type={'info'}>
+
+            <LemonBanner className="mb-2" type={'info'}>
                 Requires posthog-js version 1.88.2 or greater
             </LemonBanner>
+
             <>
                 <div className={'flex flex-row justify-between'}>
                     <LemonLabel className="text-base">Sampling</LemonLabel>
                     <LemonSelect
-                        disabledReason={!costControlFeaturesEnabled && 'Please contact support to enable this feature'}
+                        disabledReason={!costControlFeaturesEnabled && 'Please contact support to enable this feature.'}
                         onChange={(v) => {
                             updateCurrentTeam({ session_recording_sample_rate: v })
                         }}
