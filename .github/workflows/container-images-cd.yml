@@ -72,17 +72,6 @@ jobs:
                   platforms: linux/arm64,linux/amd64
                   build-args: COMMIT_HASH=${{ github.sha }}
 
-            - name: Build and push unit container image
-              id: build-unit
-              uses: depot/build-push-action@v1
-              with:
-                  buildx-fallback: false # the fallback is so slow it's better to just fail
-                  push: true
-                  file: production-unit.Dockerfile
-                  tags: ${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:unit
-                  platforms: linux/arm64,linux/amd64
-                  build-args: COMMIT_HASH=${{ github.sha }}
-
             - name: get deployer token
               id: deployer
               uses: getsentry/action-github-app-token@v2
@@ -102,7 +91,7 @@ jobs:
                   message: |
                       {
                         "image_tag": "${{ steps.build.outputs.digest }}",
-                        "image_tag_unit": "${{ steps.build-unit.outputs.digest }}",
+                        "image_tag_unit": "${{ steps.build.outputs.digest }}",
                         "context": ${{ toJson(github) }}
                       }
 

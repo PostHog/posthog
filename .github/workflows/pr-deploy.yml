@@ -56,7 +56,7 @@ jobs:
               uses: aws-actions/amazon-ecr-login@v2
 
             - name: Build and push PR test image
-              id: build-unit
+              id: build
               uses: depot/build-push-action@v1
               with:
                   buildx-fallback: false # the fallback is so slow it's better to just fail
