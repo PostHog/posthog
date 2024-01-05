@@ -10,7 +10,7 @@ import { createKafkaProducer, disconnectProducer, flushProducer, produce } from 
 import { PluginsServerConfig } from '../../../../types'
 import { status } from '../../../../utils/status'
 import { eventDroppedCounter } from '../../metrics'
-import { ConsoleLogEntry, gatherConsoleLogEvents, RRWebEventType } from '../process-events'
+import { ConsoleLogEntry, gatherConsoleLogEvents, RRWebEventType } from '../process-event'
 import { IncomingRecordingMessage } from '../types'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
 
