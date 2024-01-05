@@ -59,7 +59,6 @@ jobs:
         timeout-minutes: 5
         outputs:
             chunks: ${{ steps.chunk.outputs.chunks }}
-
         steps:
             - name: Check out
               uses: actions/checkout@v3
