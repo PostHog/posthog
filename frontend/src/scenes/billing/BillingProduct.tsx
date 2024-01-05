@@ -73,8 +73,8 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
     if (showPipelineAddonNotice) {
         setProductSpecificAlert({
             status: 'info',
-            title: 'Welcome to data pipelines!',
-            message: `We've split features (and cost) for product analytics to better reflect users' needs. Your overall
+            title: 'Welcome to the data pipelines addon!',
+            message: `We've moved data export features (and cost) to the data pipelines addon to better reflect user needs. Your overall
                     price hasn't changed.`,
             action: {
                 onClick: () => {
