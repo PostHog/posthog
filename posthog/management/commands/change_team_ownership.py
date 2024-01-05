@@ -1,9 +1,11 @@
 import logging
-import structlog
 import uuid
+
+import structlog
+from django.core.management import CommandError
 from django.core.management.base import BaseCommand
 
-from posthog.models import Team, Organization
+from posthog.models import Organization, Team
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -27,12 +29,10 @@ def run(options):
     live_run = options["live_run"]
 
     if options["team_id"] is None:
-        logger.error("You must specify --team-id to run this script")
-        exit(1)
+        raise CommandError("You must specify --team-id to run this script")
 
     if options["organization_id"] is None:
-        logger.error("You must specify --organization-id to run this script")
-        exit(1)
+        raise CommandError("You must specify --organization-id to run this script")
 
     team_id = options["team_id"]
     organization_id = options["organization_id"]
@@ -44,8 +44,7 @@ def run(options):
     logger.info(f"Target organization {organization_id} is named {org.name}")
 
     if team.organization_id == organization_id:
-        logger.error(f"Team is already in the specified organization")
-        exit(1)
+        raise CommandError("Team is already in the specified organization")
 
     if live_run:
         team.organization_id = organization_id
