@@ -613,68 +613,21 @@ class SquashPersonOverridesInputs:
 class SquashPersonOverridesWorkflow(PostHogWorkflow):
     """Workflow to squash outstanding person overrides into events.
 
-    Squashing refers to the process of updating the person_id associated with an event
-    to match the new id assigned via a person override. This process must be done
-    regularly to control the size of the person_overrides table.
+    Squashing refers to the process of updating the person ID of existing
+    ClickHouse event records on disk to reflect their most up-to-date person ID.
 
-    TODO: This comment should be rewritten!
+    The persons associated with existing events can change as a result of
+    actions such as person merges. To account for this, we keep a record of what
+    new person ID should be used in place of (or "override") a previously used
+    person ID. The ``posthog_flatpersonoverride`` table is the primary
+    representation of this data in Postgres. The ``person_overrides`` table in
+    ClickHouse contains a replica of the data stored in Postgres, and can be
+    joined onto the events table to get the most up-to-date person for an event.
 
-    For example, let's imagine the initial state of tables as:
-
-    posthog_personoverridesmapping
-
-    | id      | uuid                                   |
-    | ------- + -------------------------------------- |
-    | 1       | '179bed4d-0cf9-49a5-8826-b4c36348fae4' |
-    | 2       | 'ced21432-7528-4045-bc22-855cbe69a6c1' |
-
-    posthog_personoverride
-
-    | old_person_id | override_person_id |
-    | ------------- + ------------------ |
-    | 1             | 2                  |
-
-    The activity select_persons_to_delete will select the uuid with id 1 as safe to delete
-    as its the only old_person_id at the time of starting.
-
-    While executing this job, a new override (2->3) may be inserted, leaving both tables as:
-
-    posthog_personoverridesmapping
-
-    | id      | uuid                                   |
-    | ------- + -------------------------------------- |
-    | 1       | '179bed4d-0cf9-49a5-8826-b4c36348fae4' |
-    | 2       | 'ced21432-7528-4045-bc22-855cbe69a6c1' |
-    | 3       | 'b57de46b-55ad-4126-9a92-966fac570ec4' |
-
-    posthog_personoverride
-
-    | old_person_id | override_person_id |
-    | ------------- + ------------------ |
-    | 1             | 3                  |
-    | 2             | 3                  |
-
-    Upon executing the squash_events_partition events with person_id 1 or 2 will be correctly
-    updated to reference person_id 3.
-
-    At the end, we'll cleanup the tables by deleting the old_person_ids we deemed safe to do
-    so (1) from both tables:
-
-    posthog_personoverridesmapping
-
-    | id      | uuid                                   |
-    | ------- + -------------------------------------- |
-    | 2       | 'ced21432-7528-4045-bc22-855cbe69a6c1' |
-    | 3       | 'b57de46b-55ad-4126-9a92-966fac570ec4' |
-
-    posthog_personoverride
-
-    | old_person_id | override_person_id |
-    | ------------- + ------------------ |
-    | 2             | 3                  |
-
-    Any overrides that arrived during the job will be left there for the next job run to clean
-    up. These will be a no-op for the next job run as the override will already have been applied.
+    This process must be done regularly to control the size of the person
+    overrides tables -- both to reduce the amount of storage required for these
+    tables, as well as ensuring that the join mentioned previously does not
+    become prohibitively large to evaluate.
     """
 
     @staticmethod
