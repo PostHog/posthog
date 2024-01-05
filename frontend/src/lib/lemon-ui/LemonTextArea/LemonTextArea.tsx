@@ -10,7 +10,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import posthog from 'posthog-js'
-import React, { createRef, useRef, useState } from 'react'
+import React, { useRef, useState } from 'react'
 import TextareaAutosize from 'react-textarea-autosize'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -80,7 +80,7 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
         const { objectStorageAvailable } = useValues(preflightLogic)
 
         const [isPreviewShown, setIsPreviewShown] = useState(false)
-        const dropRef = createRef<HTMLDivElement>()
+        const dropRef = useRef<HTMLDivElement>(null)
 
         const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
             onUpload: (url, fileName) => {
