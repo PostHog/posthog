@@ -1,7 +1,7 @@
 import './DataTable.scss'
 
 import clsx from 'clsx'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useMountedLogic, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -69,6 +69,8 @@ interface DataTableProps {
     /* Cached Results are provided when shared or exported,
     the data node logic becomes read only implicitly */
     cachedResults?: AnyResponseType
+    // Override the data logic node key if needed
+    dataNodeLogicKey?: string
 }
 
 const eventGroupTypes = [
@@ -81,17 +83,24 @@ const personGroupTypes = [TaxonomicFilterGroupType.HogQLExpression, TaxonomicFil
 
 let uniqueNode = 0
 
-export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }: DataTableProps): JSX.Element {
+export function DataTable({
+    uniqueKey,
+    query,
+    setQuery,
+    context,
+    cachedResults,
+    dataNodeLogicKey,
+}: DataTableProps): JSX.Element {
     const [uniqueNodeKey] = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
     const [vizKey] = useState(() => `DataTable.${uniqueNodeKey}`)
 
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
-        key: dataKey,
+        key: dataNodeLogicKey ?? dataKey,
         cachedResults: cachedResults,
     }
-    const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)
+    const builtDataNodeLogic = useMountedLogic(dataNodeLogic) ?? dataNodeLogic(dataNodeLogicProps)
 
     const {
         response,
@@ -105,7 +114,13 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         backToSourceQuery,
     } = useValues(builtDataNodeLogic)
 
-    const dataTableLogicProps: DataTableLogicProps = { query, vizKey: vizKey, dataKey: dataKey, context }
+    const dataTableLogicProps: DataTableLogicProps = {
+        query,
+        vizKey: vizKey,
+        dataKey: dataKey,
+        dataNodeLogicKey,
+        context,
+    }
     const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort, sourceFeatures } = useValues(
         dataTableLogic(dataTableLogicProps)
     )
