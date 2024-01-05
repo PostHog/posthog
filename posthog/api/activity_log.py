@@ -1,4 +1,5 @@
-from typing import Any, Optional
+import time
+from typing import Any, Optional, Dict
 
 from django.db.models import Q, QuerySet
 
@@ -13,7 +14,6 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models import ActivityLog, FeatureFlag, Insight, NotificationViewed, User
 from posthog.models.comment import Comment
 from posthog.models.notebook.notebook import Notebook
-from posthog.session_recordings.session_recording_api import ServerTimingsGathered
 
 
 class ActivityLogSerializer(serializers.ModelSerializer):
@@ -44,6 +44,31 @@ class ActivityLogSerializer(serializers.ModelSerializer):
 class ActivityLogPagination(pagination.CursorPagination):
     ordering = "-created_at"
     page_size = 100
+
+
+# context manager for gathering a sequence of server timings
+class ServerTimingsGathered:
+    # Class level dictionary to store timings
+    timings_dict: Dict[str, float] = {}
+
+    def __call__(self, name):
+        self.name = name
+        return self
+
+    def __enter__(self):
+        # timings are assumed to be in milliseconds when reported
+        # but are gathered by time.perf_counter which is fractional seconds 🫠
+        # so each value is multiplied by 1000 at collection
+        self.start_time = time.perf_counter() * 1000
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        end_time = time.perf_counter() * 1000
+        elapsed_time = end_time - self.start_time
+        ServerTimingsGathered.timings_dict[self.name] = elapsed_time
+
+    @classmethod
+    def get_all_timings(cls):
+        return cls.timings_dict
 
 
 class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins.ListModelMixin):
