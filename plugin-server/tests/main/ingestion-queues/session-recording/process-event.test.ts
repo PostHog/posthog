@@ -279,28 +279,25 @@ describe('session recording process event', () => {
         },
     ]
 
-    it.each(sessionReplayEventTestCases)(
-        'snapshot event %s can be stored as session_replay_event',
-        ({ snapshotData, snapshotSource, expected }) => {
-            const data = createSessionReplayEvent(
-                'some-id',
-                12345,
-                '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
-                'abcf-efg',
-                snapshotData.events_summary,
-                snapshotSource || null
-            )
+    it.each(sessionReplayEventTestCases)('$testDescription', ({ snapshotData, snapshotSource, expected }) => {
+        const data = createSessionReplayEvent(
+            'some-id',
+            12345,
+            '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
+            'abcf-efg',
+            snapshotData.events_summary,
+            snapshotSource || null
+        )
 
-            const expectedEvent: SummarizedSessionRecordingEvent = {
-                distinct_id: '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
-                session_id: 'abcf-efg',
-                team_id: 12345,
-                uuid: 'some-id',
-                ...expected,
-            }
-            expect(data).toEqual(expectedEvent)
+        const expectedEvent: SummarizedSessionRecordingEvent = {
+            distinct_id: '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
+            session_id: 'abcf-efg',
+            team_id: 12345,
+            uuid: 'some-id',
+            ...expected,
         }
-    )
+        expect(data).toEqual(expectedEvent)
+    })
 
     it(`snapshot event with no event summary is ignored`, () => {
         expect(() => {
