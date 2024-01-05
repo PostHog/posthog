@@ -1,6 +1,7 @@
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { BlushingHog } from 'lib/components/hedgehogs'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { useInterval } from 'lib/hooks/useInterval'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -21,6 +22,7 @@ export const OnboardingVerificationStep = ({
     const { loadCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { reportIngestionContinueWithoutVerifying } = useActions(eventUsageLogic)
+    const { openSupportForm } = useActions(supportLogic)
 
     useInterval(() => {
         if (!currentTeam?.[teamPropertyToVerify]) {
@@ -31,17 +33,27 @@ export const OnboardingVerificationStep = ({
     return !currentTeam?.[teamPropertyToVerify] ? (
         <OnboardingStep
             title={`Listening for ${listeningForName}s...`}
-            subtitle={`Once you have integrated the snippet, we will verify the ${listeningForName} was properly received. It can take up to 2 minutes to recieve the ${listeningForName}.`}
+            subtitle={`We're verifying that you've integrated the snippet and are sending ${listeningForName}s to PostHog. It can take up to 2 minutes to recieve an ${listeningForName}.`}
             showSkip={true}
             stepKey={stepKey}
             onSkip={() => {
                 reportIngestionContinueWithoutVerifying()
             }}
             continueOverride={<></>}
+            helpButton={
+                <LemonButton
+                    type="secondary"
+                    onClick={() => openSupportForm({ kind: 'support', target_area: 'onboarding' })}
+                >
+                    Need help?
+                </LemonButton>
+            }
         >
-            <div className="text-center mt-8">
-                <Spinner className="text-5xl" />
-            </div>
+            <>
+                <div className="text-center mt-8">
+                    <Spinner className="text-5xl" />
+                </div>
+            </>
         </OnboardingStep>
     ) : (
         <OnboardingStep

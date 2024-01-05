@@ -17,6 +17,7 @@ export const OnboardingStep = ({
     showSkip = false,
     onSkip,
     continueAction,
+    helpButton,
     continueOverride,
     backActionOverride,
     hedgehog,
@@ -28,6 +29,7 @@ export const OnboardingStep = ({
     showSkip?: boolean
     onSkip?: () => void
     continueAction?: () => void
+    helpButton?: JSX.Element
     continueOverride?: JSX.Element
     backActionOverride?: () => void
     hedgehog?: JSX.Element
@@ -73,6 +75,7 @@ export const OnboardingStep = ({
                 <p>{subtitle}</p>
                 {children}
                 <div className="mt-8 flex justify-end gap-x-2">
+                    {helpButton && helpButton}
                     {showSkip && (
                         <LemonButton
                             onClick={() => {
