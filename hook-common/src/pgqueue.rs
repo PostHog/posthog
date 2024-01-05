@@ -135,7 +135,7 @@ impl<J, M> Job<J, M> {
 UPDATE
     "{0}"
 SET
-    finished_at = NOW(),
+    last_attempt_finished_at = NOW(),
     status = 'completed'::job_status
 WHERE
     "{0}".id = $2
@@ -182,7 +182,7 @@ RETURNING
 UPDATE
     "{0}"
 SET
-    finished_at = NOW(),
+    last_attempt_finished_at = NOW(),
     status = 'failed'::job_status
     errors = array_append("{0}".errors, $3)
 WHERE
@@ -441,7 +441,7 @@ impl RetryableJob {
 UPDATE
     "{0}"
 SET
-    finished_at = NOW(),
+    last_attempt_finished_at = NOW(),
     errors = array_append("{0}".errors, $4),
     queue = $5,
     status = 'available'::job_status,
@@ -606,7 +606,8 @@ WITH available_in_queue AS (
         AND scheduled_at <= NOW()
         AND queue = $1
     ORDER BY
-        id
+        attempt,
+        scheduled_at
     LIMIT 1
     FOR UPDATE SKIP LOCKED
 )
@@ -687,7 +688,8 @@ WITH available_in_queue AS (
         AND scheduled_at <= NOW()
         AND queue = $1
     ORDER BY
-        id
+        attempt,
+        scheduled_at
     LIMIT 1
     FOR UPDATE SKIP LOCKED
 )

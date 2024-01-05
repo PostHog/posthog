@@ -2,7 +2,7 @@ INSERT INTO
     job_queue (
         errors,
         metadata,
-        finished_at,
+        last_attempt_finished_at,
         parameters,
         queue,
         status,

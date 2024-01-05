@@ -198,13 +198,13 @@ impl WebhookCleaner {
     async fn get_completed_rows(&self, tx: &mut SerializableTxn<'_>) -> Result<Vec<CompletedRow>> {
         let base_query = format!(
             r#"
-            SELECT DATE_TRUNC('hour', finished_at) AS hour,
+            SELECT DATE_TRUNC('hour', last_attempt_finished_at) AS hour,
                 (metadata->>'team_id')::bigint AS team_id,
                 (metadata->>'plugin_config_id')::bigint AS plugin_config_id,
                 count(*) as successes
             FROM {0}
             WHERE status = 'completed'
-              AND queue = $1
+                AND queue = $1
             GROUP BY hour, team_id, plugin_config_id
             ORDER BY hour, team_id, plugin_config_id;
             "#,
@@ -223,7 +223,7 @@ impl WebhookCleaner {
     async fn get_failed_rows(&self, tx: &mut SerializableTxn<'_>) -> Result<Vec<FailedRow>> {
         let base_query = format!(
             r#"
-            SELECT DATE_TRUNC('hour', finished_at) AS hour,
+            SELECT DATE_TRUNC('hour', last_attempt_finished_at) AS hour,
                    (metadata->>'team_id')::bigint AS team_id,
                    (metadata->>'plugin_config_id')::bigint AS plugin_config_id,
                    errors[array_upper(errors, 1)] AS last_error,
