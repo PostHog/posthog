@@ -210,7 +210,6 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         !!icon && `LemonButton--has-icon`,
                         !!sideIcon && `LemonButton--has-side-icon`,
                         truncate && 'LemonButton--truncate',
-                        disabled && ButtonComponent === 'button' && 'h-full',
                         className
                     )}
                     onClick={!disabled ? onClick : undefined}

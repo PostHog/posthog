@@ -342,13 +342,10 @@ export function ReplayCostControl(): JSX.Element {
                                 updateCurrentTeam({ session_recording_linked_flag: { id, key } })
                             }}
                             readOnly={!costControlFeaturesEnabled}
-                            readOnlyReason="Please contact support to enable this feature."
+                            disabledReason="Please contact support to enable this feature."
                         />
                         {currentTeam?.session_recording_linked_flag && (
                             <LemonButton
-                                disabledReason={
-                                    !costControlFeaturesEnabled && 'Please contact support to enable this feature.'
-                                }
                                 className="ml-2"
                                 icon={<IconCancel />}
                                 size="small"

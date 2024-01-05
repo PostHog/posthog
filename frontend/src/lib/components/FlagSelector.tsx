@@ -10,10 +10,10 @@ interface FlagSelectorProps {
     value: number | undefined
     onChange: (id: number, key: string) => void
     readOnly?: boolean
-    readOnlyReason?: string
+    disabledReason?: string
 }
 
-export function FlagSelector({ value, onChange, readOnly, readOnlyReason }: FlagSelectorProps): JSX.Element {
+export function FlagSelector({ value, onChange, readOnly, disabledReason }: FlagSelectorProps): JSX.Element {
     const [visible, setVisible] = useState(false)
 
     const { featureFlag } = useValues(featureFlagLogic({ id: value || 'link' }))
@@ -43,7 +43,7 @@ export function FlagSelector({ value, onChange, readOnly, readOnlyReason }: Flag
             <LemonButton
                 type="secondary"
                 onClick={() => setVisible(!visible)}
-                disabledReason={readOnly && (readOnlyReason || "I'm read-only")}
+                disabledReason={readOnly && (disabledReason || "I'm read-only")}
             >
                 {featureFlag.key ? featureFlag.key : 'Select flag'}
             </LemonButton>
