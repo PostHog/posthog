@@ -192,6 +192,10 @@ module.exports = {
                         message: 'use LemonBadge instead',
                     },
                     {
+                        element: 'InputNumber',
+                        message: 'use LemonInput with type="number" instead',
+                    },
+                    {
                         element: 'Collapse',
                         message: 'use <LemonCollapse> instead',
                     },
