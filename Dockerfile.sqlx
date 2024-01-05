@@ -1,5 +1,0 @@
-FROM docker.io/library/rust:1.74.0
-
-RUN cargo install sqlx-cli --no-default-features --features native-tls,postgres
-
-WORKDIR /sqlx

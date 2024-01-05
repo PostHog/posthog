@@ -19,18 +19,14 @@ services:
         container_name: setup-test-db
         build:
             context: .
-            dockerfile: Dockerfile.sqlx
+            dockerfile: Dockerfile.migrate
         restart: on-failure
-        command: >
-            sh -c "sqlx database create && sqlx migrate run"
         depends_on:
             db:
                 condition: service_healthy
                 restart: true
         environment:
             DATABASE_URL: postgres://posthog:posthog@db:5432/test_database
-        volumes:
-            - ./migrations:/sqlx/migrations/
 
     echo_server:
         image: docker.io/library/caddy:2
