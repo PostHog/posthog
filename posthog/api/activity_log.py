@@ -153,6 +153,7 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins
             if last_read_date and params.get("unread") == "true":
                 last_read_filter = f"AND created_at > '{last_read_date.last_viewed_activity_date.isoformat()}'"
 
+        with timer("query_for_candidate_ids"):
             # before we filter to include only the important changes, we need to deduplicate too frequent changes
             candidate_ids = ActivityLog.objects.raw(
                 f"""
@@ -176,6 +177,7 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins
                 """
             )
 
+        with timer("construct_query"):
             other_peoples_changes = (
                 self.queryset.exclude(user=user)
                 .filter(team_id=self.team.id)
