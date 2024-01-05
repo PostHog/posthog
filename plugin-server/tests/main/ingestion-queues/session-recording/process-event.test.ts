@@ -7,12 +7,13 @@ import {
     gatherConsoleLogEvents,
     getTimestampsFrom,
     SummarizedSessionRecordingEvent,
-} from '../../../../src/main/ingestion-queues/session-recording/process-events'
+} from '../../../../src/main/ingestion-queues/session-recording/process-event'
 import { RRWebEvent, TimestampFormat } from '../../../../src/types'
 import { castTimestampToClickhouseFormat } from '../../../../src/utils/utils'
 
 describe('session recording process event', () => {
     const sessionReplayEventTestCases: {
+        testDescription?: string
         snapshotData: { events_summary: RRWebEvent[] }
         snapshotSource?: string
         expected: Pick<
@@ -34,13 +35,27 @@ describe('session recording process event', () => {
         >
     }[] = [
         {
+            testDescription: 'click and mouse counts are detected',
             snapshotData: {
-                events_summary: [{ timestamp: 1682449093469, type: 3, data: { source: 2 }, windowId: '1' }],
+                events_summary: [
+                    // click
+                    { timestamp: 1682449093469, type: 3, data: { source: 2, type: 2 }, windowId: '1' },
+                    // dbl click
+                    { timestamp: 1682449093469, type: 3, data: { source: 2, type: 4 }, windowId: '1' },
+                    // touch end
+                    { timestamp: 1682449093469, type: 3, data: { source: 2, type: 9 }, windowId: '1' },
+                    // right click
+                    { timestamp: 1682449093469, type: 3, data: { source: 2, type: 3 }, windowId: '1' },
+                    // touch move - mouse activity but not click activity
+                    { timestamp: 1682449093469, type: 3, data: { source: 6 }, windowId: '1' },
+                    // mouse move - mouse activity but not click activity
+                    { timestamp: 1682449093469, type: 3, data: { source: 1 }, windowId: '1' },
+                ],
             },
             expected: {
-                click_count: 1,
+                click_count: 4,
                 keypress_count: 0,
-                mouse_activity_count: 1,
+                mouse_activity_count: 6,
                 first_url: null,
                 first_timestamp: '2023-04-25 18:58:13.469',
                 last_timestamp: '2023-04-25 18:58:13.469',
@@ -48,20 +63,22 @@ describe('session recording process event', () => {
                 console_log_count: 0,
                 console_warn_count: 0,
                 console_error_count: 0,
-                size: 73,
-                event_count: 1,
+                size: 469,
+                event_count: 6,
                 message_count: 1,
                 snapshot_source: 'web',
             },
         },
         {
+            testDescription: 'keyboard press is detected',
             snapshotData: {
+                // keyboard press
                 events_summary: [{ timestamp: 1682449093469, type: 3, data: { source: 5 }, windowId: '1' }],
             },
             expected: {
                 click_count: 0,
                 keypress_count: 1,
-                mouse_activity_count: 1,
+                mouse_activity_count: 0,
                 first_url: null,
                 first_timestamp: '2023-04-25 18:58:13.469',
                 last_timestamp: '2023-04-25 18:58:13.469',
@@ -76,8 +93,10 @@ describe('session recording process event', () => {
             },
         },
         {
+            testDescription: 'console log entries are counted',
             snapshotData: {
                 events_summary: [
+                    // keypress
                     { timestamp: 1682449093469, type: 3, data: { source: 5 }, windowId: '1' },
                     {
                         type: 6,
@@ -120,7 +139,7 @@ describe('session recording process event', () => {
             expected: {
                 click_count: 0,
                 keypress_count: 1,
-                mouse_activity_count: 1,
+                mouse_activity_count: 0,
                 first_url: null,
                 first_timestamp: '2023-04-25 18:58:13.469',
                 last_timestamp: '2023-04-25 18:58:13.469',
@@ -135,6 +154,7 @@ describe('session recording process event', () => {
             },
         },
         {
+            testDescription: 'first url detection',
             snapshotData: {
                 events_summary: [
                     {
@@ -176,12 +196,14 @@ describe('session recording process event', () => {
             },
         },
         {
+            testDescription: 'negative timestamps are not included when picking timestamps',
             snapshotData: {
                 events_summary: [
-                    // a negative timestamp is ignored
-                    { timestamp: 1682449093000, type: 3, data: { source: 2 }, windowId: '1' },
-                    { timestamp: 1682449095000, type: 3, data: { source: 2 }, windowId: '1' },
-                    { timestamp: -922167545571, type: 3, data: { source: 2 }, windowId: '1' },
+                    // a negative timestamp is ignored when picking timestamps
+                    // the event is still included
+                    { timestamp: 1682449093000, type: 3, data: { source: 2, type: 2 }, windowId: '1' },
+                    { timestamp: 1682449095000, type: 3, data: { source: 2, type: 2 }, windowId: '1' },
+                    { timestamp: -922167545571, type: 3, data: { source: 2, type: 2 }, windowId: '1' },
                 ],
             },
             expected: {
@@ -195,23 +217,24 @@ describe('session recording process event', () => {
                 console_log_count: 0,
                 console_warn_count: 0,
                 console_error_count: 0,
-                size: 217,
+                size: 244,
                 event_count: 3,
                 message_count: 1,
                 snapshot_source: 'web',
             },
         },
         {
+            testDescription: 'overlapping windows are summed separately for activity',
             snapshotData: {
                 events_summary: [
                     // three windows with 1 second, 2 seconds, and 3 seconds of activity
                     // even though they overlap they should be summed separately
-                    { timestamp: 1682449093000, type: 3, data: { source: 2 }, windowId: '1' },
-                    { timestamp: 1682449094000, type: 3, data: { source: 2 }, windowId: '1' },
-                    { timestamp: 1682449095000, type: 3, data: { source: 2 }, windowId: '2' },
-                    { timestamp: 1682449097000, type: 3, data: { source: 2 }, windowId: '2' },
-                    { timestamp: 1682449096000, type: 3, data: { source: 2 }, windowId: '3' },
-                    { timestamp: 1682449099000, type: 3, data: { source: 2 }, windowId: '3' },
+                    { timestamp: 1682449093000, type: 3, data: { source: 2, type: 2 }, windowId: '1' },
+                    { timestamp: 1682449094000, type: 3, data: { source: 2, type: 2 }, windowId: '1' },
+                    { timestamp: 1682449095000, type: 3, data: { source: 2, type: 2 }, windowId: '2' },
+                    { timestamp: 1682449097000, type: 3, data: { source: 2, type: 2 }, windowId: '2' },
+                    { timestamp: 1682449096000, type: 3, data: { source: 2, type: 2 }, windowId: '3' },
+                    { timestamp: 1682449099000, type: 3, data: { source: 2, type: 2 }, windowId: '3' },
                 ],
             },
             expected: {
@@ -225,15 +248,16 @@ describe('session recording process event', () => {
                 console_log_count: 0,
                 console_warn_count: 0,
                 console_error_count: 0,
-                size: 433,
+                size: 487,
                 event_count: 6,
                 message_count: 1,
                 snapshot_source: 'web',
             },
         },
         {
+            testDescription: 'mobile snapshot source is stored',
             snapshotData: {
-                events_summary: [{ timestamp: 1682449093000, type: 3, data: { source: 2 }, windowId: '1' }],
+                events_summary: [{ timestamp: 1682449093000, type: 3, data: { source: 2, type: 2 }, windowId: '1' }],
             },
             snapshotSource: 'mobile',
             expected: {
@@ -249,13 +273,15 @@ describe('session recording process event', () => {
                 last_timestamp: '2023-04-25 18:58:13.000',
                 message_count: 1,
                 mouse_activity_count: 1,
-                size: 73,
+                size: 82,
                 snapshot_source: 'mobile',
             },
         },
     ]
-    sessionReplayEventTestCases.forEach(({ snapshotData, snapshotSource, expected }) => {
-        test(`snapshot event ${JSON.stringify(snapshotData)} can be stored as session_replay_event`, () => {
+
+    it.each(sessionReplayEventTestCases)(
+        'snapshot event %s can be stored as session_replay_event',
+        ({ snapshotData, snapshotSource, expected }) => {
             const data = createSessionReplayEvent(
                 'some-id',
                 12345,
@@ -268,15 +294,15 @@ describe('session recording process event', () => {
             const expectedEvent: SummarizedSessionRecordingEvent = {
                 distinct_id: '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
                 session_id: 'abcf-efg',
-                team_id: 2,
+                team_id: 12345,
                 uuid: 'some-id',
                 ...expected,
             }
             expect(data).toEqual(expectedEvent)
-        })
-    })
+        }
+    )
 
-    test(`snapshot event with no event summary is ignored`, () => {
+    it(`snapshot event with no event summary is ignored`, () => {
         expect(() => {
             createSessionReplayEvent(
                 'some-id',
@@ -289,7 +315,7 @@ describe('session recording process event', () => {
         }).toThrowError()
     })
 
-    test(`snapshot event with no event summary timestamps is ignored`, () => {
+    it(`snapshot event with no event summary timestamps is ignored`, () => {
         expect(() => {
             createSessionReplayEvent(
                 'some-id',
@@ -389,7 +415,7 @@ describe('session recording process event', () => {
         ])
     })
 
-    test('performance event stored as performance_event', () => {
+    it('performance event stored as performance_event', () => {
         const data = createPerformanceEvent('some-id', 12345, '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4', {
             // Taken from a real event from the JS
             '0': 'resource',
@@ -448,7 +474,7 @@ describe('session recording process event', () => {
             secure_connection_start: 0,
             session_id: '1853a793ad26c1-0eea05631cbeff-17525635-384000-1853a793ad31dd2',
             start_time: 10737.89999999106,
-            team_id: 2,
+            team_id: 12345,
             time_origin: 1671723295836,
             timestamp: 1671723306573,
             transfer_size: 2067,
