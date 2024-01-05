@@ -6,7 +6,7 @@ import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
 import { CommandBar } from 'lib/components/CommandBar/CommandBar'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { ReactNode, useEffect } from 'react'
+import { ReactNode } from 'react'
 import { SceneConfig } from 'scenes/sceneTypes'
 
 import { navigationLogic } from '../navigation/navigationLogic'
@@ -29,13 +29,6 @@ export function Navigation({
     useMountedLogic(themeLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { activeNavbarItem, mode } = useValues(navigation3000Logic)
-
-    useEffect(() => {
-        // FIXME: Include debug notice in a non-obstructing way
-        if (mode !== 'minimal') {
-            document.getElementById('bottom-notice')?.remove()
-        }
-    }, [])
 
     if (mode !== 'full') {
         return (
