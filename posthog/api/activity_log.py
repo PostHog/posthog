@@ -215,7 +215,7 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins
                     Q(
                         Q(Q(scope="FeatureFlag") & Q(item_id__in=my_feature_flags))
                         | Q(Q(scope="Insight") & Q(item_id__in=my_insights))
-                        | Q(Q(scope="Notebook") & Q(item_id__in=my_notebooks))
+                        | Q(Q(scope="Notebook") & Q(item_id__in=my_notebooks) & Q(id__in=[c.id for c in candidate_ids]))
                         | Q(Q(scope="Comment") & Q(item_id__in=my_comments))
                     )
                     | Q(
@@ -224,12 +224,15 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins
                         & Q(
                             Q(Q(scope="FeatureFlag") & Q(item_id__in=my_changed_feature_flags))
                             | Q(Q(scope="Insight") & Q(item_id__in=my_changed_insights))
-                            | Q(Q(scope="Notebook") & Q(item_id__in=my_changed_notebooks))
+                            | Q(
+                                Q(scope="Notebook")
+                                & Q(item_id__in=my_changed_notebooks)
+                                & Q(id__in=[c.id for c in candidate_ids])
+                            )
                             | Q(Q(scope="Comment") & Q(item_id__in=my_changed_comments))
                         )
                     )
                 )
-                .filter(id__in=[c.id for c in candidate_ids])
                 .order_by("-created_at")
             )
 
