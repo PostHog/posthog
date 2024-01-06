@@ -197,8 +197,8 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins
                                    activity, item_id, scope, id, created_at
                             FROM posthog_activitylog
                             WHERE team_id = {self.team_id}
-                            -- we only really care about deduplicating Notebook changes,
-                            -- as multiple actual ativities are logged for one logical activity
+                            -- we only really care about de-duplicating Notebook changes,
+                            -- as multiple actual activities are logged for one logical activity
                             AND scope = 'Notebook'
                             AND NOT (user_id = {user.pk} AND user_id IS NOT NULL)
                             {last_read_filter}
