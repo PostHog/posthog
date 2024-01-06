@@ -45,6 +45,8 @@ services:
             KAFKA_CFG_LISTENERS: PLAINTEXT://:9092
             KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
             KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
+            KAFKA_CFG_MAX_REQUEST_SIZE: 20971520
+            KAFKA_CFG_MESSAGE_MAX_BYTES: 20971520
             ALLOW_PLAINTEXT_LISTENER: 'true'
 
     object_storage:

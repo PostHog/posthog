@@ -74,6 +74,8 @@ services:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
+            # KAFKA_MAX_REQUEST_SIZE default 1MB, change to 2MB
+            SESSION_RECORDING_KAFKA_MAX_REQUEST_SIZE_BYTES: 20971520
     plugins:
         extends:
             file: docker-compose.base.yml
@@ -92,6 +94,7 @@ services:
             - '443:443'
         volumes:
             - ./Caddyfile:/etc/caddy/Caddyfile
+            - caddy-data:/data
         depends_on:
             - web
     object_storage:
@@ -153,3 +156,4 @@ volumes:
     object_storage:
     postgres-data:
     clickhouse-data:
+    caddy-data:
