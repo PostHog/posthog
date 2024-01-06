@@ -115,24 +115,24 @@
               AND "posthog_activitylog"."user_id" IS NOT NULL)
          AND "posthog_activitylog"."team_id" = 2
          AND (("posthog_activitylog"."scope" = 'FeatureFlag'
-               AND "posthog_activitylog"."item_id" IN ('39',
-                                                       '40'))
+               AND "posthog_activitylog"."item_id" IN ('1',
+                                                       '2'))
               OR ("posthog_activitylog"."scope" = 'Insight'
-                  AND "posthog_activitylog"."item_id" IN ('293',
-                                                          '294',
-                                                          '295',
-                                                          '296',
-                                                          '286',
-                                                          '287',
-                                                          '288',
-                                                          '289',
-                                                          '290',
-                                                          '291',
-                                                          '292'))
+                  AND "posthog_activitylog"."item_id" IN ('8',
+                                                          '9',
+                                                          '10',
+                                                          '11',
+                                                          '1',
+                                                          '2',
+                                                          '3',
+                                                          '4',
+                                                          '5',
+                                                          '6',
+                                                          '7'))
               OR ("posthog_activitylog"."scope" = 'Notebook'
-                  AND "posthog_activitylog"."item_id" IN ('ggutK3dV')
-                  AND "posthog_activitylog"."id" IN ('018a016f-e528-0000-77fc-3a8d06141349'::uuid,
-                                                     '018a01c8-2ad0-0000-7281-e86175c1c308'::uuid))))
+                  AND "posthog_activitylog"."item_id" IN ('x8dEHH3r')
+                  AND "posthog_activitylog"."id" IN ('018a016f-e528-0000-ef05-c75cbb927a65'::uuid,
+                                                     '018a01c8-2ad0-0000-a975-9e3475edc589'::uuid))))
   ORDER BY "posthog_activitylog"."created_at" DESC
   LIMIT 10 /*controller='project_activity_log-important-changes',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/activity_log/important_changes/%3F%24'*/
   '
@@ -654,17 +654,17 @@
          AND "posthog_activitylog"."scope" = 'Insight'
          AND "posthog_activitylog"."team_id" = 2
          AND "posthog_activitylog"."user_id" = 2
-         AND NOT ("posthog_activitylog"."item_id" IN ('293',
-                                                      '294',
-                                                      '295',
-                                                      '296',
-                                                      '286',
-                                                      '287',
-                                                      '288',
-                                                      '289',
-                                                      '290',
-                                                      '291',
-                                                      '292')
+         AND NOT ("posthog_activitylog"."item_id" IN ('8',
+                                                      '9',
+                                                      '10',
+                                                      '11',
+                                                      '1',
+                                                      '2',
+                                                      '3',
+                                                      '4',
+                                                      '5',
+                                                      '6',
+                                                      '7')
                   AND "posthog_activitylog"."item_id" IS NOT NULL)) /*controller='project_activity_log-important-changes',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/activity_log/important_changes/%3F%24'*/
   '
 ---
@@ -681,7 +681,7 @@
          AND "posthog_activitylog"."scope" = 'Notebook'
          AND "posthog_activitylog"."team_id" = 2
          AND "posthog_activitylog"."user_id" = 2
-         AND NOT ("posthog_activitylog"."item_id" IN ('ggutK3dV')
+         AND NOT ("posthog_activitylog"."item_id" IN ('x8dEHH3r')
                   AND "posthog_activitylog"."item_id" IS NOT NULL)) /*controller='project_activity_log-important-changes',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/activity_log/important_changes/%3F%24'*/
   '
 ---
@@ -698,8 +698,8 @@
          AND "posthog_activitylog"."scope" = 'FeatureFlag'
          AND "posthog_activitylog"."team_id" = 2
          AND "posthog_activitylog"."user_id" = 2
-         AND NOT ("posthog_activitylog"."item_id" IN ('39',
-                                                      '40')
+         AND NOT ("posthog_activitylog"."item_id" IN ('1',
+                                                      '2')
                   AND "posthog_activitylog"."item_id" IS NOT NULL)) /*controller='project_activity_log-important-changes',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/activity_log/important_changes/%3F%24'*/
   '
 ---
