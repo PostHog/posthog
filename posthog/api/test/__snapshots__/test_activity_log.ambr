@@ -130,9 +130,9 @@
                                                           '6',
                                                           '7'))
               OR ("posthog_activitylog"."scope" = 'Notebook'
-                  AND "posthog_activitylog"."item_id" IN ('ouCp1OAs')
-                  AND "posthog_activitylog"."id" IN ('018a016f-e528-0000-8865-b8b4c3ed5b41'::uuid,
-                                                     '018a01c8-2ad0-0000-e42f-8976b4a5cefc'::uuid))))
+                  AND "posthog_activitylog"."item_id" IN ('KUmQVpwD')
+                  AND "posthog_activitylog"."id" IN ('018a016f-e528-0000-2f90-ab9b26e9abd3'::uuid,
+                                                     '018a01c8-2ad0-0000-ff60-53e2834d0350'::uuid))))
   ORDER BY "posthog_activitylog"."created_at" DESC
   LIMIT 10 /*controller='project_activity_log-important-changes',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/activity_log/important_changes/%3F%24'*/
   '
@@ -681,7 +681,7 @@
          AND "posthog_activitylog"."scope" = 'Notebook'
          AND "posthog_activitylog"."team_id" = 2
          AND "posthog_activitylog"."user_id" = 2
-         AND NOT ("posthog_activitylog"."item_id" IN ('ouCp1OAs')
+         AND NOT ("posthog_activitylog"."item_id" IN ('KUmQVpwD')
                   AND "posthog_activitylog"."item_id" IS NOT NULL)) /*controller='project_activity_log-important-changes',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/activity_log/important_changes/%3F%24'*/
   '
 ---
