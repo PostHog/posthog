@@ -109,7 +109,7 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
     current_team = cast(User, request.user).team
     referer_url = urlparse(request.META["HTTP_REFERER"])
     redirect_url = urlparse(request.GET["redirect"])
-    is_forum_login = True if request.GET["forum_login"] and request.GET["forum_login"].lower() == "true" else False
+    is_forum_login = request.GET.get("forum_login", "").lower() == "true"
 
     if (
         not current_team
