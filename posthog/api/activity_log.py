@@ -179,7 +179,9 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins
                 last_read_filter = f"AND created_at > '{last_read_date.last_viewed_activity_date.isoformat()}'"
 
         with timer("query_for_candidate_ids"):
-            # before we filter to include only the important changes, we need to deduplicate too frequent changes
+            # before we filter to include only the important changes,
+            # we need to deduplicate too frequent changes
+            # we only really need ot do this on notebooks
             candidate_ids = ActivityLog.objects.raw(
                 f"""
                 SELECT id
@@ -195,6 +197,9 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins
                                    activity, item_id, scope, id, created_at
                             FROM posthog_activitylog
                             WHERE team_id = {self.team_id}
+                            -- we only really care about deduplicating Notebook changes,
+                            -- as multiple actual ativities are logged for one logical activity
+                            AND scope = 'Notebook'
                             AND NOT (user_id = {user.pk} AND user_id IS NOT NULL)
                             {last_read_filter}
                             ORDER BY created_at DESC) AS inner_q) AS counted_q
