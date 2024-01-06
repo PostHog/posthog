@@ -181,7 +181,7 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins
         with timer("query_for_candidate_ids"):
             # before we filter to include only the important changes,
             # we need to deduplicate too frequent changes
-            # we only really need ot do this on notebooks
+            # we only really need to do this on notebooks
             candidate_ids = ActivityLog.objects.raw(
                 f"""
                 SELECT id
