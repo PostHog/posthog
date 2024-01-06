@@ -182,7 +182,7 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins
             # before we filter to include only the important changes,
             # we need to deduplicate too frequent changes
             # we only really need to do this on notebooks
-            candidate_ids = ActivityLog.objects.raw(
+            deduplicated_notebook_activity_ids = ActivityLog.objects.raw(
                 f"""
                 SELECT id
                 FROM (SELECT
@@ -215,7 +215,11 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins
                     Q(
                         Q(Q(scope="FeatureFlag") & Q(item_id__in=my_feature_flags))
                         | Q(Q(scope="Insight") & Q(item_id__in=my_insights))
-                        | Q(Q(scope="Notebook") & Q(item_id__in=my_notebooks) & Q(id__in=[c.id for c in candidate_ids]))
+                        | Q(
+                            Q(scope="Notebook")
+                            & Q(item_id__in=my_notebooks)
+                            & Q(id__in=[c.id for c in deduplicated_notebook_activity_ids])
+                        )
                         | Q(Q(scope="Comment") & Q(item_id__in=my_comments))
                     )
                     | Q(
@@ -227,7 +231,7 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins
                             | Q(
                                 Q(scope="Notebook")
                                 & Q(item_id__in=my_changed_notebooks)
-                                & Q(id__in=[c.id for c in candidate_ids])
+                                & Q(id__in=[c.id for c in deduplicated_notebook_activity_ids])
                             )
                             | Q(Q(scope="Comment") & Q(item_id__in=my_changed_comments))
                         )
