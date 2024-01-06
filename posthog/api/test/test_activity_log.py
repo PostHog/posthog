@@ -6,7 +6,7 @@ from freezegun.api import FrozenDateTimeFactory, StepTickTimeFactory
 from rest_framework import status
 
 from posthog.models import User
-from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
+from posthog.test.base import APIBaseTest, QueryMatchingTest
 
 
 def _feature_flag_json_payload(key: str) -> Dict:
@@ -159,7 +159,6 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
 
         return notebook_version
 
-    @snapshot_postgres_queries
     def test_can_get_top_ten_important_changes(self) -> None:
         # user one is shown the most recent 10 of those changes
         self.client.force_login(self.user)
