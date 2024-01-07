@@ -34,7 +34,7 @@ export function AndroidRecordingsPromptBanner(): JSX.Element | null {
                     <Link onClick={() => openSupportForm({ kind: 'support', target_area: 'session_replay' })}>
                         Contact support
                     </Link>{' '}
-                    to join the test.
+                    to join the test and earn PostHog merch.
                 </div>
             </LemonBanner>
         </FlaggedFeature>
