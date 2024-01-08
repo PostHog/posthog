@@ -10,6 +10,7 @@ export interface TreeProps {
     items: TreeItem[]
     depth?: number
     onSelectRow?: (row: DataWarehouseSceneRow) => void
+    selectedRow?: DataWarehouseSceneRow | null
 }
 
 export type TreeItem = TreeItemFolder | TreeItemLeaf
@@ -28,15 +29,32 @@ export function DatabaseTableTree({
     className = 'Tree__root rounded-lg',
     items,
     onSelectRow,
+    selectedRow,
     depth = 1,
 }: TreeProps): JSX.Element {
     return (
         <ul className={`Tree ${className}`}>
             {items.map((item, index) => {
                 if ('items' in item) {
-                    return <TreeFolderRow key={depth + '_' + index} item={item} depth={depth} onClick={onSelectRow} />
+                    return (
+                        <TreeFolderRow
+                            key={depth + '_' + index}
+                            item={item}
+                            depth={depth}
+                            onClick={onSelectRow}
+                            selectedRow={selectedRow}
+                        />
+                    )
                 }
-                return <TreeRow key={depth + '_' + index} item={item} depth={depth} onClick={onSelectRow} />
+                return (
+                    <TreeRow
+                        key={depth + '_' + index}
+                        item={item}
+                        depth={depth}
+                        onClick={onSelectRow}
+                        selected={!!(selectedRow?.name == item.table.name)}
+                    />
+                )
             })}
         </ul>
     )

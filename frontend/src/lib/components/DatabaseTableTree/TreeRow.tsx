@@ -12,16 +12,17 @@ export interface TreeRowProps {
     item: TreeItemLeaf
     depth: number
     onClick?: (row: DataWarehouseSceneRow) => void
+    selected?: boolean
 }
 
-export function TreeRow({ item, onClick }: TreeRowProps): JSX.Element {
+export function TreeRow({ item, onClick, selected }: TreeRowProps): JSX.Element {
     const _onClick = (): void => {
         onClick && onClick(item.table)
     }
 
     return (
         <li>
-            <div className={clsx('TreeRow')} onClick={_onClick}>
+            <div className={clsx('TreeRow', selected ? 'TreeRow__selected' : '')} onClick={_onClick}>
                 <span className="mr-2">{item.icon}</span>
                 {item.table.name}
             </div>
@@ -33,9 +34,11 @@ export interface TreeFolderRowProps {
     item: TreeItemFolder
     depth: number
     onClick?: (row: DataWarehouseSceneRow) => void
+    emptyLabel?: JSX.Element
+    selectedRow?: DataWarehouseSceneRow | null
 }
 
-export function TreeFolderRow({ item, depth, onClick }: TreeFolderRowProps): JSX.Element {
+export function TreeFolderRow({ item, depth, onClick, emptyLabel, selectedRow }: TreeFolderRowProps): JSX.Element {
     const [collapsed, setCollapsed] = useState(false)
     const { name, items } = item
 
@@ -49,14 +52,20 @@ export function TreeFolderRow({ item, depth, onClick }: TreeFolderRowProps): JSX
                 <span className="mr-2">{collapsed ? <IconChevronRight /> : <IconChevronDown />}</span>
                 {name}
             </div>
-            {!collapsed && (
-                <DatabaseTableTree
-                    className={`ml-${7 * depth}`}
-                    items={items}
-                    depth={depth * 2}
-                    onSelectRow={onClick}
-                />
-            )}
+            {!collapsed &&
+                (items.length > 0 ? (
+                    <DatabaseTableTree
+                        className={`ml-${7 * depth}`}
+                        items={items}
+                        depth={depth * 2}
+                        onSelectRow={onClick}
+                        selectedRow={selectedRow}
+                    />
+                ) : emptyLabel ? (
+                    emptyLabel
+                ) : (
+                    <div className={`ml-${7 * depth} text-muted`}>No tables found</div>
+                ))}
         </li>
     )
 }

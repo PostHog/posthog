@@ -3,15 +3,14 @@ import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { DatabaseTableTree } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
+import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { PageHeader } from 'lib/components/PageHeader'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { IconDataObject, IconSettings } from 'lib/lemon-ui/icons'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { NodeKind } from '~/queries/schema'
-import { ProductKey } from '~/types'
 
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import SourceModal from './SourceModal'
@@ -22,15 +21,8 @@ export const scene: SceneExport = {
 }
 
 export function DataWarehouseExternalScene(): JSX.Element {
-    const {
-        shouldShowEmptyState,
-        shouldShowProductIntroduction,
-        isSourceModalOpen,
-        tables,
-        posthogTables,
-        savedQueriesFormatted,
-        selectedRow,
-    } = useValues(dataWarehouseSceneLogic)
+    const { isSourceModalOpen, tables, posthogTables, savedQueriesFormatted, selectedRow } =
+        useValues(dataWarehouseSceneLogic)
     const { toggleSourceModal, selectRow } = useActions(dataWarehouseSceneLogic)
 
     return (
@@ -70,19 +62,6 @@ export function DataWarehouseExternalScene(): JSX.Element {
                     </div>
                 }
             />
-            {(shouldShowProductIntroduction || shouldShowEmptyState) && (
-                <ProductIntroduction
-                    productName={'Data Warehouse'}
-                    thingName={'table'}
-                    description={
-                        'Bring your production database, revenue data, CRM contacts or any other data into PostHog.'
-                    }
-                    action={toggleSourceModal}
-                    isEmpty={shouldShowEmptyState}
-                    docsURL="https://posthog.com/docs/data/data-warehouse"
-                    productKey={ProductKey.DATA_WAREHOUSE}
-                />
-            )}
             <div className="grid md:grid-cols-3">
                 <div className="sm:col-span-3 md:col-span-1">
                     <DatabaseTableTree
@@ -110,9 +89,10 @@ export function DataWarehouseExternalScene(): JSX.Element {
                                 })),
                             },
                         ]}
+                        selectedRow={selectedRow}
                     />
                 </div>
-                {selectedRow && (
+                {selectedRow ? (
                     <div className="px-4 py-3 col-span-2">
                         <div className="flex flex-row justify-between items-center">
                             <h3>{selectedRow.name}</h3>
@@ -154,6 +134,15 @@ export function DataWarehouseExternalScene(): JSX.Element {
                             <span className="card-secondary">Columns</span>
                             <DatabaseTable table={selectedRow.name} tables={tables} />
                         </div>
+                    </div>
+                ) : (
+                    <div className="px-4 py-3 col-span-2 flex justify-center items-center">
+                        <EmptyMessage
+                            title="No table selected"
+                            description="Please select a table from the list on the left"
+                            buttonText="Learn more about data warehouse tables"
+                            buttonTo="https://posthog.com/docs/data-warehouse"
+                        />
                     </div>
                 )}
             </div>

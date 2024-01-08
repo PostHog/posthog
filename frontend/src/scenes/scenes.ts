@@ -202,20 +202,10 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Data warehouse',
         defaultDocsPath: '/docs/feature-flags/creating-feature-flags',
     },
-    [Scene.DataWarehousePosthog]: {
-        projectBased: true,
-        name: 'Data warehouse',
-        defaultDocsPath: '/docs/data-warehouse',
-    },
     [Scene.DataWarehouseExternal]: {
         projectBased: true,
         name: 'Data warehouse',
         defaultDocsPath: '/docs/data-warehouse/setup',
-    },
-    [Scene.DataWarehouseSavedQueries]: {
-        projectBased: true,
-        name: 'Data warehouse',
-        defaultDocsPath: '/docs/data-warehouse/view',
     },
     [Scene.DataWarehouseSettings]: {
         projectBased: true,
