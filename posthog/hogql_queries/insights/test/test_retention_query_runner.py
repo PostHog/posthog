@@ -70,14 +70,14 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         runner = RetentionQueryRunner(team=self.team, query=query)
         return runner.calculate().model_dump()["results"]
 
-    def run_actors_query(self, interval, query):
+    def run_actors_query(self, interval, query, select=None):
         query["kind"] = "RetentionQuery"
         if not query.get("retentionFilter"):
             query["retentionFilter"] = {}
         runner = ActorsQueryRunner(
             team=self.team,
             query={
-                "select": ["person", "appearances"],
+                "select": ["person", "appearances", *(select or [])],
                 "orderBy": ["length(appearances) DESC", "actor_id"],
                 "source": {
                     "kind": "InsightActorsQuery",
@@ -751,6 +751,21 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(len(result), 1, result)
         self.assertEqual(result[0][0]["id"], person1.uuid, person1.uuid)
+
+        # test selecting appearances directly
+        result_2 = self.run_actors_query(
+            interval=0,
+            query={
+                "dateRange": {"date_to": _date(10, hour=6)},
+            },
+            select=["appearance_0", "appearance_1", "appearance_2", "appearance_3", "appearance_4"],
+        )
+        self.assertEqual(len(result_2), len(result))
+        self.assertEqual(result_2[0][2], 1)  # appearance_0
+        self.assertEqual(result_2[0][3], 1)  # appearance_1
+        self.assertEqual(result_2[0][4], 1)  # appearance_2
+        self.assertEqual(result_2[0][5], 0)  # appearance_3
+        self.assertEqual(result_2[0][6], 0)  # appearance_4
 
     def test_retention_people_first_time(self):
         _, _, p3, _ = self._create_first_time_retention_events()
