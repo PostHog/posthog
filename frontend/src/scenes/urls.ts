@@ -100,7 +100,7 @@ export const urls = {
     personByUUID: (uuid: string, encode: boolean = true): string =>
         encode ? `/persons/${encodeURIComponent(uuid)}` : `/persons/${uuid}`,
     persons: (): string => '/persons',
-    // TODO: Why are Destinations the default tab, and not the first one i.e. Filters?
+    // TODO: Default to the landing page, once it's ready
     pipeline: (tab?: PipelineTabs): string => `/pipeline/${tab ? tab : PipelineTabs.Destinations}`,
     pipelineApp: (id: string | number, tab?: PipelineAppTabs): string =>
         `/pipeline/${id}/${tab ? tab : PipelineAppTabs.Configuration}`,
