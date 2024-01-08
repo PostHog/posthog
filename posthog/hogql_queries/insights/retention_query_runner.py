@@ -363,7 +363,7 @@ class RetentionQueryRunner(QueryRunner):
             for i in range(self.query_date_range.total_intervals - interval):
                 retention_query.select.append(
                     ast.Alias(
-                        alias=f"appearance_{i}",
+                        alias=f"{(self.query.retentionFilter.period or 'Day').lower()}_{i}",
                         expr=ast.Call(
                             name="arrayExists",
                             args=[
