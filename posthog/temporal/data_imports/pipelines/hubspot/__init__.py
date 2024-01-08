@@ -118,7 +118,7 @@ def crm_objects(
 
     props = ",".join(sorted(list(set(props))))
 
-    if len(props) > 2000:
+    if len(props) > 5000:
         raise ValueError(
             (
                 "Your request to Hubspot is too long to process. "
