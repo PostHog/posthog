@@ -18,7 +18,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { urls } from 'scenes/urls'
 
-import { PipelineAppTabs, PipelineTabs, PluginConfigTypeNew, ProductKey } from '~/types'
+import { PipelineAppTabs, PipelineTabs, PluginConfigWithPluginInfoNew, ProductKey } from '~/types'
 
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import { NewButton } from './NewButton'
@@ -64,7 +64,7 @@ function BatchExportsTable(): JSX.Element {
 }
 
 function AppsTable(): JSX.Element {
-    const { loading, enabledPluginConfigs, disabledPluginConfigs, plugins, canConfigurePlugins } =
+    const { loading, displayablePluginConfigs, enabledPluginConfigs, disabledPluginConfigs, canConfigurePlugins } =
         useValues(pipelineDestinationsLogic)
     const { toggleEnabled, loadPluginConfigs } = useActions(pipelineDestinationsLogic)
 
@@ -76,7 +76,7 @@ function AppsTable(): JSX.Element {
         <>
             <h2>Webhooks</h2>
             <LemonTable
-                dataSource={[...enabledPluginConfigs, ...disabledPluginConfigs]}
+                dataSource={displayablePluginConfigs}
                 size="xs"
                 loading={loading}
                 columns={[
@@ -103,7 +103,7 @@ function AppsTable(): JSX.Element {
                     {
                         title: 'App',
                         render: function RenderAppInfo(_, pluginConfig) {
-                            return <RenderApp plugin={plugins[pluginConfig.plugin]} />
+                            return <RenderApp plugin={pluginConfig.plugin_info} />
                         },
                     },
                     {
@@ -136,7 +136,7 @@ function AppsTable(): JSX.Element {
                             )
                         },
                     },
-                    updatedAtColumn() as LemonTableColumn<PluginConfigTypeNew, any>,
+                    updatedAtColumn() as LemonTableColumn<PluginConfigWithPluginInfoNew, any>,
                     {
                         title: 'Status',
                         render: function RenderStatus(_, pluginConfig) {
@@ -200,16 +200,15 @@ function AppsTable(): JSX.Element {
                                             >
                                                 View app logs
                                             </LemonButton>
-                                            {plugins[pluginConfig.plugin].url && (
-                                                <LemonButton
-                                                    to={plugins[pluginConfig.plugin].url}
-                                                    targetBlank={true}
-                                                    id={`app-${pluginConfig.id}-source-code`}
-                                                    fullWidth
-                                                >
-                                                    View app source code
-                                                </LemonButton>
-                                            )}
+                                            <LemonButton
+                                                to={pluginConfig.plugin_info?.url}
+                                                targetBlank={true}
+                                                loading={!pluginConfig.plugin_info?.url}
+                                                id={`app-${pluginConfig.id}-source-code`}
+                                                fullWidth
+                                            >
+                                                View app source code
+                                            </LemonButton>
                                             <LemonDivider />
                                             <LemonButton
                                                 status="danger"
