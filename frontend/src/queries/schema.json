@@ -1567,6 +1567,10 @@
                     "description": "HogQL expression to validate (use `select` or `expr`, but not both)",
                     "type": "string"
                 },
+                "exprSource": {
+                    "$ref": "#/definitions/AnyDataNode",
+                    "description": "Query within which \"expr\" is validated. Defaults to \"select * from events\""
+                },
                 "filters": {
                     "$ref": "#/definitions/HogQLFilters"
                 },

@@ -154,7 +154,6 @@ export function DataTable({
         : columnsInQuery
 
     const groupTypes = isActorsQuery(query.source) ? personGroupTypes : eventGroupTypes
-    const hogQLTable = isActorsQuery(query.source) ? 'persons' : 'events'
 
     const lemonColumns: LemonTableColumn<DataTableRow, any>[] = [
         ...columnsInLemonTable.map((key, index) => ({
@@ -192,7 +191,7 @@ export function DataTable({
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value={key}
                             groupTypes={groupTypes}
-                            hogQLTable={hogQLTable}
+                            metadataSource={query.source}
                             renderValue={() => <>Edit column</>}
                             type="tertiary"
                             fullWidth
@@ -266,7 +265,7 @@ export function DataTable({
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value={''}
                             groupTypes={groupTypes}
-                            hogQLTable={hogQLTable}
+                            metadataSource={query.source}
                             placeholder={<span className="not-italic">Add column left</span>}
                             data-attr="datatable-add-column-left"
                             type="tertiary"
@@ -295,7 +294,7 @@ export function DataTable({
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value={''}
                             groupTypes={groupTypes}
-                            hogQLTable={hogQLTable}
+                            metadataSource={query.source}
                             placeholder={<span className="not-italic">Add column right</span>}
                             data-attr="datatable-add-column-right"
                             type="tertiary"
