@@ -1,6 +1,7 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="Celery" type="PythonConfigurationType" factoryName="Python">
     <module name="posthog" />
+    <option name="ENV_FILES" value="$PROJECT_DIR$/bin/celery-queues.env" />
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
     <envs>
@@ -10,7 +11,6 @@
       <env name="KAFKA_HOSTS" value="localhost" />
       <env name="DATABASE_URL" value="postgres://posthog:posthog@localhost:5432/posthog" />
       <env name="SKIP_SERVICE_VERSION_REQUIREMENTS" value="1" />
-      <env name="CELERY_WORKER_QUEUES" value="celery,email,insight_export,insight_refresh,gevent" />
     </envs>
     <option name="SDK_HOME" value="$PROJECT_DIR$/env/bin/python" />
     <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$/env/bin" />
