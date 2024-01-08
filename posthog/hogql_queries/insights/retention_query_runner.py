@@ -335,7 +335,8 @@ class RetentionQueryRunner(QueryRunner):
                 """
                     SELECT
                         actor_id,
-                        arraySort(groupArray(actor_activity.intervals_from_base)) AS appearances
+                        groupArray(actor_activity.intervals_from_base) AS appearance_intervals,
+                        arraySort(appearance_intervals) AS appearances
 
                     FROM {actor_query} AS actor_activity
 
@@ -346,4 +347,25 @@ class RetentionQueryRunner(QueryRunner):
                 },
                 timings=self.timings,
             )
+            # We want to expose each interval as a separate column
+            for i in range(self.query_date_range.total_intervals - interval):
+                retention_query.select.append(
+                    ast.Alias(
+                        alias=f"appearance_{i}",
+                        expr=ast.Call(
+                            name="arrayExists",
+                            args=[
+                                ast.Lambda(
+                                    args=["x"],
+                                    expr=ast.CompareOperation(
+                                        op=ast.CompareOperationOp.Eq,
+                                        left=ast.Field(chain=["x"]),
+                                        right=ast.Constant(value=i),
+                                    ),
+                                ),
+                                ast.Field(chain=["appearance_intervals"]),
+                            ],
+                        ),
+                    )
+                )
         return retention_query
