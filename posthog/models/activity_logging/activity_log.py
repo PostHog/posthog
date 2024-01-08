@@ -86,7 +86,7 @@ class ActivityLog(UUIDModel):
             ),
             models.CheckConstraint(
                 name="cannot_be_both_system_and_staff",
-                check=models.Q(is_system__ne=True) & models.Q(was_impersonated__ne=True),
+                check=~models.Q(is_system=True) & ~models.Q(was_impersonated=True),
             ),
         ]
         indexes = [models.Index(fields=["team_id", "scope", "item_id"])]
