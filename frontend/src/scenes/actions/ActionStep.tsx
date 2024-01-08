@@ -45,13 +45,7 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
                     <b>Match Group #{index + 1}</b>
 
                     {!isOnlyStep && (
-                        <LemonButton
-                            status="primary-alt"
-                            icon={<IconClose />}
-                            size="small"
-                            aria-label="delete"
-                            onClick={onDelete}
-                        />
+                        <LemonButton icon={<IconClose />} size="small" aria-label="delete" onClick={onDelete} />
                     )}
                 </div>
                 {<TypeSwitcher step={step} sendStep={sendStep} />}

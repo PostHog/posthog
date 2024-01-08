@@ -1,7 +1,7 @@
 import { decompressSync, strFromU8 } from 'fflate'
 import { encodeParams } from 'kea-router'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
-import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { objectClean, toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
@@ -10,10 +10,12 @@ import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { QuerySchema, QueryStatus } from '~/queries/schema'
 import {
     ActionType,
+    ActivityScope,
     BatchExportConfiguration,
     BatchExportLogEntry,
     BatchExportRun,
     CohortType,
+    CommentType,
     DashboardCollaboratorType,
     DashboardTemplateEditorType,
     DashboardTemplateListParams,
@@ -29,8 +31,9 @@ import {
     EventType,
     Experiment,
     ExportedAssetType,
+    ExternalDataSourceCreatePayload,
+    ExternalDataSourceSchema,
     ExternalDataStripeSource,
-    ExternalDataStripeSourceCreatePayload,
     FeatureFlagAssociatedRoleType,
     FeatureFlagType,
     Group,
@@ -39,6 +42,7 @@ import {
     IntegrationType,
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
+    NotebookListItemType,
     NotebookNodeResource,
     NotebookType,
     OrganizationFeatureFlags,
@@ -54,6 +58,7 @@ import {
     RoleMemberType,
     RolesListParams,
     RoleType,
+    ScheduledChangeType,
     SearchListParams,
     SearchResponse,
     SessionRecordingPlaylistType,
@@ -284,6 +289,14 @@ class ApiRequest {
         return this.actions(teamId).addPathComponent(actionId)
     }
 
+    // # Comments
+    public comments(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('comments')
+    }
+    public comment(id: CommentType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.comments(teamId).addPathComponent(id)
+    }
+
     // # Exports
     public exports(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('exports')
@@ -511,6 +524,30 @@ class ApiRequest {
         return this.featureFlags(teamId).addPathComponent('activity')
     }
 
+    public featureFlagScheduledChanges(teamId: TeamType['id'], featureFlagId: FeatureFlagType['id']): ApiRequest {
+        return this.projectsDetail(teamId)
+            .addPathComponent('scheduled_changes')
+            .withQueryString(
+                toParams({
+                    model_name: 'FeatureFlag',
+                    record_id: featureFlagId,
+                })
+            )
+    }
+
+    public featureFlagCreateScheduledChange(teamId: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('scheduled_changes')
+    }
+
+    public featureFlagDeleteScheduledChange(
+        teamId: TeamType['id'],
+        scheduledChangeId: ScheduledChangeType['id']
+    ): ApiRequest {
+        return this.projectsDetail(teamId)
+            .addPathComponent('scheduled_changes')
+            .addPathComponent(`${scheduledChangeId}`)
+    }
+
     // # Features
     public earlyAccessFeatures(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('early_access_feature')
@@ -656,6 +693,19 @@ class ApiRequest {
         return this.externalDataSources(teamId).addPathComponent(sourceId)
     }
 
+    public externalDataSchemas(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('external_data_schemas')
+    }
+
+    public externalDataSourceSchema(schemaId: ExternalDataSourceSchema['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.externalDataSchemas(teamId).addPathComponent(schemaId)
+    }
+
+    // ActivityLog
+    public activity_log(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('activity_log')
+    }
+
     // Request finalization
     public async get(options?: ApiMethodOptions): Promise<any> {
         return await api.get(this.assembleFullUrl(), options)
@@ -754,6 +804,24 @@ const api = {
         async createStaticCohort(id: FeatureFlagType['id']): Promise<{ cohort: CohortType }> {
             return await new ApiRequest().featureFlagCreateStaticCohort(id).create()
         },
+        async getScheduledChanges(
+            teamId: TeamType['id'],
+            featureFlagId: FeatureFlagType['id']
+        ): Promise<CountedPaginatedResponse<ScheduledChangeType>> {
+            return await new ApiRequest().featureFlagScheduledChanges(teamId, featureFlagId).get()
+        },
+        async createScheduledChange(
+            teamId: TeamType['id'],
+            data: any
+        ): Promise<{ scheduled_change: ScheduledChangeType }> {
+            return await new ApiRequest().featureFlagCreateScheduledChange(teamId).create({ data })
+        },
+        async deleteScheduledChange(
+            teamId: TeamType['id'],
+            scheduledChangeId: ScheduledChangeType['id']
+        ): Promise<{ scheduled_change: ScheduledChangeType }> {
+            return await new ApiRequest().featureFlagDeleteScheduledChange(teamId, scheduledChangeId).delete()
+        },
     },
 
     organizationFeatureFlags: {
@@ -804,11 +872,19 @@ const api = {
 
     activity: {
         list(
+            filters: Partial<Pick<ActivityLogItem, 'item_id' | 'scope'> & { user?: UserBasicType['id'] }>,
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+        ): Promise<PaginatedResponse<ActivityLogItem>> {
+            return new ApiRequest().activity_log(teamId).withQueryString(toParams(filters)).get()
+        },
+
+        listLegacy(
             activityLogProps: ActivityLogProps,
             page: number = 1,
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): Promise<ActivityLogPaginatedResponse<ActivityLogItem>> {
-            const requestForScope: Record<ActivityScope, (props: ActivityLogProps) => ApiRequest | null> = {
+            // TODO: Can we replace all these endpoint specific implementations with the generic REST endpoint above?
+            const requestForScope: { [key in ActivityScope]?: (props: ActivityLogProps) => ApiRequest | null } = {
                 [ActivityScope.FEATURE_FLAG]: (props) => {
                     return new ApiRequest().featureFlagsActivity((props.id ?? null) as number | null, teamId)
                 },
@@ -843,10 +919,41 @@ const api = {
             }
 
             const pagingParameters = { page: page || 1, limit: ACTIVITY_PAGE_SIZE }
-            const request = requestForScope[activityLogProps.scope](activityLogProps)
-            return request !== null
+            const request = requestForScope[activityLogProps.scope]?.(activityLogProps)
+            return request && request !== null
                 ? request.withQueryString(toParams(pagingParameters)).get()
                 : Promise.resolve({ results: [], count: 0 })
+        },
+    },
+
+    comments: {
+        async create(
+            data: Partial<CommentType>,
+            params: Record<string, any> = {},
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+        ): Promise<CommentType> {
+            return new ApiRequest().comments(teamId).withQueryString(toParams(params)).create({ data })
+        },
+
+        async update(
+            id: CommentType['id'],
+            data: Partial<CommentType>,
+            params: Record<string, any> = {},
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+        ): Promise<CommentType> {
+            return new ApiRequest().comment(id, teamId).withQueryString(toParams(params)).update({ data })
+        },
+
+        async get(id: CommentType['id'], teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<CommentType> {
+            return new ApiRequest().comment(id, teamId).get()
+        },
+
+        async list(params: Partial<CommentType> = {}): Promise<CountedPaginatedResponse<CommentType>> {
+            return new ApiRequest().comments().withQueryString(params).get()
+        },
+
+        async getCount(params: Partial<CommentType>): Promise<number> {
+            return (await new ApiRequest().comments().withAction('count').withQueryString(params).get()).count
         },
     },
 
@@ -1544,7 +1651,7 @@ const api = {
                 offset?: number
                 limit?: number
             } = {}
-        ): Promise<CountedPaginatedResponse<NotebookType>> {
+        ): Promise<CountedPaginatedResponse<NotebookListItemType>> {
             // TODO attrs could be a union of types like NotebookNodeRecordingAttributes
             const apiRequest = new ApiRequest().notebooks()
             const { contains, ...queryParams } = objectClean(params)
@@ -1703,9 +1810,7 @@ const api = {
         async list(): Promise<PaginatedResponse<ExternalDataStripeSource>> {
             return await new ApiRequest().externalDataSources().get()
         },
-        async create(
-            data: Partial<ExternalDataStripeSourceCreatePayload>
-        ): Promise<ExternalDataStripeSourceCreatePayload> {
+        async create(data: Partial<ExternalDataSourceCreatePayload>): Promise<ExternalDataSourceCreatePayload> {
             return await new ApiRequest().externalDataSources().create({ data })
         },
         async delete(sourceId: ExternalDataStripeSource['id']): Promise<void> {
@@ -1713,6 +1818,15 @@ const api = {
         },
         async reload(sourceId: ExternalDataStripeSource['id']): Promise<void> {
             await new ApiRequest().externalDataSource(sourceId).withAction('reload').create()
+        },
+    },
+
+    externalDataSchemas: {
+        async update(
+            schemaId: ExternalDataSourceSchema['id'],
+            data: Partial<ExternalDataSourceSchema>
+        ): Promise<ExternalDataSourceSchema> {
+            return await new ApiRequest().externalDataSourceSchema(schemaId).update({ data })
         },
     },
 

@@ -3,9 +3,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconSettings } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -25,7 +23,6 @@ export function DataWarehouseExternalScene(): JSX.Element {
     const { shouldShowEmptyState, shouldShowProductIntroduction, isSourceModalOpen } =
         useValues(dataWarehouseSceneLogic)
     const { toggleSourceModal } = useActions(dataWarehouseSceneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div>
@@ -39,25 +36,19 @@ export function DataWarehouseExternalScene(): JSX.Element {
                     </div>
                 }
                 buttons={
-                    featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_EXTERNAL_LINK] ? (
-                        <LemonButton
-                            type="primary"
-                            sideAction={{
-                                icon: <IconSettings />,
-                                onClick: () => router.actions.push(urls.dataWarehouseSettings()),
-                                'data-attr': 'saved-insights-new-insight-dropdown',
-                            }}
-                            data-attr="new-data-warehouse-easy-link"
-                            key={'new-data-warehouse-easy-link'}
-                            onClick={() => toggleSourceModal()}
-                        >
-                            Link Source
-                        </LemonButton>
-                    ) : !(shouldShowProductIntroduction || shouldShowEmptyState) ? (
-                        <LemonButton type="primary" to={urls.dataWarehouseTable()} data-attr="new-data-warehouse-table">
-                            New table
-                        </LemonButton>
-                    ) : undefined
+                    <LemonButton
+                        type="primary"
+                        sideAction={{
+                            icon: <IconSettings />,
+                            onClick: () => router.actions.push(urls.dataWarehouseSettings()),
+                            'data-attr': 'saved-insights-new-insight-dropdown',
+                        }}
+                        data-attr="new-data-warehouse-easy-link"
+                        key={'new-data-warehouse-easy-link'}
+                        onClick={() => toggleSourceModal()}
+                    >
+                        Link Source
+                    </LemonButton>
                 }
                 caption={
                     <div>
@@ -74,15 +65,11 @@ export function DataWarehouseExternalScene(): JSX.Element {
             {(shouldShowProductIntroduction || shouldShowEmptyState) && (
                 <ProductIntroduction
                     productName={'Data Warehouse'}
-                    thingName={'data warehouse table'}
+                    thingName={'table'}
                     description={
                         'Bring your production database, revenue data, CRM contacts or any other data into PostHog.'
                     }
-                    action={() =>
-                        featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_EXTERNAL_LINK]
-                            ? toggleSourceModal()
-                            : router.actions.push(urls.dataWarehouseTable())
-                    }
+                    action={toggleSourceModal}
                     isEmpty={shouldShowEmptyState}
                     docsURL="https://posthog.com/docs/data/data-warehouse"
                     productKey={ProductKey.DATA_WAREHOUSE}

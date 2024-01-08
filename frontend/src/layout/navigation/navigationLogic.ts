@@ -26,8 +26,6 @@ export const navigationLogic = kea<navigationLogicType>([
         actions: [eventUsageLogic, ['reportProjectNoticeDismissed']],
     })),
     actions({
-        toggleSideBarBase: (override?: boolean) => ({ override }), // Only use the override for testing
-        toggleSideBarMobile: (override?: boolean) => ({ override }), // Only use the override for testing
         toggleActivationSideBar: true,
         showActivationSideBar: true,
         hideActivationSideBar: true,
@@ -61,18 +59,11 @@ export const navigationLogic = kea<navigationLogicType>([
     })),
     reducers({
         // Non-mobile base
-        isSideBarShownBase: [
-            true,
-            { persist: true },
-            {
-                toggleSideBarBase: (state, { override }) => override ?? !state,
-            },
-        ],
+        isSideBarShownBase: [true, { persist: true }, {}],
         // Mobile, applied on top of base, so that the sidebar does not show up annoyingly when shrinking the window
         isSideBarShownMobile: [
             false,
             {
-                toggleSideBarMobile: (state, { override }) => override ?? !state,
                 hideSideBarMobile: () => false,
             },
         ],
@@ -120,16 +111,10 @@ export const navigationLogic = kea<navigationLogicType>([
             (s) => [s.fullscreen, s.sceneConfig],
             (fullscreen, sceneConfig) => fullscreen || sceneConfig?.layout === 'plain',
         ],
-        minimalTopBar: [
-            (s) => [s.sceneConfig],
-            (sceneConfig) => {
-                return sceneConfig?.layout === 'plain' && !sceneConfig.allowUnauthenticated
-            },
-        ],
         isSideBarShown: [
-            (s) => [s.mobileLayout, s.isSideBarShownBase, s.isSideBarShownMobile, s.noSidebar],
-            (mobileLayout, isSideBarShownBase, isSideBarShownMobile, noSidebar) =>
-                !noSidebar && (mobileLayout ? isSideBarShownMobile : isSideBarShownBase),
+            (s) => [s.mobileLayout, s.isSideBarShownMobile, s.noSidebar],
+            (mobileLayout, isSideBarShownMobile, noSidebar) =>
+                !noSidebar && (mobileLayout ? isSideBarShownMobile : true),
         ],
         isActivationSideBarShown: [
             (s) => [s.mobileLayout, s.isActivationSideBarShownBase, s.isSideBarShownMobile, s.noSidebar],
@@ -137,16 +122,16 @@ export const navigationLogic = kea<navigationLogicType>([
                 !noSidebar &&
                 (mobileLayout ? isActivationSideBarShownBase && !isSideBarShownMobile : isActivationSideBarShownBase),
         ],
-        systemStatus: [
+        systemStatusHealthy: [
             (s) => [s.navigationStatus, preflightLogic.selectors.siteUrlMisconfigured],
             (status, siteUrlMisconfigured) => {
-                if (siteUrlMisconfigured) {
-                    return false
-                }
-
                 // On cloud non staff users don't have status metrics to review
                 if (preflightLogic.values.preflight?.cloud && !userLogic.values.user?.is_staff) {
                     return true
+                }
+
+                if (siteUrlMisconfigured) {
+                    return false
                 }
 
                 return status.system_status_ok

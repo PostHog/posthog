@@ -5,11 +5,11 @@ import { useActions, useValues } from 'kea'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { HedgehogBuddy } from './HedgehogBuddy'
-import { hedgehogbuddyLogic } from './hedgehogbuddyLogic'
+import { hedgehogBuddyLogic } from './hedgehogBuddyLogic'
 
 export function HedgehogBuddyWithLogic(): JSX.Element {
-    const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
-    const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
+    const { hedgehogModeEnabled } = useValues(hedgehogBuddyLogic)
+    const { setHedgehogModeEnabled } = useActions(hedgehogBuddyLogic)
     const { isDarkModeOn } = useValues(themeLogic)
 
     return hedgehogModeEnabled ? (

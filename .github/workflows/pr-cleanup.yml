@@ -21,7 +21,7 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v3
 
-            - uses: aws-actions/configure-aws-credentials@v1
+            - uses: aws-actions/configure-aws-credentials@v4
               with:
                   aws-region: us-east-1
                   role-to-assume: arn:aws:iam::169684386827:role/github-terraform-infra-role
@@ -29,7 +29,7 @@ jobs:
 
             - name: Login to Amazon ECR
               id: aws-ecr
-              uses: aws-actions/amazon-ecr-login@v1
+              uses: aws-actions/amazon-ecr-login@v2
 
             - name: connect to tailscale
               uses: tailscale/github-action@8b804aa882ac3429b804a2a22f9803a2101a0db9

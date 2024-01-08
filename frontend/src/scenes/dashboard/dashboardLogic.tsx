@@ -22,7 +22,7 @@ import {
 } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { captureTimeToSeeData, currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clearDOMTextSelection, isUserLoggedIn, shouldCancelQuery, toParams, uuid } from 'lib/utils'
@@ -742,7 +742,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     path: urls.dashboards(),
                 },
                 {
-                    key: dashboard?.id || 'new',
+                    key: [Scene.Dashboard, dashboard?.id || 'new'],
                     name: dashboard?.id ? dashboard.name || 'Unnamed' : null,
                     onRename: async (name) => {
                         if (dashboard) {

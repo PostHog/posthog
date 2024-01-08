@@ -32,20 +32,14 @@ module.exports = {
         'plugin:eslint-comments/recommended',
         'plugin:storybook/recommended',
         'plugin:compat/recommended',
-        'prettier',
+        'prettier', // Disables any formatting rules to let prettier do its job
     ],
     globals,
     parser: '@typescript-eslint/parser',
     parserOptions: {
-        ecmaFeatures: {
-            jsx: true,
-        },
-        ecmaVersion: 2018,
-        sourceType: 'module',
         project: 'tsconfig.json',
     },
     plugins: [
-        'prettier',
         'react',
         'cypress',
         '@typescript-eslint',
@@ -120,19 +114,14 @@ module.exports = {
                     },
                     {
                         name: 'antd',
-                        importNames: ['Tooltip'],
-                        message: 'Please use Tooltip from @posthog/lemon-ui instead.',
-                    },
-                    {
-                        name: 'antd',
-                        importNames: ['Alert'],
-                        message: 'Please use LemonBanner from @posthog/lemon-ui instead.',
+                        importNames: ['Card', 'Col', 'Row', 'Alert', 'Tooltip'],
+                        message: 'please use the Lemon equivalent instead',
                     },
                 ],
             },
         ],
         'react/forbid-dom-props': [
-            'warn',
+            'error',
             {
                 forbid: [
                     {
@@ -148,21 +137,8 @@ module.exports = {
             {
                 forbid: [
                     {
-                        element: 'Row',
-                        message:
-                            'use flex utility classes instead, e.g. <Row align="middle"> could be <div className="flex items-center">',
-                    },
-                    {
-                        element: 'Col',
-                        message: 'use flex utility classes instead - most of the time can simply be a plain <div>',
-                    },
-                    {
                         element: 'Divider',
                         message: 'use <LemonDivider> instead',
-                    },
-                    {
-                        element: 'Card',
-                        message: 'use utility classes instead',
                     },
                     {
                         element: 'Button',
@@ -214,6 +190,10 @@ module.exports = {
                     {
                         element: 'Badge',
                         message: 'use LemonBadge instead',
+                    },
+                    {
+                        element: 'InputNumber',
+                        message: 'use LemonInput with type="number" instead',
                     },
                     {
                         element: 'Collapse',

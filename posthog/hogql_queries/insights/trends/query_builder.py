@@ -55,6 +55,7 @@ class TrendsQueryBuilder:
         event_query = self._get_events_subquery(True)
 
         event_query.select = [ast.Alias(alias="person_id", expr=ast.Field(chain=["e", "person", "id"]))]
+        event_query.distinct = True
         event_query.group_by = None
 
         return event_query
@@ -298,6 +299,34 @@ class TrendsQueryBuilder:
                 placeholders={"inner_query": inner_query},
             ),
         )
+
+        if (
+            self.query.trendsFilter is not None
+            and self.query.trendsFilter.smoothing_intervals is not None
+            and self.query.trendsFilter.smoothing_intervals > 1
+        ):
+            rolling_average = ast.Alias(
+                alias="count",
+                expr=ast.Call(
+                    name="floor",
+                    args=[
+                        ast.WindowFunction(
+                            name="avg",
+                            args=[ast.Call(name="sum", args=[ast.Field(chain=["total"])])],
+                            over_expr=ast.WindowExpr(
+                                order_by=[ast.OrderExpr(expr=ast.Field(chain=["day_start"]), order="ASC")],
+                                frame_method="ROWS",
+                                frame_start=ast.WindowFrameExpr(
+                                    frame_type="PRECEDING",
+                                    frame_value=int(self.query.trendsFilter.smoothing_intervals - 1),
+                                ),
+                                frame_end=ast.WindowFrameExpr(frame_type="CURRENT ROW"),
+                            ),
+                        )
+                    ],
+                ),
+            )
+            query.select = [rolling_average]
 
         query.group_by = []
         query.order_by = []

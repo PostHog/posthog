@@ -6,7 +6,7 @@ import api from 'lib/api'
 import { FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { IconInfo } from 'lib/lemon-ui/icons'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -650,7 +650,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     path: urls.experiments(),
                 },
                 {
-                    key: experimentId,
+                    key: [Scene.Experiment, experimentId],
                     name: experiment?.name || 'New',
                     path: urls.experiment(experimentId || 'new'),
                 },

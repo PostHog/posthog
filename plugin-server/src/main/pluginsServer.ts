@@ -15,11 +15,13 @@ import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub, createKafkaClient, createKafkaProducerWrapper } from '../utils/db/hub'
 import { PostgresRouter } from '../utils/db/postgres'
 import { cancelAllScheduledJobs } from '../utils/node-schedule'
+import { PeriodicTask } from '../utils/periodic-task'
 import { PubSub } from '../utils/pubsub'
 import { status } from '../utils/status'
 import { delay } from '../utils/utils'
 import { AppMetrics } from '../worker/ingestion/app-metrics'
 import { OrganizationManager } from '../worker/ingestion/organization-manager'
+import { DeferredPersonOverrideWorker, FlatPersonOverrideWriter } from '../worker/ingestion/person-state'
 import { TeamManager } from '../worker/ingestion/team-manager'
 import Piscina, { makePiscina as defaultMakePiscina } from '../worker/piscina'
 import { GraphileWorker } from './graphile-worker/graphile-worker'
@@ -108,6 +110,8 @@ export async function startPluginsServer(
     let jobsConsumer: Consumer | undefined
     let schedulerTasksConsumer: Consumer | undefined
 
+    let personOverridesPeriodicTask: PeriodicTask | undefined
+
     let httpServer: Server | undefined // healthcheck server
 
     let graphileWorker: GraphileWorker | undefined
@@ -146,6 +150,7 @@ export async function startPluginsServer(
             jobsConsumer?.disconnect(),
             stopSessionRecordingBlobConsumer?.(),
             schedulerTasksConsumer?.disconnect(),
+            personOverridesPeriodicTask?.stop(),
         ])
 
         if (piscina) {
@@ -388,6 +393,12 @@ export async function startPluginsServer(
                 'reset-available-features-cache': async (message) => {
                     await piscina?.broadcastTask({ task: 'resetAvailableFeaturesCache', args: JSON.parse(message) })
                 },
+                'populate-plugin-capabilities': async (message) => {
+                    // We need this to be done in only once
+                    if (hub?.capabilities.appManagementSingleton && piscina) {
+                        await piscina?.broadcastTask({ task: 'populatePluginCapabilities', args: JSON.parse(message) })
+                    }
+                },
             })
 
             await pubSub.start()
@@ -426,6 +437,22 @@ export async function startPluginsServer(
                 shutdownOnConsumerExit(batchConsumer)
                 healthChecks['session-recordings-blob'] = () => ingester.isHealthy() ?? false
             }
+        }
+
+        if (capabilities.personOverrides) {
+            const postgres = hub?.postgres ?? new PostgresRouter(serverConfig)
+            const kafkaProducer = hub?.kafkaProducer ?? (await createKafkaProducerWrapper(serverConfig))
+
+            personOverridesPeriodicTask = new DeferredPersonOverrideWorker(
+                postgres,
+                kafkaProducer,
+                new FlatPersonOverrideWriter(postgres)
+            ).runTask(5000)
+            personOverridesPeriodicTask.promise.catch(async () => {
+                status.error('⚠️', 'Person override worker task crashed! Requesting shutdown...')
+                await closeJobs()
+                process.exit(1)
+            })
         }
 
         if (capabilities.http) {

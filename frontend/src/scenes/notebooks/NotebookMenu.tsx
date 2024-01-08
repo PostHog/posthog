@@ -1,9 +1,10 @@
 import './NotebookScene.scss'
 
+import { IconClock, IconEllipsis, IconShare } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { IconDelete, IconEllipsis, IconExport, IconNotification, IconShare } from 'lib/lemon-ui/icons'
+import { IconDelete, IconExport } from 'lib/lemon-ui/icons'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { urls } from 'scenes/urls'
 
@@ -28,10 +29,10 @@ export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
                         },
                         {
                             label: 'History',
-                            icon: <IconNotification />,
+                            icon: <IconClock />,
                             onClick: () => setShowHistory(!showHistory),
                         },
-                        !isLocalOnly && {
+                        {
                             label: 'Share',
                             icon: <IconShare />,
                             onClick: () => openNotebookShareDialog({ shortId }),
@@ -52,7 +53,7 @@ export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
             ]}
             actionable
         >
-            <LemonButton aria-label="more" icon={<IconEllipsis />} status="stealth" size="small" />
+            <LemonButton aria-label="more" icon={<IconEllipsis />} size="small" />
         </LemonMenu>
     )
 }

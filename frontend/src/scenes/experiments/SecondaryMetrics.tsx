@@ -55,14 +55,15 @@ export function SecondaryMetrics({
             render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
                 return (
                     <div
+                        className="flex items-center w-fit h-5 px-1 rounded text-white text-xs"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
-                            color: getSeriesColor(
+                            background: getSeriesColor(
                                 getIndexForVariant(item.variant, experiment.filters?.insight || InsightType.TRENDS)
                             ),
                         }}
                     >
-                        <span className="text-sm">{capitalizeFirstLetter(item.variant)}</span>
+                        {capitalizeFirstLetter(item.variant)}
                     </div>
                 )
             },
@@ -82,7 +83,6 @@ export function SecondaryMetrics({
                         <LemonButton
                             icon={<IconEdit />}
                             size="small"
-                            status="muted"
                             onClick={() => openModalToEditSecondaryMetric(metric, idx)}
                         />
                     </div>
@@ -177,13 +177,11 @@ export function SecondaryMetrics({
                                         <LemonButton
                                             icon={<IconEdit />}
                                             size="small"
-                                            status="muted"
                                             onClick={() => openModalToEditSecondaryMetric(metric, idx)}
                                         />
                                         <LemonButton
                                             icon={<IconDelete />}
                                             size="small"
-                                            status="muted"
                                             onClick={() => deleteMetric(idx)}
                                         />
                                     </div>

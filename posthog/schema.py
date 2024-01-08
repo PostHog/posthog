@@ -55,6 +55,13 @@ class BreakdownType(str, Enum):
     hogql = "hogql"
 
 
+class ChartAxis(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: str
+
+
 class ChartDisplayType(str, Enum):
     ActionsLineGraph = "ActionsLineGraph"
     ActionsLineGraphCumulative = "ActionsLineGraphCumulative"
@@ -74,7 +81,7 @@ class CohortPropertyFilter(BaseModel):
     key: Literal["id"] = "id"
     label: Optional[str] = None
     type: Literal["cohort"] = "cohort"
-    value: float
+    value: int
 
 
 class CountPerActorMathType(str, Enum):
@@ -85,14 +92,6 @@ class CountPerActorMathType(str, Enum):
     p90_count_per_actor = "p90_count_per_actor"
     p95_count_per_actor = "p95_count_per_actor"
     p99_count_per_actor = "p99_count_per_actor"
-
-
-class ChartSettings(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    xAxisIndex: Optional[List[float]] = None
-    yAxisIndex: Optional[List[float]] = None
 
 
 class DatabaseSchemaQueryResponseField(BaseModel):
@@ -249,6 +248,14 @@ class FunnelVizType(str, Enum):
     trends = "trends"
 
 
+class GoalLine(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    label: str
+    value: float
+
+
 class HogQLNotice(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -344,7 +351,7 @@ class NodeKind(str, Enum):
     PersonsNode = "PersonsNode"
     HogQLQuery = "HogQLQuery"
     HogQLMetadata = "HogQLMetadata"
-    PersonsQuery = "PersonsQuery"
+    ActorsQuery = "ActorsQuery"
     SessionsTimelineQuery = "SessionsTimelineQuery"
     DataTableNode = "DataTableNode"
     DataVisualizationNode = "DataVisualizationNode"
@@ -356,7 +363,7 @@ class NodeKind(str, Enum):
     PathsQuery = "PathsQuery"
     StickinessQuery = "StickinessQuery"
     LifecycleQuery = "LifecycleQuery"
-    InsightPersonsQuery = "InsightPersonsQuery"
+    InsightActorsQuery = "InsightActorsQuery"
     WebOverviewQuery = "WebOverviewQuery"
     WebTopClicksQuery = "WebTopClicksQuery"
     WebStatsTableQuery = "WebStatsTableQuery"
@@ -498,7 +505,7 @@ class RetentionEntity(BaseModel):
     id: Optional[Union[str, float]] = None
     kind: Optional[Kind] = None
     name: Optional[str] = None
-    order: Optional[float] = None
+    order: Optional[int] = None
     type: Optional[EntityType] = None
     uuid: Optional[str] = None
 
@@ -602,6 +609,7 @@ class TrendsFilter(BaseModel):
     aggregation_axis_prefix: Optional[str] = None
     breakdown_histogram_bin_count: Optional[float] = None
     compare: Optional[bool] = None
+    decimal_places: Optional[float] = None
     display: Optional[ChartDisplayType] = None
     formula: Optional[str] = None
     hidden_legend_indexes: Optional[List[float]] = None
@@ -682,6 +690,7 @@ class WebOverviewQueryResponse(BaseModel):
 class WebStatsBreakdown(str, Enum):
     Page = "Page"
     InitialPage = "InitialPage"
+    InitialChannelType = "InitialChannelType"
     InitialReferringDomain = "InitialReferringDomain"
     InitialUTMSource = "InitialUTMSource"
     InitialUTMCampaign = "InitialUTMCampaign"
@@ -724,6 +733,21 @@ class WebTopClicksQueryResponse(BaseModel):
     types: Optional[List] = None
 
 
+class ActorsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: List
+    hasMore: Optional[bool] = None
+    hogql: str
+    limit: int
+    missing_actors_count: Optional[int] = None
+    offset: int
+    results: List[List]
+    timings: Optional[List[QueryTiming]] = None
+    types: List[str]
+
+
 class AnyResponseTypeItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -747,7 +771,9 @@ class BreakdownFilter(BaseModel):
     )
     breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
     breakdown_group_type_index: Optional[float] = None
+    breakdown_hide_other_aggregation: Optional[bool] = None
     breakdown_histogram_bin_count: Optional[float] = None
+    breakdown_limit: Optional[float] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
     breakdowns: Optional[List[Breakdown]] = None
@@ -759,6 +785,15 @@ class DataNode(BaseModel):
     )
     kind: NodeKind
     response: Optional[Dict[str, Any]] = Field(default=None, description="Cached query response")
+
+
+class ChartSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    goalLines: Optional[List[GoalLine]] = None
+    xAxis: Optional[ChartAxis] = None
+    yAxis: Optional[List[ChartAxis]] = None
 
 
 class ElementPropertyFilter(BaseModel):
@@ -790,6 +825,8 @@ class EventsQueryResponse(BaseModel):
     columns: List
     hasMore: Optional[bool] = None
     hogql: str
+    limit: Optional[int] = None
+    offset: Optional[int] = None
     results: List[List]
     timings: Optional[List[QueryTiming]] = None
     types: List[str]
@@ -919,18 +956,6 @@ class PersonPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["person"] = Field(default="person", description="Person properties")
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
-
-
-class PersonsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: List
-    hasMore: Optional[bool] = None
-    hogql: str
-    results: List[List]
-    timings: Optional[List[QueryTiming]] = None
-    types: List[str]
 
 
 class QueryResponse(BaseModel):
@@ -1074,6 +1099,7 @@ class WebStatsTableQuery(BaseModel):
     )
     breakdownBy: WebStatsBreakdown
     dateRange: Optional[DateRange] = None
+    includeScrollDepth: Optional[bool] = None
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
     properties: List[Union[EventPropertyFilter, PersonPropertyFilter]]
     response: Optional[WebStatsTableQueryResponse] = None
@@ -1522,7 +1548,7 @@ class RetentionQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: Optional[float] = Field(default=None, description="Groups aggregation")
+    aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
@@ -1594,7 +1620,7 @@ class TrendsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: Optional[float] = Field(default=None, description="Groups aggregation")
+    aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     breakdown: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
@@ -1637,6 +1663,7 @@ class FilterType(BaseModel):
     aggregation_group_type_index: Optional[float] = None
     breakdown: Optional[Union[str, float, List[Union[str, float]]]] = None
     breakdown_group_type_index: Optional[float] = None
+    breakdown_hide_other_aggregation: Optional[bool] = None
     breakdown_normalize_url: Optional[bool] = None
     breakdown_type: Optional[BreakdownType] = None
     breakdowns: Optional[List[Breakdown]] = None
@@ -1681,7 +1708,7 @@ class FunnelsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: Optional[float] = Field(default=None, description="Groups aggregation")
+    aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     breakdown: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
@@ -1721,7 +1748,7 @@ class InsightsQueryBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: Optional[float] = Field(default=None, description="Groups aggregation")
+    aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
@@ -1799,7 +1826,7 @@ class PathsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_group_type_index: Optional[float] = Field(default=None, description="Groups aggregation")
+    aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
@@ -1850,18 +1877,21 @@ class InsightVizNode(BaseModel):
     vizSpecificOptions: Optional[VizSpecificOptions] = None
 
 
-class InsightPersonsQuery(BaseModel):
+class InsightActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     day: Optional[str] = None
-    kind: Literal["InsightPersonsQuery"] = "InsightPersonsQuery"
-    response: Optional[PersonsQueryResponse] = None
+    interval: Optional[int] = Field(
+        default=None, description="An interval selected out of available intervals in source query"
+    )
+    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    response: Optional[ActorsQueryResponse] = None
     source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
     status: Optional[str] = None
 
 
-class PersonsQuery(BaseModel):
+class ActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1881,9 +1911,9 @@ class PersonsQuery(BaseModel):
             ]
         ]
     ] = None
-    kind: Literal["PersonsQuery"] = "PersonsQuery"
-    limit: Optional[float] = None
-    offset: Optional[float] = None
+    kind: Literal["ActorsQuery"] = "ActorsQuery"
+    limit: Optional[int] = None
+    offset: Optional[int] = None
     orderBy: Optional[List[str]] = None
     properties: Optional[
         List[
@@ -1901,10 +1931,10 @@ class PersonsQuery(BaseModel):
             ]
         ]
     ] = None
-    response: Optional[PersonsQueryResponse] = Field(default=None, description="Cached query response")
+    response: Optional[ActorsQueryResponse] = Field(default=None, description="Cached query response")
     search: Optional[str] = None
     select: Optional[List[str]] = None
-    source: Optional[Union[InsightPersonsQuery, HogQLQuery]] = None
+    source: Optional[Union[InsightActorsQuery, HogQLQuery]] = None
 
 
 class DataTableNode(BaseModel):
@@ -1954,7 +1984,7 @@ class DataTableNode(BaseModel):
         EventsNode,
         EventsQuery,
         PersonsNode,
-        PersonsQuery,
+        ActorsQuery,
         HogQLQuery,
         TimeToSeeDataSessionsQuery,
         WebOverviewQuery,
@@ -1983,8 +2013,8 @@ class QuerySchema(RootModel):
             PersonsNode,
             TimeToSeeDataSessionsQuery,
             EventsQuery,
-            PersonsQuery,
-            InsightPersonsQuery,
+            ActorsQuery,
+            InsightActorsQuery,
             SessionsTimelineQuery,
             HogQLQuery,
             HogQLMetadata,

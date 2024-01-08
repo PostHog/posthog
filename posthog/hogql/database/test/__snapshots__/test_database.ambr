@@ -321,14 +321,6 @@
               "type": "string"
           },
           {
-              "key": "min_first_timestamp",
-              "type": "datetime"
-          },
-          {
-              "key": "max_last_timestamp",
-              "type": "datetime"
-          },
-          {
               "key": "first_url",
               "type": "string"
           },
@@ -1088,14 +1080,6 @@
           {
               "key": "distinct_id",
               "type": "string"
-          },
-          {
-              "key": "min_first_timestamp",
-              "type": "datetime"
-          },
-          {
-              "key": "max_last_timestamp",
-              "type": "datetime"
           },
           {
               "key": "first_url",

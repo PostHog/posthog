@@ -15,8 +15,9 @@ import {
 } from '@floating-ui/react'
 import clsx from 'clsx'
 import { useEventListener } from 'lib/hooks/useEventListener'
+import { useFloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { CLICK_OUTSIDE_BLOCK_CLASS, useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
-import React, { MouseEventHandler, ReactElement, useContext, useEffect, useLayoutEffect, useRef } from 'react'
+import React, { MouseEventHandler, ReactElement, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { CSSTransition } from 'react-transition-group'
 
 export interface PopoverProps {
@@ -55,7 +56,6 @@ export interface PopoverProps {
      *  @default false
      */
     closeParentPopoverOnClickInside?: boolean
-    getPopupContainer?: () => HTMLElement
     /** Whether to show an arrow pointing to a reference element */
     showArrow?: boolean
 }
@@ -93,7 +93,6 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         referenceRef: extraReferenceRef,
         floatingRef: extraFloatingRef,
         style,
-        getPopupContainer,
         showArrow = false,
     },
     contentRef
@@ -137,8 +136,13 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
             ...(middleware ?? []),
         ],
     })
-    const mergedReferenceRef = useMergeRefs([referenceRef, extraReferenceRef || null]) as React.RefCallback<HTMLElement>
-    const mergedFloatingRef = useMergeRefs([floatingRef, extraFloatingRef || null]) as React.RefCallback<HTMLElement>
+
+    const [floatingElement, setFloatingElement] = useState<HTMLElement | null>(null)
+    const mergedReferenceRef = useMergeRefs([
+        referenceRef,
+        extraReferenceRef || null,
+        (children as any)?.ref,
+    ]) as React.RefCallback<HTMLElement>
 
     const arrowStyle = middlewareData.arrow
         ? {
@@ -178,10 +182,12 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     )
 
     useEffect(() => {
-        if (visible && referenceRef?.current && floatingRef?.current) {
-            return autoUpdate(referenceRef.current, floatingRef.current, update)
+        if (visible && referenceRef?.current && floatingElement) {
+            return autoUpdate(referenceRef.current, floatingElement, update)
         }
-    }, [visible, referenceRef?.current, floatingRef?.current, ...additionalRefs])
+    }, [visible, referenceRef?.current, floatingElement, ...additionalRefs])
+
+    const floatingContainer = useFloatingContainerContext()?.current
 
     const _onClickInside: MouseEventHandler<HTMLDivElement> = (e): void => {
         if (e.target instanceof HTMLElement && e.target.closest(`.${CLICK_OUTSIDE_BLOCK_CLASS}`)) {
@@ -210,7 +216,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                     {clonedChildren}
                 </PopoverReferenceContext.Provider>
             )}
-            <FloatingPortal root={getPopupContainer?.()}>
+            <FloatingPortal root={floatingContainer}>
                 <CSSTransition in={visible} timeout={50} classNames="Popover-" appear mountOnEnter unmountOnExit>
                     <PopoverOverlayContext.Provider value={[visible, currentPopoverLevel]}>
                         <div
@@ -223,7 +229,13 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                                 className
                             )}
                             data-placement={effectivePlacement}
-                            ref={mergedFloatingRef}
+                            ref={(el) => {
+                                setFloatingElement(el)
+                                floatingRef.current = el
+                                if (extraFloatingRef) {
+                                    extraFloatingRef.current = el
+                                }
+                            }}
                             // eslint-disable-next-line react/forbid-dom-props
                             style={{
                                 display: middlewareData.hide?.referenceHidden ? 'none' : undefined,

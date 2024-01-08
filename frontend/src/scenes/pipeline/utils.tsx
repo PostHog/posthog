@@ -1,9 +1,18 @@
 import api from 'lib/api'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
+import posthog from 'posthog-js'
+import { PluginImage, PluginImageSize } from 'scenes/plugins/plugin/PluginImage'
 
-import { PluginType } from '~/types'
+import { PluginConfigTypeNew, PluginType } from '~/types'
+
+export function capturePluginEvent(event: string, plugin: PluginType, pluginConfig: PluginConfigTypeNew): void {
+    posthog.capture(event, {
+        plugin_id: plugin.id,
+        plugin_name: plugin.name,
+        plugin_config_id: pluginConfig.id,
+    })
+}
 
 const PAGINATION_DEFAULT_MAX_PAGES = 10
 export async function loadPaginatedResults(
@@ -25,9 +34,10 @@ export async function loadPaginatedResults(
 
 type RenderAppProps = {
     plugin: PluginType
+    imageSize?: PluginImageSize
 }
 
-export function RenderApp({ plugin }: RenderAppProps): JSX.Element {
+export function RenderApp({ plugin, imageSize }: RenderAppProps): JSX.Element {
     return (
         <div className="flex items-center gap-4">
             <Tooltip
@@ -43,10 +53,10 @@ export function RenderApp({ plugin }: RenderAppProps): JSX.Element {
             >
                 {plugin.url ? (
                     <Link to={plugin.url} target="_blank">
-                        <PluginImage plugin={plugin} />
+                        <PluginImage plugin={plugin} size={imageSize} />
                     </Link>
                 ) : (
-                    <PluginImage plugin={plugin} /> // TODO: tooltip doesn't work on this
+                    <PluginImage plugin={plugin} size={imageSize} /> // TODO: tooltip doesn't work on this
                 )}
             </Tooltip>
         </div>

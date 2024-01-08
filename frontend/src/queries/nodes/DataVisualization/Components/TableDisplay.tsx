@@ -1,6 +1,6 @@
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconShowChart, IconTableChart } from 'lib/lemon-ui/icons'
+import { IconBarChart, IconShowChart, IconTableChart } from 'lib/lemon-ui/icons'
 
 import { ChartDisplayType } from '~/types'
 
@@ -22,6 +22,11 @@ export const TableDisplay = (): JSX.Element => {
                     value: ChartDisplayType.ActionsLineGraph,
                     icon: <IconShowChart />,
                     label: 'Line chart',
+                },
+                {
+                    value: ChartDisplayType.ActionsBar,
+                    icon: <IconBarChart />,
+                    label: 'Bar chart',
                 },
             ],
         },

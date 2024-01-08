@@ -1,7 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import posthog from 'posthog-js'
 import { canConfigurePlugins } from 'scenes/plugins/access'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -9,14 +8,7 @@ import { userLogic } from 'scenes/userLogic'
 import { PluginConfigTypeNew, PluginType, ProductKey } from '~/types'
 
 import type { pipelineTransformationsLogicType } from './transformationsLogicType'
-
-function capturePluginEvent(event: string, plugin: PluginType, pluginConfig: PluginConfigTypeNew): void {
-    posthog.capture(event, {
-        plugin_id: plugin.id,
-        plugin_name: plugin.name,
-        plugin_config_id: pluginConfig.id,
-    })
-}
+import { capturePluginEvent } from './utils'
 
 export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType>([
     path(['scenes', 'pipeline', 'transformationsLogic']),
@@ -60,21 +52,11 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
             {} as Record<number, PluginConfigTypeNew>,
             {
                 loadPluginConfigs: async () => {
-                    const pluginConfigs: Record<number, PluginConfigTypeNew> = {}
-                    const results = await api.loadPaginatedResults(
+                    const res: PluginConfigTypeNew[] = await api.loadPaginatedResults(
                         `api/projects/${values.currentTeamId}/pipeline_transformations_configs`
                     )
 
-                    for (const pluginConfig of results) {
-                        pluginConfigs[pluginConfig.id] = {
-                            ...pluginConfig,
-                            // If this pluginConfig doesn't have a name of desciption, use the plugin's
-                            // note that this will get saved to the db on certain actions and that's fine
-                            name: pluginConfig.name || values.plugins[pluginConfig.plugin]?.name || 'Unknown app',
-                            description: pluginConfig.description || values.plugins[pluginConfig.plugin]?.description,
-                        }
-                    }
-                    return pluginConfigs
+                    return Object.fromEntries(res.map((pluginConfig) => [pluginConfig.id, pluginConfig]))
                 },
                 savePluginConfigsOrder: async ({ newOrders }) => {
                     if (!values.canConfigurePlugins) {

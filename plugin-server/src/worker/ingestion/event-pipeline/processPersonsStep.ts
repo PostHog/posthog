@@ -4,7 +4,7 @@ import { Person } from 'types'
 
 import { normalizeEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
-import { PersonOverrideWriter, PersonState } from '../person-state'
+import { DeferredPersonOverrideWriter, PersonState } from '../person-state'
 import { parseEventTimestamp } from '../timestamps'
 import { EventPipelineRunner } from './runner'
 
@@ -22,13 +22,18 @@ export async function processPersonsStep(
         throw error
     }
 
+    let overridesWriter: DeferredPersonOverrideWriter | undefined = undefined
+    if (runner.poEEmbraceJoin) {
+        overridesWriter = new DeferredPersonOverrideWriter(runner.hub.db.postgres)
+    }
+
     const person = await new PersonState(
         event,
         event.team_id,
         String(event.distinct_id),
         timestamp,
         runner.hub.db,
-        runner.poEEmbraceJoin ? new PersonOverrideWriter(runner.hub.db.postgres) : undefined
+        overridesWriter
     ).update()
 
     return [event, person]

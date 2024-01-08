@@ -33,7 +33,6 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { DataTableNode, NodeKind } from '~/queries/schema'
-import { isInsightVizNode } from '~/queries/utils'
 import {
     AvailableFeature,
     ExporterFormat,
@@ -61,14 +60,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         hasDashboardItemId,
         exporterResourceParams,
     } = useValues(logic)
-    const { setInsightMetadata, saveAs } = useActions(logic)
+    const { setInsightMetadata } = useActions(logic)
 
     // savedInsightsLogic
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     // insightDataLogic
     const { query, queryChanged, showQueryEditor, hogQL } = useValues(insightDataLogic(insightProps))
-    const { saveInsight: saveQueryBasedInsight, toggleQueryEditorPanel } = useActions(insightDataLogic(insightProps))
+    const { saveInsight, saveAs, toggleQueryEditorPanel } = useActions(insightDataLogic(insightProps))
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
@@ -143,7 +142,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     {hasDashboardItemId && (
                                         <>
                                             <LemonButton
-                                                status="stealth"
                                                 onClick={() => duplicateInsight(insight as InsightModel, true)}
                                                 fullWidth
                                                 data-attr="duplicate-insight-from-insight-view"
@@ -151,7 +149,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 Duplicate
                                             </LemonButton>
                                             <LemonButton
-                                                status="stealth"
                                                 onClick={() =>
                                                     setInsightMetadata({
                                                         favorited: !insight.favorited,
@@ -162,7 +159,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 {insight.favorited ? 'Remove from favorites' : 'Add to favorites'}
                                             </LemonButton>
                                             <LemonButton
-                                                status="stealth"
                                                 onClick={() => setAddToDashboardModalOpenModal(true)}
                                                 fullWidth
                                             >
@@ -171,7 +167,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             <LemonDivider />
 
                                             <LemonButton
-                                                status="stealth"
                                                 onClick={() =>
                                                     insight.short_id
                                                         ? push(urls.insightSharing(insight.short_id))
@@ -203,32 +198,28 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             ) : null}
                                         </>
                                     )}
-                                    {isInsightVizNode(query) ? (
-                                        <LemonButton
-                                            data-attr={`${showQueryEditor ? 'hide' : 'show'}-insight-source`}
-                                            status="stealth"
-                                            onClick={() => {
-                                                // for an existing insight in view mode
-                                                if (hasDashboardItemId && insightMode !== ItemMode.Edit) {
-                                                    // enter edit mode
-                                                    setInsightMode(ItemMode.Edit, null)
+                                    <LemonButton
+                                        data-attr={`${showQueryEditor ? 'hide' : 'show'}-insight-source`}
+                                        onClick={() => {
+                                            // for an existing insight in view mode
+                                            if (hasDashboardItemId && insightMode !== ItemMode.Edit) {
+                                                // enter edit mode
+                                                setInsightMode(ItemMode.Edit, null)
 
-                                                    // exit early if query editor doesn't need to be toggled
-                                                    if (showQueryEditor !== false) {
-                                                        return
-                                                    }
+                                                // exit early if query editor doesn't need to be toggled
+                                                if (showQueryEditor !== false) {
+                                                    return
                                                 }
-                                                toggleQueryEditorPanel()
-                                            }}
-                                            fullWidth
-                                        >
-                                            {showQueryEditor ? 'Hide source' : 'View source'}
-                                        </LemonButton>
-                                    ) : null}
+                                            }
+                                            toggleQueryEditorPanel()
+                                        }}
+                                        fullWidth
+                                    >
+                                        {showQueryEditor ? 'Hide source' : 'View source'}
+                                    </LemonButton>
                                     {hogQL && (
                                         <LemonButton
                                             data-attr={`edit-insight-sql`}
-                                            status="stealth"
                                             onClick={() => {
                                                 router.actions.push(
                                                     urls.insightNew(
@@ -312,7 +303,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         ) : (
                             <InsightSaveButton
                                 saveAs={saveAs}
-                                saveInsight={saveQueryBasedInsight}
+                                saveInsight={saveInsight}
                                 isSaved={hasDashboardItemId}
                                 addingToDashboard={!!insight.dashboards?.length && !insight.id}
                                 insightSaving={insightSaving}

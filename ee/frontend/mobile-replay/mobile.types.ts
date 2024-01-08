@@ -1,5 +1,5 @@
 // copied from rrweb-snapshot, not included in rrweb types
-import { customEvent, EventType } from '@rrweb/types'
+import { customEvent, EventType, IncrementalSource, removedNodeMutation } from '@rrweb/types'
 
 export enum NodeType {
     Document = 0,
@@ -64,7 +64,15 @@ export type serializedNodeWithId = serializedNode & { id: number }
 
 // end copied section
 
-export type MobileNodeType = 'text' | 'image' | 'rectangle' | 'input' | 'div' | 'radio_group'
+export type MobileNodeType =
+    | 'text'
+    | 'image'
+    | 'rectangle'
+    | 'placeholder'
+    | 'web_view'
+    | 'input'
+    | 'div'
+    | 'radio_group'
 
 export type MobileStyles = {
     /**
@@ -110,12 +118,15 @@ type wireframeBase = {
     /**
      * @description x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present this is equivalent to setting them to 0
      */
-    x: number
-    y: number
+    x?: number
+    y?: number
     /*
-     * @description width and height are the dimensions of the element, the only accepted units is pixels. You can omit the unit.
+     * @description the width dimension of the element, either '100vw' i.e. viewport width. Or a value in pixels. You can omit the unit when specifying pixels.
      */
-    width: number
+    width: number | '100vw'
+    /*
+     * @description the height dimension of the element, the only accepted units is pixels. You can omit the unit.
+     */
     height: number
     childWireframes?: wireframe[]
     type: MobileNodeType
@@ -135,6 +146,12 @@ export type wireframeCheckBox = wireframeInputBase & {
     /**
      * @description for several attributes we technically only care about true or absent as values. They are represented as bare attributes in HTML <input checked>. When true that attribute is added to the HTML element, when absent that attribute is not added to the HTML element. When false or absent they are not added to the element.
      */
+    checked: boolean
+    label?: string
+}
+
+export type wireframeToggle = wireframeInputBase & {
+    inputType: 'toggle'
     checked: boolean
     label?: string
 }
@@ -176,6 +193,21 @@ export type wireframeButton = wireframeInputBase & {
     value?: string
 }
 
+export type wireframeProgress = wireframeInputBase & {
+    inputType: 'progress'
+    /**
+     * @description This attribute specifies how much of the task that has been completed. It must be a valid floating point number between 0 and max, or between 0 and 1 if max is omitted. If there is no value attribute, the progress bar is indeterminate; this indicates that an activity is ongoing with no indication of how long it is expected to take. When bar style is rating this is the number of filled stars.
+     */
+    value?: number
+    /**
+     * @description The max attribute, if present, must have a value greater than 0 and be a valid floating point number. The default value is 1. When bar style is rating this is the number of stars.
+     */
+    max?: number
+    style?: MobileStyles & {
+        bar: 'horizontal' | 'circular' | 'rating'
+    }
+}
+
 // these are grouped as a type so that we can easily use them as function parameters
 export type wireframeInputComponent =
     | wireframeCheckBox
@@ -184,6 +216,8 @@ export type wireframeInputComponent =
     | wireframeSelect
     | wireframeTextArea
     | wireframeButton
+    | wireframeProgress
+    | wireframeToggle
 
 export type wireframeText = wireframeBase & {
     type: 'text'
@@ -193,13 +227,23 @@ export type wireframeText = wireframeBase & {
 export type wireframeImage = wireframeBase & {
     type: 'image'
     /**
-     * @description this will be used as base64 encoded image source, with no other attributes it is assumed to be a PNG
+     * @description this will be used as base64 encoded image source, with no other attributes it is assumed to be a PNG, if omitted a placeholder is rendered
      */
-    base64: string
+    base64?: string
 }
 
 export type wireframeRectangle = wireframeBase & {
     type: 'rectangle'
+}
+
+export type wireframeWebView = wireframeBase & {
+    type: 'web_view'
+    url?: string
+}
+
+export type wireframePlaceholder = wireframeBase & {
+    type: 'placeholder'
+    label?: string
 }
 
 export type wireframeDiv = wireframeBase & {
@@ -216,6 +260,8 @@ export type wireframe =
     | wireframeDiv
     | wireframeInputComponent
     | wireframeRadioGroup
+    | wireframeWebView
+    | wireframePlaceholder
 
 // the rrweb full snapshot event type, but it contains wireframes not html
 export type fullSnapshotEvent = {
@@ -232,9 +278,37 @@ export type fullSnapshotEvent = {
     }
 }
 
-export type incrementalSnapshotEvent = {
+export type incrementalSnapshotEvent =
+    | {
+          type: EventType.IncrementalSnapshot
+          data: any // keeps a loose incremental type so that we can accept any rrweb incremental snapshot event type
+      }
+    | MobileIncrementalSnapshotEvent
+
+export type MobileNodeMutation = {
+    parentId: number
+    wireframe: wireframe
+}
+
+export type MobileNodeMutationData = {
+    source: IncrementalSource.Mutation
+    /**
+     * @description An update is implemented as a remove and then an add, so the updates array contains the ID of the removed node and the wireframe for the added node
+     */
+    updates?: MobileNodeMutation[]
+    adds?: MobileNodeMutation[]
+    /**
+     * @description A mobile remove is identical to a web remove
+     */
+    removes?: removedNodeMutation[]
+}
+
+export type MobileIncrementalSnapshotEvent = {
     type: EventType.IncrementalSnapshot
-    data: any // TODO: this will change as we implement incremental snapshots
+    /**
+     * @description This sits alongside the RRWeb incremental snapshot event type, mobile replay can send any of the RRWeb incremental snapshot event types, which will be passed unchanged to the player - for example to send touch events. removed node mutations are passed unchanged to the player.
+     */
+    data: MobileNodeMutationData
 }
 
 export type metaEvent = {
@@ -246,7 +320,34 @@ export type metaEvent = {
     }
 }
 
-export type mobileEvent = fullSnapshotEvent | metaEvent | customEvent | incrementalSnapshotEvent
+// this is a custom event _but_ rrweb only types tag as string, and we want to be more specific
+export type keyboardEvent = {
+    type: EventType.Custom
+    data: {
+        tag: 'keyboard'
+        payload:
+            | {
+                  open: true
+                  styles?: MobileStyles
+                  /**
+                   * @description x and y are the top left corner of the element, if they are present then the element is absolutely positioned, if they are not present then the keyboard is at the bottom of the screen
+                   */
+                  x?: number
+                  y?: number
+                  /*
+                   * @description the height dimension of the keyboard, the only accepted units is pixels. You can omit the unit.
+                   */
+                  height: number
+                  /*
+                   * @description the width dimension of the keyboard, the only accepted units is pixels. You can omit the unit. If not present defaults to width of the viewport
+                   */
+                  width?: number
+              }
+            | { open: false }
+    }
+}
+
+export type mobileEvent = fullSnapshotEvent | metaEvent | customEvent | incrementalSnapshotEvent | keyboardEvent
 
 export type mobileEventWithTime = mobileEvent & {
     timestamp: number

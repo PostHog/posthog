@@ -54,6 +54,7 @@ const cleanInsightQuery = (query: InsightQueryNode, ignoreVisualizationOnlyChang
             aggregation_axis_format: undefined,
             aggregation_axis_prefix: undefined,
             aggregation_axis_postfix: undefined,
+            decimal_places: undefined,
             layout: undefined,
             toggledLifecycles: undefined,
         }

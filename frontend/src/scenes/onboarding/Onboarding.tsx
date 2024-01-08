@@ -4,10 +4,12 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { ProductKey } from '~/types'
+import { AvailableFeature, ProductKey } from '~/types'
 
 import { OnboardingBillingStep } from './OnboardingBillingStep'
+import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
 import { OnboardingOtherProductsStep } from './OnboardingOtherProductsStep'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
@@ -25,12 +27,13 @@ export const scene: SceneExport = {
 }
 
 /**
- * Wrapper for custom onboarding content. This automatically includes the product intro and billing step.
+ * Wrapper for custom onboarding content. This automatically includes billing, other products, and invite steps.
  */
 const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
     const { currentOnboardingStep, shouldShowBillingStep, shouldShowOtherProductsStep } = useValues(onboardingLogic)
     const { setAllOnboardingSteps } = useActions(onboardingLogic)
     const { product } = useValues(onboardingLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const [allSteps, setAllSteps] = useState<JSX.Element[]>([])
 
     useEffect(() => {
@@ -62,6 +65,10 @@ const OnboardingWrapper = ({ children }: { children: React.ReactNode }): JSX.Ele
         if (shouldShowOtherProductsStep) {
             const OtherProductsStep = <OnboardingOtherProductsStep stepKey={OnboardingStepKey.OTHER_PRODUCTS} />
             steps = [...steps, OtherProductsStep]
+        }
+        if (featureFlags[FEATURE_FLAGS.INVITE_TEAM_MEMBER_ONBOARDING] === 'test') {
+            const inviteTeammatesStep = <OnboardingInviteTeammates stepKey={OnboardingStepKey.INVITE_TEAMMATES} />
+            steps = [...steps, inviteTeammatesStep]
         }
         setAllSteps(steps)
     }
@@ -103,7 +110,7 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
     )
 }
 const SessionReplayOnboarding = (): JSX.Element => {
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
     const configOptions: ProductConfigOption[] = [
         {
             type: 'toggle',
@@ -123,7 +130,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
         },
     ]
 
-    if (featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SAMPLING] === true) {
+    if (hasAvailableFeature(AvailableFeature.RECORDING_DURATION_MINIMUM)) {
         configOptions.push({
             type: 'select',
             title: 'Minimum session duration (seconds)',

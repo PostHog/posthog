@@ -1,5 +1,5 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { query as performQuery } from '~/queries/query'
-import { InsightPersonsQuery, NodeKind, PersonsQuery } from '~/queries/schema'
+import { ActorsQuery, DataTableNode, InsightActorsQuery, NodeKind } from '~/queries/schema'
 import {
     ActorType,
     BreakdownType,
@@ -26,7 +26,7 @@ import type { personsModalLogicType } from './personsModalLogicType'
 const RESULTS_PER_PAGE = 100
 
 export interface PersonModalLogicProps {
-    query?: InsightPersonsQuery | null
+    query?: InsightActorsQuery | null
     url?: string | null
 }
 
@@ -38,23 +38,6 @@ export interface ListActorsResponse {
     missing_persons?: number
     next?: string
     next_offset?: number
-}
-
-export function wrapInsightsPersonsQuery(
-    query: InsightPersonsQuery,
-    search?: string,
-    limit = RESULTS_PER_PAGE,
-    offset = 0
-): PersonsQuery {
-    return {
-        kind: NodeKind.PersonsQuery,
-        source: query,
-        select: ['person', 'groupArray(3)(pdi.distinct_id)'],
-        orderBy: ['created_at DESC'],
-        search,
-        limit,
-        offset,
-    }
 }
 
 export const personsModalLogic = kea<personsModalLogicType>([
@@ -71,12 +54,12 @@ export const personsModalLogic = kea<personsModalLogicType>([
             query,
             clear,
             offset,
-        }): {
+        }: {
             url?: string | null
-            query?: InsightPersonsQuery | null
+            query?: InsightActorsQuery | null
             clear?: boolean
             offset?: number
-        } => ({
+        }) => ({
             url,
             query,
             clear,
@@ -108,13 +91,11 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         }
                         return res
                     } else if (query) {
-                        const personsQuery = wrapInsightsPersonsQuery(
-                            query,
-                            values.searchTerm,
-                            RESULTS_PER_PAGE + 1,
-                            offset || 0
-                        )
-                        const response = await performQuery(personsQuery)
+                        const response = await performQuery({
+                            ...values.ActorsQuery,
+                            limit: RESULTS_PER_PAGE + 1,
+                            offset: offset || 0,
+                        } as ActorsQuery)
                         const newResponse: ListActorsResponse = {
                             results: [
                                 {
@@ -124,7 +105,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                                             type: 'person',
                                             id: result[0].id,
                                             uuid: result[0].id,
-                                            distinct_ids: result[1],
+                                            distinct_ids: result[0].distinct_ids,
                                             is_identified: result[0].is_identified,
                                             properties: result[0].properties,
                                             created_at: result[0].created_at,
@@ -199,13 +180,8 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 is_static: true,
                 name: cohortName,
             }
-            if (props.query) {
-                const {
-                    limit: _,
-                    offset: __,
-                    ...personsQuery
-                } = wrapInsightsPersonsQuery(props.query, values.searchTerm)
-                const cohort = await api.create('api/cohort', { ...cohortParams, query: personsQuery })
+            if (values.ActorsQuery) {
+                const cohort = await api.create('api/cohort', { ...cohortParams, query: values.ActorsQuery })
                 cohortsModel.actions.cohortCreated(cohort)
                 lemonToast.success('Cohort saved', {
                     toastId: `cohort-saved-${cohort.id}`,
@@ -280,6 +256,36 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 return cleanFilters(filter)
             },
         ],
+        ActorsQuery: [
+            (s) => [(_, p) => p.query, s.searchTerm],
+            (query, searchTerm): ActorsQuery | null => {
+                if (!query) {
+                    return null
+                }
+                return {
+                    kind: NodeKind.ActorsQuery,
+                    source: query,
+                    select: ['person', 'created_at'],
+                    orderBy: ['created_at DESC'],
+                    search: searchTerm,
+                }
+            },
+        ],
+        exploreUrl: [
+            (s) => [s.ActorsQuery],
+            (ActorsQuery): string | null => {
+                if (!ActorsQuery) {
+                    return null
+                }
+                const { select: _select, ...source } = ActorsQuery
+                const query: DataTableNode = {
+                    kind: NodeKind.DataTableNode,
+                    source,
+                    full: true,
+                }
+                return urls.insightNew(undefined, undefined, JSON.stringify(query))
+            },
+        ],
     }),
 
     afterMount(({ actions, props }) => {
@@ -304,4 +310,10 @@ export const personsModalLogic = kea<personsModalLogicType>([
             }
         },
     })),
+
+    propsChanged(({ props, actions }, oldProps) => {
+        if (props.url !== oldProps.url) {
+            actions.loadActors({ query: props.query, url: props.url, clear: true })
+        }
+    }),
 ])

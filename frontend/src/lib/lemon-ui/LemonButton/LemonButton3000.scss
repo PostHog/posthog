@@ -88,7 +88,7 @@
             --lemon-button-padding-horizontal: 0.375rem;
             --lemon-button-padding-adjacent-icon: 0.25rem;
             --lemon-button-font-size: 0.75rem;
-            --lemon-button-height: 1.6875rem;
+            --lemon-button-height: 1.625rem;
             --lemon-button-gap: 0.25rem;
             --lemon-button-side-action-width: 1.5rem;
         }
@@ -125,7 +125,7 @@
             --lemon-button-frame-bg-color: var(--primary-3000-frame-bg);
             --lemon-button-color: var(--text-3000-light);
 
-            &.LemonButton--status-primary-alt {
+            &.LemonButton--status-alt {
                 --lemon-button-bg-color: var(--primary-3000-frame-bg-light);
                 --lemon-button-bg-color-active: var(--lemon-button-bg-color);
                 --button-border-color: var(--primary-3000-button-border);
@@ -135,9 +135,9 @@
             }
         }
 
-        &.LemonButton--is-stealth.LemonButton--active,
-        &.LemonButton--is-stealth:hover,
-        &.LemonButton--secondary:not(.LemonButton--is-stealth) {
+        &.LemonButton--secondary.LemonButton--status-alt:hover,
+        &.LemonButton--secondary.LemonButton--status-alt.LemonButton--active,
+        &.LemonButton--secondary:not(.LemonButton--status-alt, .LemonButton--status-danger) {
             @include secondary-variables;
         }
 
@@ -151,7 +151,7 @@
             --lemon-button-icon-opacity: 1;
         }
 
-        &.LemonButton--is-stealth {
+        &.LemonButton--secondary.LemonButton--status-alt {
             --lemon-button-color: var(--muted);
 
             &.LemonButton--active,
@@ -267,7 +267,7 @@
         }
     }
 
-    .LemonButtonWithSideAction:hover > .LemonButton--is-stealth {
+    .LemonButtonWithSideAction:hover > .LemonButton--secondary.LemonButton--status-alt {
         @include secondary-variables;
     }
 

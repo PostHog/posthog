@@ -72,6 +72,14 @@ describe('actionsAndEventsToSeries', () => {
         expect(result[1].name).toEqual('item1')
         expect(result[2].name).toEqual('item2')
     })
+
+    it('assumes typeless series is an event series', () => {
+        const events: ActionFilter[] = [{ id: '$pageview', order: 0, name: 'item1' } as any]
+
+        const result = actionsAndEventsToSeries({ events })
+
+        expect(result[0].kind === NodeKind.EventsNode)
+    })
 })
 
 describe('cleanHiddenLegendIndexes', () => {
@@ -303,6 +311,7 @@ describe('filtersToQueryNode', () => {
                 aggregation_axis_format: 'numeric',
                 aggregation_axis_prefix: '£',
                 aggregation_axis_postfix: '%',
+                decimal_places: 8,
                 breakdown_histogram_bin_count: 1,
                 formula: 'A+B',
                 shown_as: ShownAsValue.VOLUME,
@@ -321,6 +330,7 @@ describe('filtersToQueryNode', () => {
                     aggregation_axis_format: 'numeric',
                     aggregation_axis_prefix: '£',
                     aggregation_axis_postfix: '%',
+                    decimal_places: 8,
                     formula: 'A+B',
                     display: ChartDisplayType.ActionsAreaGraph,
                 },

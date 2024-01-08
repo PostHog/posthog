@@ -29,22 +29,25 @@ import { userLogic } from 'scenes/userLogic'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { query } from '~/queries/query'
 import {
+    ActorsQuery,
+    ActorsQueryResponse,
     AnyResponseType,
     DataNode,
     EventsQuery,
     EventsQueryResponse,
+    InsightVizNode,
+    NodeKind,
     PersonsNode,
-    PersonsQuery,
-    PersonsQueryResponse,
     QueryResponse,
     QueryTiming,
 } from '~/queries/schema'
 import {
+    isActorsQuery,
     isEventsQuery,
+    isInsightActorsQuery,
     isInsightQueryNode,
     isLifecycleQuery,
     isPersonsNode,
-    isPersonsQuery,
     isTrendsQuery,
 } from '~/queries/utils'
 
@@ -61,6 +64,7 @@ export interface DataNodeLogicProps {
 }
 
 const AUTOLOAD_INTERVAL = 30000
+const LOAD_MORE_ROWS_LIMIT = 10000
 
 const queryEqual = (a: DataNode, b: DataNode): boolean => {
     if (isInsightQueryNode(a) && isInsightQueryNode(b)) {
@@ -208,7 +212,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                     // TODO: unify when we use the same backend endpoint for both
                     const now = performance.now()
-                    if (isEventsQuery(props.query) || isPersonsQuery(props.query)) {
+                    if (isEventsQuery(props.query) || isActorsQuery(props.query)) {
                         const newResponse = (await query(values.nextQuery)) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         const queryResponse = values.response as QueryResponse
@@ -392,8 +396,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     return null
                 }
 
-                if ((isEventsQuery(query) || isPersonsQuery(query)) && !responseError && !dataLoading) {
-                    if ((response as EventsQueryResponse | PersonsQueryResponse)?.hasMore) {
+                if ((isEventsQuery(query) || isActorsQuery(query)) && !responseError && !dataLoading) {
+                    if ((response as EventsQueryResponse | ActorsQueryResponse)?.hasMore) {
                         const sortKey = query.orderBy?.[0] ?? 'timestamp DESC'
                         const typedResults = (response as QueryResponse)?.results
                         if (isEventsQuery(query) && sortKey === 'timestamp DESC') {
@@ -403,7 +407,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             if (sortColumnIndex !== -1) {
                                 const lastTimestamp = typedResults?.[typedResults.length - 1]?.[sortColumnIndex]
                                 if (lastTimestamp) {
-                                    const newQuery: EventsQuery = { ...query, before: lastTimestamp }
+                                    const newQuery: EventsQuery = {
+                                        ...query,
+                                        before: lastTimestamp,
+                                        limit: Math.max(
+                                            100,
+                                            Math.min(2 * (typedResults?.length || 100), LOAD_MORE_ROWS_LIMIT)
+                                        ),
+                                    }
                                     return newQuery
                                 }
                             }
@@ -411,7 +422,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             return {
                                 ...query,
                                 offset: typedResults?.length || 0,
-                            } as EventsQuery | PersonsQuery
+                                limit: Math.max(100, Math.min(2 * (typedResults?.length || 100), LOAD_MORE_ROWS_LIMIT)),
+                            } as EventsQuery | ActorsQuery
                         }
                     }
                 }
@@ -430,6 +442,21 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         canLoadNextData: [
             (s) => [s.nextQuery, s.isShowingCachedResults],
             (nextQuery, isShowingCachedResults) => (isShowingCachedResults ? false : !!nextQuery),
+        ],
+        backToSourceQuery: [
+            (s) => [s.query],
+            (query): InsightVizNode | null => {
+                if (isActorsQuery(query) && isInsightActorsQuery(query.source) && !!query.source.source) {
+                    const insightQuery = query.source.source
+                    const insightVizNode: InsightVizNode = {
+                        kind: NodeKind.InsightVizNode,
+                        source: insightQuery,
+                        full: true,
+                    }
+                    return insightVizNode
+                }
+                return null
+            },
         ],
         autoLoadRunning: [
             (s) => [s.autoLoadToggled, s.autoLoadStarted, s.dataLoading],
@@ -476,6 +503,21 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (s) => [s.response],
             (response): QueryTiming[] | null => {
                 return response && 'timings' in response ? response.timings : null
+            },
+        ],
+        numberOfRows: [
+            (s) => [s.response],
+            (response): number | null => {
+                if (!response) {
+                    return null
+                }
+                const fields = ['result', 'results']
+                for (const field of fields) {
+                    if (field in response && Array.isArray(response[field])) {
+                        return response[field].length
+                    }
+                }
+                return null
             },
         ],
     }),

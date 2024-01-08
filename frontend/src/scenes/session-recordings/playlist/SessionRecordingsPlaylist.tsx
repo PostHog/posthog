@@ -5,7 +5,9 @@ import clsx from 'clsx'
 import { range } from 'd3'
 import { BindLogic, useActions, useValues } from 'kea'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconFilter, IconSettings, IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -54,6 +56,19 @@ function UnusableEventsWarning(props: { unusableEventsInFilter: string[] }): JSX
                 <Link to={'https://posthog.com/docs/libraries/js'} target={'_blank'}>
                     the Web SDK
                 </Link>
+                <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_MOBILE} match={true}>
+                    ,{' '}
+                    <Link to={'https://posthog.com/docs/libraries/android'} target={'_blank'}>
+                        the Android SDK
+                    </Link>
+                </FlaggedFeature>
+                <FlaggedFeature flag={FEATURE_FLAGS.SESSION_REPLAY_IOS} match={true}>
+                    and{' '}
+                    <Link to={'https://posthog.com/docs/libraries/ios'} target={'_blank'}>
+                        the iOS SDK
+                    </Link>
+                    .
+                </FlaggedFeature>
             </p>
         </LemonBanner>
     )
@@ -157,8 +172,6 @@ function RecordingsLists(): JSX.Element {
                         <LemonButton
                             tooltip="Filter recordings"
                             size="small"
-                            status={showFilters ? 'primary' : 'primary-alt'}
-                            type="tertiary"
                             active={showFilters}
                             icon={
                                 <IconWithCount count={totalFiltersCount}>
@@ -178,8 +191,6 @@ function RecordingsLists(): JSX.Element {
                         <LemonButton
                             tooltip="Playlist settings"
                             size="small"
-                            status={showSettings ? 'primary' : 'primary-alt'}
-                            type="tertiary"
                             active={showSettings}
                             icon={<IconSettings />}
                             onClick={() => setShowSettings(!showSettings)}
@@ -252,7 +263,7 @@ function RecordingsLists(): JSX.Element {
                                         <Spinner textColored /> Loading older recordings
                                     </>
                                 ) : hasNext ? (
-                                    <LemonButton status="primary" onClick={() => maybeLoadSessionRecordings('older')}>
+                                    <LemonButton onClick={() => maybeLoadSessionRecordings('older')}>
                                         Load more
                                     </LemonButton>
                                 ) : (
@@ -279,7 +290,7 @@ function RecordingsLists(): JSX.Element {
                                     <>
                                         <span>No matching recordings found</span>
                                         <LemonButton
-                                            type={'secondary'}
+                                            type="secondary"
                                             data-attr={'expand-replay-listing-from-default-seven-days-to-twenty-one'}
                                             onClick={() => {
                                                 setFilters({

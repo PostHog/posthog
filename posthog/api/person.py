@@ -622,7 +622,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         activity_page = load_activity(
             scope="Person",
             team_id=self.team_id,
-            item_id=item_id,
+            item_ids=[item_id] if item_id else None,
             limit=limit,
             page=page,
         )
@@ -869,6 +869,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 "result": people,
                 "next": next_url,
                 "missing_persons": raw_count - len(people),
+                "filters": filter.to_dict(),
             }
         )
 

@@ -69,7 +69,7 @@ cryptography==37.0.2
     #   urllib3
 datamodel-code-generator==0.21.5
     # via -r requirements-dev.in
-django==3.2.19
+django==3.2.23
     # via
     #   -c requirements.txt
     #   django-stubs

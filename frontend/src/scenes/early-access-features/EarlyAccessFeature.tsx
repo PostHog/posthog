@@ -219,7 +219,6 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                             className="ml-2"
                                             icon={<IconClose />}
                                             size="small"
-                                            status="stealth"
                                             onClick={() => onChange(undefined)}
                                             aria-label="close"
                                         />
@@ -274,12 +273,12 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                         </Field>
                     ) : (
                         <div className="mb-2">
-                            <b>Documentation Url</b>
+                            <b>Documentation URL</b>
                             <div>
                                 {earlyAccessFeature.documentation_url ? (
                                     earlyAccessFeature.documentation_url
                                 ) : (
-                                    <span className="text-muted">No documentation url</span>
+                                    <span className="text-muted">No documentation URL</span>
                                 )}
                             </div>
                         </div>

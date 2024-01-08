@@ -22,7 +22,7 @@ interface ProjectNoticeBlueprint {
 export function ProjectNotice(): JSX.Element | null {
     const { projectNoticeVariantWithClosability } = useValues(navigationLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { updateCurrentTeam } = useActions(userLogic)
+    const { updateCurrentTeam, logout } = useActions(userLogic)
     const { user } = useValues(userLogic)
     const { closeProjectNotice } = useActions(navigationLogic)
     const { showInviteModal } = useActions(inviteLogic)
@@ -104,6 +104,11 @@ export function ProjectNotice(): JSX.Element | null {
         is_impersonated: {
             message: 'You are currently impersonating another user.',
             type: 'warning',
+            action: {
+                'data-attr': 'stop-impersonation-cta',
+                onClick: () => logout(),
+                children: 'Logout',
+            },
         },
     }
 
@@ -112,7 +117,7 @@ export function ProjectNotice(): JSX.Element | null {
     return (
         <LemonBanner
             type={relevantNotice.type || 'info'}
-            className="my-6"
+            className="my-4"
             action={relevantNotice.action}
             onClose={isClosable ? () => closeProjectNotice(projectNoticeVariant) : undefined}
         >

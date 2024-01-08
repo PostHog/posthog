@@ -143,13 +143,11 @@ export const FEATURE_FLAGS = {
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
     QUERY_TIMINGS: 'query-timings', // owner: @mariusandra
     QUERY_ASYNC: 'query-async', // owner: @webjunkie
-    POSTHOG_3000: 'posthog-3000', // owner: @Twixes multivariate
     POSTHOG_3000_NAV: 'posthog-3000-nav', // owner: @Twixes
     POSTHOG_3000_WELCOME_ANNOUNCEMENT: 'posthog-3000-welcome-announcement', // owner: #posthog-3000
     ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
     FEEDBACK_SCENE: 'feedback-scene', // owner: @lharries
-    NOTEBOOKS: 'notebooks', // owner: #team-replay
-    EARLY_ACCESS_FEATURE_SITE_BUTTON: 'early-access-feature-site-button', // owner: @neilkakkar
+    HEDGEHOG_MODE: 'hedgehog-mode', // owner: @benjackwhite
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
     GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // experiment, owner: @raquelmsmith
     WEB_ANALYTICS: 'web-analytics', // owner @robbie-c #team-web-analytics
@@ -158,7 +156,7 @@ export const FEATURE_FLAGS = {
     EXCEPTION_AUTOCAPTURE: 'exception-autocapture',
     DATA_WAREHOUSE: 'data-warehouse', // owner: @EDsCODE
     DATA_WAREHOUSE_VIEWS: 'data-warehouse-views', // owner: @EDsCODE
-    DATA_WAREHOUSE_EXTERNAL_LINK: 'data-warehouse-external-link', // owner: @EDsCODE
+    DATA_WAREHOUSE_HUBSPOT_IMPORT: 'data-warehouse-hubspot-import', // owner: @EDsCODE
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
     SHOW_PRODUCT_INTRO_EXISTING_PRODUCTS: 'show-product-intro-existing-products', // owner: @raquelmsmith
     ARTIFICIAL_HOG: 'artificial-hog', // owner: @Twixes
@@ -175,7 +173,6 @@ export const FEATURE_FLAGS = {
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-pipeline
     SURVEYS_RESULTS_VISUALIZATIONS: 'surveys-results-visualizations', // owner: @jurajmajerik
     SURVEYS_PAYGATES: 'surveys-paygates',
-    CONSOLE_RECORDING_SEARCH: 'console-recording-search', // owner: #team-replay
     PERSONS_HOGQL_QUERY: 'persons-hogql-query', // owner: @mariusandra
     PIPELINE_UI: 'pipeline-ui', // owner: #team-pipeline
     NOTEBOOK_CANVASES: 'notebook-canvases', // owner: #team-replay
@@ -185,9 +182,16 @@ export const FEATURE_FLAGS = {
     NETWORK_PAYLOAD_CAPTURE: 'network-payload-capture', // owner: #team-replay
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: @neilkakkar #team-feature-success
     INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: @benjackwhite
+    SURVEYS_WIDGETS: 'surveys-widgets', // owner: @liyiy
+    SCHEDULED_CHANGES_FEATURE_FLAGS: 'scheduled-changes-feature-flags', // owner: @jurajmajerik #team-feature-success
     ALWAYS_SHOW_SEEKBAR_PREVIEW: 'always-show-seekbar-preview', // owner: #team-replay
     SESSION_REPLAY_MOBILE: 'session-replay-mobile', // owner: #team-replay
+    INVITE_TEAM_MEMBER_ONBOARDING: 'invite-team-member-onboarding', // owner: @biancayang
+    SESSION_REPLAY_IOS: 'session-replay-ios', // owner: #team-replay
     YEAR_IN_HOG: 'year-in-hog', // owner: #team-replay
+    SESSION_REPLAY_EXPORT_MOBILE_DATA: 'session-replay-export-mobile-data', // owner: #team-replay
+    DISCUSSIONS: 'discussions', // owner: #team-replay
+    REDIRECT_INGESTION_PRODUCT_ANALYTICS_ONBOARDING: 'redirect-ingestion-product-analytics-onboarding', // owner: @biancayang
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

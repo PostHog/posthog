@@ -10,6 +10,7 @@ import { Person, PropertyUpdateOperation, TimestampFormat } from '../../types'
 import { DB } from '../../utils/db/db'
 import { PostgresRouter, PostgresUse, TransactionClient } from '../../utils/db/postgres'
 import { timeoutGuard } from '../../utils/db/utils'
+import { PeriodicTask } from '../../utils/periodic-task'
 import { promiseRetry } from '../../utils/retries'
 import { status } from '../../utils/status'
 import { castTimestampOrNow, UUIDT } from '../../utils/utils'
@@ -98,7 +99,7 @@ export class PersonState {
         distinctId: string,
         timestamp: DateTime,
         db: DB,
-        private personOverrideWriter?: PersonOverrideWriter | DeferredPersonOverrideWriter,
+        private personOverrideWriter?: DeferredPersonOverrideWriter,
         uuid: UUIDT | undefined = undefined,
         maxMergeAttempts: number = MAX_FAILED_PERSON_MERGE_ATTEMPTS
     ) {
@@ -495,23 +496,14 @@ export class PersonState {
 
                 const deletePersonMessages = await this.db.deletePerson(otherPerson, tx)
 
-                let personOverrideMessages: ProducerRecord[] = []
                 if (this.personOverrideWriter) {
-                    personOverrideMessages = await this.personOverrideWriter.addPersonOverride(
+                    await this.personOverrideWriter.addPersonOverride(
                         tx,
                         getPersonOverrideDetails(this.teamId, otherPerson, mergeInto)
                     )
                 }
 
-                return [
-                    [
-                        ...personOverrideMessages,
-                        ...updatePersonMessages,
-                        ...distinctIdMessages,
-                        ...deletePersonMessages,
-                    ],
-                    person,
-                ]
+                return [[...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages], person]
             }
         )
 
@@ -553,7 +545,7 @@ function getPersonOverrideDetails(teamId: number, oldPerson: Person, overridePer
     }
 }
 
-export class PersonOverrideWriter {
+export class FlatPersonOverrideWriter {
     constructor(private postgres: PostgresRouter) {}
 
     public async addPersonOverride(
@@ -561,28 +553,11 @@ export class PersonOverrideWriter {
         overrideDetails: PersonOverrideDetails
     ): Promise<ProducerRecord[]> {
         const mergedAt = DateTime.now()
-        /**
-            We'll need to do 4 updates:
-
-         1. Add the persons involved to the helper table (2 of them)
-         2. Add an override from oldPerson to override person
-         3. Update any entries that have oldPerson as the override person to now also point to the new override person. Note that we don't update `oldest_event`, because it's a heuristic (used to optimise squashing) tied to the old_person and nothing changed about the old_person who's events need to get squashed.
-         */
-        const oldPersonMappingId = await this.addPersonOverrideMapping(
-            tx,
-            overrideDetails.team_id,
-            overrideDetails.old_person_id
-        )
-        const overridePersonMappingId = await this.addPersonOverrideMapping(
-            tx,
-            overrideDetails.team_id,
-            overrideDetails.override_person_id
-        )
 
         await this.postgres.query(
             tx,
             SQL`
-                INSERT INTO posthog_personoverride (
+                INSERT INTO posthog_flatpersonoverride (
                     team_id,
                     old_person_id,
                     override_person_id,
@@ -590,8 +565,8 @@ export class PersonOverrideWriter {
                     version
                 ) VALUES (
                     ${overrideDetails.team_id},
-                    ${oldPersonMappingId},
-                    ${overridePersonMappingId},
+                    ${overrideDetails.old_person_id},
+                    ${overrideDetails.override_person_id},
                     ${overrideDetails.oldest_event},
                     0
                 )
@@ -600,33 +575,20 @@ export class PersonOverrideWriter {
             'personOverride'
         )
 
-        // The follow-up JOIN is required as ClickHouse requires UUIDs, so we need to fetch the UUIDs
-        // of the IDs we updated from the mapping table.
         const { rows: transitiveUpdates } = await this.postgres.query(
             tx,
             SQL`
-                WITH updated_ids AS (
-                    UPDATE
-                        posthog_personoverride
-                    SET
-                        override_person_id = ${overridePersonMappingId}, version = COALESCE(version, 0)::numeric + 1
-                    WHERE
-                        team_id = ${overrideDetails.team_id} AND override_person_id = ${oldPersonMappingId}
-                    RETURNING
-                        old_person_id,
-                        version,
-                        oldest_event
-                )
-                SELECT
-                    helper.uuid as old_person_id,
-                    updated_ids.version,
-                    updated_ids.oldest_event
-                FROM
-                    updated_ids
-                JOIN
-                    posthog_personoverridemapping helper
-                ON
-                    helper.id = updated_ids.old_person_id;
+                UPDATE
+                    posthog_flatpersonoverride
+                SET
+                    override_person_id = ${overrideDetails.override_person_id},
+                    version = COALESCE(version, 0)::numeric + 1
+                WHERE
+                    team_id = ${overrideDetails.team_id} AND override_person_id = ${overrideDetails.old_person_id}
+                RETURNING
+                    old_person_id,
+                    version,
+                    oldest_event
             `,
             undefined,
             'transitivePersonOverrides'
@@ -665,62 +627,40 @@ export class PersonOverrideWriter {
         return personOverrideMessages
     }
 
-    private async addPersonOverrideMapping(tx: TransactionClient, teamId: number, personId: string): Promise<number> {
-        /**
-            Update the helper table that serves as a mapping between a serial ID and a Person UUID.
-
-            This mapping is used to enable an exclusion constraint in the personoverrides table, which
-            requires int[], while avoiding any constraints on "hotter" tables, like person.
-         **/
-
-        // ON CONFLICT nothing is returned, so we get the id in the second SELECT statement below.
-        // Fear not, the constraints on personoverride will handle any inconsistencies.
-        // This mapping table is really nothing more than a mapping to support exclusion constraints
-        // as we map int ids to UUIDs (the latter not supported in exclusion contraints).
-        const {
-            rows: [{ id }],
-        } = await this.postgres.query(
-            tx,
-            `WITH insert_id AS (
-                    INSERT INTO posthog_personoverridemapping(
-                        team_id,
-                        uuid
-                    )
-                    VALUES (
-                        ${teamId},
-                        '${personId}'
-                    )
-                    ON CONFLICT("team_id", "uuid") DO NOTHING
-                    RETURNING id
-                )
-                SELECT * FROM insert_id
-                UNION ALL
-                SELECT id
-                FROM posthog_personoverridemapping
-                WHERE team_id = ${teamId} AND uuid = '${personId}'
+    public async getPersonOverrides(teamId: number): Promise<PersonOverrideDetails[]> {
+        const { rows } = await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            SQL`
+                SELECT
+                    team_id,
+                    old_person_id,
+                    override_person_id,
+                    oldest_event
+                FROM posthog_flatpersonoverride
+                WHERE team_id = ${teamId}
             `,
             undefined,
-            'personOverrideMapping'
+            'getPersonOverrides'
         )
-
-        return id
+        return rows.map((row) => ({
+            ...row,
+            team_id: parseInt(row.team_id), // XXX: pg returns bigint as str (reasonably so)
+            oldest_event: DateTime.fromISO(row.oldest_event),
+        }))
     }
 }
 
+const deferredPersonOverridesWrittenCounter = new Counter({
+    name: 'deferred_person_overrides_written',
+    help: 'Number of person overrides that have been written as pending',
+})
 export class DeferredPersonOverrideWriter {
-    /**
-     * @param lockId the lock identifier/key used to ensure that only one
-     *               process is updating the overrides at a time
-     */
-    constructor(private postgres: PostgresRouter, private lockId: number) {}
+    constructor(private postgres: PostgresRouter) {}
 
     /**
      * Enqueue an override for deferred processing.
      */
-    public async addPersonOverride(
-        tx: TransactionClient,
-        overrideDetails: PersonOverrideDetails
-    ): Promise<ProducerRecord[]> {
+    public async addPersonOverride(tx: TransactionClient, overrideDetails: PersonOverrideDetails): Promise<void> {
         await this.postgres.query(
             tx,
             SQL`
@@ -738,9 +678,29 @@ export class DeferredPersonOverrideWriter {
             undefined,
             'pendingPersonOverride'
         )
-
-        return []
+        deferredPersonOverridesWrittenCounter.inc()
     }
+}
+
+const deferredPersonOverridesProcessedCounter = new Counter({
+    name: 'deferred_person_overrides_processed',
+    help: 'Number of pending person overrides that have been successfully processed',
+})
+
+export class DeferredPersonOverrideWorker {
+    // This lock ID is used as an advisory lock identifier/key for a lock that
+    // ensures only one worker is able to update the overrides table at a time.
+    // (We do this to make it simpler to ensure that we maintain the consistency
+    // of transitive updates.) There isn't any special significance to this
+    // particular value (other than Postgres requires it to be a numeric one),
+    // it just needs to be consistent across all processes.
+    public readonly lockId = 567
+
+    constructor(
+        private postgres: PostgresRouter,
+        private kafkaProducer: KafkaProducerWrapper,
+        private writer: FlatPersonOverrideWriter
+    ) {}
 
     /**
      * Process all (or up to the given limit) pending overrides.
@@ -751,56 +711,77 @@ export class DeferredPersonOverrideWriter {
      *
      * @returns the number of overrides processed
      */
-    public async processPendingOverrides(kafkaProducer: KafkaProducerWrapper, limit?: number): Promise<number> {
-        const writer = new PersonOverrideWriter(this.postgres)
-
-        return await this.postgres.transaction(PostgresUse.COMMON_WRITE, 'processPendingOverrides', async (tx) => {
-            const {
-                rows: [{ acquired }],
-            } = await this.postgres.query(
-                tx,
-                SQL`SELECT pg_try_advisory_xact_lock(${this.lockId}) as acquired`,
-                undefined,
-                'processPendingOverrides'
-            )
-            if (!acquired) {
-                throw new Error('could not acquire lock')
-            }
-
-            // n.b.: Ordering by id ensures we are processing in (roughly) FIFO order
-            const { rows } = await this.postgres.query(
-                tx,
-                `SELECT * FROM posthog_pendingpersonoverride ORDER BY id` +
-                    (limit !== undefined ? ` LIMIT ${limit}` : ''),
-                undefined,
-                'processPendingOverrides'
-            )
-
-            const messages: ProducerRecord[] = []
-            for (const { id, ...mergeOperation } of rows) {
-                messages.push(...(await writer.addPersonOverride(tx, mergeOperation)))
-                await this.postgres.query(
+    public async processPendingOverrides(limit?: number): Promise<number> {
+        const overridesCount = await this.postgres.transaction(
+            PostgresUse.COMMON_WRITE,
+            'processPendingOverrides',
+            async (tx) => {
+                const {
+                    rows: [{ acquired }],
+                } = await this.postgres.query(
                     tx,
-                    SQL`DELETE FROM posthog_pendingpersonoverride WHERE id = ${id}`,
+                    SQL`SELECT pg_try_advisory_xact_lock(${this.lockId}) as acquired`,
                     undefined,
                     'processPendingOverrides'
                 )
+                if (!acquired) {
+                    throw new Error('could not acquire lock')
+                }
+
+                // n.b.: Ordering by id ensures we are processing in (roughly) FIFO order
+                const { rows } = await this.postgres.query(
+                    tx,
+                    `SELECT * FROM posthog_pendingpersonoverride ORDER BY id` +
+                        (limit !== undefined ? ` LIMIT ${limit}` : ''),
+                    undefined,
+                    'processPendingOverrides'
+                )
+
+                const messages: ProducerRecord[] = []
+                for (const { id, ...mergeOperation } of rows) {
+                    messages.push(...(await this.writer.addPersonOverride(tx, mergeOperation)))
+                    await this.postgres.query(
+                        tx,
+                        SQL`DELETE FROM posthog_pendingpersonoverride WHERE id = ${id}`,
+                        undefined,
+                        'processPendingOverrides'
+                    )
+                }
+
+                // n.b.: We publish the messages here (and wait for acks) to ensure
+                // that all of our override updates are sent to Kafka prior to
+                // committing the transaction. If we're unable to publish, we should
+                // discard updates and try again later when it's available -- not
+                // doing so would cause the copy of this data in ClickHouse to
+                // slowly drift out of sync with the copy in Postgres. This write is
+                // safe to retry if we write to Kafka but then fail to commit to
+                // Postgres for some reason -- the same row state should be
+                // generated each call, and the receiving ReplacingMergeTree will
+                // ensure we keep only the latest version after all writes settle.)
+                await this.kafkaProducer.queueMessages(messages, true)
+
+                return rows.length
             }
+        )
 
-            // n.b.: We publish the messages here (and wait for acks) to ensure
-            // that all of our override updates are sent to Kafka prior to
-            // committing the transaction. If we're unable to publish, we should
-            // discard updates and try again later when it's available -- not
-            // doing so would cause the copy of this data in ClickHouse to
-            // slowly drift out of sync with the copy in Postgres. This write is
-            // safe to retry if we write to Kafka but then fail to commit to
-            // Postgres for some reason -- the same row state should be
-            // generated each call, and the receiving ReplacingMergeTree will
-            // ensure we keep only the latest version after all writes settle.)
-            await kafkaProducer.queueMessages(messages, true)
+        deferredPersonOverridesProcessedCounter.inc(overridesCount)
 
-            return rows.length
-        })
+        return overridesCount
+    }
+
+    public runTask(intervalMs: number): PeriodicTask {
+        return new PeriodicTask(
+            'processPendingOverrides',
+            async () => {
+                status.debug('👥', 'Processing pending overrides...')
+                const overridesCount = await this.processPendingOverrides()
+                ;(overridesCount > 0 ? status.info : status.debug)(
+                    '👥',
+                    `Processed ${overridesCount} pending overrides.`
+                )
+            },
+            intervalMs
+        )
     }
 }
 

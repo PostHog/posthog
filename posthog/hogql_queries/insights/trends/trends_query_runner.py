@@ -15,6 +15,10 @@ from posthog.caching.utils import is_stale
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
+from posthog.hogql_queries.insights.trends.breakdown_values import (
+    BREAKDOWN_OTHER_NUMERIC_LABEL,
+    BREAKDOWN_OTHER_STRING_LABEL,
+)
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.query_builder import TrendsQueryBuilder
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
@@ -98,7 +102,7 @@ class TrendsQueryRunner(QueryRunner):
 
         return queries
 
-    def to_persons_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         queries = []
         with self.timings.measure("trends_persons_query"):
             for series in self.series:
@@ -196,6 +200,11 @@ class TrendsQueryRunner(QueryRunner):
                     },
                 }
             else:
+                if self._trends_display.display_type == ChartDisplayType.ActionsLineGraphCumulative:
+                    count = get_value("total", val)[-1]
+                else:
+                    count = float(sum(get_value("total", val)))
+
                 series_object = {
                     "data": get_value("total", val),
                     "labels": [
@@ -210,7 +219,7 @@ class TrendsQueryRunner(QueryRunner):
                         )
                         for item in get_value("date", val)
                     ],
-                    "count": float(sum(get_value("total", val))),
+                    "count": count,
                     "label": "All events" if series_label is None else series_label,
                     "filter": self._query_to_filter(),
                     "action": {  # TODO: Populate missing props in `action`
@@ -243,10 +252,12 @@ class TrendsQueryRunner(QueryRunner):
 
             # Modifications for when breakdowns are active
             if self.query.breakdown is not None and self.query.breakdown.breakdown is not None:
+                remapped_label = None
+
                 if self._is_breakdown_field_boolean():
                     remapped_label = self._convert_boolean(get_value("breakdown_value", val))
 
-                    if remapped_label == "" or remapped_label == '["",""]' or remapped_label is None:
+                    if remapped_label == "" or remapped_label is None:
                         # Skip the "none" series if it doesn't have any data
                         if series_object["count"] == 0 and series_object.get("aggregated_value", 0) == 0:
                             continue
@@ -262,7 +273,7 @@ class TrendsQueryRunner(QueryRunner):
                     series_object["breakdown_value"] = "all" if str(cohort_id) == "0" else int(cohort_id)
                 else:
                     remapped_label = get_value("breakdown_value", val)
-                    if remapped_label == "" or remapped_label == '["",""]' or remapped_label is None:
+                    if remapped_label == "" or remapped_label is None:
                         # Skip the "none" series if it doesn't have any data
                         if series_object["count"] == 0 and series_object.get("aggregated_value", 0) == 0:
                             continue
@@ -275,6 +286,18 @@ class TrendsQueryRunner(QueryRunner):
                         series_object["label"] = remapped_label
 
                     series_object["breakdown_value"] = remapped_label
+
+                # If the breakdown value is the numeric "other", then set it to the string version
+                if (
+                    remapped_label == BREAKDOWN_OTHER_NUMERIC_LABEL
+                    or remapped_label == str(BREAKDOWN_OTHER_NUMERIC_LABEL)
+                    or remapped_label == float(BREAKDOWN_OTHER_NUMERIC_LABEL)
+                ):
+                    series_object["breakdown_value"] = BREAKDOWN_OTHER_STRING_LABEL
+                    if series_count > 1 or self._is_breakdown_field_boolean():
+                        series_object["label"] = "{} - {}".format(series_label or "All events", "Other")
+                    else:
+                        series_object["label"] = "Other"
 
             res.append(series_object)
         return res
@@ -373,7 +396,7 @@ class TrendsQueryRunner(QueryRunner):
                 new_series_data = FormulaAST(series_data).call(formula)
 
                 new_result = group_list[0]
-                new_result["data"] = [round(value, 2) for value in new_series_data]
+                new_result["data"] = new_series_data
                 new_result["count"] = float(sum(new_series_data))
                 new_result["label"] = f"Formula ({formula})"
 
@@ -384,7 +407,7 @@ class TrendsQueryRunner(QueryRunner):
         new_series_data = FormulaAST(series_data).call(formula)
         new_result = results[0]
 
-        new_result["data"] = [round(value, 2) for value in new_series_data]
+        new_result["data"] = new_series_data
         new_result["count"] = float(sum(new_series_data))
         new_result["label"] = f"Formula ({formula})"
 

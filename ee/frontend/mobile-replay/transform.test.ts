@@ -432,6 +432,139 @@ describe('replay/transform', () => {
                     })
                 ).toMatchSnapshot()
             })
+
+            test('web_view with URL', () => {
+                expect(
+                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                        type: 2,
+                        data: {
+                            wireframes: [
+                                {
+                                    id: 12365,
+                                    width: 100,
+                                    height: 30,
+                                    type: 'web_view',
+                                    url: 'https://example.com',
+                                },
+                            ],
+                        },
+                        timestamp: 1,
+                    })
+                ).toMatchSnapshot()
+            })
+
+            test('progress rating', () => {
+                expect(
+                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                        type: 2,
+                        data: {
+                            wireframes: [
+                                {
+                                    id: 12365,
+                                    width: 100,
+                                    height: 30,
+                                    type: 'input',
+                                    inputType: 'progress',
+                                    style: { bar: 'rating' },
+                                    max: '12',
+                                    value: '6.5',
+                                },
+                            ],
+                        },
+                        timestamp: 1,
+                    })
+                ).toMatchSnapshot()
+            })
+
+            test('open keyboard custom event', () => {
+                expect(
+                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                        timestamp: 1,
+                        type: EventType.Custom,
+                        data: { tag: 'keyboard', payload: { open: true, height: 150 } },
+                    })
+                ).toMatchSnapshot()
+            })
+
+            test('isolated add mutation', () => {
+                expect(
+                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                        timestamp: 1,
+                        type: EventType.IncrementalSnapshot,
+                        data: {
+                            source: 0,
+                            adds: [
+                                {
+                                    parentId: 54321,
+                                    wireframe: {
+                                        id: 12365,
+                                        width: 100,
+                                        height: 30,
+                                        type: 'input',
+                                        inputType: 'progress',
+                                        style: { bar: 'rating' },
+                                        max: '12',
+                                        value: '6.5',
+                                    },
+                                },
+                            ],
+                        },
+                    })
+                ).toMatchSnapshot()
+            })
+
+            test('isolated remove mutation', () => {
+                expect(
+                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                        timestamp: 1,
+                        type: EventType.IncrementalSnapshot,
+                        data: {
+                            source: 0,
+                            removes: [{ parentId: 54321, id: 12345 }],
+                        },
+                    })
+                ).toMatchSnapshot()
+            })
+
+            test('isolated update mutation', () => {
+                expect(
+                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                        timestamp: 1,
+                        type: EventType.IncrementalSnapshot,
+                        data: {
+                            source: 0,
+                            texts: [],
+                            attributes: [],
+                            updates: [
+                                {
+                                    parentId: 54321,
+                                    wireframe: {
+                                        id: 12365,
+                                        width: 100,
+                                        height: 30,
+                                        type: 'input',
+                                        inputType: 'progress',
+                                        style: { bar: 'rating' },
+                                        max: '12',
+                                        value: '6.5',
+                                    },
+                                },
+                            ],
+                        },
+                    })
+                ).toMatchSnapshot()
+            })
+
+            test('closed keyboard custom event', () => {
+                expect(
+                    posthogEEModule.mobileReplay?.transformEventToWeb({
+                        timestamp: 1,
+                        type: EventType.Custom,
+                        data: { tag: 'keyboard', payload: { open: false } },
+                    })
+                ).toMatchSnapshot()
+            })
+
             test('radio_group', () => {
                 expect(
                     posthogEEModule.mobileReplay?.transformEventToWeb({
@@ -616,6 +749,44 @@ describe('replay/transform', () => {
                     // no label
                 },
                 {
+                    id: 12357,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'toggle',
+                    checked: true,
+                    label: 'first',
+                },
+                {
+                    id: 12357,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'toggle',
+                    checked: false,
+                    label: 'second',
+                },
+                {
+                    id: 12357,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'toggle',
+                    checked: true,
+                    disabled: true,
+                    label: 'third',
+                },
+                {
+                    id: 12357,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'toggle',
+                    checked: true,
+                    disabled: false,
+                    // no label
+                },
+                {
                     id: 12358,
                     width: 100,
                     height: 30,
@@ -656,6 +827,54 @@ describe('replay/transform', () => {
                     // inputType: 'select',
                     value: 'hello',
                     options: ['hello', 'world'],
+                },
+                {
+                    id: 12365,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'progress',
+                    style: { bar: 'circular' },
+                },
+                {
+                    id: 12365,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'progress',
+                    style: { bar: 'horizontal' },
+                },
+                {
+                    id: 12365,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'progress',
+                    style: { bar: 'horizontal' },
+                    value: 0.75,
+                },
+                {
+                    id: 12365,
+                    width: 100,
+                    height: 30,
+                    type: 'input',
+                    inputType: 'progress',
+                    style: { bar: 'horizontal' },
+                    value: 0.75,
+                    max: 2.5,
+                },
+                {
+                    id: 12365,
+                    width: 100,
+                    height: 30,
+                    type: 'placeholder',
+                    label: 'hello',
+                },
+                {
+                    id: 12365,
+                    width: 100,
+                    height: 30,
+                    type: 'web_view',
                 },
             ])('$type - $inputType - $value', (testCase) => {
                 expect(
