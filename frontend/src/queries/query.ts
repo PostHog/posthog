@@ -216,8 +216,18 @@ export async function query<N extends DataNode = DataNode>(
                         res1.sort((a: any, b: any) => order[a.status] - order[b.status])
                         res2.sort((a: any, b: any) => order[a.status] - order[b.status])
                     } else if (isTrendsQuery(queryNode)) {
-                        res1 = res1?.map((n: any) => ({ ...n, filter: undefined, action: undefined }))
-                        res2 = res2?.map((n: any) => ({ ...n, filter: undefined, action: undefined }))
+                        res1 = res1?.map((n: any) => ({
+                            ...n,
+                            filter: undefined,
+                            action: undefined,
+                            persons: undefined,
+                        }))
+                        res2 = res2?.map((n: any) => ({
+                            ...n,
+                            filter: undefined,
+                            action: undefined,
+                            persons: undefined,
+                        }))
                     }
 
                     const results = flattenObject(res1)
