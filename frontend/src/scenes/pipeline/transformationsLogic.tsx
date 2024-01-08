@@ -175,8 +175,7 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
         },
     })),
     afterMount(({ actions }) => {
-        // actions.loadPlugins()
-        setTimeout(() => actions.loadPlugins(), 2000)
+        actions.loadPlugins()
         actions.loadPluginConfigs()
     }),
 ])
