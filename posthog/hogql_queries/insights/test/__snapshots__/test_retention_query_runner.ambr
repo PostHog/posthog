@@ -59,13 +59,13 @@
     (SELECT actor_activity.actor_id AS actor_id,
             groupArray(actor_activity.intervals_from_base) AS appearance_intervals,
             arraySort(appearance_intervals) AS appearances,
-            arrayExists(x -> ifNull(equals(x, 0), 0), appearance_intervals) AS appearance_0,
-            arrayExists(x -> ifNull(equals(x, 1), 0), appearance_intervals) AS appearance_1,
-            arrayExists(x -> ifNull(equals(x, 2), 0), appearance_intervals) AS appearance_2,
-            arrayExists(x -> ifNull(equals(x, 3), 0), appearance_intervals) AS appearance_3,
-            arrayExists(x -> ifNull(equals(x, 4), 0), appearance_intervals) AS appearance_4,
-            arrayExists(x -> ifNull(equals(x, 5), 0), appearance_intervals) AS appearance_5,
-            arrayExists(x -> ifNull(equals(x, 6), 0), appearance_intervals) AS appearance_6
+            arrayExists(x -> ifNull(equals(x, 0), 0), appearance_intervals) AS week_0,
+            arrayExists(x -> ifNull(equals(x, 1), 0), appearance_intervals) AS week_1,
+            arrayExists(x -> ifNull(equals(x, 2), 0), appearance_intervals) AS week_2,
+            arrayExists(x -> ifNull(equals(x, 3), 0), appearance_intervals) AS week_3,
+            arrayExists(x -> ifNull(equals(x, 4), 0), appearance_intervals) AS week_4,
+            arrayExists(x -> ifNull(equals(x, 5), 0), appearance_intervals) AS week_5,
+            arrayExists(x -> ifNull(equals(x, 6), 0), appearance_intervals) AS week_6
      FROM
        (SELECT DISTINCT breakdown_values AS breakdown_values,
                         intervals_from_base AS intervals_from_base,
@@ -213,13 +213,13 @@
     (SELECT actor_activity.actor_id AS actor_id,
             groupArray(actor_activity.intervals_from_base) AS appearance_intervals,
             arraySort(appearance_intervals) AS appearances,
-            arrayExists(x -> ifNull(equals(x, 0), 0), appearance_intervals) AS appearance_0,
-            arrayExists(x -> ifNull(equals(x, 1), 0), appearance_intervals) AS appearance_1,
-            arrayExists(x -> ifNull(equals(x, 2), 0), appearance_intervals) AS appearance_2,
-            arrayExists(x -> ifNull(equals(x, 3), 0), appearance_intervals) AS appearance_3,
-            arrayExists(x -> ifNull(equals(x, 4), 0), appearance_intervals) AS appearance_4,
-            arrayExists(x -> ifNull(equals(x, 5), 0), appearance_intervals) AS appearance_5,
-            arrayExists(x -> ifNull(equals(x, 6), 0), appearance_intervals) AS appearance_6
+            arrayExists(x -> ifNull(equals(x, 0), 0), appearance_intervals) AS week_0,
+            arrayExists(x -> ifNull(equals(x, 1), 0), appearance_intervals) AS week_1,
+            arrayExists(x -> ifNull(equals(x, 2), 0), appearance_intervals) AS week_2,
+            arrayExists(x -> ifNull(equals(x, 3), 0), appearance_intervals) AS week_3,
+            arrayExists(x -> ifNull(equals(x, 4), 0), appearance_intervals) AS week_4,
+            arrayExists(x -> ifNull(equals(x, 5), 0), appearance_intervals) AS week_5,
+            arrayExists(x -> ifNull(equals(x, 6), 0), appearance_intervals) AS week_6
      FROM
        (SELECT DISTINCT breakdown_values AS breakdown_values,
                         intervals_from_base AS intervals_from_base,

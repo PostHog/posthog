@@ -7,7 +7,8 @@ export function retentionToActorsQuery(query: RetentionQuery, selectedInterval: 
     const group = query.aggregation_group_type_index !== undefined
     const selectActor = group ? 'group' : 'person'
     const totalIntervals = (query.retentionFilter.total_intervals || 11) - selectedInterval
-    const selects = Array.from({ length: totalIntervals }, (_, intervalNumber) => `appearance_${intervalNumber}`)
+    const periodName = query.retentionFilter.period?.toLowerCase() ?? 'day'
+    const selects = Array.from({ length: totalIntervals }, (_, intervalNumber) => `${periodName}_${intervalNumber}`)
     return {
         kind: NodeKind.ActorsQuery,
         select: [selectActor, ...selects],
