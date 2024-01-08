@@ -1,6 +1,8 @@
-import { afterMount, kea, path, props, reducers, selectors } from 'kea'
+import { afterMount, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
+import posthog from 'posthog-js'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 
@@ -17,6 +19,7 @@ export type AndroidEventCount = {
 
 export const androidRecordingPromptBannerLogic = kea<androidRecordingPromptBannerLogicType>([
     path(['scenes', 'session-recordings', 'SessionRecordings']),
+    key((props) => props.context),
     props({} as AndroidRecordingPromptBannerLogicProps),
     loaders(({ values }) => ({
         androidVersions: [
@@ -75,6 +78,19 @@ export const androidRecordingPromptBannerLogic = kea<androidRecordingPromptBanne
             },
         ],
     }),
+
+    subscriptions(({ values, props }) => ({
+        shouldPromptUser: (value, oldvalue) => {
+            // not a falsy check since we don't care when oldvalue is undefined
+            // we don't need multiple copies of this event so try to only emit it when `shouldPromptUser` changes to true
+            if (value === true && oldvalue === false) {
+                posthog.capture('visitor has android events', {
+                    androidVersions: values.androidVersions,
+                    scene: props.context,
+                })
+            }
+        },
+    })),
 
     afterMount(({ actions }) => {
         actions.loadAndroidLibVersions()
