@@ -170,8 +170,11 @@ class AutoProjectMiddleware:
                 and request.user.team is not None
                 and request.user.team.pk != project_id_in_url
             ):
-                new_team = Team.objects.get(pk=project_id_in_url)
-                self.switch_team_if_allowed(new_team, request)
+                try:
+                    new_team = Team.objects.get(pk=project_id_in_url)
+                    self.switch_team_if_allowed(new_team, request)
+                except Team.DoesNotExist:
+                    pass
                 return self.get_response(request)
 
             target_queryset = self.get_target_queryset(request)

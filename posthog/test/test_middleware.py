@@ -299,6 +299,17 @@ class TestAutoProjectMiddleware(APIBaseTest):
         assert project_2_request.status_code == 200
         assert response_users_api.json().get("team", {}).get("id") == self.team.id
 
+    def test_project_unchanged_when_accessing_missing_project_by_id(self):
+        project_1_request = self.client.get(f"/project/{self.team.pk}/home")
+        response_users_api = self.client.get(f"/api/users/@me/")
+        assert project_1_request.status_code == 200
+        assert response_users_api.json().get("team", {}).get("id") == self.team.id
+
+        project_2_request = self.client.get(f"/project/999999/home")
+        response_users_api = self.client.get(f"/api/users/@me/")
+        assert project_2_request.status_code == 200
+        assert response_users_api.json().get("team", {}).get("id") == self.team.id
+
 
 class TestPostHogTokenCookieMiddleware(APIBaseTest):
     initial_cloud_mode = True
