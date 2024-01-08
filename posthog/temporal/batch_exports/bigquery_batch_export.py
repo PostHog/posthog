@@ -308,6 +308,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
+            use_json_type=inputs.use_json_type,
         )
 
         await execute_batch_export_insert_activity(
