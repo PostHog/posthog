@@ -146,7 +146,6 @@ export const FEATURE_FLAGS = {
     POSTHOG_3000_NAV: 'posthog-3000-nav', // owner: @Twixes
     POSTHOG_3000_WELCOME_ANNOUNCEMENT: 'posthog-3000-welcome-announcement', // owner: #posthog-3000
     ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
-    FEEDBACK_SCENE: 'feedback-scene', // owner: @lharries
     HEDGEHOG_MODE: 'hedgehog-mode', // owner: @benjackwhite
     HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
     GENERIC_SIGNUP_BENEFITS: 'generic-signup-benefits', // experiment, owner: @raquelmsmith
