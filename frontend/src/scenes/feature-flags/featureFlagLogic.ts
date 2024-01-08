@@ -883,7 +883,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     filters: NEW_FLAG.filters,
                     active: NEW_FLAG.active,
                 })
+                eventUsageLogic.actions.reportFeatureFlagScheduleSuccess()
             }
+        },
+        createScheduledChangeFailure: ({ error }) => {
+            eventUsageLogic.actions.reportFeatureFlagScheduleFailure({ error })
         },
         deleteScheduledChangeSuccess: ({ scheduledChange }) => {
             if (scheduledChange) {
