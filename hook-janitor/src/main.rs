@@ -55,7 +55,6 @@ async fn main() {
             Box::new(
                 WebhookCleaner::new(
                     &config.queue_name,
-                    &config.table_name,
                     &config.database_url,
                     kafka_producer,
                     config.kafka.app_metrics_topic.to_owned(),

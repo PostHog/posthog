@@ -19,7 +19,7 @@ async fn main() -> Result<(), ConsumerError> {
     .maximum_interval(config.retry_policy.maximum_interval.0)
     .queue(&config.retry_policy.retry_queue_name)
     .provide();
-    let queue = PgQueue::new(&config.queue_name, &config.table_name, &config.database_url)
+    let queue = PgQueue::new(&config.queue_name, &config.database_url)
         .await
         .expect("failed to initialize queue");
 

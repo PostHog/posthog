@@ -124,29 +124,25 @@ impl<J, M> Job<J, M> {
     ///
     /// # Arguments
     ///
-    /// * `table`: The table where this job will be marked as completed.
     /// * `executor`: Any sqlx::Executor that can execute the UPDATE query required to mark this `Job` as completed.
-    async fn complete<'c, E>(self, table: &str, executor: E) -> Result<CompletedJob, sqlx::Error>
+    async fn complete<'c, E>(self, executor: E) -> Result<CompletedJob, sqlx::Error>
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
-        let base_query = format!(
-            r#"
+        let base_query = r#"
 UPDATE
-    "{0}"
+    "job_queue"
 SET
     last_attempt_finished_at = NOW(),
     status = 'completed'::job_status
 WHERE
-    "{0}".id = $2
+    "job_queue".id = $2
     AND queue = $1
 RETURNING
-    "{0}".*
-            "#,
-            table
-        );
+    "job_queue".*
+        "#;
 
-        sqlx::query(&base_query)
+        sqlx::query(base_query)
             .bind(&self.queue)
             .bind(self.id)
             .execute(executor)
@@ -164,37 +160,28 @@ RETURNING
     /// # Arguments
     ///
     /// * `error`: Any JSON-serializable value to be stored as an error.
-    /// * `table`: The table where this job will be marked as failed.
     /// * `executor`: Any sqlx::Executor that can execute the UPDATE query required to mark this `Job` as failed.
-    async fn fail<'c, E, S>(
-        self,
-        error: S,
-        table: &str,
-        executor: E,
-    ) -> Result<FailedJob<S>, sqlx::Error>
+    async fn fail<'c, E, S>(self, error: S, executor: E) -> Result<FailedJob<S>, sqlx::Error>
     where
         S: serde::Serialize + std::marker::Sync + std::marker::Send,
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
         let json_error = sqlx::types::Json(error);
-        let base_query = format!(
-            r#"
+        let base_query = r#"
 UPDATE
-    "{0}"
+    "job_queue"
 SET
     last_attempt_finished_at = NOW(),
     status = 'failed'::job_status
-    errors = array_append("{0}".errors, $3)
+    errors = array_append("job_queue".errors, $3)
 WHERE
-    "{0}".id = $2
+    "job_queue".id = $2
     AND queue = $1
 RETURNING
-    "{0}".*
-            "#,
-            &table
-        );
+    "job_queue".*
+        "#;
 
-        sqlx::query(&base_query)
+        sqlx::query(base_query)
             .bind(&self.queue)
             .bind(self.id)
             .bind(&json_error)
@@ -230,7 +217,6 @@ pub trait PgQueueJob {
 #[derive(Debug)]
 pub struct PgJob<J, M> {
     pub job: Job<J, M>,
-    pub table: String,
     pub connection: sqlx::pool::PoolConnection<sqlx::postgres::Postgres>,
 }
 
@@ -239,7 +225,7 @@ impl<J: std::marker::Send, M: std::marker::Send> PgQueueJob for PgJob<J, M> {
     async fn complete(mut self) -> Result<CompletedJob, PgJobError<Box<PgJob<J, M>>>> {
         let completed_job = self
             .job
-            .complete(&self.table, &mut *self.connection)
+            .complete(&mut *self.connection)
             .await
             .map_err(|error| PgJobError::QueryError {
                 command: "UPDATE".to_owned(),
@@ -255,7 +241,7 @@ impl<J: std::marker::Send, M: std::marker::Send> PgQueueJob for PgJob<J, M> {
     ) -> Result<FailedJob<E>, PgJobError<Box<PgJob<J, M>>>> {
         let failed_job = self
             .job
-            .fail(error, &self.table, &mut *self.connection)
+            .fail(error, &mut *self.connection)
             .await
             .map_err(|error| PgJobError::QueryError {
                 command: "UPDATE".to_owned(),
@@ -282,7 +268,7 @@ impl<J: std::marker::Send, M: std::marker::Send> PgQueueJob for PgJob<J, M> {
             .job
             .retryable()
             .queue(queue)
-            .retry(error, retry_interval, &self.table, &mut *self.connection)
+            .retry(error, retry_interval, &mut *self.connection)
             .await
             .map_err(|error| PgJobError::QueryError {
                 command: "UPDATE".to_owned(),
@@ -298,7 +284,6 @@ impl<J: std::marker::Send, M: std::marker::Send> PgQueueJob for PgJob<J, M> {
 #[derive(Debug)]
 pub struct PgTransactionJob<'c, J, M> {
     pub job: Job<J, M>,
-    pub table: String,
     pub transaction: sqlx::Transaction<'c, sqlx::postgres::Postgres>,
 }
 
@@ -309,7 +294,7 @@ impl<'c, J: std::marker::Send, M: std::marker::Send> PgQueueJob for PgTransactio
     ) -> Result<CompletedJob, PgJobError<Box<PgTransactionJob<'c, J, M>>>> {
         let completed_job = self
             .job
-            .complete(&self.table, &mut *self.transaction)
+            .complete(&mut *self.transaction)
             .await
             .map_err(|error| PgJobError::QueryError {
                 command: "UPDATE".to_owned(),
@@ -333,7 +318,7 @@ impl<'c, J: std::marker::Send, M: std::marker::Send> PgQueueJob for PgTransactio
     ) -> Result<FailedJob<S>, PgJobError<Box<PgTransactionJob<'c, J, M>>>> {
         let failed_job = self
             .job
-            .fail(error, &self.table, &mut *self.transaction)
+            .fail(error, &mut *self.transaction)
             .await
             .map_err(|error| PgJobError::QueryError {
                 command: "UPDATE".to_owned(),
@@ -370,7 +355,7 @@ impl<'c, J: std::marker::Send, M: std::marker::Send> PgQueueJob for PgTransactio
             .job
             .retryable()
             .queue(queue)
-            .retry(error, retry_interval, &self.table, &mut *self.transaction)
+            .retry(error, retry_interval, &mut *self.transaction)
             .await
             .map_err(|error| PgJobError::QueryError {
                 command: "UPDATE".to_owned(),
@@ -422,13 +407,11 @@ impl RetryableJob {
     ///
     /// * `error`: Any JSON-serializable value to be stored as an error.
     /// * `retry_interval`: The duration until the `Job` is to be retried again. Used to set `scheduled_at`.
-    /// * `table`: The table where this job will be marked as completed.
     /// * `executor`: Any sqlx::Executor that can execute the UPDATE query required to mark this `Job` as completed.
     async fn retry<'c, S, E>(
         self,
         error: S,
         retry_interval: time::Duration,
-        table: &str,
         executor: E,
     ) -> Result<RetriedJob, sqlx::Error>
     where
@@ -436,26 +419,23 @@ impl RetryableJob {
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
         let json_error = sqlx::types::Json(error);
-        let base_query = format!(
-            r#"
+        let base_query = r#"
 UPDATE
-    "{0}"
+    "job_queue"
 SET
     last_attempt_finished_at = NOW(),
-    errors = array_append("{0}".errors, $4),
+    errors = array_append("job_queue".errors, $4),
     queue = $5,
     status = 'available'::job_status,
     scheduled_at = NOW() + $3
 WHERE
-    "{0}".id = $2
+    "job_queue".id = $2
     AND queue = $1
 RETURNING
-    "{0}".*
-            "#,
-            &table
-        );
+    "job_queue".*
+        "#;
 
-        sqlx::query(&base_query)
+        sqlx::query(base_query)
             .bind(&self.queue)
             .bind(self.id)
             .bind(retry_interval)
@@ -466,7 +446,6 @@ RETURNING
 
         Ok(RetriedJob {
             id: self.id,
-            table: table.to_owned(),
             queue: self.queue,
             retry_queue: self.retry_queue.to_owned(),
         })
@@ -490,7 +469,6 @@ pub struct RetriedJob {
     /// A unique id identifying a job queue.
     pub queue: String,
     pub retry_queue: Option<String>,
-    pub table: String,
 }
 
 /// State a `Job` is transitioned to after exhausting all of their attempts.
@@ -535,8 +513,6 @@ pub struct PgQueue {
     name: String,
     /// A connection pool used to connect to the PostgreSQL database.
     pool: PgPool,
-    /// The identifier of the PostgreSQL table this queue runs on.
-    table: String,
 }
 
 pub type PgQueueResult<T> = std::result::Result<T, PgQueueError>;
@@ -547,16 +523,14 @@ impl PgQueue {
     /// # Arguments
     ///
     /// * `queue_name`: A name for the queue we are going to initialize.
-    /// * `table_name`: The name for the table the queue will use in PostgreSQL.
     /// * `url`: A URL pointing to where the PostgreSQL database is hosted.
-    pub async fn new(queue_name: &str, table_name: &str, url: &str) -> PgQueueResult<Self> {
+    pub async fn new(queue_name: &str, url: &str) -> PgQueueResult<Self> {
         let name = queue_name.to_owned();
-        let table = table_name.to_owned();
         let pool = PgPoolOptions::new()
             .connect_lazy(url)
             .map_err(|error| PgQueueError::PoolCreationError { error })?;
 
-        Ok(Self { name, pool, table })
+        Ok(Self { name, pool })
     }
 
     /// Initialize a new PgQueue backed by table in PostgreSQL from a provided connection pool.
@@ -564,17 +538,11 @@ impl PgQueue {
     /// # Arguments
     ///
     /// * `queue_name`: A name for the queue we are going to initialize.
-    /// * `table_name`: The name for the table the queue will use in PostgreSQL.
     /// * `pool`: A database connection pool to be used by this queue.
-    pub async fn new_from_pool(
-        queue_name: &str,
-        table_name: &str,
-        pool: PgPool,
-    ) -> PgQueueResult<Self> {
+    pub async fn new_from_pool(queue_name: &str, pool: PgPool) -> PgQueueResult<Self> {
         let name = queue_name.to_owned();
-        let table = table_name.to_owned();
 
-        Ok(Self { name, pool, table })
+        Ok(Self { name, pool })
     }
 
     /// Dequeue a `Job` from this `PgQueue`.
@@ -594,13 +562,12 @@ impl PgQueue {
 
         // The query that follows uses a FOR UPDATE SKIP LOCKED clause.
         // For more details on this see: 2ndquadrant.com/en/blog/what-is-select-skip-locked-for-in-postgresql-9-5.
-        let base_query = format!(
-            r#"
+        let base_query = r#"
 WITH available_in_queue AS (
     SELECT
         id
     FROM
-        "{0}"
+        "job_queue"
     WHERE
         status = 'available'
         AND scheduled_at <= NOW()
@@ -612,34 +579,28 @@ WITH available_in_queue AS (
     FOR UPDATE SKIP LOCKED
 )
 UPDATE
-    "{0}"
+    "job_queue"
 SET
     attempted_at = NOW(),
     status = 'running'::job_status,
-    attempt = "{0}".attempt + 1,
-    attempted_by = array_append("{0}".attempted_by, $2::text)
+    attempt = "job_queue".attempt + 1,
+    attempted_by = array_append("job_queue".attempted_by, $2::text)
 FROM
     available_in_queue
 WHERE
-    "{0}".id = available_in_queue.id
+    "job_queue".id = available_in_queue.id
 RETURNING
-    "{0}".*
-            "#,
-            &self.table
-        );
+    "job_queue".*
+        "#;
 
-        let query_result: Result<Job<J, M>, sqlx::Error> = sqlx::query_as(&base_query)
+        let query_result: Result<Job<J, M>, sqlx::Error> = sqlx::query_as(base_query)
             .bind(&self.name)
             .bind(attempted_by)
             .fetch_one(&mut *connection)
             .await;
 
         match query_result {
-            Ok(job) => Ok(Some(PgJob {
-                job,
-                table: self.table.to_owned(),
-                connection,
-            })),
+            Ok(job) => Ok(Some(PgJob { job, connection })),
 
             // Although connection would be closed once it goes out of scope, sqlx recommends explicitly calling close().
             // See: https://docs.rs/sqlx/latest/sqlx/postgres/any/trait.AnyConnectionBackend.html#tymethod.close.
@@ -676,13 +637,12 @@ RETURNING
 
         // The query that follows uses a FOR UPDATE SKIP LOCKED clause.
         // For more details on this see: 2ndquadrant.com/en/blog/what-is-select-skip-locked-for-in-postgresql-9-5.
-        let base_query = format!(
-            r#"
+        let base_query = r#"
 WITH available_in_queue AS (
     SELECT
         id
     FROM
-        "{0}"
+        "job_queue"
     WHERE
         status = 'available'
         AND scheduled_at <= NOW()
@@ -694,23 +654,21 @@ WITH available_in_queue AS (
     FOR UPDATE SKIP LOCKED
 )
 UPDATE
-    "{0}"
+    "job_queue"
 SET
     attempted_at = NOW(),
     status = 'running'::job_status,
-    attempt = "{0}".attempt + 1,
-    attempted_by = array_append("{0}".attempted_by, $2::text)
+    attempt = "job_queue".attempt + 1,
+    attempted_by = array_append("job_queue".attempted_by, $2::text)
 FROM
     available_in_queue
 WHERE
-    "{0}".id = available_in_queue.id
+    "job_queue".id = available_in_queue.id
 RETURNING
-    "{0}".*
-            "#,
-            &self.table
-        );
+    "job_queue".*
+        "#;
 
-        let query_result: Result<Job<J, M>, sqlx::Error> = sqlx::query_as(&base_query)
+        let query_result: Result<Job<J, M>, sqlx::Error> = sqlx::query_as(base_query)
             .bind(&self.name)
             .bind(attempted_by)
             .fetch_one(&mut *tx)
@@ -719,7 +677,6 @@ RETURNING
         match query_result {
             Ok(job) => Ok(Some(PgTransactionJob {
                 job,
-                table: self.table.to_owned(),
                 transaction: tx,
             })),
 
@@ -742,17 +699,14 @@ RETURNING
         job: NewJob<J, M>,
     ) -> PgQueueResult<()> {
         // TODO: Escaping. I think sqlx doesn't support identifiers.
-        let base_query = format!(
-            r#"
-INSERT INTO {}
+        let base_query = r#"
+INSERT INTO job_queue
     (attempt, created_at, scheduled_at, max_attempts, metadata, parameters, queue, status, target)
 VALUES
     (0, NOW(), NOW(), $1, $2, $3, $4, 'available'::job_status, $5)
-            "#,
-            &self.table
-        );
+        "#;
 
-        sqlx::query(&base_query)
+        sqlx::query(base_query)
             .bind(job.max_attempts)
             .bind(&job.metadata)
             .bind(&job.parameters)
@@ -826,7 +780,7 @@ mod tests {
         let worker_id = worker_id();
         let new_job = NewJob::new(1, job_metadata, job_parameters, &job_target);
 
-        let queue = PgQueue::new_from_pool("test_can_dequeue_job", "job_queue", db)
+        let queue = PgQueue::new_from_pool("test_can_dequeue_job", db)
             .await
             .expect("failed to connect to local test postgresql database");
 
@@ -850,7 +804,7 @@ mod tests {
     #[sqlx::test(migrations = "../migrations")]
     async fn test_dequeue_returns_none_on_no_jobs(db: PgPool) {
         let worker_id = worker_id();
-        let queue = PgQueue::new_from_pool("test_dequeue_returns_none_on_no_jobs", "job_queue", db)
+        let queue = PgQueue::new_from_pool("test_dequeue_returns_none_on_no_jobs", db)
             .await
             .expect("failed to connect to local test postgresql database");
 
@@ -870,7 +824,7 @@ mod tests {
         let worker_id = worker_id();
         let new_job = NewJob::new(1, job_metadata, job_parameters, &job_target);
 
-        let queue = PgQueue::new_from_pool("test_can_dequeue_tx_job", "job_queue", db)
+        let queue = PgQueue::new_from_pool("test_can_dequeue_tx_job", db)
             .await
             .expect("failed to connect to local test postgresql database");
 
@@ -895,10 +849,9 @@ mod tests {
     #[sqlx::test(migrations = "../migrations")]
     async fn test_dequeue_tx_returns_none_on_no_jobs(db: PgPool) {
         let worker_id = worker_id();
-        let queue =
-            PgQueue::new_from_pool("test_dequeue_tx_returns_none_on_no_jobs", "job_queue", db)
-                .await
-                .expect("failed to connect to local test postgresql database");
+        let queue = PgQueue::new_from_pool("test_dequeue_tx_returns_none_on_no_jobs", db)
+            .await
+            .expect("failed to connect to local test postgresql database");
 
         let tx_job: Option<PgTransactionJob<'_, JobParameters, JobMetadata>> = queue
             .dequeue_tx(&worker_id)
@@ -915,14 +868,13 @@ mod tests {
         let job_metadata = JobMetadata::default();
         let worker_id = worker_id();
         let new_job = NewJob::new(2, job_metadata, job_parameters, &job_target);
-        let table_name = "job_queue".to_owned();
         let queue_name = "test_can_retry_job_with_remaining_attempts".to_owned();
 
         let retry_policy = RetryPolicy::build(0, time::Duration::from_secs(0))
             .queue(&queue_name)
             .provide();
 
-        let queue = PgQueue::new_from_pool(&queue_name, &table_name, db)
+        let queue = PgQueue::new_from_pool(&queue_name, db)
             .await
             .expect("failed to connect to local test postgresql database");
 
@@ -969,7 +921,6 @@ mod tests {
         let job_metadata = JobMetadata::default();
         let worker_id = worker_id();
         let new_job = NewJob::new(2, job_metadata, job_parameters, &job_target);
-        let table_name = "job_queue".to_owned();
         let queue_name = "test_can_retry_job_to_different_queue".to_owned();
         let retry_queue_name = "test_can_retry_job_to_different_queue_retry".to_owned();
 
@@ -977,7 +928,7 @@ mod tests {
             .queue(&retry_queue_name)
             .provide();
 
-        let queue = PgQueue::new_from_pool(&queue_name, &table_name, db.clone())
+        let queue = PgQueue::new_from_pool(&queue_name, db.clone())
             .await
             .expect("failed to connect to queue in local test postgresql database");
 
@@ -1006,7 +957,7 @@ mod tests {
 
         assert!(retried_job_not_found.is_none());
 
-        let queue = PgQueue::new_from_pool(&retry_queue_name, &table_name, db)
+        let queue = PgQueue::new_from_pool(&retry_queue_name, db)
             .await
             .expect("failed to connect to retry queue in local test postgresql database");
 
@@ -1038,13 +989,9 @@ mod tests {
         let new_job = NewJob::new(1, job_metadata, job_parameters, &job_target);
         let retry_policy = RetryPolicy::build(0, time::Duration::from_secs(0)).provide();
 
-        let queue = PgQueue::new_from_pool(
-            "test_cannot_retry_job_without_remaining_attempts",
-            "job_queue",
-            db,
-        )
-        .await
-        .expect("failed to connect to local test postgresql database");
+        let queue = PgQueue::new_from_pool("test_cannot_retry_job_without_remaining_attempts", db)
+            .await
+            .expect("failed to connect to local test postgresql database");
 
         queue.enqueue(new_job).await.expect("failed to enqueue job");
 

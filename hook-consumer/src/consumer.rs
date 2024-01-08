@@ -484,8 +484,7 @@ mod tests {
     async fn test_wait_for_job(db: PgPool) {
         let worker_id = worker_id();
         let queue_name = "test_wait_for_job".to_string();
-        let table_name = "job_queue".to_string();
-        let queue = PgQueue::new_from_pool(&queue_name, &table_name, db)
+        let queue = PgQueue::new_from_pool(&queue_name, db)
             .await
             .expect("failed to connect to PG");
 

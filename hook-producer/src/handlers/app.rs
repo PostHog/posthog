@@ -38,7 +38,7 @@ mod tests {
 
     #[sqlx::test(migrations = "../migrations")]
     async fn index(db: PgPool) {
-        let pg_queue = PgQueue::new_from_pool("test_index", "job_queue", db)
+        let pg_queue = PgQueue::new_from_pool("test_index", db)
             .await
             .expect("failed to construct pg_queue");
 

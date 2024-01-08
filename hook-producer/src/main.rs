@@ -27,7 +27,6 @@ async fn main() {
         // TODO: Coupling the queue name to the PgQueue object doesn't seem ideal from the producer
         // side, but we don't need more than one queue for now.
         &config.queue_name,
-        &config.table_name,
         &config.database_url,
     )
     .await

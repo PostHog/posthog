@@ -34,9 +34,6 @@ pub struct Config {
 
     #[envconfig(default = "true")]
     pub transactional: bool,
-
-    #[envconfig(default = "job_queue")]
-    pub table_name: String,
 }
 
 impl Config {
