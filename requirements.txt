@@ -616,7 +616,7 @@ unicodecsv==0.14.1
     # via djangorestframework-csv
 uritemplate==4.1.1
     # via drf-spectacular
-urllib3[secure,socks]==1.26.13
+urllib3[secure,socks]==1.26.18
     # via
     #   botocore
     #   django-revproxy
