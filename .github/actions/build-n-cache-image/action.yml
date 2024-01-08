@@ -16,9 +16,6 @@ outputs:
     build-id:
         description: The ID of the build
         value: ${{ steps.build.outputs.build-id }}
-    unit-build-id:
-        description: The ID of the unit build
-        value: ${{ steps.build-unit.outputs.build-id }}
 
 runs:
     using: 'composite'
@@ -37,19 +34,6 @@ runs:
           with:
               buildx-fallback: false # buildx is so slow it's better to just fail
               tags: ${{ steps.emit.outputs.tag }}
-              platforms: linux/amd64,linux/arm64
-              build-args: COMMIT_HASH=${{ github.sha }}
-              save: ${{ inputs.save }}
-          env:
-              ACTIONS_ID_TOKEN_REQUEST_URL: ${{ inputs.actions-id-token-request-url }}
-
-        - name: Build unit image
-          id: build-unit
-          uses: depot/build-push-action@v1
-          with:
-              buildx-fallback: false # buildx is so slow it's better to just fail
-              file: production-unit.Dockerfile
-              tags: posthog/posthog:unit-${{ github.sha }}
               platforms: linux/amd64,linux/arm64
               build-args: COMMIT_HASH=${{ github.sha }}
               save: ${{ inputs.save }}

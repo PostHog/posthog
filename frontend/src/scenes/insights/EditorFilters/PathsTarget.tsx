@@ -129,7 +129,6 @@ function PathsTarget({ position, insightProps }: PathTargetProps): JSX.Element {
         >
             <LemonButton
                 data-attr={'new-prop-filter-' + positionOptions.index}
-                status={positionOptions.funnelFilterLink ? 'primary' : 'stealth'}
                 fullWidth
                 className="paths-endpoint-field"
                 type="secondary"

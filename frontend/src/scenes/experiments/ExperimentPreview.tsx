@@ -1,5 +1,5 @@
-import { LemonButton, LemonDivider, LemonModal, Tooltip } from '@posthog/lemon-ui'
-import { InputNumber, Slider } from 'antd'
+import { LemonButton, LemonDivider, LemonInput, LemonModal, Tooltip } from '@posthog/lemon-ui'
+import { Slider } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { InsightLabel } from 'lib/components/InsightLabel'
@@ -136,12 +136,12 @@ export function ExperimentPreview({
                                     tipFormatter={(value) => `${value}%`}
                                 />
                             </div>
-                            <InputNumber
+                            <LemonInput
+                                type="number"
                                 min={1}
                                 max={sliderMaxValue}
                                 defaultValue={5}
-                                formatter={(value) => `${value}%`}
-                                style={{ margin: '0 16px' }}
+                                suffix={<span>%</span>}
                                 value={minimumDetectableChange}
                                 onChange={(value) => {
                                     setExperiment({
@@ -325,8 +325,8 @@ export function ExperimentPreview({
                                                     {experiment.parameters?.custom_exposure_filter && (
                                                         <LemonButton
                                                             type="secondary"
-                                                            size="small"
                                                             status="danger"
+                                                            size="small"
                                                             className="mr-2"
                                                             onClick={() => updateExperimentExposure(null)}
                                                         >

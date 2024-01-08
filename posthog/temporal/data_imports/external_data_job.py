@@ -155,6 +155,25 @@ async def run_external_data_job(inputs: ExternalDataJobInputs) -> None:
         source = stripe_source(
             api_key=stripe_secret_key, endpoints=tuple(inputs.schemas), job_id=str(model.id), team_id=inputs.team_id
         )
+    elif model.pipeline.source_type == ExternalDataSource.Type.HUBSPOT:
+        from posthog.temporal.data_imports.pipelines.hubspot.auth import refresh_access_token
+        from posthog.temporal.data_imports.pipelines.hubspot import hubspot
+
+        hubspot_access_code = model.pipeline.job_inputs.get("hubspot_secret_key", None)
+        refresh_token = model.pipeline.job_inputs.get("hubspot_refresh_token", None)
+        if not refresh_token:
+            raise ValueError(f"Hubspot refresh token not found for job {model.id}")
+
+        if not hubspot_access_code:
+            hubspot_access_code = refresh_access_token(refresh_token)
+
+        source = hubspot(
+            api_key=hubspot_access_code,
+            refresh_token=refresh_token,
+            job_id=str(model.id),
+            team_id=inputs.team_id,
+            endpoints=tuple(inputs.schemas),
+        )
     else:
         raise ValueError(f"Source type {model.pipeline.source_type} not supported")
 
@@ -218,7 +237,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 run_external_data_job,
                 job_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=90),
+                start_to_close_timeout=dt.timedelta(hours=4),
                 retry_policy=RetryPolicy(maximum_attempts=5),
                 heartbeat_timeout=dt.timedelta(minutes=1),
             )

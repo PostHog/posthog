@@ -56,7 +56,6 @@ export function PathsEventsTypes({ insightProps }: EditorFilterProps): JSX.Eleme
 
     return (
         <LemonButtonWithDropdown
-            status="stealth"
             fullWidth
             type="secondary"
             dropdown={{
@@ -66,7 +65,6 @@ export function PathsEventsTypes({ insightProps }: EditorFilterProps): JSX.Eleme
                     <LemonButton
                         key={option.type}
                         onClick={() => onClickPathtype(option.type)}
-                        status="stealth"
                         disabledReason={
                             option.selected && includeEventTypes?.length === 1
                                 ? 'At least one event type must be selected'

@@ -86,7 +86,7 @@ export function Login(): JSX.Element {
             }
             footer={<SupportModalButton />}
         >
-            <div className="space-y-2">
+            <div className="space-y-4">
                 <h2>Log in</h2>
                 {generalError && (
                     <LemonBanner type="error">
@@ -142,13 +142,13 @@ export function Login(): JSX.Element {
                     </div>
                     {precheckResponse.status === 'pending' || !precheckResponse.sso_enforcement ? (
                         <LemonButton
+                            type="primary"
+                            status="alt"
                             htmlType="submit"
                             data-attr="password-login"
                             fullWidth
-                            type="primary"
                             center
                             loading={isLoginSubmitting || precheckResponseLoading}
-                            status="primary-alt"
                             size="large"
                         >
                             Log in

@@ -114,12 +114,7 @@ export function InAppFeedbackHeaderButtons(): JSX.Element {
     const { toggleInAppFeedbackInstructions } = useActions(inAppFeedbackLogic)
     return (
         <>
-            <LemonButton
-                onClick={() => {
-                    toggleInAppFeedbackInstructions()
-                }}
-                sideIcon={<IconHelpOutline />}
-            >
+            <LemonButton onClick={toggleInAppFeedbackInstructions} sideIcon={<IconHelpOutline />}>
                 Feedback instructions
             </LemonButton>
             <FeedbackInstructions />

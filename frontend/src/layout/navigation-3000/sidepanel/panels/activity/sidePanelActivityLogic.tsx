@@ -1,6 +1,7 @@
-import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import api from 'lib/api'
+import { subscriptions } from 'kea-subscriptions'
+import api, { PaginatedResponse } from 'lib/api'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogItem, humanize, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { dayjs } from 'lib/dayjs'
@@ -9,7 +10,8 @@ import { toParams } from 'lib/utils'
 import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { notificationsLogicType } from './notificationsLogicType'
+import { ActivityFilters, activityForSceneLogic } from './activityForSceneLogic'
+import type { sidePanelActivityLogicType } from './sidePanelActivityLogicType'
 
 const POLL_TIMEOUT = 5 * 60 * 1000
 
@@ -29,10 +31,12 @@ export enum SidePanelActivityTab {
     All = 'all',
 }
 
-export const notificationsLogic = kea<notificationsLogicType>([
-    path(['layout', 'navigation', 'TopBar', 'notificationsLogic']),
+export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
+    path(['scenes', 'navigation', 'sidepanel', 'sidePanelActivityLogic']),
+    connect({
+        values: [activityForSceneLogic, ['sceneActivityFilters']],
+    }),
     actions({
-        toggleNotificationsPopover: true,
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
         incrementErrorCount: true,
         clearErrorCount: true,
@@ -42,6 +46,44 @@ export const notificationsLogic = kea<notificationsLogicType>([
         loadOlderActivity: true,
         maybeLoadOlderActivity: true,
         loadImportantChanges: (onlyUnread = true) => ({ onlyUnread }),
+        setFilters: (filters: ActivityFilters | null) => ({ filters }),
+        setFiltersForCurrentPage: (filters: ActivityFilters | null) => ({ filters }),
+        toggleShowDetails: (showing?: boolean) => ({ showing }),
+    }),
+    reducers({
+        activeTab: [
+            SidePanelActivityTab.Unread as SidePanelActivityTab,
+            {
+                setActiveTab: (_, { tab }) => tab,
+            },
+        ],
+        errorCounter: [
+            0,
+            {
+                incrementErrorCount: (state) => (state >= 5 ? 5 : state + 1),
+                clearErrorCount: () => 0,
+            },
+        ],
+        filters: [
+            null as ActivityFilters | null,
+            {
+                setFilters: (_, { filters }) => filters,
+                setFiltersForCurrentPage: (_, { filters }) => filters,
+            },
+        ],
+        filtersForCurrentPage: [
+            null as ActivityFilters | null,
+            {
+                setFiltersForCurrentPage: (_, { filters }) => filters,
+            },
+        ],
+        showDetails: [
+            false,
+            { persist: true },
+            {
+                toggleShowDetails: (state, { showing }) => showing ?? !state,
+            },
+        ],
     }),
     loaders(({ actions, values, cache }) => ({
         importantChanges: [
@@ -103,14 +145,12 @@ export const notificationsLogic = kea<notificationsLogicType>([
             },
         ],
         allActivityResponse: [
-            null as ChangesResponse | null,
+            null as PaginatedResponse<ActivityLogItem> | null,
             {
                 loadAllActivity: async (_, breakpoint) => {
-                    await breakpoint(1)
+                    const response = await api.activity.list(values.filters ?? {})
 
-                    const response = await api.get<ChangesResponse>(
-                        `api/projects/${teamLogic.values.currentTeamId}/activity_log`
-                    )
+                    breakpoint()
                     return response
                 },
 
@@ -121,7 +161,7 @@ export const notificationsLogic = kea<notificationsLogicType>([
                         return values.allActivityResponse
                     }
 
-                    const response = await api.get<ChangesResponse>(values.allActivityResponse.next)
+                    const response = await api.get<PaginatedResponse<ActivityLogItem>>(values.allActivityResponse.next)
 
                     response.results = [...values.allActivityResponse.results, ...response.results]
 
@@ -130,33 +170,8 @@ export const notificationsLogic = kea<notificationsLogicType>([
             },
         ],
     })),
-    reducers({
-        activeTab: [
-            SidePanelActivityTab.Unread as SidePanelActivityTab,
-            {
-                setActiveTab: (_, { tab }) => tab,
-            },
-        ],
-        errorCounter: [
-            0,
-            {
-                incrementErrorCount: (state) => (state >= 5 ? 5 : state + 1),
-                clearErrorCount: () => 0,
-            },
-        ],
-        isNotificationPopoverOpen: [
-            false,
-            {
-                toggleNotificationsPopover: (state) => !state,
-            },
-        ],
-    }),
+
     listeners(({ values, actions }) => ({
-        toggleNotificationsPopover: () => {
-            if (!values.isNotificationPopoverOpen) {
-                actions.markAllAsRead()
-            }
-        },
         setActiveTab: ({ tab }) => {
             if (tab === SidePanelActivityTab.All && !values.allActivityResponseLoading) {
                 actions.loadAllActivity()
@@ -236,10 +251,26 @@ export const notificationsLogic = kea<notificationsLogicType>([
         unreadCount: [(s) => [s.unread], (unread) => (unread || []).length],
         hasUnread: [(s) => [s.unreadCount], (unreadCount) => unreadCount > 0],
     }),
-    events(({ actions, cache }) => ({
-        afterMount: () => actions.loadImportantChanges(),
-        beforeUnmount: () => {
-            clearTimeout(cache.pollTimeout)
+
+    subscriptions(({ actions, values }) => ({
+        sceneActivityFilters: (activityFilters) => {
+            actions.setFiltersForCurrentPage(activityFilters ? { ...values.filters, ...activityFilters } : null)
+        },
+        filters: () => {
+            if (values.activeTab === SidePanelActivityTab.All) {
+                actions.loadAllActivity()
+            }
         },
     })),
+
+    afterMount(({ actions, values }) => {
+        actions.loadImportantChanges()
+
+        const activityFilters = values.sceneActivityFilters
+        actions.setFiltersForCurrentPage(activityFilters ? { ...values.filters, ...activityFilters } : null)
+    }),
+
+    beforeUnmount(({ cache }) => {
+        clearTimeout(cache.pollTimeout)
+    }),
 ])

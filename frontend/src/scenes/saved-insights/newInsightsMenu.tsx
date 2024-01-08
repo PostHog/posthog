@@ -25,7 +25,6 @@ export function overlayForNewInsightMenu(dataAttr: string): ReactNode[] {
             listedInsightTypeMetadata.inMenu && (
                 <LemonButton
                     key={listedInsightType}
-                    status="stealth"
                     icon={
                         listedInsightTypeMetadata.icon && (
                             <listedInsightTypeMetadata.icon color="var(--muted-alt)" noBackground />

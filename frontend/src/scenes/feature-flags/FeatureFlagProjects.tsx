@@ -171,7 +171,7 @@ function FeatureFlagCopySection(): JSX.Element {
                                 ?.map((team) => ({ value: team.id, label: team.name }))
                                 .filter((option) => option.value !== currentTeam?.id) || []
                         }
-                        className="min-w-40"
+                        className="min-w-[10rem]"
                     />
                 </div>
                 <div>

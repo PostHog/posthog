@@ -45,7 +45,7 @@ export function SignupPanel2(): JSX.Element | null {
                     data-attr="signup-submit"
                     loading={isSignupPanel2Submitting}
                     disabled={isSignupPanel2Submitting}
-                    status="primary-alt"
+                    status="alt"
                     size="large"
                 >
                     {!preflight?.demo

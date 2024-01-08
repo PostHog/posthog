@@ -69,6 +69,8 @@ interface DataTableProps {
     /* Cached Results are provided when shared or exported,
     the data node logic becomes read only implicitly */
     cachedResults?: AnyResponseType
+    // Override the data logic node key if needed
+    dataNodeLogicKey?: string
 }
 
 const eventGroupTypes = [
@@ -81,14 +83,21 @@ const personGroupTypes = [TaxonomicFilterGroupType.HogQLExpression, TaxonomicFil
 
 let uniqueNode = 0
 
-export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }: DataTableProps): JSX.Element {
+export function DataTable({
+    uniqueKey,
+    query,
+    setQuery,
+    context,
+    cachedResults,
+    dataNodeLogicKey,
+}: DataTableProps): JSX.Element {
     const [uniqueNodeKey] = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
     const [vizKey] = useState(() => `DataTable.${uniqueNodeKey}`)
 
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
-        key: dataKey,
+        key: dataNodeLogicKey ?? dataKey,
         cachedResults: cachedResults,
     }
     const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)
@@ -105,7 +114,13 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         backToSourceQuery,
     } = useValues(builtDataNodeLogic)
 
-    const dataTableLogicProps: DataTableLogicProps = { query, vizKey: vizKey, dataKey: dataKey, context }
+    const dataTableLogicProps: DataTableLogicProps = {
+        query,
+        vizKey: vizKey,
+        dataKey: dataKey,
+        dataNodeLogicKey,
+        context,
+    }
     const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort, sourceFeatures } = useValues(
         dataTableLogic(dataTableLogicProps)
     )
@@ -216,7 +231,6 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                             <>
                                 <LemonButton
                                     fullWidth
-                                    status={(query.source as EventsQuery)?.orderBy?.[0] === key ? 'primary' : 'stealth'}
                                     data-attr="datatable-sort-asc"
                                     onClick={() => {
                                         setQuery?.({
@@ -232,11 +246,6 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                 </LemonButton>
                                 <LemonButton
                                     fullWidth
-                                    status={
-                                        (query.source as EventsQuery)?.orderBy?.[0] === `${key} DESC`
-                                            ? 'primary'
-                                            : 'stealth'
-                                    }
                                     data-attr="datatable-sort-desc"
                                     onClick={() => {
                                         setQuery?.({

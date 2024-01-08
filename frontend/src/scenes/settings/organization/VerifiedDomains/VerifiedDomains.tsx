@@ -206,7 +206,6 @@ function VerifiedDomainsTable(): JSX.Element {
                         overlay={
                             <>
                                 <LemonButton
-                                    status="stealth"
                                     onClick={() => setConfigureSAMLModalId(id)}
                                     fullWidth
                                     disabled={!isSAMLAvailable}
