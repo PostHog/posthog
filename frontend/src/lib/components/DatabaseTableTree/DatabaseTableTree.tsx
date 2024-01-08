@@ -4,7 +4,7 @@ import { DataWarehouseSceneRow } from 'scenes/data-warehouse/types'
 
 import { TreeFolderRow, TreeRow } from './TreeRow'
 
-export interface TreeProps {
+export interface TreeProps extends React.HTMLAttributes<HTMLUListElement> {
     children?: React.ReactNode
     className?: string
     items: TreeItem[]
@@ -32,9 +32,10 @@ export function DatabaseTableTree({
     onSelectRow,
     selectedRow,
     depth = 1,
+    ...props
 }: TreeProps): JSX.Element {
     return (
-        <ul className={`Tree ${className}`}>
+        <ul className={`Tree ${className}`} {...props}>
             {items.map((item, index) => {
                 if ('items' in item) {
                     return (

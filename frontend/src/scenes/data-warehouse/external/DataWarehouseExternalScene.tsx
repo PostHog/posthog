@@ -5,7 +5,9 @@ import { router } from 'kea-router'
 import { DatabaseTableTree } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { PageHeader } from 'lib/components/PageHeader'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconDataObject, IconSettings } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -26,6 +28,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
         useValues(dataWarehouseSceneLogic)
     const { toggleSourceModal, selectRow, deleteDataWarehouseSavedQuery, deleteDataWarehouseTable } =
         useActions(dataWarehouseSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const deleteButton = (selectedRow: DataWarehouseSceneRow | null): JSX.Element => {
         if (!selectedRow) {
@@ -77,6 +80,49 @@ export function DataWarehouseExternalScene(): JSX.Element {
         return <></>
     }
 
+    const treeItems = (): JSX.Element => {
+        const items = [
+            {
+                name: 'External',
+                items: externalTables.map((table) => ({
+                    table: table,
+                    icon: <IconDatabase />,
+                })),
+                emptyLabel: (
+                    <span className="text-muted">
+                        No tables found.{' '}
+                        <Link
+                            onClick={() => {
+                                toggleSourceModal()
+                            }}
+                        >
+                            Link source
+                        </Link>
+                    </span>
+                ),
+            },
+            {
+                name: 'PostHog',
+                items: posthogTables.map((table) => ({
+                    table: table,
+                    icon: <IconDatabase />,
+                })),
+            },
+        ]
+
+        if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS]) {
+            items.push({
+                name: 'Views',
+                items: savedQueriesFormatted.map((table) => ({
+                    table: table,
+                    icon: <IconDataObject />,
+                })),
+            })
+        }
+
+        return items
+    }
+
     return (
         <div>
             <PageHeader
@@ -90,14 +136,16 @@ export function DataWarehouseExternalScene(): JSX.Element {
                 }
                 buttons={
                     <>
-                        <LemonButton
-                            type="primary"
-                            data-attr="new-data-warehouse-view"
-                            key={'new-data-warehouse-view'}
-                            to={urls.insightNewHogQL('SELECT event AS event FROM events LIMIT 100')}
-                        >
-                            Create View
-                        </LemonButton>
+                        {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS] && (
+                            <LemonButton
+                                type="primary"
+                                data-attr="new-data-warehouse-view"
+                                key={'new-data-warehouse-view'}
+                                to={urls.insightNewHogQL('SELECT event AS event FROM events LIMIT 100')}
+                            >
+                                Create View
+                            </LemonButton>
+                        )}
                         <LemonButton
                             type="primary"
                             data-attr="new-data-warehouse-easy-link"
@@ -117,7 +165,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                 }
                 caption={
                     <div>
-                        These are external data sources you can query under SQL insights with{' '}
+                        Below are all the sources that can be queried within PostHog with{' '}
                         <Link to="https://posthog.com/manual/hogql" target="_blank">
                             HogQL
                         </Link>
@@ -128,45 +176,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
             />
             <div className="grid md:grid-cols-3">
                 <div className="sm:col-span-3 md:col-span-1">
-                    <DatabaseTableTree
-                        onSelectRow={selectRow}
-                        items={[
-                            {
-                                name: 'External',
-                                items: externalTables.map((table) => ({
-                                    table: table,
-                                    icon: <IconDatabase />,
-                                })),
-                                emptyLabel: (
-                                    <span className="text-muted">
-                                        No tables found.{' '}
-                                        <Link
-                                            onClick={() => {
-                                                toggleSourceModal()
-                                            }}
-                                        >
-                                            Link source
-                                        </Link>
-                                    </span>
-                                ),
-                            },
-                            {
-                                name: 'PostHog',
-                                items: posthogTables.map((table) => ({
-                                    table: table,
-                                    icon: <IconDatabase />,
-                                })),
-                            },
-                            {
-                                name: 'Views',
-                                items: savedQueriesFormatted.map((table) => ({
-                                    table: table,
-                                    icon: <IconDataObject />,
-                                })),
-                            },
-                        ]}
-                        selectedRow={selectedRow}
-                    />
+                    <DatabaseTableTree onSelectRow={selectRow} items={treeItems()} selectedRow={selectedRow} />
                 </div>
                 {selectedRow ? (
                     <div className="px-4 py-3 col-span-2">
@@ -199,14 +209,20 @@ export function DataWarehouseExternalScene(): JSX.Element {
                             {selectedRow.external_data_source ? (
                                 <></>
                             ) : (
-                                <>
-                                    <span className="card-secondary mt-2">Files URL pattern</span>
-                                    <span>{selectedRow.url_pattern}</span>
-                                </>
+                                selectedRow.url_pattern && (
+                                    <>
+                                        <span className="card-secondary mt-2">Files URL pattern</span>
+                                        <span>{selectedRow.url_pattern}</span>
+                                    </>
+                                )
                             )}
 
-                            <span className="card-secondary mt-2">File format</span>
-                            <span>{selectedRow.format}</span>
+                            {selectedRow.format && (
+                                <>
+                                    <span className="card-secondary mt-2">File format</span>
+                                    <span>{selectedRow.format}</span>
+                                </>
+                            )}
                         </div>
 
                         <div className="mt-2">

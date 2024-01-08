@@ -54,14 +54,19 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow }: TreeFolderR
             {!collapsed &&
                 (items.length > 0 ? (
                     <DatabaseTableTree
-                        className={`ml-${7 * depth}`}
                         items={items}
-                        depth={depth * 2}
+                        depth={depth + 1}
                         onSelectRow={onClick}
                         selectedRow={selectedRow}
+                        style={{ marginLeft: `${2 * depth}rem`, padding: 0 }}
                     />
                 ) : (
-                    <div className={`ml-${7 * depth}`}>
+                    // eslint-disable-next-line react/forbid-dom-props
+                    <div
+                        style={{
+                            marginLeft: `${2 * depth}rem`,
+                        }}
+                    >
                         {emptyLabel ? emptyLabel : <span className="text-muted">No tables found</span>}
                     </div>
                 ))}
