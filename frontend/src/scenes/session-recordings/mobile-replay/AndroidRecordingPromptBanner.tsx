@@ -24,7 +24,7 @@ export function AndroidRecordingsPromptBanner(props: AndroidRecordingPromptBanne
                 dismissKey={`android-recording-beta-prompt`}
                 action={{
                     children: 'Learn more',
-                    to: 'https://github.com/PostHog/posthog-android/blob/chore/session-replay/USAGE.md#android-session-recording',
+                    to: 'https://github.com/PostHog/posthog-android/blob/main/USAGE.md#android-session-recording',
                     targetBlank: true,
                 }}
                 className="mb-4"
