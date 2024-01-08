@@ -1,7 +1,6 @@
 import { LemonButton, LemonSelectOptions, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import {
     IconArticle,
@@ -22,7 +21,7 @@ import { getProductIcon } from 'scenes/products/Products'
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
 
 import { convertLargeNumberToWords, getUpgradeProductLink, summarizeUsage } from './billing-utils'
-import { BillingGauge, BillingGauge3000 } from './BillingGauge'
+import { BillingGauge3000 } from './BillingGauge'
 import { BillingLimitInput } from './BillingLimitInput'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
@@ -47,9 +46,10 @@ export const getTierDescription = (
 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
     const { billing, redirectPath } = useValues(billingLogic)
-    const { deactivateProduct } = useActions(billingLogic)
-    const { isPricingModalOpen, currentAndUpgradePlans } = useValues(billingProductLogic({ product: addon }))
-    const { toggleIsPricingModalOpen } = useActions(billingProductLogic({ product: addon }))
+    const { isPricingModalOpen, currentAndUpgradePlans, surveyID } = useValues(billingProductLogic({ product: addon }))
+    const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse } = useActions(
+        billingProductLogic({ product: addon })
+    )
 
     const productType = { plural: `${addon.unit}s`, singular: addon.unit }
     const tierDisplayOptions: LemonSelectOptions<string> = [
@@ -82,7 +82,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                 <div className="ml-4 mr-4 mt-2 self-center flex gap-x-2 whitespace-nowrap">
                     {addon.docs_url && (
                         <Tooltip title="Read the docs">
-                            <LemonButton icon={<IconArticle />} status="stealth" size="small" to={addon.docs_url} />
+                            <LemonButton icon={<IconArticle />} size="small" to={addon.docs_url} />
                         </Tooltip>
                     )}
                     {addon.subscribed ? (
@@ -91,9 +91,11 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                 overlay={
                                     <>
                                         <LemonButton
-                                            status="stealth"
                                             fullWidth
-                                            onClick={() => deactivateProduct(addon.type)}
+                                            onClick={() => {
+                                                setSurveyResponse(addon.type, '$survey_response_1')
+                                                reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, addon.type)
+                                            }}
                                         >
                                             Remove addon
                                         </LemonButton>
@@ -141,6 +143,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                         : currentAndUpgradePlans?.upgradePlan?.plan_key
                 }
             />
+            {surveyID && <UnsubscribeSurveyModal product={addon} />}
         </div>
     )
 }
@@ -150,7 +153,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     const {
         customLimitUsd,
         showTierBreakdown,
-        billingGaugeItems,
         billingGaugeItems3000,
         isPricingModalOpen,
         isPlanComparisonModalOpen,
@@ -166,7 +168,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         setSurveyResponse,
     } = useActions(billingProductLogic({ product }))
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
-    const is3000 = useFeatureFlag('POSTHOG_3000', 'test')
 
     const showUpgradeCTA = !product.subscribed && !product.contact_support && product.plans?.length
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
@@ -308,7 +309,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                 <Tooltip title="Read the docs">
                                     <LemonButton
                                         icon={<IconArticle />}
-                                        status="stealth"
                                         size="small"
                                         to={product.docs_url}
                                         className="justify-end"
@@ -332,7 +332,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             <>
                                                 {product.plans?.length > 0 ? (
                                                     <LemonButton
-                                                        status="stealth"
                                                         fullWidth
                                                         onClick={() => {
                                                             setSurveyResponse(product.type, '$survey_response_1')
@@ -343,7 +342,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                     </LemonButton>
                                                 ) : (
                                                     <LemonButton
-                                                        status="stealth"
                                                         fullWidth
                                                         to="mailto:sales@posthog.com?subject=Custom%20plan%20unsubscribe%20request"
                                                     >
@@ -353,7 +351,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
                                                 <LemonButton
                                                     fullWidth
-                                                    status="stealth"
                                                     to="https://posthog.com/docs/billing/estimating-usage-costs#how-to-reduce-your-posthog-costs"
                                                 >
                                                     Learn how to reduce your bill
@@ -361,7 +358,6 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 {billing?.billing_period?.interval == 'month' && (
                                                     <LemonButton
                                                         fullWidth
-                                                        status="stealth"
                                                         disabledReason={
                                                             billing?.discount_percent === 100
                                                                 ? "You can't set a billing limit with a 100% discount"
@@ -417,16 +413,11 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             {product.subscribed && (
                                                 <LemonButton
                                                     icon={showTierBreakdown ? <IconExpandMore /> : <IconChevronRight />}
-                                                    status="stealth"
                                                     onClick={() => setShowTierBreakdown(!showTierBreakdown)}
                                                 />
                                             )}
                                             <div className="grow">
-                                                {is3000 ? (
-                                                    <BillingGauge3000 items={billingGaugeItems3000} product={product} />
-                                                ) : (
-                                                    <BillingGauge items={billingGaugeItems} product={product} />
-                                                )}
+                                                <BillingGauge3000 items={billingGaugeItems3000} product={product} />
                                             </div>
                                             {product.current_amount_usd ? (
                                                 <div className="flex justify-end gap-8 flex-wrap items-end">

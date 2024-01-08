@@ -293,7 +293,7 @@ class RetentionQueryRunner(QueryRunner):
 
     def calculate(self) -> RetentionQueryResponse:
         query = self.to_query()
-        hogql = to_printed_hogql(query, self.team.pk)
+        hogql = to_printed_hogql(query, self.team)
 
         response = execute_hogql_query(
             query_type="RetentionQuery",

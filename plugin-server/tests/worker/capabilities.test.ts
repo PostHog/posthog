@@ -28,7 +28,7 @@ describe('capabilities', () => {
     describe('getVMPluginCapabilities()', () => {
         function getCapabilities(indexJs: string): PluginCapabilities {
             const vm = createPluginConfigVM(hub, pluginConfig39, indexJs)
-            return getVMPluginCapabilities(vm)
+            return getVMPluginCapabilities(vm.methods, vm.tasks)
         }
 
         it('handles processEvent', () => {

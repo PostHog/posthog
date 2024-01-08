@@ -7,6 +7,7 @@ import dlt
 from dlt.common import pendulum
 from dlt.sources import DltResource
 from pendulum import DateTime
+from posthog.temporal.data_imports.pipelines.helpers import limit_paginated_generator
 
 stripe.api_version = "2022-11-15"
 
@@ -48,11 +49,10 @@ def stripe_get_data(
     return response
 
 
+@limit_paginated_generator
 def stripe_pagination(
     api_key: str,
     endpoint: str,
-    start_date: Optional[Any] = None,
-    end_date: Optional[Any] = None,
     starting_after: Optional[str] = None,
 ):
     """
@@ -71,8 +71,6 @@ def stripe_pagination(
         response = stripe_get_data(
             api_key,
             endpoint,
-            start_date=start_date,
-            end_date=end_date,
             starting_after=starting_after,
         )
 
@@ -86,11 +84,7 @@ def stripe_pagination(
 
 @dlt.source(max_table_nesting=0)
 def stripe_source(
-    api_key: str,
-    endpoints: Tuple[str, ...],
-    start_date: Optional[Any] = None,
-    end_date: Optional[Any] = None,
-    starting_after: Optional[str] = None,
+    api_key: str, endpoints: Tuple[str, ...], job_id: str, team_id: int, starting_after: Optional[str] = None
 ) -> Iterable[DltResource]:
     for endpoint in endpoints:
         yield dlt.resource(
@@ -100,7 +94,7 @@ def stripe_source(
         )(
             api_key=api_key,
             endpoint=endpoint,
-            start_date=start_date,
-            end_date=end_date,
+            job_id=job_id,
+            team_id=team_id,
             starting_after=starting_after,
         )

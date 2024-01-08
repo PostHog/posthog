@@ -343,16 +343,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         )
 
     sender.add_periodic_task(
-        crontab(minute="*/10"),
-        sync_datawarehouse_sources.s(),
-        name="sync datawarehouse sources that have settled in s3 bucket",
-    )
-
-    # Every 30 minutes try to retrieve and calculate total rows synced in period
-    sender.add_periodic_task(
-        crontab(minute="*/30"),
-        calculate_external_data_rows_synced.s(),
-        name="calculate external data rows synced",
+        crontab(minute="23", hour="*"),
+        check_data_import_row_limits.s(),
+        name="check external data rows synced",
     )
 
 
@@ -940,23 +933,6 @@ def calculate_decide_usage() -> None:
 
 
 @app.task(ignore_result=True)
-def calculate_external_data_rows_synced() -> None:
-    from django.db.models import Q
-
-    from posthog.models import Team
-    from posthog.tasks.warehouse import (
-        capture_workspace_rows_synced_by_team,
-        check_external_data_source_billing_limit_by_team,
-    )
-
-    for team in Team.objects.select_related("organization").exclude(
-        Q(organization__for_internal_metrics=True) | Q(is_demo=True) | Q(external_data_workspace_id__isnull=True)
-    ):
-        capture_workspace_rows_synced_by_team.delay(team.pk)
-        check_external_data_source_billing_limit_by_team.delay(team.pk)
-
-
-@app.task(ignore_result=True)
 def find_flags_with_enriched_analytics():
     from datetime import datetime, timedelta
 
@@ -1111,10 +1087,10 @@ def ee_persist_finished_recordings():
 
 
 @app.task(ignore_result=True)
-def sync_datawarehouse_sources():
+def check_data_import_row_limits():
     try:
-        from posthog.tasks.warehouse import sync_resources
+        from posthog.tasks.warehouse import check_synced_row_limits
     except ImportError:
         pass
     else:
-        sync_resources()
+        check_synced_row_limits()

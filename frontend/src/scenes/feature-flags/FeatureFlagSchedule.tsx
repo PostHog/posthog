@@ -6,39 +6,49 @@ import {
     LemonTable,
     LemonTableColumn,
     LemonTableColumns,
+    LemonTag,
+    LemonTagType,
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DatePicker } from 'lib/components/DatePicker'
+import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useEffect } from 'react'
 
-import { ScheduledChangeType } from '~/types'
+import { groupsModel } from '~/models/groupsModel'
+import { ScheduledChangeOperationType, ScheduledChangeType } from '~/types'
 
 import { featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
+import { groupFilters } from './FeatureFlags'
 
 const featureFlagScheduleLogic = featureFlagLogic({ id: 'schedule' })
 export const DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
 
 export default function FeatureFlagSchedule(): JSX.Element {
-    const { featureFlag, scheduledChanges, scheduledChangeField, scheduleDateMarker } =
+    const { featureFlag, scheduledChanges, scheduledChangeOperation, scheduleDateMarker } =
         useValues(featureFlagScheduleLogic)
     const {
         setFeatureFlagId,
         setFeatureFlag,
+        setAggregationGroupTypeIndex,
         loadScheduledChanges,
         createScheduledChange,
         deleteScheduledChange,
         setScheduleDateMarker,
-        setScheduledChangeField,
+        setScheduledChangeOperation,
     } = useActions(featureFlagScheduleLogic)
+    const { aggregationLabel } = useValues(groupsModel)
 
     const featureFlagId = useValues(featureFlagLogic).featureFlag.id
+    const aggregationGroupTypeIndex = useValues(featureFlagLogic).featureFlag.filters.aggregation_group_type_index
 
     useEffect(() => {
         // Set the feature flag ID from the main flag logic to the current logic
         setFeatureFlagId(featureFlagId)
+        setAggregationGroupTypeIndex(aggregationGroupTypeIndex || null)
 
         loadScheduledChanges()
     }, [])
@@ -47,35 +57,89 @@ export default function FeatureFlagSchedule(): JSX.Element {
         {
             title: 'Change',
             dataIndex: 'payload',
-            render: (dataValue) => {
-                return JSON.stringify(dataValue)
+            render: function Render(_, scheduledChange: ScheduledChangeType) {
+                const { payload } = scheduledChange
+
+                if (payload.operation === ScheduledChangeOperationType.UpdateStatus) {
+                    const isEnabled = payload.value
+                    return (
+                        <LemonTag type={isEnabled ? 'success' : 'default'} className="uppercase">
+                            {isEnabled ? 'Enable' : 'Disable'}
+                        </LemonTag>
+                    )
+                } else if (payload.operation === ScheduledChangeOperationType.AddReleaseCondition) {
+                    const releaseText = groupFilters(payload.value, undefined, aggregationLabel)
+                    return (
+                        <div className="inline-flex leading-8">
+                            <span className="mr-2">
+                                <b>Add release condition:</b>
+                            </span>
+                            {typeof releaseText === 'string' && releaseText.startsWith('100% of') ? (
+                                <LemonTag type="highlight">{releaseText}</LemonTag>
+                            ) : (
+                                releaseText
+                            )}
+                        </div>
+                    )
+                }
+
+                return JSON.stringify(payload)
             },
         },
         atColumn('scheduled_at', 'Scheduled at') as LemonTableColumn<
             ScheduledChangeType,
             keyof ScheduledChangeType | undefined
         >,
-        atColumn('executed_at', 'Executed at') as LemonTableColumn<
-            ScheduledChangeType,
-            keyof ScheduledChangeType | undefined
-        >,
-        createdByColumn() as LemonTableColumn<ScheduledChangeType, keyof ScheduledChangeType | undefined>,
         createdAtColumn() as LemonTableColumn<ScheduledChangeType, keyof ScheduledChangeType | undefined>,
+        createdByColumn() as LemonTableColumn<ScheduledChangeType, keyof ScheduledChangeType | undefined>,
+        {
+            title: 'Status',
+            dataIndex: 'executed_at',
+            render: function Render(_, scheduledChange: ScheduledChangeType) {
+                const { executed_at, failure_reason } = scheduledChange
+
+                function getStatus(): { type: LemonTagType; text: string } {
+                    if (failure_reason) {
+                        return { type: 'danger', text: 'Error' }
+                    } else if (executed_at) {
+                        return { type: 'completion', text: 'Complete' }
+                    } else {
+                        return { type: 'default', text: 'Scheduled' }
+                    }
+                }
+                const { type, text } = getStatus()
+                return (
+                    <Tooltip
+                        title={
+                            failure_reason
+                                ? `Failed: ${failure_reason}`
+                                : executed_at && `Completed: ${dayjs(executed_at).format('MMMM D, YYYY h:mm A')}`
+                        }
+                    >
+                        <LemonTag type={type}>
+                            <b className="uppercase">{text}</b>
+                        </LemonTag>{' '}
+                    </Tooltip>
+                )
+            },
+        },
         {
             width: 0,
-            render: function Render(_: any, scheduledChange: ScheduledChangeType) {
+            render: function Render(_, scheduledChange: ScheduledChangeType) {
                 return (
-                    <More
-                        overlay={
-                            <LemonButton
-                                status="danger"
-                                onClick={() => deleteScheduledChange(scheduledChange.id)}
-                                fullWidth
-                            >
-                                Delete scheduled change
-                            </LemonButton>
-                        }
-                    />
+                    !scheduledChange.executed_at && (
+                        <More
+                            overlay={
+                                <LemonButton
+                                    status="danger"
+                                    onClick={() => deleteScheduledChange(scheduledChange.id)}
+                                    fullWidth
+                                >
+                                    Delete scheduled change
+                                </LemonButton>
+                            }
+                        />
+                    )
                 )
             },
         },
@@ -91,17 +155,21 @@ export default function FeatureFlagSchedule(): JSX.Element {
                     <LemonSelect
                         className="w-50"
                         placeholder="Select variant"
-                        value={scheduledChangeField}
-                        onChange={(value) => setScheduledChangeField(value)}
+                        value={scheduledChangeOperation}
+                        onChange={(value) => setScheduledChangeOperation(value)}
                         options={[
-                            { label: 'Change status', value: 'active' },
-                            { label: 'Add a condition', value: 'filters' },
+                            { label: 'Change status', value: ScheduledChangeOperationType.UpdateStatus },
+                            { label: 'Add a condition', value: ScheduledChangeOperationType.AddReleaseCondition },
                         ]}
                     />
                 </div>
                 <div>
                     <div className="font-semibold leading-6 h-6 mb-1">Date and time</div>
                     <DatePicker
+                        disabledDate={(dateMarker) => {
+                            const now = new Date()
+                            return dateMarker.toDate().getTime() < now.getTime()
+                        }}
                         value={scheduleDateMarker}
                         onChange={(value) => setScheduleDateMarker(value)}
                         className="h-10 w-60"
@@ -109,12 +177,13 @@ export default function FeatureFlagSchedule(): JSX.Element {
                         showTime
                         showSecond={false}
                         format={DAYJS_FORMAT}
+                        showNow={false}
                     />
                 </div>
             </div>
 
             <div className="space-y-4">
-                {scheduledChangeField === 'active' && (
+                {scheduledChangeOperation === ScheduledChangeOperationType.UpdateStatus && (
                     <>
                         <div className="border rounded p-4">
                             <LemonCheckbox
@@ -129,7 +198,9 @@ export default function FeatureFlagSchedule(): JSX.Element {
                         </div>
                     </>
                 )}
-                {scheduledChangeField === 'filters' && <FeatureFlagReleaseConditions usageContext="schedule" />}
+                {scheduledChangeOperation === ScheduledChangeOperationType.AddReleaseCondition && (
+                    <FeatureFlagReleaseConditions usageContext="schedule" />
+                )}
                 <div className="flex items-center justify-end">
                     <LemonButton
                         disabledReason={!scheduleDateMarker ? 'Select the scheduled date and time' : null}
@@ -142,6 +213,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                 <LemonDivider className="" />
             </div>
             <LemonTable
+                rowClassName={(record) => (record.executed_at ? 'opacity-75' : '')}
                 className="mt-8"
                 loading={false}
                 dataSource={scheduledChanges}

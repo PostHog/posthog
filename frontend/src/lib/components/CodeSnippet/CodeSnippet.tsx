@@ -4,10 +4,8 @@ import { Popconfirm } from 'antd'
 import { PopconfirmProps } from 'antd/lib/popconfirm'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCopy, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useState } from 'react'
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -29,7 +27,6 @@ import ruby from 'react-syntax-highlighter/dist/esm/languages/prism/ruby'
 import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql'
 import swift from 'react-syntax-highlighter/dist/esm/languages/prism/swift'
 import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml'
-import okaidia from 'react-syntax-highlighter/dist/esm/styles/prism/okaidia'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
@@ -110,7 +107,6 @@ export function CodeSnippet({
     thing = 'snippet',
     maxLinesWithoutExpansion,
 }: CodeSnippetProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { isDarkModeOn } = useValues(themeLogic)
 
     const [expanded, setExpanded] = useState(false)
@@ -149,13 +145,7 @@ export function CodeSnippet({
                 />
             </div>
             <SyntaxHighlighter
-                style={
-                    featureFlags[FEATURE_FLAGS.POSTHOG_3000] === 'test'
-                        ? isDarkModeOn
-                            ? darkTheme
-                            : lightTheme
-                        : okaidia
-                }
+                style={isDarkModeOn ? darkTheme : lightTheme}
                 language={language}
                 wrapLines={wrap}
                 lineProps={{ style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } }}

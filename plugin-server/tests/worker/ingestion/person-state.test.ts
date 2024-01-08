@@ -12,7 +12,6 @@ import {
     DeferredPersonOverrideWorker,
     DeferredPersonOverrideWriter,
     FlatPersonOverrideWriter,
-    PersonOverrideWriter,
     PersonState,
 } from '../../../src/worker/ingestion/person-state'
 import { delayUntilEventIngested } from '../../helpers/clickhouse'
@@ -27,7 +26,7 @@ const timestampch = '2020-01-01 12:00:05.000'
 
 interface PersonOverridesMode {
     supportsSyncTransaction: boolean
-    getWriter(hub: Hub): PersonOverrideWriter | DeferredPersonOverrideWriter
+    getWriter(hub: Hub): DeferredPersonOverrideWriter
     fetchPostgresPersonIdOverrides(
         hub: Hub,
         teamId: number
@@ -36,37 +35,6 @@ interface PersonOverridesMode {
 
 const PersonOverridesModes: Record<string, PersonOverridesMode | undefined> = {
     disabled: undefined,
-    'immediate, with mappings': {
-        supportsSyncTransaction: true,
-        getWriter: (hub) => new PersonOverrideWriter(hub.db.postgres),
-        fetchPostgresPersonIdOverrides: async (hub, teamId) => {
-            const writer = new PersonOverrideWriter(hub.db.postgres) // XXX: ideally would reference ``this``, not new instance
-            return new Set(
-                (await writer.getPersonOverrides(teamId)).map(({ old_person_id, override_person_id }) => ({
-                    old_person_id,
-                    override_person_id,
-                }))
-            )
-        },
-    },
-    'deferred, with mappings': {
-        supportsSyncTransaction: false,
-        getWriter: (hub) => new DeferredPersonOverrideWriter(hub.db.postgres),
-        fetchPostgresPersonIdOverrides: async (hub, teamId) => {
-            const syncWriter = new PersonOverrideWriter(hub.db.postgres)
-            await new DeferredPersonOverrideWorker(
-                hub.db.postgres,
-                hub.db.kafkaProducer,
-                syncWriter
-            ).processPendingOverrides()
-            return new Set(
-                (await syncWriter.getPersonOverrides(teamId)).map(({ old_person_id, override_person_id }) => ({
-                    old_person_id,
-                    override_person_id,
-                }))
-            )
-        },
-    },
     'deferred, without mappings (flat)': {
         supportsSyncTransaction: false,
         getWriter: (hub) => new DeferredPersonOverrideWriter(hub.db.postgres),
@@ -2107,23 +2075,18 @@ describe('PersonState.update()', () => {
     })
 })
 
-const PersonOverridesWriterMode = {
-    mapping: (hub: Hub) => new PersonOverrideWriter(hub.db.postgres),
-    flat: (hub: Hub) => new FlatPersonOverrideWriter(hub.db.postgres),
-}
-
-describe.each(Object.keys(PersonOverridesWriterMode))('person overrides writer: %s', (mode) => {
+describe('flat person overrides writer', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
 
     let organizationId: string
     let teamId: number
-    let writer: PersonOverrideWriter | FlatPersonOverrideWriter
+    let writer: FlatPersonOverrideWriter
 
     beforeAll(async () => {
         ;[hub, closeHub] = await createHub({})
         organizationId = await createOrganization(hub.db.postgres)
-        writer = PersonOverridesWriterMode[mode](hub)
+        writer = new FlatPersonOverrideWriter(hub.db.postgres)
     })
 
     beforeEach(async () => {
@@ -2201,14 +2164,14 @@ describe('deferred person overrides', () => {
     let teamId: number
 
     let writer: DeferredPersonOverrideWriter
-    let syncWriter: PersonOverrideWriter
+    let syncWriter: FlatPersonOverrideWriter
     let worker: DeferredPersonOverrideWorker
 
     beforeAll(async () => {
         ;[hub, closeHub] = await createHub({})
         organizationId = await createOrganization(hub.db.postgres)
         writer = new DeferredPersonOverrideWriter(hub.db.postgres)
-        syncWriter = new PersonOverrideWriter(hub.db.postgres)
+        syncWriter = new FlatPersonOverrideWriter(hub.db.postgres)
         worker = new DeferredPersonOverrideWorker(hub.db.postgres, hub.db.kafkaProducer, syncWriter)
     })
 

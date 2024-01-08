@@ -12,6 +12,7 @@
 
     .funnel-correlation-header {
         display: flex;
+        flex-wrap: wrap;
         place-content: space-between space-between;
         align-items: center;
         align-self: stretch;

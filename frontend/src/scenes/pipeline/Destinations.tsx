@@ -10,9 +10,11 @@ import {
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { urls } from 'scenes/urls'
 
@@ -23,6 +25,10 @@ import { NewButton } from './NewButton'
 import { RenderApp } from './utils'
 
 export function Destinations(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    if (!featureFlags[FEATURE_FLAGS.PIPELINE_UI]) {
+        return <></>
+    }
     const { enabledPluginConfigs, disabledPluginConfigs, shouldShowProductIntroduction } =
         useValues(pipelineDestinationsLogic)
 
@@ -157,7 +163,6 @@ function AppsTable(): JSX.Element {
                                     overlay={
                                         <>
                                             <LemonButton
-                                                status="stealth"
                                                 onClick={() => {
                                                     toggleEnabled({
                                                         enabled: !pluginConfig.enabled,
@@ -175,7 +180,6 @@ function AppsTable(): JSX.Element {
                                                 {pluginConfig.enabled ? 'Disable' : 'Enable'} app
                                             </LemonButton>
                                             <LemonButton
-                                                status="stealth"
                                                 to={urls.pipelineApp(pluginConfig.id, PipelineAppTabs.Configuration)}
                                                 id={`app-${pluginConfig.id}-configuration`}
                                                 fullWidth
@@ -183,7 +187,6 @@ function AppsTable(): JSX.Element {
                                                 {canConfigurePlugins ? 'Edit' : 'View'} app configuration
                                             </LemonButton>
                                             <LemonButton
-                                                status="stealth"
                                                 to={urls.pipelineApp(pluginConfig.id, PipelineAppTabs.Metrics)}
                                                 id={`app-${pluginConfig.id}-metrics`}
                                                 fullWidth
@@ -191,7 +194,6 @@ function AppsTable(): JSX.Element {
                                                 View app metrics
                                             </LemonButton>
                                             <LemonButton
-                                                status="stealth"
                                                 to={urls.pipelineApp(pluginConfig.id, PipelineAppTabs.Logs)}
                                                 id={`app-${pluginConfig.id}-logs`}
                                                 fullWidth
@@ -200,7 +202,6 @@ function AppsTable(): JSX.Element {
                                             </LemonButton>
                                             {plugins[pluginConfig.plugin].url && (
                                                 <LemonButton
-                                                    status="stealth"
                                                     to={plugins[pluginConfig.plugin].url}
                                                     targetBlank={true}
                                                     id={`app-${pluginConfig.id}-source-code`}
@@ -222,7 +223,7 @@ function AppsTable(): JSX.Element {
                                                         callback: loadPluginConfigs,
                                                     })
                                                 }}
-                                                id={`app-reorder`}
+                                                id="app-reorder"
                                                 disabledReason={
                                                     canConfigurePlugins
                                                         ? undefined

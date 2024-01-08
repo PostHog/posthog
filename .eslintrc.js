@@ -114,29 +114,8 @@ module.exports = {
                     },
                     {
                         name: 'antd',
-                        importNames: ['Tooltip'],
-                        message: 'Please use Tooltip from @posthog/lemon-ui instead.',
-                    },
-                    {
-                        name: 'antd',
-                        importNames: ['Alert'],
-                        message: 'Please use LemonBanner from @posthog/lemon-ui instead.',
-                    },
-                    {
-                        name: 'antd',
-                        importNames: ['Row'],
-                        message:
-                            'use flex utility classes instead, e.g. <Row align="middle"> could be <div className="flex items-center">',
-                    },
-                    {
-                        name: 'antd',
-                        importNames: ['Col'],
-                        message: 'use flex utility classes instead - most of the time can simply be a plain <div>',
-                    },
-                    {
-                        name: 'antd',
-                        importNames: ['Card'],
-                        message: 'use utility classes instead',
+                        importNames: ['Card', 'Col', 'Row', 'Alert', 'Tooltip'],
+                        message: 'please use the Lemon equivalent instead',
                     },
                 ],
             },
@@ -211,6 +190,10 @@ module.exports = {
                     {
                         element: 'Badge',
                         message: 'use LemonBadge instead',
+                    },
+                    {
+                        element: 'InputNumber',
+                        message: 'use LemonInput with type="number" instead',
                     },
                     {
                         element: 'Collapse',

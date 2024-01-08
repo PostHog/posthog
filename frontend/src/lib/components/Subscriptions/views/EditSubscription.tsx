@@ -106,7 +106,7 @@ export function EditSubscription({
         >
             <LemonModal.Header>
                 <div className="flex items-center">
-                    <LemonButton status="stealth" onClick={onCancel} size="small">
+                    <LemonButton onClick={onCancel} size="small">
                         <IconChevronLeft fontSize={'1rem'} />
                         Back
                     </LemonButton>
@@ -312,7 +312,7 @@ export function EditSubscription({
                                                         </span>
                                                         <LemonButton
                                                             type="secondary"
-                                                            onClick={() => loadSlackChannels()}
+                                                            onClick={loadSlackChannels}
                                                             loading={slackChannelsLoading}
                                                         >
                                                             Check again

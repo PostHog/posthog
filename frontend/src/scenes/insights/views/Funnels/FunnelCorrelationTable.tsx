@@ -282,8 +282,6 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                                     <Tooltip title="Collapse">
                                         <LemonButton
                                             icon={<IconUnfoldLess />}
-                                            status="stealth"
-                                            type="tertiary"
                                             active
                                             noPadding
                                             onClick={(e) => {
@@ -296,8 +294,6 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                                     <Tooltip title="Expand to see correlated properties for this event">
                                         <LemonButton
                                             icon={<IconUnfoldMore />}
-                                            status="stealth"
-                                            type="tertiary"
                                             noPadding
                                             onClick={(e) => {
                                                 !eventHasPropertyCorrelations(record.event.event) &&

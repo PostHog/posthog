@@ -336,6 +336,17 @@ export function AndroidSnippet({ flagKey, multivariant, payload }: FeatureFlagSn
     )
 }
 
+export function FlutterSnippet({ flagKey }: FeatureFlagSnippet): JSX.Element {
+    return (
+        <CodeSnippet language={Language.Dart} wrap>
+            {`if (await Posthog().isFeatureEnabled('${flagKey}') ?? false) {
+    // do something
+}
+            `}
+        </CodeSnippet>
+    )
+}
+
 export function iOSSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippet): JSX.Element {
     const clientSuffix = 'posthog.'
 
@@ -349,12 +360,12 @@ export function iOSSnippet({ flagKey, multivariant, payload }: FeatureFlagSnippe
 
     const flagFunction = multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
 
-    const variantSuffix = multivariant ? ` == 'example-variant'` : ''
+    const variantSuffix = multivariant ? ` == "example-variant"` : ''
     return (
         <CodeSnippet language={Language.Swift} wrap>
             {`// In Swift
 
-if (${clientSuffix}${flagFunction}('${flagKey}') ${variantSuffix}) {
+if (${clientSuffix}${flagFunction}("${flagKey}") ${variantSuffix}) {
     // do something
 }
             `}
@@ -368,7 +379,7 @@ export function ReactNativeSnippet({ flagKey, multivariant, payload }: FeatureFl
     if (payload) {
         return (
             <CodeSnippet language={Language.JSX} wrap>
-                {`${clientSuffix}getFeatureFlagPayload('${flagKey}'`}
+                {`${clientSuffix}getFeatureFlagPayload('${flagKey}')`}
             </CodeSnippet>
         )
     }

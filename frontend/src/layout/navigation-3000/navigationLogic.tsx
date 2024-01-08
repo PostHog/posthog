@@ -335,7 +335,6 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             label: 'Notebooks',
                             icon: <IconNotebook />,
                             to: urls.notebooks(),
-                            featureFlag: FEATURE_FLAGS.NOTEBOOKS,
                             tag: 'new' as const,
                         },
                         {
@@ -427,6 +426,13 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             label: 'Data pipeline',
                             icon: <IconDecisionTree />,
                             to: urls.projectApps(),
+                        },
+                        {
+                            identifier: Scene.Pipeline,
+                            label: 'Data pipeline new',
+                            icon: <IconDecisionTree />,
+                            to: urls.pipeline(),
+                            featureFlag: FEATURE_FLAGS.PIPELINE_UI,
                         },
                     ].filter(isNotNil),
                 ]
