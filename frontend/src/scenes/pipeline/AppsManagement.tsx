@@ -363,7 +363,6 @@ function InstallSourceApp(): JSX.Element {
     const { setSourcePluginName, installPlugin, setSourcePluginKind } = useActions(appsManagementLogic)
 
     const menuItems = Object.values(SourcePluginKind).map((kind) => ({
-        icon: <></>,
         label: kind,
         onClick: () => {
             setSourcePluginKind(kind)
