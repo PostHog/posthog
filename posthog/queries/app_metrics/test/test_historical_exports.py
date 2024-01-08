@@ -345,12 +345,11 @@ class TestHistoricalExports(ClickhouseTestMixin, BaseTest):
 
     def _create_activity_log(self, **kwargs):
         log_activity(
-            **{
-                "organization_id": self.team.organization.id,
-                "team_id": self.team.pk,
-                "user": self.user,
-                "item_id": self.plugin_config.pk,
-                "scope": "PluginConfig",
-                **kwargs,
-            }
+            organization_id=self.team.organization.id,
+            team_id=self.team.pk,
+            user=self.user,
+            item_id=self.plugin_config.pk,
+            scope="PluginConfig",
+            was_impersonated=False,
+            **kwargs,
         )

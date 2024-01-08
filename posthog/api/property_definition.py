@@ -31,6 +31,7 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     TeamMemberAccessPermission,
 )
+from loginas.utils import is_impersonated_session
 
 
 class SeenTogetherQuerySerializer(serializers.Serializer):
@@ -625,6 +626,7 @@ class PropertyDefinitionViewSet(
             organization_id=cast(UUIDT, self.organization_id),
             team_id=self.team_id,
             user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(self.request),
             item_id=instance_id,
             scope="PropertyDefinition",
             activity="deleted",

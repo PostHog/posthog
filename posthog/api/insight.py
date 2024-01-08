@@ -104,6 +104,8 @@ from posthog.utils import (
     relative_date_parse,
     str_to_bool,
 )
+from loginas.utils import is_impersonated_session
+
 
 logger = structlog.get_logger(__name__)
 
@@ -136,6 +138,7 @@ def log_insight_activity(
             organization_id=organization_id,
             team_id=team_id,
             user=user,
+            was_impersonated=is_impersonated_session(user),
             item_id=insight_id,
             scope="Insight",
             activity=activity,
@@ -343,6 +346,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             organization_id=self.context["request"].user.current_organization_id,
             team_id=team_id,
             user=self.context["request"].user,
+            was_impersonated=is_impersonated_session(self.context["request"]),
         )
 
         return insight
@@ -409,6 +413,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
                 organization_id=self.context["request"].user.current_organization_id,
                 team_id=self.context["team_id"],
                 user=self.context["request"].user,
+                was_impersonated=is_impersonated_session(self.context["request"]),
                 changes=changes,
             )
 

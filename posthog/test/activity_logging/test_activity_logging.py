@@ -25,6 +25,7 @@ class TestActivityLogModel(BaseTest):
             organization_id=self.organization.id,
             team_id=self.team.id,
             user=self.user,
+            was_impersonated=False,
             item_id=6,
             scope="FeatureFlag",
             activity="updated",
@@ -45,6 +46,7 @@ class TestActivityLogModel(BaseTest):
             organization_id=self.organization.id,
             team_id=self.team.id,
             user=self.user,
+            was_impersonated=False,
             item_id=None,
             scope="dinglehopper",
             activity="added_to_clink_expander",
@@ -53,11 +55,12 @@ class TestActivityLogModel(BaseTest):
         log: ActivityLog = ActivityLog.objects.latest("id")
         self.assertEqual(log.activity, "added_to_clink_expander")
 
-    def test_does_not_save_an_updated_activity_that_has_no_changes(self) -> None:
+    def test_does_not_save_impersonated_activity_without_user(self) -> None:
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team.id,
-            user=self.user,
+            user=None,
+            was_impersonated=True,
             item_id=None,
             scope="dinglehopper",
             activity="updated",
@@ -66,7 +69,7 @@ class TestActivityLogModel(BaseTest):
         with pytest.raises(ActivityLog.DoesNotExist):
             ActivityLog.objects.latest("id")
 
-    def test_can_not_save_if_there_is_neither_a_team_id_nor_an_organisation_id(self) -> None:
+    def test_does_not_save_if_there_is_neither_a_team_id_nor_an_organisation_id(self) -> None:
         # even when there are logs with team id or org id saved
         ActivityLog.objects.create(team_id=3)
         ActivityLog.objects.create(organization_id=UUIDT())
@@ -88,6 +91,7 @@ class TestActivityLogModel(BaseTest):
                     # will cause logging to raise exception because user is unsaved
                     # avoids needing to mock anything to force the exception
                     user=User(first_name="testy", email="test@example.com"),
+                    was_impersonated=False,
                     item_id="12345",
                     scope="testing throwing exceptions on create",
                     activity="does not explode",

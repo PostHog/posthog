@@ -95,6 +95,7 @@ from posthog.utils import (
 )
 from prometheus_client import Counter
 from posthog.metrics import LABEL_TEAM_ID
+from loginas.utils import is_impersonated_session
 
 DEFAULT_PAGE_LIMIT = 100
 # Sync with .../lib/constants.tsx and .../ingestion/hooks.ts
@@ -406,6 +407,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 organization_id=self.organization.id,
                 team_id=self.team_id,
                 user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
                 item_id=person_id,
                 scope="Person",
                 activity="deleted",
@@ -482,6 +484,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             organization_id=self.organization.id,
             team_id=self.team.id,
             user=request.user,  # type: ignore
+            was_impersonated=is_impersonated_session(request),
             item_id=person.id,
             scope="Person",
             activity="split_person",
@@ -573,6 +576,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             organization_id=self.organization.id,
             team_id=self.team.id,
             user=request.user,  # type: ignore
+            was_impersonated=is_impersonated_session(request),
             item_id=person.id,
             scope="Person",
             activity="delete_property",
@@ -675,6 +679,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             organization_id=self.organization.id,
             team_id=self.team.id,
             user=user,
+            was_impersonated=is_impersonated_session(self.request),
             item_id=instance.pk,
             scope="Person",
             activity="updated",

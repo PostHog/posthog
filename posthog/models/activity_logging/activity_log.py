@@ -81,15 +81,20 @@ class ActivityLog(UUIDModel):
     class Meta:
         constraints = [
             models.CheckConstraint(
-                check=models.Q(team_id__isnull=False) | models.Q(organization_id__isnull=False),
                 name="must_have_team_or_organization_id",
-            )
+                check=models.Q(team_id__isnull=False) | models.Q(organization_id__isnull=False),
+            ),
+            models.CheckConstraint(
+                name="cannot_be_both_system_and_staff",
+                check=models.Q(is_system__ne=True) & models.Q(was_impersonated__ne=True),
+            ),
         ]
         indexes = [models.Index(fields=["team_id", "scope", "item_id"])]
 
     team_id = models.PositiveIntegerField(null=True)
     organization_id = models.UUIDField(null=True)
     user = models.ForeignKey("posthog.User", null=True, on_delete=models.SET_NULL)
+    was_impersonated = models.BooleanField(null=True)
     # If truthy, user can be unset and this indicates a 'system' user made activity asynchronously
     is_system = models.BooleanField(null=True)
 
@@ -320,13 +325,15 @@ def dict_changes_between(
 
 
 def log_activity(
+    *,
     organization_id: Optional[UUIDT],
     team_id: int,
-    user: User | None,
+    user: Optional[User],
     item_id: Optional[Union[int, str, UUIDT]],
     scope: str,
     activity: str,
     detail: Detail,
+    was_impersonated: Optional[bool],
     force_save: bool = False,
 ) -> None:
     try:
@@ -344,6 +351,7 @@ def log_activity(
             organization_id=organization_id,
             team_id=team_id,
             user=user,
+            was_impersonated=was_impersonated,
             is_system=user is None,
             item_id=str(item_id),
             scope=scope,
