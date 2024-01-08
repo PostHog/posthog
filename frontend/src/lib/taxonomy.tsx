@@ -692,6 +692,10 @@ export const KEY_MAPPING: KeyMappingInterface = {
             label: 'GeoIP Disabled',
             description: `Whether to skip GeoIP processing for the event.`,
         },
+        $elements: {
+            label: 'Elements',
+            description: `The element tree that was clicked. Only sent with Autocapture events.`,
+        },
         $el_text: {
             label: 'Element Text',
             description: `The text of the element that was clicked. Only sent with Autocapture events.`,
