@@ -1,3 +1,4 @@
+import { LemonSkeleton } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -33,11 +34,16 @@ export async function loadPaginatedResults(
 }
 
 type RenderAppProps = {
-    plugin: PluginType
+    /** If the plugin is null, a skeleton will be rendered. */
+    plugin: PluginType | null
     imageSize?: PluginImageSize
 }
 
 export function RenderApp({ plugin, imageSize }: RenderAppProps): JSX.Element {
+    if (!plugin) {
+        return <LemonSkeleton className="w-15 h-15" />
+    }
+
     return (
         <div className="flex items-center gap-4">
             <Tooltip
