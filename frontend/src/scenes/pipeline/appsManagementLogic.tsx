@@ -4,12 +4,12 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import posthog from 'posthog-js'
 import { canGloballyManagePlugins, canInstallPlugins } from 'scenes/plugins/access'
-import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
 import { userLogic } from 'scenes/userLogic'
 
 import { PluginInstallationType, PluginType } from '~/types'
 
 import type { appsManagementLogicType } from './appsManagementLogicType'
+import { getInitialCode, SourcePluginKind } from './sourceAppInitialCode'
 import { loadPaginatedResults } from './utils'
 
 const GLOBAL_PLUGINS = new Set([
@@ -66,6 +66,7 @@ export const appsManagementLogic = kea<appsManagementLogicType>([
         setPluginUrl: (pluginUrl: string) => ({ pluginUrl }),
         setLocalPluginPath: (localPluginPath: string) => ({ localPluginPath }),
         setSourcePluginName: (sourcePluginName: string) => ({ sourcePluginName }),
+        setSourcePluginKind: (sourcePluginKind: SourcePluginKind) => ({ sourcePluginKind }),
         uninstallPlugin: (id: number) => ({ id }),
         installPlugin: (pluginType: PluginInstallationType, url?: string) => ({ pluginType, url }),
         installPluginFromUrl: (url: string) => ({ url }),
@@ -105,9 +106,10 @@ export const appsManagementLogic = kea<appsManagementLogicType>([
                     }
                     const response: PluginType = await api.create('api/organizations/@current/plugins', payload)
                     if (pluginType === PluginInstallationType.Source) {
-                        await api.update(`api/organizations/@current/plugins/${response.id}/update_source`, {
-                            'plugin.json': createDefaultPluginSource(values.sourcePluginName)['plugin.json'],
-                        })
+                        await api.update(
+                            `api/organizations/@current/plugins/${response.id}/update_source`,
+                            getInitialCode(values.sourcePluginName, values.sourcePluginKind)
+                        )
                     }
                     capturePluginEvent(`plugin installed`, response, pluginType)
                     return { ...values.plugins, [response.id]: response }
@@ -166,6 +168,13 @@ export const appsManagementLogic = kea<appsManagementLogicType>([
             {
                 setSourcePluginName: (_, { sourcePluginName }) => sourcePluginName,
                 installPluginSuccess: () => '',
+            },
+        ],
+        sourcePluginKind: [
+            SourcePluginKind.FilterEvent as SourcePluginKind,
+            {
+                setSourcePluginKind: (_, { sourcePluginKind }) => sourcePluginKind,
+                installPluginSuccess: () => SourcePluginKind.FilterEvent,
             },
         ],
     }),
