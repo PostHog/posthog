@@ -10,8 +10,9 @@ import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { NodeKind } from '~/queries/schema'
+import { HogQLQuery, NodeKind } from '~/queries/schema'
 
+import { DataWarehouseRowType, DataWarehouseSceneRow } from '../types'
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import SourceModal from './SourceModal'
 
@@ -21,9 +22,60 @@ export const scene: SceneExport = {
 }
 
 export function DataWarehouseExternalScene(): JSX.Element {
-    const { isSourceModalOpen, tables, posthogTables, savedQueriesFormatted, selectedRow } =
+    const { isSourceModalOpen, externalTables, posthogTables, savedQueriesFormatted, allTables, selectedRow } =
         useValues(dataWarehouseSceneLogic)
-    const { toggleSourceModal, selectRow } = useActions(dataWarehouseSceneLogic)
+    const { toggleSourceModal, selectRow, deleteDataWarehouseSavedQuery, deleteDataWarehouseTable } =
+        useActions(dataWarehouseSceneLogic)
+
+    const deleteButton = (selectedRow: DataWarehouseSceneRow | null): JSX.Element => {
+        if (!selectedRow) {
+            return <></>
+        }
+
+        if (selectedRow.type === DataWarehouseRowType.View) {
+            return (
+                <LemonButton
+                    type="secondary"
+                    onClick={() => {
+                        deleteDataWarehouseSavedQuery({
+                            id: selectedRow.id,
+                            name: selectedRow.name,
+                            query: selectedRow.query as HogQLQuery,
+                            columns: selectedRow.columns,
+                        })
+                        selectRow(null)
+                    }}
+                >
+                    Delete
+                </LemonButton>
+            )
+        }
+
+        if (selectedRow.type === DataWarehouseRowType.ExternalTable) {
+            return (
+                <LemonButton
+                    type="secondary"
+                    onClick={() => {
+                        deleteDataWarehouseTable({
+                            id: selectedRow.id,
+                            name: selectedRow.name,
+                            format: selectedRow.format,
+                            url_pattern: selectedRow.url_pattern,
+                            columns: selectedRow.columns,
+                        })
+                    }}
+                >
+                    Delete
+                </LemonButton>
+            )
+        }
+
+        if (selectedRow.type === DataWarehouseRowType.PostHogTable) {
+            return <></>
+        }
+
+        return <></>
+    }
 
     return (
         <div>
@@ -37,19 +89,31 @@ export function DataWarehouseExternalScene(): JSX.Element {
                     </div>
                 }
                 buttons={
-                    <LemonButton
-                        type="primary"
-                        sideAction={{
-                            icon: <IconSettings />,
-                            onClick: () => router.actions.push(urls.dataWarehouseSettings()),
-                            'data-attr': 'saved-insights-new-insight-dropdown',
-                        }}
-                        data-attr="new-data-warehouse-easy-link"
-                        key={'new-data-warehouse-easy-link'}
-                        onClick={() => toggleSourceModal()}
-                    >
-                        Link Source
-                    </LemonButton>
+                    <>
+                        <LemonButton
+                            type="primary"
+                            data-attr="new-data-warehouse-view"
+                            key={'new-data-warehouse-view'}
+                            to={urls.insightNewHogQL('SELECT event AS event FROM events LIMIT 100')}
+                        >
+                            Create View
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            data-attr="new-data-warehouse-easy-link"
+                            key={'new-data-warehouse-easy-link'}
+                            onClick={() => toggleSourceModal()}
+                        >
+                            Link Source
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            icon={<IconSettings />}
+                            data-attr="new-data-warehouse-settings-link"
+                            key={'new-data-warehouse-settings-link'}
+                            onClick={() => router.actions.push(urls.dataWarehouseSettings())}
+                        />
+                    </>
                 }
                 caption={
                     <div>
@@ -69,10 +133,22 @@ export function DataWarehouseExternalScene(): JSX.Element {
                         items={[
                             {
                                 name: 'External',
-                                items: tables.map((table) => ({
+                                items: externalTables.map((table) => ({
                                     table: table,
                                     icon: <IconDatabase />,
                                 })),
+                                emptyLabel: (
+                                    <span className="text-muted">
+                                        No tables found.{' '}
+                                        <Link
+                                            onClick={() => {
+                                                toggleSourceModal()
+                                            }}
+                                        >
+                                            Link source
+                                        </Link>
+                                    </span>
+                                ),
                             },
                             {
                                 name: 'PostHog',
@@ -96,25 +172,28 @@ export function DataWarehouseExternalScene(): JSX.Element {
                     <div className="px-4 py-3 col-span-2">
                         <div className="flex flex-row justify-between items-center">
                             <h3>{selectedRow.name}</h3>
-                            <Link
-                                to={urls.insightNew(
-                                    undefined,
-                                    undefined,
-                                    JSON.stringify({
-                                        kind: NodeKind.DataTableNode,
-                                        full: true,
-                                        source: {
-                                            kind: NodeKind.HogQLQuery,
-                                            // TODO: Use `hogql` tag?
-                                            query: `SELECT ${selectedRow.columns
-                                                .filter(({ table, fields, chain }) => !table && !fields && !chain)
-                                                .map(({ key }) => key)} FROM ${selectedRow.name} LIMIT 100`,
-                                        },
-                                    })
-                                )}
-                            >
-                                <LemonButton type="primary">Query</LemonButton>
-                            </Link>
+                            <div className="flex flex-row gap-2 justify-between">
+                                {deleteButton(selectedRow)}
+                                <Link
+                                    to={urls.insightNew(
+                                        undefined,
+                                        undefined,
+                                        JSON.stringify({
+                                            kind: NodeKind.DataTableNode,
+                                            full: true,
+                                            source: {
+                                                kind: NodeKind.HogQLQuery,
+                                                // TODO: Use `hogql` tag?
+                                                query: `SELECT ${selectedRow.columns
+                                                    .filter(({ table, fields, chain }) => !table && !fields && !chain)
+                                                    .map(({ key }) => key)} FROM ${selectedRow.name} LIMIT 100`,
+                                            },
+                                        })
+                                    )}
+                                >
+                                    <LemonButton type="primary">Query</LemonButton>
+                                </Link>
+                            </div>
                         </div>
                         <div className="flex flex-col">
                             {selectedRow.external_data_source ? (
@@ -132,7 +211,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
 
                         <div className="mt-2">
                             <span className="card-secondary">Columns</span>
-                            <DatabaseTable table={selectedRow.name} tables={tables} />
+                            <DatabaseTable table={selectedRow.name} tables={allTables} />
                         </div>
                     </div>
                 ) : (

@@ -8,8 +8,14 @@ export interface DatabaseTableListRow {
     external_schema?: SimpleExternalDataSourceSchema
 }
 
+export enum DataWarehouseRowType {
+    ExternalTable = 'external_table',
+    View = 'view',
+    PostHogTable = 'posthog_table',
+}
 export interface DataWarehouseSceneRow extends DatabaseTableListRow {
     id: string
+    type: DataWarehouseRowType
     url_pattern?: string
     format?: string
     query?: HogQLQuery

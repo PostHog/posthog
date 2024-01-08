@@ -34,13 +34,12 @@ export interface TreeFolderRowProps {
     item: TreeItemFolder
     depth: number
     onClick?: (row: DataWarehouseSceneRow) => void
-    emptyLabel?: JSX.Element
     selectedRow?: DataWarehouseSceneRow | null
 }
 
-export function TreeFolderRow({ item, depth, onClick, emptyLabel, selectedRow }: TreeFolderRowProps): JSX.Element {
+export function TreeFolderRow({ item, depth, onClick, selectedRow }: TreeFolderRowProps): JSX.Element {
     const [collapsed, setCollapsed] = useState(false)
-    const { name, items } = item
+    const { name, items, emptyLabel } = item
 
     const _onClick = (): void => {
         setCollapsed(!collapsed)
@@ -61,10 +60,10 @@ export function TreeFolderRow({ item, depth, onClick, emptyLabel, selectedRow }:
                         onSelectRow={onClick}
                         selectedRow={selectedRow}
                     />
-                ) : emptyLabel ? (
-                    emptyLabel
                 ) : (
-                    <div className={`ml-${7 * depth} text-muted`}>No tables found</div>
+                    <div className={`ml-${7 * depth}`}>
+                        {emptyLabel ? emptyLabel : <span className="text-muted">No tables found</span>}
+                    </div>
                 ))}
         </li>
     )

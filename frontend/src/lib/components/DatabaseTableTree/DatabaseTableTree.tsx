@@ -18,6 +18,7 @@ export type TreeItem = TreeItemFolder | TreeItemLeaf
 export interface TreeItemFolder {
     name: string
     items: TreeItemLeaf[]
+    emptyLabel?: JSX.Element
 }
 
 export interface TreeItemLeaf {
