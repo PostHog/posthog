@@ -241,7 +241,7 @@ export function PlayerMeta(): JSX.Element {
                             )}
                         </>
                     )}
-                    <div className={clsx('flex-1', isSmallPlayer ? 'min-w-4' : 'min-w-20')} />
+                    <div className={clsx('flex-1', isSmallPlayer ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
                     {resolutionView}
                 </div>
             </div>

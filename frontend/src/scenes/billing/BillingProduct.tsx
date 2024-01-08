@@ -291,7 +291,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
     return (
         <div
-            className={clsx('flex flex-wrap max-w-xl pb-12', {
+            className={clsx('flex flex-wrap max-w-300 pb-12', {
                 'flex-col pb-4': size === 'small',
             })}
             ref={ref}

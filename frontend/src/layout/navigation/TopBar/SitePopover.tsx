@@ -273,7 +273,7 @@ export function SitePopoverOverlay(): JSX.Element {
                 </SitePopoverSection>
             )}
             {(!(preflight?.cloud || preflight?.demo) || user?.is_staff) && (
-                <SitePopoverSection title="PostHog instance" className="font-title-3000">
+                <SitePopoverSection title="PostHog instance" className="font-title">
                     <SystemStatus />
                     <AsyncMigrations />
                     <InstanceSettings />

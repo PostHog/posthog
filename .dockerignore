@@ -14,6 +14,7 @@
 !webpack.config.js
 !postcss.config.js
 !playwright.config.ts
+!tailwind.config.js
 !.kearc
 !.storybook
 !tsconfig.json

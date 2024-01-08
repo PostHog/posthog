@@ -184,7 +184,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                     isEditingFeature || isNewEarlyAccessFeature ? 'max-w-160' : null
                 )}
             >
-                <div className="flex flex-col gap-4 flex-2 min-w-60">
+                <div className="flex flex-col gap-4 flex-2 min-w-[15rem]">
                     {isNewEarlyAccessFeature && (
                         <Field name="name" label="Name">
                             <LemonInput data-attr="feature-name" />
@@ -285,7 +285,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                     )}
                 </div>
                 {!isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature && (
-                    <div className="flex-3 min-w-60">
+                    <div className="flex-3 min-w-[15rem]">
                         <PersonList earlyAccessFeature={earlyAccessFeature} />
                     </div>
                 )}
