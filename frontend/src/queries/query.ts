@@ -262,6 +262,13 @@ export async function query<N extends DataNode = DataNode>(
                     console.table(tableData)
                     // eslint-disable-next-line no-console
                     console.groupEnd()
+
+                    posthog.capture('hogql_compare', {
+                        query: queryNode,
+                        query_type: isTrendsQuery(queryNode) ? 'trends' : 'lifecycle',
+                        equal: mismatchCount === 0,
+                        mismatch_count: mismatchCount,
+                    })
                 } else {
                     response = await api.query(queryNode, methodOptions, queryId, refresh)
                 }
