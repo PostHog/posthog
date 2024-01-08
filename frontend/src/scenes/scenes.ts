@@ -445,6 +445,7 @@ export const redirects: Record<
     '/project/settings': urls.settings('project'),
     '/organization/settings': urls.settings('organization'),
     '/me/settings': urls.settings('user'),
+    '/pipeline': urls.pipeline(),
 }
 
 export const routes: Record<string, Scene> = {
