@@ -335,8 +335,8 @@ class RetentionQueryRunner(QueryRunner):
                 """
                     SELECT
                         actor_id,
-                        groupArray(actor_activity.intervals_from_base) AS actor_intervals,
-                        arraySort(actor_intervals) AS appearances
+                        groupArray(actor_activity.intervals_from_base) AS appearance_intervals,
+                        arraySort(appearance_intervals) AS appearances
 
                     FROM {actor_query} AS actor_activity
 
@@ -351,7 +351,7 @@ class RetentionQueryRunner(QueryRunner):
             for i in range(self.query_date_range.total_intervals - interval):
                 retention_query.select.append(
                     ast.Alias(
-                        alias=f"interval_{i}",
+                        alias=f"appearance_{i}",
                         expr=ast.Call(
                             name="arrayExists",
                             args=[
@@ -363,7 +363,7 @@ class RetentionQueryRunner(QueryRunner):
                                         right=ast.Constant(value=i),
                                     ),
                                 ),
-                                ast.Field(chain=["actor_intervals"]),
+                                ast.Field(chain=["appearance_intervals"]),
                             ],
                         ),
                     )
