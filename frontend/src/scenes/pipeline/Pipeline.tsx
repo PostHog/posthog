@@ -34,6 +34,7 @@ export function Pipeline(): JSX.Element {
                 activeKey={currentTab}
                 onChange={(tab) => router.actions.push(urls.pipeline(tab as PipelineTabs))}
                 tabs={Object.values(PipelineTabs).map((tab) => ({
+                    // TODO: Hide admin management based on `canGloballyManagePlugins` permission
                     label: humanFriendlyTabName(tab),
                     key: tab,
                     content: tab_to_content[tab],

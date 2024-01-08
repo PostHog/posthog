@@ -46,9 +46,10 @@ export const getTierDescription = (
 
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
     const { billing, redirectPath } = useValues(billingLogic)
-    const { deactivateProduct } = useActions(billingLogic)
-    const { isPricingModalOpen, currentAndUpgradePlans } = useValues(billingProductLogic({ product: addon }))
-    const { toggleIsPricingModalOpen } = useActions(billingProductLogic({ product: addon }))
+    const { isPricingModalOpen, currentAndUpgradePlans, surveyID } = useValues(billingProductLogic({ product: addon }))
+    const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse } = useActions(
+        billingProductLogic({ product: addon })
+    )
 
     const productType = { plural: `${addon.unit}s`, singular: addon.unit }
     const tierDisplayOptions: LemonSelectOptions<string> = [
@@ -89,7 +90,13 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                             <More
                                 overlay={
                                     <>
-                                        <LemonButton fullWidth onClick={() => deactivateProduct(addon.type)}>
+                                        <LemonButton
+                                            fullWidth
+                                            onClick={() => {
+                                                setSurveyResponse(addon.type, '$survey_response_1')
+                                                reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, addon.type)
+                                            }}
+                                        >
                                             Remove addon
                                         </LemonButton>
                                     </>
@@ -136,6 +143,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                         : currentAndUpgradePlans?.upgradePlan?.plan_key
                 }
             />
+            {surveyID && <UnsubscribeSurveyModal product={addon} />}
         </div>
     )
 }
@@ -283,7 +291,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
     return (
         <div
-            className={clsx('flex flex-wrap max-w-xl pb-12', {
+            className={clsx('flex flex-wrap max-w-300 pb-12', {
                 'flex-col pb-4': size === 'small',
             })}
             ref={ref}

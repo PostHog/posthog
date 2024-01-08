@@ -6,7 +6,7 @@ import django.db.models.deletion
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0381_alter_externaldatasource_source_type"),
+        ("posthog", "0382_user_strapi_id"),
     ]
 
     operations = [

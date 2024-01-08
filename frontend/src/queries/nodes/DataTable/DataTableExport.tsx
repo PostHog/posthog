@@ -16,14 +16,14 @@ import {
 } from '~/queries/nodes/DataTable/utils'
 import { getPersonsEndpoint } from '~/queries/query'
 import { DataNode, DataTableNode, NodeKind } from '~/queries/schema'
-import { isEventsQuery, isHogQLQuery, isPersonsNode } from '~/queries/utils'
+import { isActorsQuery, isEventsQuery, isHogQLQuery, isPersonsNode } from '~/queries/utils'
 import { ExporterFormat } from '~/types'
 
 import { dataTableLogic, DataTableRow } from './dataTableLogic'
 
-const EXPORT_MAX_LIMIT = 10000
+export const EXPORT_MAX_LIMIT = 10000
 
-async function startDownload(query: DataTableNode, onlySelectedColumns: boolean): Promise<void> {
+export async function startDownload(query: DataTableNode, onlySelectedColumns: boolean): Promise<void> {
     const exportContext = isPersonsNode(query.source)
         ? { path: getPersonsEndpoint(query.source) }
         : { source: query.source }
@@ -33,7 +33,7 @@ async function startDownload(query: DataTableNode, onlySelectedColumns: boolean)
 
     if (onlySelectedColumns) {
         exportContext['columns'] = (
-            (isEventsQuery(query.source) ? query.source.select : null) ??
+            (isEventsQuery(query.source) || isActorsQuery(query.source) ? query.source.select : null) ??
             query.columns ??
             defaultDataTableColumns(query.source.kind)
         )?.filter((c) => c !== 'person.$delete')

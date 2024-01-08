@@ -24,7 +24,7 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { urls } from 'scenes/urls'
 
-import { PipelineAppTabs, PipelineTabs, PluginConfigTypeNew, ProductKey } from '~/types'
+import { PipelineAppTabs, PipelineTabs, PluginConfigTypeNew, PluginConfigWithPluginInfoNew, ProductKey } from '~/types'
 
 import { NewButton } from './NewButton'
 import { pipelineTransformationsLogic } from './transformationsLogic'
@@ -39,7 +39,7 @@ export function Transformations(): JSX.Element {
         loading,
         sortedEnabledPluginConfigs,
         disabledPluginConfigs,
-        plugins,
+        displayablePluginConfigs,
         canConfigurePlugins,
         shouldShowProductIntroduction,
     } = useValues(pipelineTransformationsLogic)
@@ -83,7 +83,7 @@ export function Transformations(): JSX.Element {
                         </>
                     )}
                     <LemonTable
-                        dataSource={[...sortedEnabledPluginConfigs, ...disabledPluginConfigs]}
+                        dataSource={displayablePluginConfigs}
                         size="xs"
                         loading={loading}
                         columns={[
@@ -97,7 +97,7 @@ export function Transformations(): JSX.Element {
                                     }
                                     // We can't use pluginConfig.order directly as it's not nicely set for everything,
                                     // e.g. geoIP, disabled plugins, especially if we disable them via django admin
-                                    return sortedEnabledPluginConfigs.findIndex((pc) => pc === pluginConfig) + 1
+                                    return sortedEnabledPluginConfigs.findIndex((pc) => pc.id === pluginConfig.id) + 1
                                 },
                             },
                             {
@@ -128,10 +128,10 @@ export function Transformations(): JSX.Element {
                             {
                                 title: 'App',
                                 render: function RenderAppInfo(_, pluginConfig) {
-                                    return <RenderApp plugin={plugins[pluginConfig.plugin]} />
+                                    return <RenderApp plugin={pluginConfig.plugin_info} />
                                 },
                             },
-                            updatedAtColumn() as LemonTableColumn<PluginConfigTypeNew, any>,
+                            updatedAtColumn() as LemonTableColumn<PluginConfigWithPluginInfoNew, any>,
                             {
                                 title: 'Status',
                                 render: function RenderStatus(_, pluginConfig) {
@@ -212,16 +212,15 @@ export function Transformations(): JSX.Element {
                                                     >
                                                         View app logs
                                                     </LemonButton>
-                                                    {plugins[pluginConfig.plugin].url && (
-                                                        <LemonButton
-                                                            to={plugins[pluginConfig.plugin].url}
-                                                            targetBlank={true}
-                                                            id={`app-${pluginConfig.id}-source-code`}
-                                                            fullWidth
-                                                        >
-                                                            View app source code
-                                                        </LemonButton>
-                                                    )}
+                                                    <LemonButton
+                                                        to={pluginConfig.plugin_info?.url}
+                                                        targetBlank={true}
+                                                        loading={!pluginConfig.plugin_info?.url}
+                                                        id={`app-${pluginConfig.id}-source-code`}
+                                                        fullWidth
+                                                    >
+                                                        View app source code
+                                                    </LemonButton>
                                                     <LemonDivider />
                                                     <LemonButton
                                                         status="danger"

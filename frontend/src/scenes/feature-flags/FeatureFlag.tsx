@@ -135,8 +135,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
             key: FeatureFlagsTab.OVERVIEW,
             content: (
                 <>
-                    <div className="flex space-x-4">
-                        <div className="flex-7">
+                    <div className="flex gap-4 flex-wrap">
+                        <div className="flex-1">
                             <FeatureFlagRollout readOnly />
                             {featureFlag.filters.super_groups && <FeatureFlagReleaseConditions readOnly isSuper />}
                             <FeatureFlagReleaseConditions readOnly />
@@ -144,7 +144,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 <FeatureFlagAutoRollback readOnly />
                             )}
                         </div>
-                        <div className="flex-6">
+                        <div className="max-w-120 w-full">
                             <RecentFeatureFlagInsights />
                             <div className="my-4" />
                         </div>

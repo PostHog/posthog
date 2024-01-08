@@ -174,7 +174,7 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
                               config: config,
                           } as unknown as BatchExportDestinationSnowflake)
 
-                const data: Omit<BatchExportConfiguration, 'id' | 'created_at'> = {
+                const data: Omit<BatchExportConfiguration, 'id' | 'created_at' | 'team_id'> = {
                     paused,
                     name,
                     interval,

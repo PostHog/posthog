@@ -45,6 +45,7 @@ from posthog.models import (
     User,
 )
 from posthog.permissions import (
+    OrganizationMemberPermissions,
     ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
@@ -163,6 +164,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
         model = BatchExport
         fields = [
             "id",
+            "team_id",
             "name",
             "destination",
             "interval",
@@ -174,7 +176,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "end_at",
             "latest_runs",
         ]
-        read_only_fields = ["id", "created_at", "last_updated_at", "latest_runs"]
+        read_only_fields = ["id", "team_id", "created_at", "last_updated_at", "latest_runs"]
 
     def create(self, validated_data: dict) -> BatchExport:
         """Create a BatchExport."""
@@ -238,15 +240,10 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     serializer_class = BatchExportSerializer
 
     def get_queryset(self):
-        if not isinstance(self.request.user, User) or self.request.user.current_team is None:
+        if not isinstance(self.request.user, User):
             raise NotAuthenticated()
 
-        return (
-            self.queryset.filter(team_id=self.team_id)
-            .exclude(deleted=True)
-            .order_by("-created_at")
-            .prefetch_related("destination")
-        )
+        return super().get_queryset().exclude(deleted=True).order_by("-created_at").prefetch_related("destination")
 
     @action(methods=["POST"], detail=True)
     def backfill(self, request: request.Request, *args, **kwargs) -> response.Response:
@@ -277,14 +274,14 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["POST"], detail=True)
     def pause(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Pause a BatchExport."""
-        if not isinstance(request.user, User) or request.user.current_team is None:
+        if not isinstance(request.user, User):
             raise NotAuthenticated()
 
+        batch_export = self.get_object()
         user_id = request.user.distinct_id
-        team_id = request.user.current_team.id
+        team_id = batch_export.team_id
         note = f"Pause requested by user {user_id} from team {team_id}"
 
-        batch_export = self.get_object()
         temporal = sync_connect()
 
         try:
@@ -345,6 +342,11 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         for backfill in BatchExportBackfill.objects.filter(batch_export=instance):
             if backfill.status == BatchExportBackfill.Status.RUNNING:
                 cancel_running_batch_export_backfill(temporal, backfill.workflow_id)
+
+
+class BatchExportOrganizationViewSet(BatchExportViewSet):
+    permission_classes = [IsAuthenticated, OrganizationMemberPermissions]
+    filter_rewrite_rules = {"organization_id": "team__organization_id"}
 
 
 class BatchExportLogEntrySerializer(DataclassSerializer):
