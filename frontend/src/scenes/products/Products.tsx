@@ -149,7 +149,7 @@ export function Products(): JSX.Element {
             </div>
             {products.length > 0 ? (
                 <>
-                    <div className="flex w-full max-w-xl justify-center gap-6 flex-wrap">
+                    <div className="flex w-full max-w-300 justify-center gap-6 flex-wrap">
                         {products
                             .filter(
                                 (product) =>

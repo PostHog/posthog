@@ -6,6 +6,7 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 
+import { AnyDataNode } from '~/queries/schema'
 import { AnyPropertyFilter, FilterLogicalOperator, PropertyGroupFilter } from '~/types'
 
 export interface PropertyFilterBaseProps {
@@ -43,6 +44,6 @@ export interface PropertyFilterInternalProps {
     orFiltering?: boolean
     addText?: string | null
     hasRowOperator?: boolean
-    hogQLTable?: string
+    metadataSource?: AnyDataNode
     propertyAllowList?: { [key in TaxonomicFilterGroupType]?: string[] }
 }

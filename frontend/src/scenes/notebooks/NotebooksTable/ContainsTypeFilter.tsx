@@ -40,7 +40,7 @@ export function ContainsTypeFilters({
             <span>Containing:</span>
             <LemonSelectMultiple
                 mode="multiple"
-                selectClassName={'min-w-40'}
+                selectClassName={'min-w-[10rem]'}
                 placeholder={'Any content'}
                 options={Object.entries(fromNodeTypeToLabel)
                     .filter((entry) => entry[1] !== '')

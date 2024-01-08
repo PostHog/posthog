@@ -231,7 +231,7 @@ export interface OrganizationType extends OrganizationBasicType {
     created_at: string
     updated_at: string
     plugins_access_level: PluginsAccessLevel
-    teams: TeamBasicType[] | null
+    teams: TeamBasicType[]
     available_features: AvailableFeature[]
     available_product_features: BillingV2FeatureType[]
     is_member_join_email_enabled: boolean
@@ -1565,6 +1565,7 @@ export interface JobSpec {
     payload?: Record<string, JobPayloadFieldOptions>
 }
 
+/** @deprecated in favor of PluginConfigTypeNew */
 export interface PluginConfigType {
     id?: number
     plugin: number
@@ -1578,7 +1579,13 @@ export interface PluginConfigType {
     created_at?: string
 }
 
-// TODO: Rename to PluginConfigType once the are removed from the frontend
+/** @deprecated in favor of PluginConfigWithPluginInfoNew */
+export interface PluginConfigWithPluginInfo extends PluginConfigType {
+    id: number
+    plugin_info: PluginType
+}
+
+// TODO: Rename to PluginConfigType once the legacy PluginConfigType are removed from the frontend
 export interface PluginConfigTypeNew {
     id: number
     plugin: number
@@ -1591,9 +1598,9 @@ export interface PluginConfigTypeNew {
     delivery_rate_24h?: number | null
 }
 
-export interface PluginConfigWithPluginInfo extends PluginConfigType {
-    id: number
-    plugin_info: PluginType
+// TODO: Rename to PluginConfigWithPluginInfo once the are removed from the frontend
+export interface PluginConfigWithPluginInfoNew extends PluginConfigTypeNew {
+    plugin_info: PluginType | null
 }
 
 export interface PluginErrorType {
@@ -3499,6 +3506,7 @@ export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user
     // provides when creating the export.
     id: string
+    team_id: number
     name: string
     destination: BatchExportDestination
     interval: 'hour' | 'day' | 'every 5 minutes'

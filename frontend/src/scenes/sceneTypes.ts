@@ -72,7 +72,6 @@ export enum Scene {
     Unsubscribe = 'Unsubscribe',
     DebugQuery = 'DebugQuery',
     VerifyEmail = 'VerifyEmail',
-    Feedback = 'Feedback',
     Notebooks = 'Notebooks',
     Notebook = 'Notebook',
     Canvas = 'Canvas',

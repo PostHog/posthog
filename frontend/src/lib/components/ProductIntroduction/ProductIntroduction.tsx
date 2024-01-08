@@ -53,7 +53,7 @@ export const ProductIntroduction = ({
                     </div>
                 </div>
             )}
-            <div className="flex items-center gap-x-8 w-full justify-center flex-wrap">
+            <div className="flex items-center gap-8 w-full justify-center flex-wrap">
                 <div>
                     <div className="w-50 mx-auto mb-4">
                         {CustomHog ? (

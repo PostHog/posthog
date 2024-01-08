@@ -28,7 +28,7 @@ export function ActionsListView({ actions }: ActionsListViewProps): JSX.Element 
                             onClick={() => selectAction(action.id || null)}
                             className="font-medium my-1"
                         >
-                            <span className="min-w-8 inline-block text-left">{index + 1}.</span>
+                            <span className="min-w-[2rem] inline-block text-left">{index + 1}.</span>
                             <span className="flex-grow">
                                 {action.name || <span className="italic text-muted-alt">Untitled</span>}
                             </span>
