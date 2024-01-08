@@ -74,11 +74,27 @@ class RetentionQueryRunner(QueryRunner):
         else:
             event_date_expr = start_of_interval_sql
 
+        event_filters = [
+            entity_to_expr(entity=self.get_applicable_entity(event_query_type)),
+        ]
+
         target_field = "person_id"
         if self.group_type_index is not None:
             group_index = int(self.group_type_index)
             if 0 <= group_index <= 4:
                 target_field = f"$group_{group_index}"
+
+                event_filters.append(
+                    ast.Not(
+                        expr=ast.Call(
+                            name="has",
+                            args=[
+                                ast.Array(exprs=[ast.Constant(value="")]),
+                                ast.Field(chain=["events", f"$group_{self.group_type_index}"]),
+                            ],
+                        ),
+                    ),
+                )
 
         fields = [
             ast.Alias(alias="event_date", expr=event_date_expr),
@@ -106,10 +122,6 @@ class RetentionQueryRunner(QueryRunner):
             fields.append(
                 ast.Alias(alias="breakdown_values", expr=ast.Array(exprs=[datediff_call])),
             )
-
-        event_filters = [
-            entity_to_expr(entity=self.get_applicable_entity(event_query_type)),
-        ]
 
         if self.query.properties is not None and self.query.properties != []:
             event_filters.append(property_to_expr(self.query.properties, self.team))
