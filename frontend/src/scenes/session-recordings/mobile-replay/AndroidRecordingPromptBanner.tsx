@@ -4,12 +4,13 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
-import { androidRecordingPromptBannerLogic } from 'scenes/session-recordings/mobile-replay/androidRecordingPromptBannerLogic'
+import {
+    androidRecordingPromptBannerLogic,
+    AndroidRecordingPromptBannerLogicProps,
+} from 'scenes/session-recordings/mobile-replay/androidRecordingPromptBannerLogic'
 
-export function AndroidRecordingsPromptBanner(): JSX.Element | null {
-    const { shouldPromptUser } = useValues(
-        androidRecordingPromptBannerLogic({ numberOfDays: 30, lib: 'posthog-android' })
-    )
+export function AndroidRecordingsPromptBanner(props: AndroidRecordingPromptBannerLogicProps): JSX.Element | null {
+    const { shouldPromptUser } = useValues(androidRecordingPromptBannerLogic(props))
     const { openSupportForm } = useActions(supportLogic)
 
     if (!shouldPromptUser) {

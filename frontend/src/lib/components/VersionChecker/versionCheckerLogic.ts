@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, sharedListeners } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, sharedListeners } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
@@ -11,7 +11,6 @@ const CHECK_INTERVAL_MS = 1000 * 60 * 60 // 6 hour
 export type SDKVersion = {
     version: string
     timestamp?: string
-    count?: number
 }
 
 export type SDKVersionWarning = {
@@ -21,19 +20,12 @@ export type SDKVersionWarning = {
     level: 'warning' | 'info' | 'error'
 }
 
-export interface VersionCheckerLogicProps {
-    numberOfDays?: number
-    lib?: string
-}
-
 export const versionCheckerLogic = kea<versionCheckerLogicType>([
     path(['components', 'VersionChecker', 'versionCheckerLogic']),
-    props({ numberOfDays: 1, lib: 'web' } as VersionCheckerLogicProps),
-    key((props) => `${props.lib}-${props.numberOfDays}`),
     actions({
         setVersionWarning: (versionWarning: SDKVersionWarning | null) => ({ versionWarning }),
     }),
-    loaders(({ props }) => ({
+    loaders({
         availableVersions: [
             null as SDKVersion[] | null,
             {
@@ -52,9 +44,9 @@ export const versionCheckerLogic = kea<versionCheckerLogicType>([
                         kind: NodeKind.HogQLQuery,
                         query: `SELECT properties.$lib_version AS lib_version, max(timestamp) AS latest_timestamp, count(lib_version) as count
                                 FROM events
-                                WHERE timestamp >= now() - INTERVAL ${props.numberOfDays || 1} DAY 
+                                WHERE timestamp >= now() - INTERVAL 1 DAY 
                                 AND timestamp <= now()
-                                AND properties.$lib = '${props.lib || 'web'}'
+                                AND properties.$lib = 'web'
                                 GROUP BY lib_version
                                 ORDER BY latest_timestamp DESC
                                 limit 10`,
@@ -66,13 +58,12 @@ export const versionCheckerLogic = kea<versionCheckerLogicType>([
                         res.results?.map((x) => ({
                             version: x[0],
                             timestamp: x[1],
-                            count: x[2],
                         })) ?? null
                     )
                 },
             },
         ],
-    })),
+    }),
 
     reducers({
         lastCheckTimestamp: [
