@@ -13,7 +13,7 @@ export type MemberSelectProps = {
     onChange: (value: UserBasicType | null) => void
 }
 
-export function MemberSelect({ defaultLabel = 'All users', value, onChange }: MemberSelectProps): JSX.Element {
+export function MemberSelect({ defaultLabel = 'Any user', value, onChange }: MemberSelectProps): JSX.Element {
     const { meFirstMembers, membersFuse } = useValues(membersLogic)
     const [showPopover, setShowPopover] = useState(false)
     const [searchTerm, setSearchTerm] = useState('')

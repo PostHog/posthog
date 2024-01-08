@@ -12,6 +12,7 @@ import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
 import { SidePanelTab } from '~/types'
 
 import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
+import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion'
 import { SidePanelActivation, SidePanelActivationIcon } from './panels/SidePanelActivation'
 import { SidePanelDocs } from './panels/SidePanelDocs'
 import { SidePanelFeaturePreviews } from './panels/SidePanelFeaturePreviews'
@@ -59,6 +60,11 @@ export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; C
         label: 'Activity',
         Icon: SidePanelActivityIcon,
         Content: SidePanelActivity,
+    },
+    [SidePanelTab.Discussion]: {
+        label: 'Discussion',
+        Icon: SidePanelDiscussionIcon,
+        Content: SidePanelDiscussion,
     },
     [SidePanelTab.Welcome]: {
         label: "What's new?",
