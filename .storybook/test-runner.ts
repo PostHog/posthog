@@ -166,7 +166,12 @@ async function expectStoryToMatchSceneSnapshot(
     theme: SnapshotTheme
 ): Promise<void> {
     // Using .or() because in some cases there's no <main> (primarily logged-out screens)
-    await expectLocatorToMatchStorySnapshot(page.locator('main').or(page), context, browser, theme)
+    await expectLocatorToMatchStorySnapshot(
+        page.locator('main').or(page.locator('body')).first(),
+        context,
+        browser,
+        theme
+    )
 }
 
 async function expectStoryToMatchComponentSnapshot(
