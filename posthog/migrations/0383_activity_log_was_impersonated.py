@@ -14,13 +14,4 @@ class Migration(migrations.Migration):
             name="was_impersonated",
             field=models.BooleanField(null=True),
         ),
-        migrations.AddConstraint(
-            model_name="activitylog",
-            constraint=models.CheckConstraint(
-                check=models.Q(
-                    models.Q(("is_system", True), _negated=True), models.Q(("was_impersonated", True), _negated=True)
-                ),
-                name="cannot_be_both_system_and_staff",
-            ),
-        ),
     ]

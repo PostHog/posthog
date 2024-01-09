@@ -84,10 +84,6 @@ class ActivityLog(UUIDModel):
                 name="must_have_team_or_organization_id",
                 check=models.Q(team_id__isnull=False) | models.Q(organization_id__isnull=False),
             ),
-            models.CheckConstraint(
-                name="cannot_be_both_system_and_staff",
-                check=~models.Q(is_system=True) & ~models.Q(was_impersonated=True),
-            ),
         ]
         indexes = [models.Index(fields=["team_id", "scope", "item_id"])]
 
