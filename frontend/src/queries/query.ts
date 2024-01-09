@@ -275,7 +275,6 @@ export async function query<N extends DataNode = DataNode>(
 
                     posthog.capture('hogql_compare', {
                         query: queryNode,
-                        query_type: isTrendsQuery(queryNode) ? 'trends' : 'lifecycle',
                         equal: mismatchCount === 0,
                         mismatch_count: mismatchCount,
                     })

@@ -17,7 +17,6 @@ import {
     IconFlag,
     IconGauge,
     IconLive,
-    IconMessages,
     IconOpenInApp,
     IconPinOutline,
     IconPipeline,
@@ -251,9 +250,6 @@ function Pages(): JSX.Element {
                             {Object.keys(frontendApps).length > 0 && <SideBarApps />}
                         </>
                     ) : null}
-                    <FlaggedFeature flag={FEATURE_FLAGS.FEEDBACK_SCENE}>
-                        <PageButton icon={<IconMessages />} identifier={Scene.Feedback} to={urls.feedback()} />
-                    </FlaggedFeature>
                     <div className="SideBar__heading">Configuration</div>
 
                     <PageButton
