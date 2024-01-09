@@ -8,7 +8,7 @@ import { userLogic } from 'scenes/userLogic'
 import { DataWarehouseTable } from '~/types'
 
 import { dataWarehouseSavedQueriesLogic } from '../saved_queries/dataWarehouseSavedQueriesLogic'
-import { DatabaseTableListRow, DataWarehouseRowType, DataWarehouseSceneRow } from '../types'
+import { DatabaseTableListRow, DataWarehouseRowType, DataWarehouseTableType } from '../types'
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
 
 export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
@@ -26,8 +26,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     })),
     actions({
         toggleSourceModal: (isOpen?: boolean) => ({ isOpen }),
-        selectRow: (row: DataWarehouseSceneRow | null) => ({ row }),
-        deleteView: (view: DataWarehouseSceneRow) => ({ view }),
+        selectRow: (row: DataWarehouseTableType | null) => ({ row }),
     }),
     reducers({
         isSourceModalOpen: [
@@ -37,7 +36,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             },
         ],
         selectedRow: [
-            null as DataWarehouseSceneRow | null,
+            null as DataWarehouseTableType | null,
             {
                 selectRow: (_, { row }) => row,
             },
@@ -61,7 +60,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     selectors({
         externalTables: [
             (s) => [s.dataWarehouse],
-            (warehouse): DataWarehouseSceneRow[] => {
+            (warehouse): DataWarehouseTableType[] => {
                 if (!warehouse) {
                     return []
                 }
@@ -72,18 +71,15 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                             id: table.id,
                             name: table.name,
                             columns: table.columns,
-                            url_pattern: table.url_pattern,
-                            format: table.format,
-                            external_data_source: table.external_data_source,
-                            external_schema: table.external_schema,
+                            payload: table,
                             type: DataWarehouseRowType.ExternalTable,
-                        } as DataWarehouseSceneRow)
+                        } as DataWarehouseTableType)
                 )
             },
         ],
         posthogTables: [
             (s) => [s.filteredTables],
-            (tables): DataWarehouseSceneRow[] => {
+            (tables): DataWarehouseTableType[] => {
                 if (!tables) {
                     return []
                 }
@@ -91,16 +87,18 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 return tables.map(
                     (table: DatabaseTableListRow) =>
                         ({
+                            id: table.name,
                             name: table.name,
                             columns: table.columns,
+                            payload: table,
                             type: DataWarehouseRowType.PostHogTable,
-                        } as DataWarehouseSceneRow)
+                        } as DataWarehouseTableType)
                 )
             },
         ],
         savedQueriesFormatted: [
             (s) => [s.savedQueries],
-            (savedQueries): DataWarehouseSceneRow[] => {
+            (savedQueries): DataWarehouseTableType[] => {
                 if (!savedQueries) {
                     return []
                 }
@@ -112,14 +110,14 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                             name: query.name,
                             columns: query.columns,
                             type: DataWarehouseRowType.View,
-                            query: query.query,
-                        } as DataWarehouseSceneRow)
+                            payload: query,
+                        } as DataWarehouseTableType)
                 )
             },
         ],
         allTables: [
             (s) => [s.externalTables, s.posthogTables, s.savedQueriesFormatted],
-            (externalTables, posthogTables, savedQueriesFormatted): DataWarehouseSceneRow[] => {
+            (externalTables, posthogTables, savedQueriesFormatted): DataWarehouseTableType[] => {
                 return [...externalTables, ...posthogTables, ...savedQueriesFormatted]
             },
         ],

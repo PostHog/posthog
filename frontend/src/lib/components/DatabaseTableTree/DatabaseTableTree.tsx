@@ -1,4 +1,4 @@
-import { DataWarehouseSceneRow } from 'scenes/data-warehouse/types'
+import { DataWarehouseTableType } from 'scenes/data-warehouse/types'
 
 import { TreeFolderRow, TreeRow } from './TreeRow'
 
@@ -7,8 +7,8 @@ export interface TreeProps extends React.HTMLAttributes<HTMLUListElement> {
     className?: string
     items: TreeItem[]
     depth?: number
-    onSelectRow?: (row: DataWarehouseSceneRow) => void
-    selectedRow?: DataWarehouseSceneRow | null
+    onSelectRow?: (row: DataWarehouseTableType) => void
+    selectedRow?: DataWarehouseTableType | null
 }
 
 export type TreeItem = TreeItemFolder | TreeItemLeaf
@@ -20,7 +20,7 @@ export interface TreeItemFolder {
 }
 
 export interface TreeItemLeaf {
-    table: DataWarehouseSceneRow
+    table: DataWarehouseTableType
     icon?: React.ReactNode
 }
 

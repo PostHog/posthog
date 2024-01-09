@@ -2,7 +2,7 @@ import { IconDatabase } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { DatabaseTableTree } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
+import { DatabaseTableTree, TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -12,9 +12,9 @@ import { DatabaseTable } from 'scenes/data-management/database/DatabaseTable'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema'
 
-import { DataWarehouseRowType, DataWarehouseSceneRow } from '../types'
+import { DataWarehouseRowType, DataWarehouseTableType } from '../types'
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
 import SourceModal from './SourceModal'
 
@@ -30,7 +30,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
         useActions(dataWarehouseSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const deleteButton = (selectedRow: DataWarehouseSceneRow | null): JSX.Element => {
+    const deleteButton = (selectedRow: DataWarehouseTableType | null): JSX.Element => {
         if (!selectedRow) {
             return <></>
         }
@@ -40,13 +40,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                 <LemonButton
                     type="secondary"
                     onClick={() => {
-                        deleteDataWarehouseSavedQuery({
-                            id: selectedRow.id,
-                            name: selectedRow.name,
-                            query: selectedRow.query as HogQLQuery,
-                            columns: selectedRow.columns,
-                        })
-                        selectRow(null)
+                        deleteDataWarehouseSavedQuery(selectedRow.payload)
                     }}
                 >
                     Delete
@@ -59,13 +53,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                 <LemonButton
                     type="secondary"
                     onClick={() => {
-                        deleteDataWarehouseTable({
-                            id: selectedRow.id,
-                            name: selectedRow.name,
-                            format: selectedRow.format,
-                            url_pattern: selectedRow.url_pattern,
-                            columns: selectedRow.columns,
-                        })
+                        deleteDataWarehouseTable(selectedRow.payload)
                     }}
                 >
                     Delete
@@ -80,7 +68,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
         return <></>
     }
 
-    const treeItems = (): JSX.Element => {
+    const treeItems = (): TreeItem[] => {
         const items = [
             {
                 name: 'External',
@@ -205,23 +193,19 @@ export function DataWarehouseExternalScene(): JSX.Element {
                                 </Link>
                             </div>
                         </div>
-                        <div className="flex flex-col">
-                            {!selectedRow.external_data_source &&
-                                selectedRow.url_pattern &&
-                                selectedRow.url_pattern && (
-                                    <>
-                                        <span className="card-secondary mt-2">Files URL pattern</span>
-                                        <span>{selectedRow.url_pattern}</span>
-                                    </>
-                                )}
+                        {selectedRow.type == DataWarehouseRowType.ExternalTable && (
+                            <div className="flex flex-col">
+                                <>
+                                    <span className="card-secondary mt-2">Files URL pattern</span>
+                                    <span>{selectedRow.payload.url_pattern}</span>
+                                </>
 
-                            {selectedRow.format && (
                                 <>
                                     <span className="card-secondary mt-2">File format</span>
-                                    <span>{selectedRow.format}</span>
+                                    <span>{selectedRow.payload.format}</span>
                                 </>
-                            )}
-                        </div>
+                            </div>
+                        )}
 
                         <div className="mt-2">
                             <span className="card-secondary">Columns</span>
