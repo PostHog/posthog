@@ -131,15 +131,15 @@ impl<J, M> Job<J, M> {
     {
         let base_query = r#"
 UPDATE
-    "job_queue"
+    job_queue
 SET
     last_attempt_finished_at = NOW(),
     status = 'completed'::job_status
 WHERE
-    "job_queue".id = $2
-    AND queue = $1
+    queue = $1
+    AND id = $2
 RETURNING
-    "job_queue".*
+    job_queue.*
         "#;
 
         sqlx::query(base_query)
@@ -169,16 +169,16 @@ RETURNING
         let json_error = sqlx::types::Json(error);
         let base_query = r#"
 UPDATE
-    "job_queue"
+    job_queue
 SET
     last_attempt_finished_at = NOW(),
     status = 'failed'::job_status
-    errors = array_append("job_queue".errors, $3)
+    errors = array_append(errors, $3)
 WHERE
-    "job_queue".id = $2
-    AND queue = $1
+    queue = $1
+    AND id = $2
 RETURNING
-    "job_queue".*
+    job_queue.*
         "#;
 
         sqlx::query(base_query)
@@ -421,18 +421,18 @@ impl RetryableJob {
         let json_error = sqlx::types::Json(error);
         let base_query = r#"
 UPDATE
-    "job_queue"
+    job_queue
 SET
     last_attempt_finished_at = NOW(),
-    errors = array_append("job_queue".errors, $4),
-    queue = $5,
     status = 'available'::job_status,
-    scheduled_at = NOW() + $3
+    scheduled_at = NOW() + $3,
+    errors = array_append(errors, $4),
+    queue = $5
 WHERE
-    "job_queue".id = $2
-    AND queue = $1
+    queue = $1
+    AND id = $2
 RETURNING
-    "job_queue".*
+    job_queue.*
         "#;
 
         sqlx::query(base_query)
@@ -567,7 +567,7 @@ WITH available_in_queue AS (
     SELECT
         id
     FROM
-        "job_queue"
+        job_queue
     WHERE
         status = 'available'
         AND scheduled_at <= NOW()
@@ -579,18 +579,18 @@ WITH available_in_queue AS (
     FOR UPDATE SKIP LOCKED
 )
 UPDATE
-    "job_queue"
+    job_queue
 SET
     attempted_at = NOW(),
     status = 'running'::job_status,
-    attempt = "job_queue".attempt + 1,
-    attempted_by = array_append("job_queue".attempted_by, $2::text)
+    attempt = attempt + 1,
+    attempted_by = array_append(attempted_by, $2::text)
 FROM
     available_in_queue
 WHERE
-    "job_queue".id = available_in_queue.id
+    job_queue.id = available_in_queue.id
 RETURNING
-    "job_queue".*
+    job_queue.*
         "#;
 
         let query_result: Result<Job<J, M>, sqlx::Error> = sqlx::query_as(base_query)
@@ -642,7 +642,7 @@ WITH available_in_queue AS (
     SELECT
         id
     FROM
-        "job_queue"
+        job_queue
     WHERE
         status = 'available'
         AND scheduled_at <= NOW()
@@ -654,18 +654,18 @@ WITH available_in_queue AS (
     FOR UPDATE SKIP LOCKED
 )
 UPDATE
-    "job_queue"
+    job_queue
 SET
     attempted_at = NOW(),
     status = 'running'::job_status,
-    attempt = "job_queue".attempt + 1,
-    attempted_by = array_append("job_queue".attempted_by, $2::text)
+    attempt = attempt + 1,
+    attempted_by = array_append(attempted_by, $2::text)
 FROM
     available_in_queue
 WHERE
-    "job_queue".id = available_in_queue.id
+    job_queue.id = available_in_queue.id
 RETURNING
-    "job_queue".*
+    job_queue.*
         "#;
 
         let query_result: Result<Job<J, M>, sqlx::Error> = sqlx::query_as(base_query)
