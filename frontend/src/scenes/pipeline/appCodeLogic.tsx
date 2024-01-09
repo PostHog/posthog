@@ -111,7 +111,7 @@ export const appsCodeLogic = kea<appsCodeLogicType>([
     }),
 ])
 
-async function formatSource(filename: string, source: string): Promise<string> {
+export async function formatSource(filename: string, source: string): Promise<string> {
     if (filename.endsWith('.json')) {
         return JSON.stringify(JSON.parse(source), null, 4) + '\n'
     }
