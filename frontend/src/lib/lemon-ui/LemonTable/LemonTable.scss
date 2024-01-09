@@ -203,6 +203,19 @@
                 padding-top: 0.3125rem;
                 padding-bottom: 0.3125rem;
                 color: var(--text-secondary);
+
+                // Make spacing of buttons tighter in tables by adding negative vertical margin
+                .LemonButton {
+                    margin-top: -0.25rem;
+                    margin-bottom: -0.25rem;
+                }
+
+                // Cancel the vertical margin for CodeSnippet actions
+                // This is annoyingly specific, but really needed for CodeSnippet to look good in expanded table rows
+                .CodeSnippet__actions .LemonButton {
+                    margin-top: 0;
+                    margin-bottom: 0;
+                }
             }
         }
     }
