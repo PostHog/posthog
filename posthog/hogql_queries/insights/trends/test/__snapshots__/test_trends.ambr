@@ -1,55 +1,55 @@
 # name: TestTrends.test_action_filtering_with_cohort
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = NULL
-  '
----
+  '''
+# ---
 # name: TestTrends.test_action_filtering_with_cohort.1
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_action_filtering_with_cohort.2
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_action_filtering_with_cohort.3
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 2
-  '
----
+  '''
+# ---
 # name: TestTrends.test_action_filtering_with_cohort.4
-  '
+  '''
   /* celery:posthog.tasks.calculate_cohort.clear_stale_cohort */
   SELECT count()
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version < 2
-  '
----
+  '''
+# ---
 # name: TestTrends.test_action_filtering_with_cohort.5
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -94,60 +94,60 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = NULL
-  '
----
+  '''
+# ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2.1
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2.2
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2.3
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 2
-  '
----
+  '''
+# ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2.4
-  '
+  '''
   /* celery:posthog.tasks.calculate_cohort.clear_stale_cohort */
   SELECT count()
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version < 2
-  '
----
+  '''
+# ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2.5
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -181,10 +181,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT e__group_0.properties___industry AS value,
@@ -205,10 +205,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events.1
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -253,10 +253,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events.2
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
@@ -284,10 +284,10 @@
            actor_id DESC
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_by_group_props_with_person_filter_person_on_events
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT e__group_0.properties___industry AS value,
@@ -308,10 +308,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_by_group_props_with_person_filter_person_on_events.1
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -356,10 +356,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS value,
@@ -372,10 +372,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.1
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -412,10 +412,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.2
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$current_url'), ''), 'null'), '^"|"$', '') AS value,
@@ -428,10 +428,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.3
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -468,10 +468,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '') AS value,
@@ -484,10 +484,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated.1
-  '
+  '''
   SELECT sum(count) AS total,
   
     (SELECT day_start AS day_start
@@ -553,10 +553,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated_materialized
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT nullIf(nullIf(e.mat_key, ''), 'null') AS value,
@@ -569,10 +569,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated_materialized.1
-  '
+  '''
   SELECT sum(count) AS total,
   
     (SELECT day_start AS day_start
@@ -638,30 +638,30 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_weekly_active_users_daily_based_on_action
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = NULL
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_weekly_active_users_daily_based_on_action.1
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_weekly_active_users_daily_based_on_action.2
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '') AS value,
@@ -696,10 +696,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_weekly_active_users_daily_based_on_action.3
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -774,10 +774,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '') AS value,
@@ -798,10 +798,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events.1
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -846,10 +846,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events_v2
-  '
+  '''
   
   SELECT distinct_id,
          person_id
@@ -860,10 +860,10 @@
   GROUP BY distinct_id,
            person_id
   ORDER BY if(distinct_id = 'test_breakdown_d1', -1, 0)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events_v2.1
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'key'), ''), 'null'), '^"|"$', '') AS value,
@@ -884,10 +884,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events_v2.2
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -938,10 +938,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
@@ -954,10 +954,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.1
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -1007,10 +1007,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.2
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
@@ -1023,10 +1023,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.3
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -1076,50 +1076,50 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = NULL
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort.1
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort.2
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort.3
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort.4
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -1159,50 +1159,50 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = NULL
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2.1
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2.2
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2.3
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2.4
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -1225,10 +1225,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filtering_by_multiple_groups_person_on_events
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -1267,10 +1267,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filtering_by_multiple_groups_person_on_events.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
@@ -1306,10 +1306,10 @@
            actor_id DESC
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filtering_with_group_props_person_on_events
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -1340,10 +1340,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT e__pdi__person.`properties___$some_prop` AS value,
@@ -1374,10 +1374,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter.1
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -1448,10 +1448,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter_poe_v2
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS value,
@@ -1464,10 +1464,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter_poe_v2.1
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -1526,10 +1526,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_non_deterministic_timezones
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -1552,30 +1552,30 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = NULL
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action.1
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action.2
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
@@ -1600,10 +1600,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action.3
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -1652,30 +1652,30 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action_poe_v2
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = NULL
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action_poe_v2.1
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action_poe_v2.2
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
@@ -1699,10 +1699,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action_poe_v2.3
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -1750,10 +1750,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_property_filtering
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -1793,10 +1793,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -1836,10 +1836,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property.1
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -1862,10 +1862,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property_materialized
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -1905,10 +1905,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property_materialized.1
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -1931,10 +1931,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_property_filtering_materialized
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -1974,10 +1974,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_same_day_with_person_on_events_v2
-  '
+  '''
   
   SELECT distinct_id,
          person_id
@@ -1988,10 +1988,10 @@
   GROUP BY distinct_id,
            person_id
   ORDER BY if(distinct_id = 'distinctid1', -1, 0)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_same_day_with_person_on_events_v2.1
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -2014,10 +2014,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_same_day_with_person_on_events_v2.2
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -2046,10 +2046,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -2072,10 +2072,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily.1
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -2111,10 +2111,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily.2
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -2163,10 +2163,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily.3
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -2189,10 +2189,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily.4
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', '') AS value,
@@ -2205,10 +2205,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily.5
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -2258,10 +2258,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_minus_utc
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -2284,10 +2284,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_minus_utc.1
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -2323,10 +2323,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_minus_utc.2
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -2375,10 +2375,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_minus_utc.3
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -2401,10 +2401,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_minus_utc.4
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', '') AS value,
@@ -2417,10 +2417,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_minus_utc.5
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -2470,10 +2470,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_plus_utc
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -2496,10 +2496,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_plus_utc.1
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -2535,10 +2535,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_plus_utc.2
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -2587,10 +2587,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_plus_utc.3
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -2613,10 +2613,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_plus_utc.4
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$os'), ''), 'null'), '^"|"$', '') AS value,
@@ -2629,10 +2629,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_plus_utc.5
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -2682,10 +2682,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_hourly_relative_from
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -2721,10 +2721,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_hourly_relative_from.1
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -2747,10 +2747,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_hourly_relative_from_minus_utc
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -2786,10 +2786,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_hourly_relative_from_minus_utc.1
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -2812,10 +2812,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_hourly_relative_from_plus_utc
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -2851,10 +2851,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_hourly_relative_from_plus_utc.1
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -2877,10 +2877,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_weekly
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -2903,10 +2903,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_weekly.1
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -2929,10 +2929,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_weekly_minus_utc
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -2955,10 +2955,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_weekly_minus_utc.1
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -2981,10 +2981,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_weekly_plus_utc
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -3007,10 +3007,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_weekly_plus_utc.1
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -3033,10 +3033,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT e__pdi__person.properties___email AS value,
@@ -3068,10 +3068,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.1
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -3127,10 +3127,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.2
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT e__pdi__person.properties___email AS value,
@@ -3162,10 +3162,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.3
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -3221,10 +3221,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -3247,10 +3247,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.1
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -3290,10 +3290,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.2
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT e__pdi__person.`properties___$some_prop` AS value,
@@ -3323,10 +3323,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.3
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -3380,10 +3380,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.4
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -3419,10 +3419,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.5
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -3458,10 +3458,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.6
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_prop'), ''), 'null'), '^"|"$', '') AS value,
@@ -3474,10 +3474,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.7
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -3514,10 +3514,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_any_event_total_count
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -3540,10 +3540,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_any_event_total_count.1
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -3566,10 +3566,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_breakdown_cumulative
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
@@ -3582,10 +3582,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_breakdown_cumulative.1
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -3640,10 +3640,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_breakdown_cumulative_poe_v2
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
@@ -3656,10 +3656,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_breakdown_cumulative_poe_v2.1
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -3707,10 +3707,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
@@ -3723,10 +3723,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.1
-  '
+  '''
   SELECT sum(count) AS total,
   
     (SELECT day_start AS day_start
@@ -3771,10 +3771,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.2
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
@@ -3787,10 +3787,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.3
-  '
+  '''
   SELECT sum(count) AS total,
   
     (SELECT day_start AS day_start
@@ -3835,10 +3835,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_compare_day_interval_relative_range
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -3861,10 +3861,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_compare_day_interval_relative_range.1
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -3887,10 +3887,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_compare_day_interval_relative_range.2
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -3913,10 +3913,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated
-  '
+  '''
   SELECT sum(count) AS total,
   
     (SELECT day_start AS day_start
@@ -3961,10 +3961,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated_poe_v2
-  '
+  '''
   SELECT sum(count) AS total,
   
     (SELECT day_start AS day_start
@@ -4002,10 +4002,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated_with_event_property_breakdown_with_sampling
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'color'), ''), 'null'), '^"|"$', '') AS value,
@@ -4018,10 +4018,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated_with_event_property_breakdown_with_sampling.1
-  '
+  '''
   SELECT sum(count) AS total,
   
     (SELECT day_start AS day_start
@@ -4076,10 +4076,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_count_per_user_average_daily
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -4123,10 +4123,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_count_per_user_average_daily_poe_v2
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -4163,10 +4163,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_per_day_cumulative
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -4193,10 +4193,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT e__pdi__person.`properties___$some_prop` AS value,
@@ -4226,10 +4226,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown.1
-  '
+  '''
   SELECT sum(count) AS total,
   
     (SELECT day_start AS day_start
@@ -4291,10 +4291,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_with_hogql_math
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -4317,10 +4317,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_with_session_property_single_aggregate_math
-  '
+  '''
   SELECT sum(count) AS total,
   
     (SELECT day_start AS day_start
@@ -4356,10 +4356,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_with_session_property_single_aggregate_math.1
-  '
+  '''
   SELECT sum(count) AS total,
   
     (SELECT day_start AS day_start
@@ -4395,10 +4395,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -4433,10 +4433,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math.1
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -4471,10 +4471,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
@@ -4487,10 +4487,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.1
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -4541,10 +4541,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.2
-  '
+  '''
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$some_property'), ''), 'null'), '^"|"$', '') AS value,
@@ -4557,10 +4557,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.3
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total,
          ifNull(toString(breakdown_value), '') AS breakdown_value
@@ -4611,10 +4611,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_aggregated_range_narrower_than_week
-  '
+  '''
   SELECT sum(count) AS total,
   
     (SELECT day_start AS day_start
@@ -4669,10 +4669,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_aggregated_range_wider_than_week
-  '
+  '''
   SELECT sum(count) AS total,
   
     (SELECT day_start AS day_start
@@ -4727,10 +4727,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_aggregated_range_wider_than_week_with_sampling
-  '
+  '''
   SELECT sum(count) AS total,
   
     (SELECT day_start AS day_start
@@ -4785,10 +4785,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_daily
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -4837,10 +4837,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_daily_minus_utc
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -4889,10 +4889,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_daily_plus_utc
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -4941,10 +4941,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_filtering
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -4997,10 +4997,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_filtering_materialized
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -5053,10 +5053,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_hourly
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -5105,10 +5105,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_weekly
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -5157,10 +5157,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_weekly_minus_utc
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -5209,10 +5209,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_weekly_plus_utc
-  '
+  '''
   SELECT groupArray(day_start) AS date,
          groupArray(count) AS total
   FROM
@@ -5261,5 +5261,5 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---

@@ -1,5 +1,5 @@
 # name: TestInCohort.test_in_cohort_dynamic
-  '
+  '''
   -- ClickHouse
   
   SELECT events.event AS event 
@@ -24,10 +24,10 @@
   HAVING greater(sum(sign), 0)) AS in_cohort__1 ON equals(in_cohort__1.person_id, person_id) 
   WHERE and(equals(in_cohort__1.matched, 1), equals(event, 'RANDOM_TEST_ID::UUID')) 
   LIMIT 100
-  '
----
+  '''
+# ---
 # name: TestInCohort.test_in_cohort_static
-  '
+  '''
   -- ClickHouse
   
   SELECT events.event AS event 
@@ -48,10 +48,10 @@
   WHERE equals(cohort_id, 2)) AS in_cohort__2 ON equals(in_cohort__2.person_id, person_id) 
   WHERE equals(in_cohort__2.matched, 1) 
   LIMIT 100
-  '
----
+  '''
+# ---
 # name: TestInCohort.test_in_cohort_strings
-  '
+  '''
   -- ClickHouse
   
   SELECT events.event AS event 
@@ -72,5 +72,5 @@
   WHERE equals(cohort_id, 3)) AS in_cohort__3 ON equals(in_cohort__3.person_id, person_id) 
   WHERE equals(in_cohort__3.matched, 1) 
   LIMIT 100
-  '
----
+  '''
+# ---

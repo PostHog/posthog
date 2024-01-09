@@ -1,25 +1,25 @@
 # name: TestLifecycleQueryRunner.test_cohort_filter
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = NULL
-  '
----
+  '''
+# ---
 # name: TestLifecycleQueryRunner.test_cohort_filter.1
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 0
-  '
----
+  '''
+# ---
 # name: TestLifecycleQueryRunner.test_cohort_filter.2
-  '
+  '''
   SELECT groupArray(start_of_period) AS date,
          groupArray(counts) AS total,
          status AS status
@@ -92,10 +92,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestLifecycleQueryRunner.test_sampling
-  '
+  '''
   SELECT groupArray(start_of_period) AS date,
          groupArray(round(multiply(counts, divide(1, 0.1)))) AS total,
          status AS status
@@ -163,10 +163,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestLifecycleQueryRunner.test_timezones
-  '
+  '''
   SELECT groupArray(start_of_period) AS date,
          groupArray(counts) AS total,
          status AS status
@@ -234,10 +234,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestLifecycleQueryRunner.test_timezones.1
-  '
+  '''
   SELECT groupArray(start_of_period) AS date,
          groupArray(counts) AS total,
          status AS status
@@ -305,5 +305,5 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---

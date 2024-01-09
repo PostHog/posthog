@@ -1,5 +1,5 @@
 # name: TestBreakdownsByCurrentURL.test_breakdown_by_current_url
-  '
+  '''
   
   SELECT array(if(empty(trim(TRAILING '/?#'
                              from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
@@ -14,10 +14,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 101
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestBreakdownsByCurrentURL.test_breakdown_by_current_url.1
-  '
+  '''
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -88,10 +88,10 @@
               prop
      HAVING steps = max_steps)
   GROUP BY prop
-  '
----
+  '''
+# ---
 # name: TestBreakdownsByCurrentURL.test_breakdown_by_pathname
-  '
+  '''
   
   SELECT array(if(empty(trim(TRAILING '/?#'
                              from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
@@ -106,10 +106,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 101
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestBreakdownsByCurrentURL.test_breakdown_by_pathname.1
-  '
+  '''
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -180,5 +180,5 @@
               prop
      HAVING steps = max_steps)
   GROUP BY prop
-  '
----
+  '''
+# ---
