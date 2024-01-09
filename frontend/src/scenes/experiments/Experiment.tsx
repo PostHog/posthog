@@ -609,6 +609,9 @@ export function Experiment(): JSX.Element {
                                 <div className="block">
                                     <div className="exp-flag-copy-label">Status</div>
                                     <StatusTag experiment={experiment} />
+                                    <span className="ml-2">
+                                        <ResultsTag />
+                                    </span>
                                 </div>
                                 {experiment.feature_flag && (
                                     <div className="block ml-10">
