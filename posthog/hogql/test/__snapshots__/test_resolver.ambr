@@ -1,3 +1,4 @@
+# serializer version: 1
 # name: TestResolver.test_asterisk_expander_from_subquery_table
   '''
   {

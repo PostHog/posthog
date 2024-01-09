@@ -1,3 +1,4 @@
+# serializer version: 1
 # name: ClickhouseClientTestCase.test_async_query_client
   '''
   SELECT plus(1, 1)

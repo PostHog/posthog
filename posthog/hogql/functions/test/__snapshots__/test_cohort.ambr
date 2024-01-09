@@ -1,3 +1,4 @@
+# serializer version: 1
 # name: TestCohort.test_in_cohort_dynamic
   '''
   -- ClickHouse

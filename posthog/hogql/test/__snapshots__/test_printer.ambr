@@ -1,3 +1,4 @@
+# serializer version: 1
 # name: TestPrinter.test_large_pretty_print
   '''
   SELECT
