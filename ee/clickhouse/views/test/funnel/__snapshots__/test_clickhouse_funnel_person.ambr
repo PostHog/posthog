@@ -1,5 +1,5 @@
 # name: TestFunnelPerson.test_funnel_actors_with_groups_search
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT aggregation_target AS actor_id
   FROM
@@ -104,5 +104,5 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
