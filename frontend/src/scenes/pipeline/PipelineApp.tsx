@@ -1,6 +1,7 @@
 import { Spinner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
@@ -10,7 +11,7 @@ import { PluginLogs } from 'scenes/plugins/plugin/PluginLogs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { PipelineAppTabs } from '~/types'
+import { PipelineAppTabs, PipelineTabs } from '~/types'
 
 import { AppMetrics } from './AppMetrics'
 import { pipelineAppLogic } from './pipelineAppLogic'
@@ -18,13 +19,19 @@ import { pipelineAppLogic } from './pipelineAppLogic'
 export const scene: SceneExport = {
     component: PipelineApp,
     logic: pipelineAppLogic,
-    paramsToProps: ({ params: { id } }: { params: { id?: string } }) => ({ id: id ? parseInt(id) : 'new' }),
+    paramsToProps: ({ params: { kind, id } }: { params: { kind?: string; id?: string } }) => ({
+        kind: kind,
+        id: id ? parseInt(id) : 'new',
+    }),
 }
 
-export function PipelineApp({ id }: { id?: string } = {}): JSX.Element {
+export function PipelineApp({ kind, id }: { kind?: string; id?: string } = {}): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     if (!featureFlags[FEATURE_FLAGS.PIPELINE_UI]) {
         return <></>
+    }
+    if (!Object.values(PipelineAppTabs).includes(kind as PipelineAppTabs)) {
+        return <NotFound object="pipeline app" />
     }
     const { currentTab } = useValues(pipelineAppLogic)
 
@@ -45,7 +52,9 @@ export function PipelineApp({ id }: { id?: string } = {}): JSX.Element {
             <PageHeader title={`Pipeline App`} />
             <LemonTabs
                 activeKey={currentTab}
-                onChange={(tab) => router.actions.push(urls.pipelineApp(confId, tab as PipelineAppTabs))}
+                onChange={(tab) =>
+                    router.actions.push(urls.pipelineApp(kind as PipelineTabs, confId, tab as PipelineAppTabs))
+                }
                 tabs={Object.values(PipelineAppTabs).map((tab) => ({
                     label: capitalizeFirstLetter(tab),
                     key: tab,

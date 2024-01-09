@@ -101,10 +101,10 @@ export const urls = {
         encode ? `/persons/${encodeURIComponent(uuid)}` : `/persons/${uuid}`,
     persons: (): string => '/persons',
     // TODO: Default to the landing page, once it's ready
-    pipeline: (tab?: PipelineTabs): string => `/pipeline/${tab ? tab : PipelineTabs.Destinations}`,
-    pipelineApp: (id: string | number, tab?: PipelineAppTabs): string =>
-        `/pipeline/${id}/${tab ? tab : PipelineAppTabs.Configuration}`,
-    pipelineNew: (tab?: PipelineTabs): string => `/pipeline/${tab ? tab : PipelineTabs.Destinations}/new`,
+    pipeline: (tab?: PipelineTabs | ':tab'): string => `/pipeline/${tab ? tab : PipelineTabs.Destinations}`,
+    /** @param id 'new' for new, uuid for batch exports and numbers for plugins */
+    pipelineApp: (kind: PipelineTabs | ':kind', id: string | number, tab?: PipelineAppTabs | ':tab'): string =>
+        `/pipeline/${kind}/${id}/${tab ? tab : PipelineAppTabs.Configuration}`,
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
