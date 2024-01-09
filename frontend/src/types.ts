@@ -1565,6 +1565,7 @@ export interface JobSpec {
     payload?: Record<string, JobPayloadFieldOptions>
 }
 
+/** @deprecated in favor of PluginConfigTypeNew */
 export interface PluginConfigType {
     id?: number
     plugin: number
@@ -1578,7 +1579,13 @@ export interface PluginConfigType {
     created_at?: string
 }
 
-// TODO: Rename to PluginConfigType once the are removed from the frontend
+/** @deprecated in favor of PluginConfigWithPluginInfoNew */
+export interface PluginConfigWithPluginInfo extends PluginConfigType {
+    id: number
+    plugin_info: PluginType
+}
+
+// TODO: Rename to PluginConfigType once the legacy PluginConfigType are removed from the frontend
 export interface PluginConfigTypeNew {
     id: number
     plugin: number
@@ -1591,9 +1598,9 @@ export interface PluginConfigTypeNew {
     delivery_rate_24h?: number | null
 }
 
-export interface PluginConfigWithPluginInfo extends PluginConfigType {
-    id: number
-    plugin_info: PluginType
+// TODO: Rename to PluginConfigWithPluginInfo once the are removed from the frontend
+export interface PluginConfigWithPluginInfoNew extends PluginConfigTypeNew {
+    plugin_info: PluginType | null
 }
 
 export interface PluginErrorType {

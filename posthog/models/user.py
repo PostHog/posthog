@@ -143,6 +143,7 @@ class User(AbstractUser, UUIDClassicModel):
     is_email_verified: models.BooleanField = models.BooleanField(null=True, blank=True)
     requested_password_reset_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
     has_seen_product_intro_for: models.JSONField = models.JSONField(null=True, blank=True)
+    strapi_id: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(null=True, blank=True)
 
     # Preferences / configuration options
     email_opt_in: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
@@ -317,6 +318,7 @@ class User(AbstractUser, UUIDClassicModel):
             "instance_tag": INSTANCE_TAG,
             "is_email_verified": self.is_email_verified,
             "has_seen_product_intro_for": self.has_seen_product_intro_for,
+            "strapi_id": self.strapi_id,
         }
 
     __repr__ = sane_repr("email", "first_name", "distinct_id")

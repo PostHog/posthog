@@ -54,7 +54,10 @@ const config = {
             spacing: {
                 // Some additional larger widths for compatibility with our pre-Tailwind system
                 // Don't add new ones here, in new code just use the `w-[32rem]` style for arbitrary values
+                13: '3.25rem',
+                15: '3.75rem',
                 18: '4.5rem',
+                // All whole number values up to 18 ensured above
                 30: '7.5rem',
                 50: '12.5rem',
                 60: '15rem',
@@ -66,6 +69,7 @@ const config = {
                 180: '45rem',
                 192: '48rem',
                 200: '50rem',
+                // All whole number values divisible by 20 up to 200 ensured above
                 248: '62rem',
                 300: '75rem',
             },

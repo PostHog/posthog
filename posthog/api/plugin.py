@@ -567,7 +567,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         model = PluginConfig
         fields = [
             "id",
-            "plugin",
+            "plugin",  # TODO: Rename to plugin_id for consistency with team_id
             "enabled",
             "order",
             "config",
