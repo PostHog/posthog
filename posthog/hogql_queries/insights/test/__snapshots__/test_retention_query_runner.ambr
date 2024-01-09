@@ -1,3 +1,4 @@
+# serializer version: 1
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating
   '''
   SELECT actor_activity.breakdown_values AS breakdown_values,

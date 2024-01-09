@@ -1,3 +1,4 @@
+# serializer version: 1
 # name: TestSessionsTimelineQueryRunner.test_before_and_after
   '''
   SELECT e.uuid AS uuid,
