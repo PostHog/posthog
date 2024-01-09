@@ -1,5 +1,5 @@
 # name: test_person_query
-  '
+  '''
   
               SELECT id
               FROM person
@@ -16,10 +16,10 @@
               
               SETTINGS optimize_aggregation_in_order = 1
               
-  '
----
+  '''
+# ---
 # name: test_person_query.1
-  '
+  '''
   
               SELECT id
               FROM person
@@ -43,10 +43,10 @@
               
               SETTINGS optimize_aggregation_in_order = 1
               
-  '
----
+  '''
+# ---
 # name: test_person_query_with_and_and_or_property_groups
-  '
+  '''
   
               SELECT id, argMax(properties, version) as person_props
               FROM person
@@ -70,10 +70,10 @@
               
               SETTINGS optimize_aggregation_in_order = 1
               
-  '
----
+  '''
+# ---
 # name: test_person_query_with_anded_property_groups
-  '
+  '''
   
               SELECT id
               FROM person
@@ -97,10 +97,10 @@
               
               SETTINGS optimize_aggregation_in_order = 1
               
-  '
----
+  '''
+# ---
 # name: test_person_query_with_entity_filters
-  '
+  '''
   
               SELECT id, argMax(pmat_email, version) as pmat_email
               FROM person
@@ -117,10 +117,10 @@
               
               SETTINGS optimize_aggregation_in_order = 1
               
-  '
----
+  '''
+# ---
 # name: test_person_query_with_entity_filters.1
-  '
+  '''
   
               SELECT id
               FROM person
@@ -144,10 +144,10 @@
               
               SETTINGS optimize_aggregation_in_order = 1
               
-  '
----
+  '''
+# ---
 # name: test_person_query_with_entity_filters_and_property_group_filters
-  '
+  '''
   
               SELECT id, argMax(pmat_email, version) as pmat_email , argMax(properties, version) as person_props
               FROM person
@@ -171,10 +171,10 @@
               
               SETTINGS optimize_aggregation_in_order = 1
               
-  '
----
+  '''
+# ---
 # name: test_person_query_with_entity_filters_and_property_group_filters.1
-  '
+  '''
   
               SELECT id, argMax(properties, version) as person_props
               FROM person
@@ -198,10 +198,10 @@
               
               SETTINGS optimize_aggregation_in_order = 1
               
-  '
----
+  '''
+# ---
 # name: test_person_query_with_extra_fields
-  '
+  '''
   
               SELECT id, argMax(pmat_email, version) as pmat_email , argMax(properties, version) as person_props
               FROM person
@@ -225,10 +225,10 @@
               
               SETTINGS optimize_aggregation_in_order = 1
               
-  '
----
+  '''
+# ---
 # name: test_person_query_with_extra_requested_fields
-  '
+  '''
   
               SELECT id, argMax(properties, version) as person_props
               FROM person
@@ -252,10 +252,10 @@
               
               SETTINGS optimize_aggregation_in_order = 1
               
-  '
----
+  '''
+# ---
 # name: test_person_query_with_extra_requested_fields.1
-  '
+  '''
   
               SELECT id, argMax(pmat_email, version) as pmat_email
               FROM person
@@ -279,10 +279,10 @@
               
               SETTINGS optimize_aggregation_in_order = 1
               
-  '
----
+  '''
+# ---
 # name: test_person_query_with_multiple_cohorts
-  '
+  '''
   
               SELECT id
               FROM person
@@ -310,10 +310,10 @@
               
               SETTINGS optimize_aggregation_in_order = 1
               
-  '
----
+  '''
+# ---
 # name: test_person_query_with_updated_after
-  '
+  '''
   
               SELECT id
               FROM person
@@ -330,10 +330,10 @@
               
               SETTINGS optimize_aggregation_in_order = 1
               
-  '
----
+  '''
+# ---
 # name: test_person_query_with_updated_after.1
-  '
+  '''
   
               SELECT id
               FROM person
@@ -350,5 +350,5 @@
               
               SETTINGS optimize_aggregation_in_order = 1
               
-  '
----
+  '''
+# ---
