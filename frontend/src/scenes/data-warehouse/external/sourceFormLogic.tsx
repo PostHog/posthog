@@ -15,11 +15,11 @@ export interface SourceFormProps {
     sourceType: ExternalDataSourceType
 }
 
-interface SourceConfig {
-    name: string
+export interface SourceConfig {
+    name: ExternalDataSourceType
     caption: string | JSX.Element
     fields: FieldConfig[]
-    disabledReason?: string
+    disabledReason?: string | null
 }
 interface FieldConfig {
     name: string

@@ -10,8 +10,8 @@ import stripeLogo from 'public/stripe-logo.svg'
 import { ExternalDataSourceType } from '~/types'
 
 import { DatawarehouseTableForm } from '../new_table/DataWarehouseTableForm'
-import { SOURCE_DETAILS, sourceFormLogic } from './sourceFormLogic'
-import { ConnectorConfigType, sourceModalLogic } from './sourceModalLogic'
+import { SOURCE_DETAILS, SourceConfig, sourceFormLogic } from './sourceFormLogic'
+import { sourceModalLogic } from './sourceModalLogic'
 
 interface SourceModalProps extends LemonModalProps {}
 
@@ -21,7 +21,7 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
     const { selectConnector, toggleManualLinkFormVisible, onClear } = useActions(sourceModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const MenuButton = (config: ConnectorConfigType): JSX.Element => {
+    const MenuButton = (config: SourceConfig): JSX.Element => {
         const onClick = (): void => {
             selectConnector(config)
         }
