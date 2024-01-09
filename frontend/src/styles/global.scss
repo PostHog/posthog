@@ -730,3 +730,7 @@ body {
         fill: var(--border-3000);
     }
 }
+
+.ligatures-none {
+    font-variant-ligatures: none;
+}

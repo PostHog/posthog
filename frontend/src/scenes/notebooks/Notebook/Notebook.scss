@@ -183,17 +183,14 @@
             transform: translateX(-100%);
         }
 
-        .NotebookScene &,
-        .NotebookPopover & {
+        .NotebookScene & {
             --notebook-sidebar-height: calc(100vh - 11rem);
 
             .NotebookColumn__padding {
                 // Account for fixed title
                 height: 4rem;
             }
-        }
 
-        .NotebookScene & {
             .NotebookColumn__content {
                 // Account for static header
                 top: 4rem;
