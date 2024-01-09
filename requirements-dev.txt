@@ -109,11 +109,13 @@ lupa==1.14.1
     # via fakeredis
 markupsafe==1.1.1
     # via jinja2
-mypy==1.4.0
+mypy==1.8.0
     # via
     #   -r requirements-dev.in
     #   django-stubs
     #   djangorestframework-stubs
+mypy-baseline==0.6.1
+    # via -r requirements-dev.in
 mypy-extensions==1.0.0
     # via
     #   -r requirements-dev.in
