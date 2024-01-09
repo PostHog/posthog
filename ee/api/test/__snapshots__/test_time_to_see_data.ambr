@@ -1,5 +1,5 @@
 # name: TestTimeToSeeDataApi.test_session_events_api
-  '
+  '''
   {
       "type": "session",
       "data": {
@@ -194,5 +194,5 @@
           }
       ]
   }
-  '
----
+  '''
+# ---
