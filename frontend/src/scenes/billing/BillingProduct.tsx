@@ -14,8 +14,10 @@ import {
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, compactNumber } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import posthog from 'posthog-js'
 import { getProductIcon } from 'scenes/products/Products'
 
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
@@ -50,6 +52,8 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
     const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse } = useActions(
         billingProductLogic({ product: addon })
     )
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { setProductSpecificAlert } = useActions(billingLogic)
 
     const productType = { plural: `${addon.unit}s`, singular: addon.unit }
     const tierDisplayOptions: LemonSelectOptions<string> = [
@@ -60,6 +64,42 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
         tierDisplayOptions.push({ label: `Current bill`, value: 'total' })
     }
 
+    const showPipelineAddonNotice =
+        addon.type === 'data_pipelines' &&
+        addon.subscribed &&
+        featureFlags['data-pipelines-notice'] &&
+        addon.plans?.[0].plan_key === 'addon-20240103-og-customers'
+
+    if (showPipelineAddonNotice) {
+        setProductSpecificAlert({
+            status: 'info',
+            title: 'Welcome to the data pipelines addon!',
+            message: `We've moved data export features (and cost) here to better reflect user needs. Your overall
+                    price hasn't changed.`,
+            action: {
+                onClick: () => {
+                    posthog.capture('data pipelines notice clicked')
+                    // if they don't dismiss it now, we won't show it next time they come back
+                    posthog.capture('data pipelines notice dismissed', {
+                        $set: {
+                            dismissedDataPipelinesNotice: true,
+                        },
+                    })
+                },
+                children: 'Learn more',
+                to: 'https://posthog.com',
+                targetBlank: true,
+            },
+            dismissKey: 'data-pipelines-notice',
+            onClose: () => {
+                posthog.capture('data pipelines notice dismissed', {
+                    $set: {
+                        dismissedDataPipelinesNotice: true,
+                    },
+                })
+            },
+        })
+    }
     return (
         <div className="bg-side rounded p-6 flex flex-col">
             <div className="flex justify-between gap-x-4">
