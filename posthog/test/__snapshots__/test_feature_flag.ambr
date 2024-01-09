@@ -1,3 +1,4 @@
+# serializer version: 1
 # name: TestFeatureFlagMatcher.test_coercion_of_booleans_with_is_not_operator
   '''
   SELECT NOT ((("posthog_person"."properties" -> 'disabled') = 'false'

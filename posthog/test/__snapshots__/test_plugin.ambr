@@ -1,3 +1,4 @@
+# serializer version: 1
 # name: TestPluginSourceFile.test_sync_from_plugin_archive_from_tgz_with_explicit_index_js_works
   '''
   SELECT "posthog_pluginsourcefile"."id",
