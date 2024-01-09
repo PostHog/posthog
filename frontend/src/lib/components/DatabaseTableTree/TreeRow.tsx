@@ -41,9 +41,9 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow }: TreeFolderR
     const [collapsed, setCollapsed] = useState(false)
     const { name, items, emptyLabel } = item
 
-    const _onClick = (): void => {
+    const _onClick = useCallback(() => {
         setCollapsed(!collapsed)
-    }
+    }, [collapsed])
 
     return (
         <li>
