@@ -1,5 +1,5 @@
 # name: TestCohort.test_in_cohort_dynamic
-  '
+  '''
   -- ClickHouse
   
   SELECT events.event AS event 
@@ -24,10 +24,10 @@
   GROUP BY person_id, cohort_id, version 
   HAVING greater(sum(sign), 0))), equals(event, 'RANDOM_TEST_ID::UUID')) 
   LIMIT 100
-  '
----
+  '''
+# ---
 # name: TestCohort.test_in_cohort_static
-  '
+  '''
   -- ClickHouse
   
   SELECT events.event AS event 
@@ -48,10 +48,10 @@
   FROM static_cohort_people 
   WHERE equals(cohort_id, 7))) 
   LIMIT 100
-  '
----
+  '''
+# ---
 # name: TestCohort.test_in_cohort_strings
-  '
+  '''
   -- ClickHouse
   
   SELECT events.event AS event 
@@ -72,5 +72,5 @@
   FROM static_cohort_people 
   WHERE equals(cohort_id, 8))) 
   LIMIT 100
-  '
----
+  '''
+# ---

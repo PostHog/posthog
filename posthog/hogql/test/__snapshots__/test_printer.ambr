@@ -1,5 +1,5 @@
 # name: TestPrinter.test_large_pretty_print
-  '
+  '''
   SELECT
       groupArray(start_of_period) AS date,
       groupArray(counts) AS total,
@@ -66,5 +66,5 @@
   GROUP BY
       status
   LIMIT 10000
-  '
----
+  '''
+# ---

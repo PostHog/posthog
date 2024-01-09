@@ -1,5 +1,5 @@
 # name: TestNotebooks.test_updates_notebook
-  '
+  '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -27,10 +27,10 @@
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21 /**/
-  '
----
+  '''
+# ---
 # name: TestNotebooks.test_updates_notebook.1
-  '
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -78,10 +78,10 @@
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='project_notebooks-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/notebooks/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestNotebooks.test_updates_notebook.10
-  '
+  '''
   SELECT "posthog_notebook"."id",
          "posthog_notebook"."short_id",
          "posthog_notebook"."team_id",
@@ -97,10 +97,10 @@
   FROM "posthog_notebook"
   WHERE "posthog_notebook"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21 /*controller='project_notebooks-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/notebooks/%28%3FP%3Cshort_id%3E%5B%5E/.%5D%2B%29/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestNotebooks.test_updates_notebook.11
-  '
+  '''
   SELECT "posthog_notebook"."id",
          "posthog_notebook"."short_id",
          "posthog_notebook"."team_id",
@@ -118,10 +118,10 @@
   LIMIT 21
   FOR
   UPDATE /*controller='project_notebooks-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/notebooks/%28%3FP%3Cshort_id%3E%5B%5E/.%5D%2B%29/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestNotebooks.test_updates_notebook.12
-  '
+  '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -150,10 +150,10 @@
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21 /*controller='project_notebooks-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/notebooks/%28%3FP%3Cshort_id%3E%5B%5E/.%5D%2B%29/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestNotebooks.test_updates_notebook.13
-  '
+  '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -181,10 +181,10 @@
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21 /**/
-  '
----
+  '''
+# ---
 # name: TestNotebooks.test_updates_notebook.14
-  '
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -232,10 +232,10 @@
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='project_notebooks-all-activity',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/notebooks/activity/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestNotebooks.test_updates_notebook.15
-  '
+  '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
          "posthog_organizationmembership"."user_id",
@@ -262,10 +262,10 @@
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 2 /*controller='project_notebooks-all-activity',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/notebooks/activity/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestNotebooks.test_updates_notebook.16
-  '
+  '''
   SELECT "posthog_instancesetting"."id",
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
@@ -273,18 +273,18 @@
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:RATE_LIMIT_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='project_notebooks-all-activity',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/notebooks/activity/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestNotebooks.test_updates_notebook.17
-  '
+  '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_activitylog"
   WHERE ("posthog_activitylog"."scope" = 'Notebook'
          AND "posthog_activitylog"."team_id" = 2) /*controller='project_notebooks-all-activity',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/notebooks/activity/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestNotebooks.test_updates_notebook.18
-  '
+  '''
   SELECT "posthog_activitylog"."id",
          "posthog_activitylog"."team_id",
          "posthog_activitylog"."organization_id",
@@ -326,18 +326,10 @@
          AND "posthog_activitylog"."team_id" = 2)
   ORDER BY "posthog_activitylog"."created_at" DESC
   LIMIT 2 /*controller='project_notebooks-all-activity',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/notebooks/activity/%3F%24'*/
-  '
----
-# name: TestNotebooks.test_updates_notebook.19
-  '
-  SELECT COUNT(*) AS "__count"
-  FROM "posthog_activitylog"
-  WHERE ("posthog_activitylog"."scope" = 'Notebook'
-         AND "posthog_activitylog"."team_id" = 2) /*controller='project_notebooks-all-activity',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/notebooks/activity/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestNotebooks.test_updates_notebook.2
-  '
+  '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
          "posthog_organizationmembership"."user_id",
@@ -364,55 +356,10 @@
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 2 /*controller='project_notebooks-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/notebooks/%3F%24'*/
-  '
----
-# name: TestNotebooks.test_updates_notebook.20
-  '
-  SELECT "posthog_activitylog"."id",
-         "posthog_activitylog"."team_id",
-         "posthog_activitylog"."organization_id",
-         "posthog_activitylog"."user_id",
-         "posthog_activitylog"."is_system",
-         "posthog_activitylog"."activity",
-         "posthog_activitylog"."item_id",
-         "posthog_activitylog"."scope",
-         "posthog_activitylog"."detail",
-         "posthog_activitylog"."created_at",
-         "posthog_user"."id",
-         "posthog_user"."password",
-         "posthog_user"."last_login",
-         "posthog_user"."first_name",
-         "posthog_user"."last_name",
-         "posthog_user"."is_staff",
-         "posthog_user"."is_active",
-         "posthog_user"."date_joined",
-         "posthog_user"."uuid",
-         "posthog_user"."current_organization_id",
-         "posthog_user"."current_team_id",
-         "posthog_user"."email",
-         "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
-         "posthog_user"."distinct_id",
-         "posthog_user"."is_email_verified",
-         "posthog_user"."requested_password_reset_at",
-         "posthog_user"."has_seen_product_intro_for",
-         "posthog_user"."strapi_id",
-         "posthog_user"."email_opt_in",
-         "posthog_user"."theme_mode",
-         "posthog_user"."partial_notification_settings",
-         "posthog_user"."anonymize_data",
-         "posthog_user"."toolbar_mode",
-         "posthog_user"."events_column_config"
-  FROM "posthog_activitylog"
-  LEFT OUTER JOIN "posthog_user" ON ("posthog_activitylog"."user_id" = "posthog_user"."id")
-  WHERE ("posthog_activitylog"."scope" = 'Notebook'
-         AND "posthog_activitylog"."team_id" = 2)
-  ORDER BY "posthog_activitylog"."created_at" DESC
-  LIMIT 2 /*controller='project_notebooks-all-activity',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/notebooks/activity/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestNotebooks.test_updates_notebook.3
-  '
+  '''
   SELECT "posthog_instancesetting"."id",
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
@@ -420,10 +367,10 @@
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:RATE_LIMIT_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='project_notebooks-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/notebooks/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestNotebooks.test_updates_notebook.4
-  '
+  '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -451,10 +398,10 @@
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21 /**/
-  '
----
+  '''
+# ---
 # name: TestNotebooks.test_updates_notebook.5
-  '
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -502,10 +449,10 @@
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='project_notebooks-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/notebooks/%28%3FP%3Cshort_id%3E%5B%5E/.%5D%2B%29/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestNotebooks.test_updates_notebook.6
-  '
+  '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
          "posthog_organizationmembership"."user_id",
@@ -532,10 +479,10 @@
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 2 /*controller='project_notebooks-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/notebooks/%28%3FP%3Cshort_id%3E%5B%5E/.%5D%2B%29/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestNotebooks.test_updates_notebook.7
-  '
+  '''
   SELECT "posthog_instancesetting"."id",
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
@@ -543,10 +490,10 @@
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:RATE_LIMIT_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='project_notebooks-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/notebooks/%28%3FP%3Cshort_id%3E%5B%5E/.%5D%2B%29/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestNotebooks.test_updates_notebook.8
-  '
+  '''
   SELECT "posthog_notebook"."id",
          "posthog_notebook"."short_id",
          "posthog_notebook"."team_id",
@@ -667,10 +614,10 @@
   WHERE ("posthog_notebook"."team_id" = 2
          AND "posthog_notebook"."short_id" = '00000000')
   LIMIT 21 /*controller='project_notebooks-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/notebooks/%28%3FP%3Cshort_id%3E%5B%5E/.%5D%2B%29/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestNotebooks.test_updates_notebook.9
-  '
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -725,5 +672,5 @@
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='project_notebooks-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/notebooks/%28%3FP%3Cshort_id%3E%5B%5E/.%5D%2B%29/%3F%24'*/
-  '
----
+  '''
+# ---
