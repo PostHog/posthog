@@ -26,6 +26,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { groupsModel } from '~/models/groupsModel'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
+import { AnyDataNode, NodeKind } from '~/queries/schema'
 import {
     ActionType,
     CohortType,
@@ -134,7 +135,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
         eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames ?? []],
-        metadataSource: [() => [(_, props) => props.metadataSource], (metadataSource) => metadataSource ?? 'events'],
+        metadataSource: [
+            () => [(_, props) => props.metadataSource],
+            (metadataSource): AnyDataNode =>
+                metadataSource ?? { kind: NodeKind.HogQLQuery, query: 'select event from events' },
+        ],
         excludedProperties: [
             () => [(_, props) => props.excludedProperties],
             (excludedProperties) => excludedProperties ?? {},
