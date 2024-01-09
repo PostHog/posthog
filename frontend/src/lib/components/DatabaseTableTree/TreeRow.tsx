@@ -3,7 +3,7 @@ import './TreeRow.scss'
 import { IconChevronDown } from '@posthog/icons'
 import clsx from 'clsx'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { DataWarehouseSceneRow } from 'scenes/data-warehouse/types'
 
 import { DatabaseTableTree, TreeItemFolder, TreeItemLeaf } from './DatabaseTableTree'
@@ -16,9 +16,9 @@ export interface TreeRowProps {
 }
 
 export function TreeRow({ item, onClick, selected }: TreeRowProps): JSX.Element {
-    const _onClick = (): void => {
+    const _onClick = useCallback(() => {
         onClick && onClick(item.table)
-    }
+    }, [])
 
     return (
         <li>
@@ -61,8 +61,8 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow }: TreeFolderR
                         style={{ marginLeft: `${2 * depth}rem`, padding: 0 }}
                     />
                 ) : (
-                    // eslint-disable-next-line react/forbid-dom-props
                     <div
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={{
                             marginLeft: `${2 * depth}rem`,
                         }}

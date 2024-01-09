@@ -206,16 +206,14 @@ export function DataWarehouseExternalScene(): JSX.Element {
                             </div>
                         </div>
                         <div className="flex flex-col">
-                            {selectedRow.external_data_source ? (
-                                <></>
-                            ) : (
+                            {!selectedRow.external_data_source &&
+                                selectedRow.url_pattern &&
                                 selectedRow.url_pattern && (
                                     <>
                                         <span className="card-secondary mt-2">Files URL pattern</span>
                                         <span>{selectedRow.url_pattern}</span>
                                     </>
-                                )
-                            )}
+                                )}
 
                             {selectedRow.format && (
                                 <>
