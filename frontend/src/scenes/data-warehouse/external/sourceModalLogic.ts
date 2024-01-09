@@ -6,6 +6,7 @@ import { ExternalDataSourceType } from '~/types'
 import { dataWarehouseTableLogic } from '../new_table/dataWarehouseTableLogic'
 import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLogic'
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { SOURCE_DETAILS } from './sourceFormLogic'
 import type { sourceModalLogicType } from './sourceModalLogicType'
 
 export const getHubspotRedirectUri = (): string => `${window.location.origin}/data-warehouse/hubspot/redirect`
@@ -15,22 +16,6 @@ export interface ConnectorConfigType {
     caption: string
     disabledReason: string | null
 }
-
-// TODO: add icon
-export const CONNECTORS: ConnectorConfigType[] = [
-    {
-        name: 'Stripe',
-        fields: ['account_id', 'client_secret'],
-        caption: 'Enter your Stripe credentials to link your Stripe to PostHog',
-        disabledReason: null,
-    },
-    {
-        name: 'Hubspot',
-        fields: [],
-        caption: '',
-        disabledReason: null,
-    },
-]
 
 export const sourceModalLogic = kea<sourceModalLogicType>([
     path(['scenes', 'data-warehouse', 'external', 'sourceModalLogic']),
@@ -80,7 +65,7 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
         connectors: [
             (s) => [s.dataWarehouseSources],
             (sources) => {
-                return CONNECTORS.map((connector) => ({
+                return Object.values(SOURCE_DETAILS).map((connector) => ({
                     ...connector,
                     disabledReason:
                         sources && sources.results.find((source) => source.source_type === connector.name)

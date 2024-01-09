@@ -104,7 +104,7 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
         <LemonModal
             {...props}
             onAfterClose={() => onClear()}
-            title="Data Sources"
+            title={selectedConnector ? 'Link ' + selectedConnector.name : 'Select source to link'}
             description={selectedConnector ? selectedConnector.caption : null}
         >
             {formToShow()}
@@ -129,14 +129,14 @@ function SourceForm({ sourceType }: SourceFormProps): JSX.Element {
             className="space-y-4"
             enableFormOnSubmit
         >
-            <Field name="prefix" label="Table Prefix">
-                <LemonInput className="ph-ignore-input" autoFocus data-attr="prefix" placeholder="internal_" />
-            </Field>
             {SOURCE_DETAILS[sourceType].fields.map((field) => (
                 <Field key={field.name} name={['payload', field.name]} label={field.label}>
                     <LemonInput className="ph-ignore-input" data-attr={field.name} />
                 </Field>
             ))}
+            <Field name="prefix" label="Table Prefix (optional)">
+                <LemonInput className="ph-ignore-input" data-attr="prefix" placeholder="internal_" />
+            </Field>
             <LemonDivider className="mt-4" />
             <div className="mt-2 flex flex-row justify-end gap-2">
                 <LemonButton type="secondary" center data-attr="source-modal-back-button" onClick={onBack}>
