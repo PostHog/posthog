@@ -11,6 +11,7 @@ from . import (
     app_metrics,
     async_migration,
     authentication,
+    comments,
     dead_letter_queue,
     early_access_feature,
     event_definition,
@@ -189,6 +190,9 @@ projects_router.register(r"warehouse_view_link", view_link.ViewLinkViewSet, "war
 
 # Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
+organizations_router.register(
+    r"batch_exports", batch_exports.BatchExportOrganizationViewSet, "batch_exports", ["organization_id"]
+)
 organization_plugins_router = organizations_router.register(
     r"plugins", plugin.PluginViewSet, "organization_plugins", ["organization_id"]
 )
@@ -356,6 +360,13 @@ projects_router.register(
     r"notebooks",
     notebook.NotebookViewSet,
     "project_notebooks",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"comments",
+    comments.CommentViewSet,
+    "project_comments",
     ["team_id"],
 )
 

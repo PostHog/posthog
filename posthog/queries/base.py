@@ -435,11 +435,16 @@ def is_truthy_or_falsy_property_value(value: Any) -> bool:
 
 
 def relative_date_parse_for_feature_flag_matching(value: str) -> Optional[datetime.datetime]:
-    regex = r"(?P<number>[0-9]+)(?P<interval>[a-z])"
+    regex = r"^(?P<number>[0-9]+)(?P<interval>[a-z])$"
     match = re.search(regex, value)
     parsed_dt = datetime.datetime.now(tz=ZoneInfo("UTC"))
     if match:
         number = int(match.group("number"))
+
+        if number >= 10_000:
+            # Guard against overflow, disallow numbers greater than 10_000
+            return None
+
         interval = match.group("interval")
         if interval == "h":
             parsed_dt = parsed_dt - relativedelta(hours=number)

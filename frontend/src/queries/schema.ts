@@ -208,6 +208,8 @@ export interface HogQLMetadata extends DataNode {
     select?: string
     /** HogQL expression to validate (use `select` or `expr`, but not both) */
     expr?: string
+    /** Query within which "expr" is validated. Defaults to "select * from events" */
+    exprSource?: AnyDataNode
     /** Table to validate the expression against */
     table?: string
     filters?: HogQLFilters

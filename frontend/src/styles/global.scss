@@ -15,7 +15,9 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
 @import 'functions';
 @import 'mixins';
 @import 'utility-legacy';
-@import 'utilities';
+@import 'colors';
+@tailwind components;
+@tailwind utilities;
 
 :root {
     @include root-variables;
@@ -74,12 +76,12 @@ ul {
 .page-caption {
     max-width: 48rem;
     margin-bottom: 1rem;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
 
     &.tabbed {
         margin-bottom: 0.5rem;
     }
-
-    @extend .text-sm;
 }
 
 .page-buttons {
@@ -188,7 +190,10 @@ input::-ms-clear {
 
 .Toastify__toast-body {
     padding: 0;
+    font-size: 0.875rem;
     font-weight: 500;
+    line-height: 1.25rem;
+    color: var(--default);
 
     b,
     strong {
@@ -198,9 +203,6 @@ input::-ms-clear {
     button {
         margin: 0 0.75rem;
     }
-
-    @extend .text-sm;
-    @extend .text-default;
 }
 
 .Toastify__toast-icon {
@@ -234,15 +236,15 @@ input::-ms-clear {
     color: var(--default);
 
     label {
+        font-size: 0.875rem;
         font-weight: bold;
-
-        @extend .text-sm;
+        line-height: 1.25rem;
     }
 
     .caption {
+        font-size: 0.875rem;
+        line-height: 1.25rem;
         color: var(--muted);
-
-        @extend .text-sm;
     }
 
     .ant-radio-button-wrapper {

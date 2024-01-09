@@ -21,10 +21,17 @@ ActivityScope = Literal[
     "Insight",
     "Plugin",
     "PluginConfig",
-    "SessionRecordingPlaylist",
+    "DataManagement",
     "EventDefinition",
     "PropertyDefinition",
     "Notebook",
+    "Dashboard",
+    "Replay",
+    "Experiment",
+    "Survey",
+    "EarlyAccessFeature",
+    "SessionRecordingPlaylist",
+    "Comment",
 ]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
@@ -47,11 +54,13 @@ class Trigger:
 
 @dataclasses.dataclass(frozen=True)
 class Detail:
-    changes: Optional[List[Change]] = None
-    trigger: Optional[Trigger] = None
+    # The display name of the item in question
     name: Optional[str] = None
+    # The short_id if it has one
     short_id: Optional[str] = None
     type: Optional[str] = None
+    changes: Optional[List[Change]] = None
+    trigger: Optional[Trigger] = None
 
 
 class ActivityDetailEncoder(json.JSONEncoder):
@@ -98,50 +107,48 @@ class ActivityLog(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
 
 
+common_field_exclusions = [
+    "id",
+    "uuid",
+    "short_id",
+    "created_at",
+    "created_by",
+    "last_modified_at",
+    "last_modified_by",
+    "updated_at",
+    "updated_by",
+    "team",
+    "team_id",
+]
+
+
 field_exclusions: Dict[ActivityScope, List[str]] = {
     "Notebook": [
-        "id",
-        "last_modified_at",
-        "last_modified_by",
-        "created_at",
-        "created_by",
         "text_content",
     ],
     "FeatureFlag": [
-        "id",
-        "created_at",
-        "created_by",
         "is_simple_flag",
         "experiment",
-        "team",
         "featureflagoverride",
     ],
     "Person": [
-        "id",
-        "uuid",
         "distinct_ids",
         "name",
-        "created_at",
         "is_identified",
         "persondistinctid",
         "cohort",
         "cohortpeople",
         "properties_last_updated_at",
         "properties_last_operation",
-        "team",
         "version",
         "is_user",
     ],
     "Insight": [
-        "id",
         "filters_hash",
-        "created_at",
         "refreshing",
         "dive_dashboard",
-        "updated_at",
         "type",
         "funnel",
-        "last_modified_at",
         "layouts",
         "color",
         "order",
@@ -151,50 +158,30 @@ field_exclusions: Dict[ActivityScope, List[str]] = {
         "saved",
         "is_sample",
         "refresh_attempt",
-        "last_modified_by",
         "short_id",
-        "created_by",
         "insightviewed",
         "dashboardtile",
         "caching_states",
     ],
-    "SessionRecordingPlaylist": [
-        "id",
-        "short_id",
-        "created_at",
-        "created_by",
-        "last_modified_at",
-        "last_modified_by",
-    ],
     "EventDefinition": [
         "eventdefinition_ptr_id",
-        "id",
-        "created_at",
         "_state",
         "deprecated_tags",
-        "team_id",
-        "updated_at",
         "owner_id",
         "query_usage_30_day",
         "verified_at",
         "verified_by",
-        "updated_by",
         "post_to_slack",
     ],
     "PropertyDefinition": [
         "propertydefinition_ptr_id",
-        "id",
-        "created_at",
         "_state",
         "deprecated_tags",
-        "team_id",
-        "updated_at",
         "owner_id",
         "query_usage_30_day",
         "volume_30_day",
         "verified_at",
         "verified_by",
-        "updated_by",
         "post_to_slack",
         "property_type_format",
     ],
@@ -226,7 +213,7 @@ def _read_through_relation(relation: models.Manager) -> List[Union[Dict, str]]:
 
 
 def changes_between(
-    model_type: Literal["FeatureFlag", "Person", "Insight", "SessionRecordingPlaylist", "Notebook"],
+    model_type: ActivityScope,
     previous: Optional[models.Model],
     current: Optional[models.Model],
 ) -> List[Change]:
@@ -241,8 +228,9 @@ def changes_between(
 
     if previous is not None:
         fields = current._meta.get_fields() if current is not None else []
+        excluded_fields = field_exclusions.get(model_type, []) + common_field_exclusions
+        filtered_fields = [f.name for f in fields if f.name not in excluded_fields]
 
-        filtered_fields = [f.name for f in fields if f.name not in field_exclusions[model_type]]
         for field in filtered_fields:
             left = getattr(previous, field, None)
             if isinstance(left, models.Manager):
@@ -300,7 +288,7 @@ def dict_changes_between(
 
     fields = set(list(previous.keys()) + list(new.keys()))
     if use_field_exclusions:
-        fields = fields - set(field_exclusions.get(model_type, []))
+        fields = fields - set(field_exclusions.get(model_type, [])) - set(common_field_exclusions)
 
     for field in fields:
         previous_value = previous.get(field, None)
@@ -398,7 +386,7 @@ def get_activity_page(activity_query: models.QuerySet, limit: int = 10, page: in
 def load_activity(
     scope: ActivityScope,
     team_id: int,
-    item_id: Optional[int] = None,
+    item_ids: Optional[list[str]] = None,
     limit: int = 10,
     page: int = 1,
 ) -> ActivityPage:
@@ -408,8 +396,8 @@ def load_activity(
         ActivityLog.objects.select_related("user").filter(team_id=team_id, scope=scope).order_by("-created_at")
     )
 
-    if item_id is not None:
-        activity_query = activity_query.filter(item_id=item_id)
+    if item_ids is not None:
+        activity_query = activity_query.filter(item_id__in=item_ids)
 
     return get_activity_page(activity_query, limit, page)
 

@@ -14,6 +14,9 @@ import { RetentionTableAppearanceType } from 'scenes/retention/types'
 import { MissingPersonsAlert } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
+import { EXPORT_MAX_LIMIT, startDownload } from '~/queries/nodes/DataTable/DataTableExport'
+import { ExportWithConfirmation } from '~/queries/nodes/DataTable/ExportWithConfirmation'
+import { DataTableNode, NodeKind } from '~/queries/schema'
 import { ExporterFormat } from '~/types'
 
 import { retentionLogic } from './retentionLogic'
@@ -25,8 +28,17 @@ export function RetentionModal(): JSX.Element | null {
     const { results } = useValues(retentionLogic(insightProps))
     const { people, peopleLoading, peopleLoadingMore } = useValues(retentionPeopleLogic(insightProps))
     const { loadMorePeople } = useActions(retentionPeopleLogic(insightProps))
-    const { aggregationTargetLabel, selectedInterval, exploreUrl } = useValues(retentionModalLogic(insightProps))
+    const { aggregationTargetLabel, selectedInterval, exploreUrl, actorsQuery } = useValues(
+        retentionModalLogic(insightProps)
+    )
     const { closeModal } = useActions(retentionModalLogic(insightProps))
+
+    const dataTableNodeQuery: DataTableNode | undefined = actorsQuery
+        ? {
+              kind: NodeKind.DataTableNode,
+              source: actorsQuery,
+          }
+        : undefined
 
     if (!results || selectedInterval === null) {
         return null
@@ -41,19 +53,34 @@ export function RetentionModal(): JSX.Element | null {
             footer={
                 <div className="flex justify-between gap-2 w-full">
                     <div className="flex gap-2">
-                        <LemonButton
-                            type="secondary"
-                            onClick={() =>
-                                void triggerExport({
-                                    export_format: ExporterFormat.CSV,
-                                    export_context: {
-                                        path: row?.people_url,
-                                    },
-                                })
-                            }
-                        >
-                            Download CSV
-                        </LemonButton>
+                        {!exploreUrl && (
+                            <LemonButton
+                                type="secondary"
+                                onClick={() =>
+                                    void triggerExport({
+                                        export_format: ExporterFormat.CSV,
+                                        export_context: {
+                                            path: row?.people_url,
+                                        },
+                                    })
+                                }
+                            >
+                                Download CSV
+                            </LemonButton>
+                        )}
+                        {!!dataTableNodeQuery && (
+                            <ExportWithConfirmation
+                                key={1}
+                                placement={'topRight'}
+                                onConfirm={() => {
+                                    dataTableNodeQuery && void startDownload(dataTableNodeQuery, true)
+                                }}
+                                actor={'persons'}
+                                limit={EXPORT_MAX_LIMIT}
+                            >
+                                <LemonButton type="secondary">Export all as CSV</LemonButton>
+                            </ExportWithConfirmation>
+                        )}
                     </div>
                     {exploreUrl && (
                         <LemonButton

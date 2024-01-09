@@ -48,6 +48,7 @@ from posthog.permissions import (
 from posthog.plugins import can_configure_plugins, can_install_plugins, parse_url
 from posthog.plugins.access import can_globally_manage_plugins
 from posthog.queries.app_metrics.app_metrics import TeamPluginsDeliveryRateQuery
+from posthog.redis import get_client
 from posthog.utils import format_query_params_absolute_url
 
 # Keep this in sync with: frontend/scenes/plugins/utils.ts
@@ -348,6 +349,17 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         ).values_list("id", flat=True)
         return Response(ids)
 
+    @action(methods=["GET"], detail=False)
+    def exports_unsubscribe_configs(self, request: request.Request, **kwargs):
+        # return all the plugin_configs for the org that are not global transformation/filter plugins
+        allowed_plugins_q = Q(plugin__is_global=True) & (
+            Q(plugin__capabilities__methods__contains=["processEvent"]) | Q(plugin__capabilities={})
+        )
+        plugin_configs = PluginConfig.objects.filter(
+            Q(team__organization_id=self.organization_id, enabled=True) & ~allowed_plugins_q
+        )
+        return Response(PluginConfigSerializer(plugin_configs, many=True).data)
+
     @action(methods=["GET"], detail=True)
     def check_for_updates(self, request: request.Request, **kwargs):
         plugin = self.get_plugin_with_permissions(reason="installation")
@@ -439,6 +451,11 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if performed_changes:
             plugin.updated_at = now()
             plugin.save()
+        # Trigger capabilities update in plugin server, in case the app source changed the methods etc
+        get_client().publish(
+            "populate-plugin-capabilities",
+            json.dumps({"plugin_id": str(plugin.id)}),
+        )
         return Response(response)
 
     @action(methods=["POST"], detail=True)
@@ -537,7 +554,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         model = PluginConfig
         fields = [
             "id",
-            "plugin",
+            "plugin",  # TODO: Rename to plugin_id for consistency with team_id
             "enabled",
             "order",
             "config",
@@ -593,6 +610,12 @@ class PluginConfigSerializer(serializers.ModelSerializer):
                 }
 
         return new_plugin_config
+
+    def to_representation(self, instance: Any) -> Any:
+        representation = super().to_representation(instance)
+        representation["name"] = representation["name"] or instance.plugin.name
+        representation["description"] = representation["description"] or instance.plugin.description
+        return representation
 
     def get_plugin_info(self, plugin_config: PluginConfig):
         if "view" in self.context and self.context["view"].action == "retrieve":

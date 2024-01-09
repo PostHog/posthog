@@ -29,7 +29,7 @@ export const humanFriendlyTabName = (tab: PipelineTabs): string => {
         case PipelineTabs.Destinations:
             return 'Destinations'
         case PipelineTabs.AppsManagement:
-            return 'Apps Management'
+            return 'Apps management'
     }
 }
 

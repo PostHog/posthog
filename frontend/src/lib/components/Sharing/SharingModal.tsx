@@ -113,7 +113,7 @@ export function SharingModalContent({
                                     </TitleWithIcon>
                                     <LemonButton
                                         data-attr="sharing-link-button"
-                                        size={'small'}
+                                        size="small"
                                         onClick={() => void copyToClipboard(shareLink, 'link')}
                                         icon={<IconLink />}
                                     >
@@ -189,7 +189,6 @@ export function SharingModalContent({
                                     <div className="rounded border">
                                         <LemonButton
                                             fullWidth
-                                            status="stealth"
                                             sideIcon={showPreview ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                             onClick={togglePreview}
                                         >

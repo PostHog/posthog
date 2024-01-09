@@ -5,6 +5,8 @@ import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { useEffect, useState } from 'react'
 
+import { AnyDataNode } from '~/queries/schema'
+
 export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue>
     extends Omit<LemonButtonProps, 'children' | 'onClick' | 'sideIcon' | 'sideAction'> {
     groupType: TaxonomicFilterGroupType
@@ -20,7 +22,7 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     allowClear?: boolean
     style?: React.CSSProperties
     excludedProperties?: { [key in TaxonomicFilterGroupType]?: TaxonomicFilterValue[] }
-    hogQLTable?: string
+    metadataSource?: AnyDataNode
 }
 
 /** Like TaxonomicPopover, but convenient when you know you will only use string values */
@@ -46,7 +48,7 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
     placeholderClass = 'text-muted',
     allowClear = false,
     excludedProperties,
-    hogQLTable,
+    metadataSource,
     ...buttonPropsRest
 }: TaxonomicPopoverProps<ValueType>): JSX.Element {
     const [localValue, setLocalValue] = useState<ValueType>(value || ('' as ValueType))
@@ -61,9 +63,6 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
         <span className={placeholderClass ?? 'text-muted'}>{placeholder}</span>
     )
     buttonPropsFinal.onClick = () => setVisible(!visible)
-    if (!buttonPropsFinal.status) {
-        buttonPropsFinal.status = 'stealth'
-    }
     if (!buttonPropsFinal.type) {
         buttonPropsFinal.type = 'secondary'
     }
@@ -86,7 +85,7 @@ export function TaxonomicPopover<ValueType extends TaxonomicFilterValue = Taxono
                     }}
                     taxonomicGroupTypes={groupTypes ?? [groupType]}
                     eventNames={eventNames}
-                    hogQLTable={hogQLTable}
+                    metadataSource={metadataSource}
                     excludedProperties={excludedProperties}
                 />
             }

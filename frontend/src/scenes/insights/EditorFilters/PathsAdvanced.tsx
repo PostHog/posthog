@@ -1,5 +1,4 @@
-import { LemonDivider } from '@posthog/lemon-ui'
-import { InputNumber } from 'antd'
+import { LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { IconSettings } from 'lib/lemon-ui/icons'
@@ -42,7 +41,8 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                 <LemonLabel info="Determines the maximum number of path nodes that can be generated. If necessary certain items will be grouped.">
                     Maximum number of paths
                 </LemonLabel>
-                <InputNumber
+                <LemonInput
+                    type="number"
                     min={0}
                     max={1000}
                     defaultValue={50}
@@ -63,7 +63,8 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                 </LemonLabel>
                 <div>
                     <span className="mr-2">Between</span>
-                    <InputNumber
+                    <LemonInput
+                        type="number"
                         min={0}
                         max={100000}
                         onChange={(value): void =>
@@ -76,7 +77,8 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                         onPressEnter={updateEdgeParameters}
                     />
                     <span className="mx-2">and</span>
-                    <InputNumber
+                    <LemonInput
+                        type="number"
                         onChange={(value): void =>
                             setLocalEdgeParameters((state) => ({
                                 ...state,

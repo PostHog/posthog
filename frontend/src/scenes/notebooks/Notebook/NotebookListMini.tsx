@@ -23,7 +23,7 @@ export function NotebookListMini({ selectedNotebookId }: NotebookListMiniProps):
 
     return (
         <NotebookSelectPopover placement="bottom-start">
-            <LemonButton size="small" status="primary-alt" truncate>
+            <LemonButton size="small" truncate>
                 {selectedTitle || 'Notebooks'}
             </LemonButton>
         </NotebookSelectPopover>

@@ -5,7 +5,7 @@ import { canConfigurePlugins } from 'scenes/plugins/access'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { PluginConfigTypeNew, PluginType, ProductKey } from '~/types'
+import { PluginConfigTypeNew, PluginConfigWithPluginInfoNew, PluginType, ProductKey } from '~/types'
 
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
 import { capturePluginEvent } from './utils'
@@ -84,6 +84,17 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         disabledPluginConfigs: [
             (s) => [s.pluginConfigs],
             (pluginConfigs) => Object.values(pluginConfigs).filter((pc) => !pc.enabled),
+        ],
+        displayablePluginConfigs: [
+            (s) => [s.pluginConfigs, s.plugins],
+            (pluginConfigs, plugins) => {
+                const enabledFirst = Object.values(pluginConfigs).sort((a, b) => Number(b.enabled) - Number(a.enabled))
+                const withPluginInfo = enabledFirst.map<PluginConfigWithPluginInfoNew>((pluginConfig) => ({
+                    ...pluginConfig,
+                    plugin_info: plugins[pluginConfig.plugin] || null,
+                }))
+                return withPluginInfo
+            },
         ],
         // This is currently an organization level setting but might in the future be user level
         // it's better to add the permission checks everywhere now

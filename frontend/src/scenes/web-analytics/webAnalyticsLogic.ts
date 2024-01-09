@@ -30,10 +30,13 @@ import {
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 
 export interface WebTileLayout {
-    colSpan?: number | 'full'
-    rowSpan?: number
+    /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
+    colSpanClassName?: `md:col-span-${number}` | 'md:col-span-full'
+    /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
+    rowSpanClassName?: `md:row-span-${number}`
+    /** The class has to be spelled out without interpolation, as otherwise Tailwind can't pick it up. */
+    orderWhenLargeClassName?: `xxl:order-${number}`
     className?: string
-    orderLarge?: number
 }
 
 interface BaseTile {
@@ -325,8 +328,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 const tiles: (WebDashboardTile | null)[] = [
                     {
                         layout: {
-                            colSpan: 'full',
-                            orderLarge: 0,
+                            colSpanClassName: 'md:col-span-full',
+                            orderWhenLargeClassName: 'xxl:order-0',
                         },
                         query: {
                             kind: NodeKind.WebOverviewQuery,
@@ -336,8 +339,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                     {
                         layout: {
-                            colSpan: 2,
-                            orderLarge: 1,
+                            colSpanClassName: `md:col-span-2`,
+                            orderWhenLargeClassName: 'xxl:order-1',
                         },
                         activeTabId: graphsTab,
                         setTabId: actions.setGraphsTab,
@@ -437,8 +440,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                     {
                         layout: {
-                            colSpan: 2,
-                            orderLarge: 4,
+                            colSpanClassName: `md:col-span-2`,
+                            orderWhenLargeClassName: 'xxl:order-4',
                         },
                         activeTabId: pathTab,
                         setTabId: actions.setPathTab,
@@ -481,8 +484,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                     {
                         layout: {
-                            colSpan: 1,
-                            orderLarge: 2,
+                            colSpanClassName: `md:col-span-1`,
+                            orderWhenLargeClassName: 'xxl:order-2',
                         },
                         activeTabId: sourceTab,
                         setTabId: actions.setSourceTab,
@@ -596,8 +599,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                     {
                         layout: {
-                            colSpan: 1,
-                            orderLarge: 3,
+                            colSpanClassName: `md:col-span-1`,
+                            orderWhenLargeClassName: 'xxl:order-3',
                         },
                         activeTabId: deviceTab,
                         setTabId: actions.setDeviceTab,
@@ -674,7 +677,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     shouldShowGeographyTile
                         ? {
                               layout: {
-                                  colSpan: 'full',
+                                  colSpanClassName: 'md:col-span-full',
                               },
                               activeTabId: geographyTab || GeographyTab.MAP,
                               setTabId: actions.setGeographyTab,
@@ -760,7 +763,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     {
                         title: 'Retention',
                         layout: {
-                            colSpan: 2,
+                            colSpanClassName: 'md:col-span-2',
                         },
                         query: {
                             kind: NodeKind.InsightVizNode,
