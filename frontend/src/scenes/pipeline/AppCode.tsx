@@ -44,14 +44,14 @@ export function AppCode({
                 onClose={cancelEditing}
                 isOpen={editingAppCode}
                 width={600}
-                title={'Edit ' + plugins[pluginId].name + ' source code'}
+                title={'Editing source code of ' + plugins[pluginId].name}
                 description={
                     <p>
                         Read our{' '}
                         <Link to="https://posthog.com/docs/apps/build" target="_blank">
-                            app building overview in PostHog Docs
+                            app building overview in PostHog docs
                         </Link>{' '}
-                        for a good grasp of possibilities.
+                        for a good grasp of the possibilities.
                     </p>
                 }
                 footer={
@@ -85,28 +85,32 @@ export function AppCode({
                                             content: (
                                                 <>
                                                     {pluginSourceHasErrors && (
-                                                        <LemonBanner type={'error'}>
-                                                            {JSON.stringify(pluginSourceAllErrors)}
+                                                        <LemonBanner type="error">
+                                                            {Object.entries(pluginSourceAllErrors).map(
+                                                                ([filename, error]) => (
+                                                                    <p key={filename}>
+                                                                        {filename}: {error}
+                                                                    </p>
+                                                                )
+                                                            )}
                                                         </LemonBanner>
                                                     )}
                                                     <Field name={[currentFile]}>
                                                         {({ value, onChange }) => (
-                                                            <>
-                                                                <CodeEditor
-                                                                    path={currentFile}
-                                                                    language={
-                                                                        currentFile.endsWith('.json')
-                                                                            ? 'json'
-                                                                            : 'typescript'
-                                                                    }
-                                                                    value={value}
-                                                                    onChange={(v) => onChange(v ?? '')}
-                                                                    height={700}
-                                                                    options={{
-                                                                        minimap: { enabled: false },
-                                                                    }}
-                                                                />
-                                                            </>
+                                                            <CodeEditor
+                                                                path={currentFile}
+                                                                language={
+                                                                    currentFile.endsWith('.json')
+                                                                        ? 'json'
+                                                                        : 'typescript'
+                                                                }
+                                                                value={value}
+                                                                onChange={(v) => onChange(v ?? '')}
+                                                                height={700}
+                                                                options={{
+                                                                    minimap: { enabled: false },
+                                                                }}
+                                                            />
                                                         )}
                                                     </Field>
                                                 </>
