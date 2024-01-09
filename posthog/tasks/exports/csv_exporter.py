@@ -247,6 +247,7 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000) -> None:
     if columns:
         render_context["header"] = columns
 
+    render_context["bom"] = True
     rendered_csv_content = renderer.render(all_csv_rows, renderer_context=render_context)
     save_content(exported_asset, rendered_csv_content)
 
