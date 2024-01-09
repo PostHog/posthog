@@ -1,5 +1,3 @@
-import './Tree.scss'
-
 import { DataWarehouseSceneRow } from 'scenes/data-warehouse/types'
 
 import { TreeFolderRow, TreeRow } from './TreeRow'
@@ -27,7 +25,7 @@ export interface TreeItemLeaf {
 }
 
 export function DatabaseTableTree({
-    className = 'Tree__root rounded-lg',
+    className = '',
     items,
     onSelectRow,
     selectedRow,
@@ -35,7 +33,7 @@ export function DatabaseTableTree({
     ...props
 }: TreeProps): JSX.Element {
     return (
-        <ul className={`Tree ${className}`} {...props}>
+        <ul className={`bg-bg-light p-4 rounded-lg ${className}`} {...props}>
             {items.map((item, index) => {
                 if ('items' in item) {
                     return (
