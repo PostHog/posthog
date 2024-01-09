@@ -35,9 +35,6 @@ export const navigationLogic = kea<navigationLogicType>([
         toggleSitePopover: true,
         toggleProjectSwitcher: true,
         hideProjectSwitcher: true,
-        openAppSourceEditor: (id: number, pluginId: number) => ({ id, pluginId }),
-        closeAppSourceEditor: true,
-        setOpenAppMenu: (id: number | null) => ({ id }),
         closeProjectNotice: (projectNoticeVariant: ProjectNoticeVariant) => ({ projectNoticeVariant }),
     }),
     loaders({
@@ -89,14 +86,6 @@ export const navigationLogic = kea<navigationLogicType>([
                 hideProjectSwitcher: () => false,
             },
         ],
-        appSourceEditor: [
-            null as null | { pluginId: number; id: number },
-            {
-                openAppSourceEditor: (_, payload) => payload,
-                closeAppSourceEditor: () => null,
-            },
-        ],
-        openAppMenu: [null as null | number, { setOpenAppMenu: (_, { id }) => id }],
         projectNoticesAcknowledged: [
             {} as Record<ProjectNoticeVariant, boolean>,
             { persist: true },
@@ -110,11 +99,6 @@ export const navigationLogic = kea<navigationLogicType>([
         noSidebar: [
             (s) => [s.fullscreen, s.sceneConfig],
             (fullscreen, sceneConfig) => fullscreen || sceneConfig?.layout === 'plain',
-        ],
-        isSideBarShown: [
-            (s) => [s.mobileLayout, s.isSideBarShownMobile, s.noSidebar],
-            (mobileLayout, isSideBarShownMobile, noSidebar) =>
-                !noSidebar && (mobileLayout ? isSideBarShownMobile : true),
         ],
         isActivationSideBarShown: [
             (s) => [s.mobileLayout, s.isActivationSideBarShownBase, s.isSideBarShownMobile, s.noSidebar],
