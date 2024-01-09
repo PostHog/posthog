@@ -1,5 +1,3 @@
-import './Dashboard.scss'
-
 import { IconCalendar } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
@@ -112,7 +110,7 @@ function DashboardScene(): JSX.Element {
                 <EmptyDashboardComponent loading={itemsLoading} canEdit={canEditDashboard} />
             ) : (
                 <div>
-                    <div className="dashboard-controls">
+                    <div className="flex gap-2 items-center justify-between flex-wrap">
                         {![
                             DashboardPlacement.Public,
                             DashboardPlacement.Export,
