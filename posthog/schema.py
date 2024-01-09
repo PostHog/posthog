@@ -4,10 +4,9 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel
-from typing_extensions import Literal
 
 
 class SchemaRoot(RootModel[Any]):
@@ -74,6 +73,10 @@ class ChartDisplayType(str, Enum):
 
 
 class CohortPropertyFilter(BaseModel):
+    """
+    Sync with plugin-server/src/types.ts
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -172,6 +175,10 @@ class EventType(BaseModel):
 
 
 class Response(BaseModel):
+    """
+    Return a limited set of data
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -291,6 +298,10 @@ class PersonsOnEventsMode(str, Enum):
 
 
 class HogQLQueryModifiers(BaseModel):
+    """
+    HogQL Query Options are automatically set per team. However, they can be overriden in the query.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -344,6 +355,16 @@ class LifecycleToggle(str, Enum):
 
 
 class NodeKind(str, Enum):
+    """
+    PostHog Query Schema definition.
+
+    This file acts as the source of truth for:
+
+    - frontend/src/queries/schema.json   - generated from typescript via "pnpm run generate:schema:json"
+
+    - posthog/schema.py   - generated from json the above json via "pnpm run generate:schema:python"
+    """
+
     EventsNode = "EventsNode"
     ActionsNode = "ActionsNode"
     EventsQuery = "EventsQuery"
@@ -389,6 +410,10 @@ class PathType(str, Enum):
 
 
 class PathsFilter(BaseModel):
+    """
+    `PathsFilterType` minus everything inherited from `FilterType` and persons modal related params
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -434,6 +459,10 @@ class PropertyMathType(str, Enum):
 
 
 class PropertyOperator(str, Enum):
+    """
+    Sync with plugin-server/src/types.ts
+    """
+
     exact = "exact"
     is_not = "is_not"
     icontains = "icontains"
@@ -551,6 +580,10 @@ class StepOrderValue(str, Enum):
 
 
 class StickinessFilter(BaseModel):
+    """
+    `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params and `hidden_legend_keys` replaced by `hidden_legend_indexes`
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -600,6 +633,10 @@ class TimelineEntry(BaseModel):
 
 
 class TrendsFilter(BaseModel):
+    """
+    `TrendsFilterType` minus everything inherited from `FilterType` and `hidden_legend_keys` replaced by `hidden_legend_indexes`
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -649,6 +686,10 @@ class RETENTION(BaseModel):
 
 
 class VizSpecificOptions(BaseModel):
+    """
+    Chart specific rendering options. Use ChartRenderingMetadata for non-serializable values, e.g. onClick handlers
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -748,6 +789,10 @@ class ActorsQueryResponse(BaseModel):
 
 
 class AnyResponseType1(BaseModel):
+    """
+    Return a limited set of data
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -796,6 +841,10 @@ class ChartSettings(BaseModel):
 
 
 class ElementPropertyFilter(BaseModel):
+    """
+    Sync with plugin-server/src/types.ts
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -807,6 +856,10 @@ class ElementPropertyFilter(BaseModel):
 
 
 class EventPropertyFilter(BaseModel):
+    """
+    Sync with plugin-server/src/types.ts
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -843,6 +896,10 @@ class FeaturePropertyFilter(BaseModel):
 
 
 class FunnelsFilter(BaseModel):
+    """
+    `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params and `hidden_legend_keys` replaced by `hidden_legend_breakdowns`
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -920,6 +977,10 @@ class HogQLQueryResponse(BaseModel):
 
 
 class LifecycleFilter(BaseModel):
+    """
+    `LifecycleFilterType` minus everything inherited from `FilterType`
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -940,6 +1001,10 @@ class LifecycleQueryResponse(BaseModel):
 
 
 class Node(BaseModel):
+    """
+    Node base class, everything else inherits from here
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -947,6 +1012,10 @@ class Node(BaseModel):
 
 
 class PersonPropertyFilter(BaseModel):
+    """
+    Sync with plugin-server/src/types.ts
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -970,6 +1039,10 @@ class QueryResponse(BaseModel):
 
 
 class RetentionFilter(BaseModel):
+    """
+    `RetentionFilterType` minus everything inherited from `FilterType`
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1319,6 +1392,10 @@ class EventsQuery(BaseModel):
 
 
 class HogQLFilters(BaseModel):
+    """
+    Filters object that will be converted to a HogQL {filters} placeholder
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1432,6 +1509,49 @@ class PropertyGroupFilterValue(BaseModel):
             ],
         ]
     ]
+
+
+class QueryCombinedResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    clickhouse: Optional[Union[Any, str, List[DatabaseSchemaQueryResponseField]]] = None
+    columns: Optional[Union[Any, List, List[DatabaseSchemaQueryResponseField]]] = None
+    error: Optional[Union[Any, str, List[DatabaseSchemaQueryResponseField]]] = None
+    errors: Optional[Union[Any, List[HogQLNotice], List[DatabaseSchemaQueryResponseField]]] = None
+    explain: Optional[Union[Any, List[str], List[DatabaseSchemaQueryResponseField]]] = None
+    hasMore: Optional[Union[Any, bool, List[DatabaseSchemaQueryResponseField]]] = None
+    hogql: Optional[Union[Any, str, List[DatabaseSchemaQueryResponseField]]] = None
+    inputExpr: Optional[Union[Any, str, List[DatabaseSchemaQueryResponseField]]] = None
+    inputSelect: Optional[Union[Any, str, List[DatabaseSchemaQueryResponseField]]] = None
+    isValid: Optional[Union[Any, bool, List[DatabaseSchemaQueryResponseField]]] = None
+    isValidView: Optional[Union[Any, bool, List[DatabaseSchemaQueryResponseField]]] = None
+    is_cached: Optional[Union[Any, bool, List[DatabaseSchemaQueryResponseField]]] = None
+    last_refresh: Optional[Union[Any, str, List[DatabaseSchemaQueryResponseField]]] = None
+    limit: Optional[Union[Any, int, List[DatabaseSchemaQueryResponseField]]] = None
+    missing_actors_count: Optional[Union[Any, int, List[DatabaseSchemaQueryResponseField]]] = None
+    modifiers: Optional[Union[Any, HogQLQueryModifiers, List[DatabaseSchemaQueryResponseField]]] = None
+    next: Optional[Union[str, Any, List[DatabaseSchemaQueryResponseField]]] = None
+    next_allowed_client_refresh: Optional[Union[Any, str, List[DatabaseSchemaQueryResponseField]]] = None
+    notices: Optional[Union[Any, List[HogQLNotice], List[DatabaseSchemaQueryResponseField]]] = None
+    offset: Optional[Union[Any, int, List[DatabaseSchemaQueryResponseField]]] = None
+    query: Optional[Union[Any, str, List[DatabaseSchemaQueryResponseField]]] = None
+    results: Optional[
+        Union[
+            List[EventType],
+            Any,
+            List[Dict[str, Any]],
+            List[List],
+            List[TimelineEntry],
+            List,
+            List[WebOverviewItem],
+            List[RetentionResult],
+            List[DatabaseSchemaQueryResponseField],
+        ]
+    ] = None
+    timings: Optional[Union[Any, List[QueryTiming], List[DatabaseSchemaQueryResponseField]]] = None
+    types: Optional[Union[Any, List[str], List, List[DatabaseSchemaQueryResponseField]]] = None
+    warnings: Optional[Union[Any, List[HogQLNotice], List[DatabaseSchemaQueryResponseField]]] = None
 
 
 class RetentionQueryResponse(BaseModel):
@@ -1736,6 +1856,10 @@ class FunnelsQuery(BaseModel):
 
 
 class InsightsQueryBase(BaseModel):
+    """
+    Base class for insight query nodes. Should not be used directly.
+    """
+
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1863,7 +1987,9 @@ class InsightVizNode(BaseModel):
     showLastComputationRefresh: Optional[bool] = None
     showResults: Optional[bool] = None
     showTable: Optional[bool] = None
-    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
+    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(
+        ..., discriminator="kind"
+    )
     suppressSessionAnalysisWarning: Optional[bool] = None
     vizSpecificOptions: Optional[VizSpecificOptions] = None
 
@@ -1878,7 +2004,9 @@ class InsightActorsQuery(BaseModel):
     )
     kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
     response: Optional[ActorsQueryResponse] = None
-    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
+    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(
+        ..., discriminator="kind"
+    )
     status: Optional[str] = None
 
 
@@ -2017,40 +2145,33 @@ class HogQLMetadata(BaseModel):
     table: Optional[str] = Field(default=None, description="Table to validate the expression against")
 
 
-class QuerySchema(
-    RootModel[
-        Union[
-            DataVisualizationNode,
-            DataTableNode,
-            SavedInsightNode,
-            InsightVizNode,
-            TrendsQuery,
-            FunnelsQuery,
-            RetentionQuery,
-            PathsQuery,
-            StickinessQuery,
-            LifecycleQuery,
-            TimeToSeeDataSessionsQuery,
-            DatabaseSchemaQuery,
-            Union[
-                EventsNode,
-                ActionsNode,
-                PersonsNode,
-                TimeToSeeDataSessionsQuery,
-                EventsQuery,
-                ActorsQuery,
-                InsightActorsQuery,
-                SessionsTimelineQuery,
-                HogQLQuery,
-                HogQLMetadata,
-                WebOverviewQuery,
-                WebStatsTableQuery,
-                WebTopClicksQuery,
-            ],
-        ]
-    ]
-):
-    root: Union[
+class QueryRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    async_: Optional[bool] = Field(
+        default=None,
+        alias="async",
+        description="(Experimental) Whether to run the query asynchronously. Defaults to False. If True, the `id` of the query can be used to check the status and to cancel it.",
+        examples=[True],
+    )
+    client_query_id: Optional[str] = Field(
+        default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
+    )
+    query: Union[
+        EventsNode,
+        ActionsNode,
+        PersonsNode,
+        TimeToSeeDataSessionsQuery,
+        EventsQuery,
+        ActorsQuery,
+        InsightActorsQuery,
+        SessionsTimelineQuery,
+        HogQLQuery,
+        HogQLMetadata,
+        WebOverviewQuery,
+        WebStatsTableQuery,
+        WebTopClicksQuery,
         DataVisualizationNode,
         DataTableNode,
         SavedInsightNode,
@@ -2061,8 +2182,17 @@ class QuerySchema(
         PathsQuery,
         StickinessQuery,
         LifecycleQuery,
-        TimeToSeeDataSessionsQuery,
         DatabaseSchemaQuery,
+    ] = Field(
+        ...,
+        description='Submit a JSON string representing a query for PostHog data analysis, for example a HogQL query.\n\nExample payload:\n\n```\n\n{"query": {"kind": "HogQLQuery", "query": "select * from events limit 100"}}\n\n```\n\nFor more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access).',
+        discriminator="kind",
+    )
+    refresh: Optional[bool] = None
+
+
+class QuerySchemaRoot(
+    RootModel[
         Union[
             EventsNode,
             ActionsNode,
@@ -2077,8 +2207,47 @@ class QuerySchema(
             WebOverviewQuery,
             WebStatsTableQuery,
             WebTopClicksQuery,
-        ],
+            DataVisualizationNode,
+            DataTableNode,
+            SavedInsightNode,
+            InsightVizNode,
+            TrendsQuery,
+            FunnelsQuery,
+            RetentionQuery,
+            PathsQuery,
+            StickinessQuery,
+            LifecycleQuery,
+            DatabaseSchemaQuery,
+        ]
     ]
+):
+    root: Union[
+        EventsNode,
+        ActionsNode,
+        PersonsNode,
+        TimeToSeeDataSessionsQuery,
+        EventsQuery,
+        ActorsQuery,
+        InsightActorsQuery,
+        SessionsTimelineQuery,
+        HogQLQuery,
+        HogQLMetadata,
+        WebOverviewQuery,
+        WebStatsTableQuery,
+        WebTopClicksQuery,
+        DataVisualizationNode,
+        DataTableNode,
+        SavedInsightNode,
+        InsightVizNode,
+        TrendsQuery,
+        FunnelsQuery,
+        RetentionQuery,
+        PathsQuery,
+        StickinessQuery,
+        LifecycleQuery,
+        DatabaseSchemaQuery,
+    ] = Field(..., discriminator="kind")
 
 
 PropertyGroupFilterValue.model_rebuild()
+QueryRequest.model_rebuild()
