@@ -63,7 +63,7 @@ class TestActivityLogModel(BaseTest):
             was_impersonated=True,
             item_id=None,
             scope="dinglehopper",
-            activity="updated",
+            activity="added_to_clink_expander",
             detail=Detail(),
         )
         with pytest.raises(ActivityLog.DoesNotExist):

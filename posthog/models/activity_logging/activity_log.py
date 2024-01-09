@@ -332,6 +332,16 @@ def log_activity(
     was_impersonated: Optional[bool],
     force_save: bool = False,
 ) -> None:
+    if was_impersonated and user is None:
+        logger.warn(
+            "activity_log.failed_to_write_to_activity_log",
+            team=team_id,
+            organization_id=organization_id,
+            scope=scope,
+            activity=activity,
+            exception=ValueError("Cannot log impersonated activity without a user"),
+        )
+        return
     try:
         if activity == "updated" and (detail.changes is None or len(detail.changes) == 0) and not force_save:
             logger.warn(
