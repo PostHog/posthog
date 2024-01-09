@@ -791,8 +791,7 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
     {
         user: {
             first_name: 'System',
-            email: null,
-            is_system: true,
+            email: 'system@x.com',
         },
         activity: 'exported for opengraph image',
         scope: ActivityScope.INSIGHT,
