@@ -1195,6 +1195,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportOnboardingProductSelected: ({ productKey }) => {
             posthog.capture('onboarding product selected', {
                 product_key: productKey,
+                $set_once: { first_onboarding_product_selected: productKey },
             })
         },
         reportOnboardingCompleted: ({ productKey }) => {
