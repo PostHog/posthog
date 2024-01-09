@@ -1,5 +1,5 @@
 # name: TestQuery.test_event_property_filter
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
@@ -13,10 +13,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_event_property_filter.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
@@ -30,10 +30,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_event_property_filter.2
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
@@ -47,10 +47,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_event_property_filter_materialized
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
@@ -64,10 +64,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_event_property_filter_materialized.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
@@ -81,10 +81,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_event_property_filter_materialized.2
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
@@ -98,10 +98,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_events_query_all_time_date
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event
   FROM events
@@ -111,10 +111,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_events_query_all_time_date.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event
   FROM events
@@ -124,10 +124,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_events_query_all_time_date.2
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event
   FROM events
@@ -137,10 +137,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_full_hogql_query
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
@@ -151,10 +151,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_full_hogql_query_materialized
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
@@ -165,10 +165,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_full_hogql_query_view
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
@@ -179,10 +179,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_full_hogql_query_view.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT event_view.event AS event,
          event_view.distinct_id AS distinct_id,
@@ -197,10 +197,10 @@
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_hogql_property_filter
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
@@ -214,10 +214,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_hogql_property_filter.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
@@ -231,10 +231,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_hogql_property_filter.2
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
@@ -248,10 +248,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_hogql_property_filter.3
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
@@ -265,10 +265,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_hogql_property_filter_materialized
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
@@ -282,10 +282,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_hogql_property_filter_materialized.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
@@ -299,10 +299,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_hogql_property_filter_materialized.2
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
@@ -316,10 +316,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_hogql_property_filter_materialized.3
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
@@ -333,10 +333,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_person_property_filter
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
@@ -367,10 +367,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_person_property_filter_materialized
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
@@ -401,10 +401,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_property_filter_aggregations
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') AS key,
          count()
@@ -416,10 +416,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_property_filter_aggregations.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') AS key,
          count()
@@ -432,10 +432,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_property_filter_aggregations_materialized
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT nullIf(nullIf(events.mat_key, ''), 'null') AS key,
          count()
@@ -447,10 +447,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_property_filter_aggregations_materialized.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT nullIf(nullIf(events.mat_key, ''), 'null') AS key,
          count()
@@ -463,10 +463,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_select_event_person
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT events.event AS event,
          events.distinct_id AS distinct_id,
@@ -478,10 +478,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_select_hogql_expressions
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'key'), ''), 'null'), '^"|"$', '') AS key,
          events.event AS event,
@@ -494,10 +494,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_select_hogql_expressions.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC')),
          events.event AS event
@@ -508,10 +508,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_select_hogql_expressions.2
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT count(),
          events.event AS event
@@ -523,10 +523,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestQuery.test_select_hogql_expressions.3
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT count(),
          events.event AS event
@@ -538,5 +538,5 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
