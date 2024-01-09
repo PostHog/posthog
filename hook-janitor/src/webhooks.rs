@@ -9,7 +9,7 @@ use rdkafka::producer::{FutureProducer, FutureRecord};
 use serde_json::error::Error as SerdeError;
 use sqlx::postgres::{PgPool, PgPoolOptions, Postgres};
 use sqlx::types::{chrono, Uuid};
-use sqlx::Transaction;
+use sqlx::{Row, Transaction};
 use thiserror::Error;
 use tracing::{debug, error};
 
@@ -24,6 +24,8 @@ pub enum WebhookCleanerError {
     PoolCreationError { error: sqlx::Error },
     #[error("failed to acquire conn and start txn: {error}")]
     StartTxnError { error: sqlx::Error },
+    #[error("failed to get row count: {error}")]
+    GetRowCountError { error: sqlx::Error },
     #[error("failed to get completed rows: {error}")]
     GetCompletedRowsError { error: sqlx::Error },
     #[error("failed to get failed rows: {error}")]
@@ -36,6 +38,10 @@ pub enum WebhookCleanerError {
     KafkaProduceCanceled,
     #[error("failed to delete rows: {error}")]
     DeleteRowsError { error: sqlx::Error },
+    #[error("attempted to delete a different number of rows than expected")]
+    DeleteConsistencyError,
+    #[error("failed to rollback txn: {error}")]
+    RollbackTxnError { error: sqlx::Error },
     #[error("failed to commit txn: {error}")]
     CommitTxnError { error: sqlx::Error },
 }
@@ -125,8 +131,10 @@ struct SerializableTxn<'a>(Transaction<'a, Postgres>);
 
 struct CleanupStats {
     rows_processed: u64,
-    completed_agg_row_count: usize,
-    failed_agg_row_count: usize,
+    completed_row_count: u64,
+    completed_agg_row_count: u64,
+    failed_row_count: u64,
+    failed_agg_row_count: u64,
 }
 
 impl WebhookCleaner {
@@ -188,7 +196,32 @@ impl WebhookCleaner {
         Ok(SerializableTxn(tx))
     }
 
-    async fn get_completed_rows(&self, tx: &mut SerializableTxn<'_>) -> Result<Vec<CompletedRow>> {
+    async fn get_row_count_for_status(
+        &self,
+        tx: &mut SerializableTxn<'_>,
+        status: &str,
+    ) -> Result<u64> {
+        let base_query = r#"
+            SELECT count(*) FROM job_queue
+            WHERE queue = $1
+              AND status = $2::job_status;
+            "#;
+
+        let count: i64 = sqlx::query(base_query)
+            .bind(&self.queue_name)
+            .bind(status)
+            .fetch_one(&mut *tx.0)
+            .await
+            .map_err(|e| WebhookCleanerError::GetRowCountError { error: e })?
+            .get(0);
+
+        Ok(count as u64)
+    }
+
+    async fn get_completed_agg_rows(
+        &self,
+        tx: &mut SerializableTxn<'_>,
+    ) -> Result<Vec<CompletedRow>> {
         let base_query = r#"
             SELECT DATE_TRUNC('hour', last_attempt_finished_at) AS hour,
                 (metadata->>'team_id')::bigint AS team_id,
@@ -210,7 +243,7 @@ impl WebhookCleaner {
         Ok(rows)
     }
 
-    async fn get_failed_rows(&self, tx: &mut SerializableTxn<'_>) -> Result<Vec<FailedRow>> {
+    async fn get_failed_agg_rows(&self, tx: &mut SerializableTxn<'_>) -> Result<Vec<FailedRow>> {
         let base_query = r#"
             SELECT DATE_TRUNC('hour', last_attempt_finished_at) AS hour,
                    (metadata->>'team_id')::bigint AS team_id,
@@ -294,6 +327,14 @@ impl WebhookCleaner {
         Ok(result.rows_affected())
     }
 
+    async fn rollback_txn(&self, tx: SerializableTxn<'_>) -> Result<()> {
+        tx.0.rollback()
+            .await
+            .map_err(|e| WebhookCleanerError::RollbackTxnError { error: e })?;
+
+        Ok(())
+    }
+
     async fn commit_txn(&self, tx: SerializableTxn<'_>) -> Result<()> {
         tx.0.commit()
             .await
@@ -315,33 +356,53 @@ impl WebhookCleaner {
 
         let mut tx = self.start_serializable_txn().await?;
 
-        let completed_agg_row_count = {
-            let completed_rows = self.get_completed_rows(&mut tx).await?;
-            let row_count = completed_rows.len();
+        let (completed_row_count, completed_agg_row_count) = {
+            let completed_row_count = self.get_row_count_for_status(&mut tx, "completed").await?;
+            let completed_agg_rows = self.get_completed_agg_rows(&mut tx).await?;
+            let agg_row_count = completed_agg_rows.len() as u64;
             let completed_app_metrics: Vec<AppMetric> =
-                completed_rows.into_iter().map(Into::into).collect();
+                completed_agg_rows.into_iter().map(Into::into).collect();
             self.send_metrics_to_kafka(completed_app_metrics).await?;
-            row_count
+            (completed_row_count, agg_row_count)
         };
 
-        let failed_agg_row_count = {
-            let failed_rows = self.get_failed_rows(&mut tx).await?;
-            let row_count = failed_rows.len();
+        let (failed_row_count, failed_agg_row_count) = {
+            let failed_row_count = self.get_row_count_for_status(&mut tx, "failed").await?;
+            let failed_agg_rows = self.get_failed_agg_rows(&mut tx).await?;
+            let agg_row_count = failed_agg_rows.len() as u64;
             let failed_app_metrics: Vec<AppMetric> =
-                failed_rows.into_iter().map(Into::into).collect();
+                failed_agg_rows.into_iter().map(Into::into).collect();
             self.send_metrics_to_kafka(failed_app_metrics).await?;
-            row_count
+            (failed_row_count, agg_row_count)
         };
 
-        let mut rows_processed = 0;
+        let mut rows_deleted = 0;
         if completed_agg_row_count + failed_agg_row_count != 0 {
-            rows_processed = self.delete_observed_rows(&mut tx).await?;
+            rows_deleted = self.delete_observed_rows(&mut tx).await?;
+
+            if rows_deleted != completed_row_count + failed_row_count {
+                // This should never happen, but if it does, we want to know about it (and abort the
+                // txn).
+                error!(
+                    attempted_rows_deleted = rows_deleted,
+                    completed_row_count = completed_row_count,
+                    failed_row_count = failed_row_count,
+                    "WebhookCleaner::cleanup attempted to delete a different number of rows than expected"
+                );
+
+                self.rollback_txn(tx).await?;
+
+                return Err(WebhookCleanerError::DeleteConsistencyError);
+            }
+
             self.commit_txn(tx).await?;
         }
 
         Ok(CleanupStats {
-            rows_processed,
+            rows_processed: rows_deleted,
+            completed_row_count,
             completed_agg_row_count,
+            failed_row_count,
             failed_agg_row_count,
         })
     }
@@ -362,14 +423,20 @@ impl Cleaner for WebhookCleaner {
 
                     metrics::counter!("webhook_cleanup_rows_processed",)
                         .increment(stats.rows_processed);
+                    metrics::counter!("webhook_cleanup_completed_row_count",)
+                        .increment(stats.completed_row_count);
                     metrics::counter!("webhook_cleanup_completed_agg_row_count",)
-                        .increment(stats.completed_agg_row_count as u64);
+                        .increment(stats.completed_agg_row_count);
+                    metrics::counter!("webhook_cleanup_failed_row_count",)
+                        .increment(stats.failed_row_count);
                     metrics::counter!("webhook_cleanup_failed_agg_row_count",)
-                        .increment(stats.failed_agg_row_count as u64);
+                        .increment(stats.failed_agg_row_count);
 
                     debug!(
                         rows_processed = stats.rows_processed,
+                        completed_row_count = stats.completed_row_count,
                         completed_agg_row_count = stats.completed_agg_row_count,
+                        failed_row_count = stats.failed_row_count,
                         failed_agg_row_count = stats.failed_agg_row_count,
                         "WebhookCleaner::cleanup finished"
                     );
@@ -665,8 +732,11 @@ mod tests {
 
         // Important! Serializable txn is started here.
         let mut tx = webhook_cleaner.start_serializable_txn().await.unwrap();
-        webhook_cleaner.get_completed_rows(&mut tx).await.unwrap();
-        webhook_cleaner.get_failed_rows(&mut tx).await.unwrap();
+        webhook_cleaner
+            .get_completed_agg_rows(&mut tx)
+            .await
+            .unwrap();
+        webhook_cleaner.get_failed_agg_rows(&mut tx).await.unwrap();
 
         // All 13 rows in the queue are visible from outside the txn.
         // The 11 the cleaner will process, plus 1 available and 1 running.
