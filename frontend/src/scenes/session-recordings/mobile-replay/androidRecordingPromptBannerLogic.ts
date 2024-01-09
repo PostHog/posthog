@@ -5,6 +5,7 @@ import api from 'lib/api'
 import posthog from 'posthog-js'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { hogql } from '~/queries/utils'
 
 import type { androidRecordingPromptBannerLogicType } from './androidRecordingPromptBannerLogicType'
 
@@ -33,13 +34,13 @@ export const androidRecordingPromptBannerLogic = kea<androidRecordingPromptBanne
 
                     const query: HogQLQuery = {
                         kind: NodeKind.HogQLQuery,
-                        query: `SELECT properties.$lib_version AS lib_version,
+                        query: hogql`SELECT properties.$lib_version AS lib_version,
                                        max(timestamp)          AS latest_timestamp,
                                        count(lib_version) as count
                                 FROM events
                                 WHERE timestamp >= now() - INTERVAL 30 DAY
                                   AND timestamp <= now()
-                                  AND properties.$lib in ('posthog-android')
+                                  AND properties.$lib = 'posthog-android'
                                 GROUP BY lib_version
                                 ORDER BY latest_timestamp DESC
                                     limit 10`,
