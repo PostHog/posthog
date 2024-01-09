@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { CodeEditor } from 'lib/components/CodeEditors'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { IconEdit } from 'lib/lemon-ui/icons'
 
 import { PluginInstallationType } from '~/types'
 
@@ -126,26 +127,27 @@ export function AppCode({
                     label: filename,
                     key: filename,
                     content: (
-                        <>
-                            {canEdit && (
-                                <div className="flex items-center gap-2">
-                                    <LemonButton type="secondary" onClick={() => editAppCode()}>
-                                        Edit
-                                    </LemonButton>
-                                </div>
-                            )}
-                            {
-                                <CodeSnippet
-                                    language={currentFile.endsWith('.json') ? Language.JSON : Language.JavaScript}
-                                    thing={currentFile}
-                                    maxLinesWithoutExpansion={20}
-                                    style={{ fontSize: 12 }}
-                                    wrap
-                                >
-                                    {pluginSource[currentFile] ?? ''}
-                                </CodeSnippet>
-                            }
-                        </>
+                        <div className="mr-4">
+                            <CodeSnippet
+                                language={currentFile.endsWith('.json') ? Language.JSON : Language.JavaScript}
+                                thing={currentFile}
+                                maxLinesWithoutExpansion={20}
+                                actions={
+                                    canEdit
+                                        ? [
+                                              {
+                                                  icon: <IconEdit />,
+                                                  title: 'Edit the code',
+                                                  callback: editAppCode,
+                                              },
+                                          ]
+                                        : undefined
+                                }
+                                wrap
+                            >
+                                {pluginSource[currentFile] ?? ''}
+                            </CodeSnippet>
+                        </div>
                     ),
                 }))}
             />
