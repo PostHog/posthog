@@ -1,3 +1,4 @@
+# serializer version: 1
 # name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes
   '''
   SELECT "posthog_featureflag"."id",

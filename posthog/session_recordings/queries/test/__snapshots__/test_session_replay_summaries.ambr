@@ -1,3 +1,4 @@
+# serializer version: 1
 # name: TestReceiveSummarizedSessionReplays.test_session_replay_summaries_can_be_queried
   '''
   

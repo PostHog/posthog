@@ -1,3 +1,4 @@
+# serializer version: 1
 # name: TestFOSSRetention.test_day_interval_sampled
   '''
   WITH actor_query AS

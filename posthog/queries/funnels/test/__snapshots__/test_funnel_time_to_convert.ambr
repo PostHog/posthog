@@ -1,3 +1,4 @@
+# serializer version: 1
 # name: TestFunnelTimeToConvert.test_auto_bin_count_single_step
   '''
   WITH step_runs AS

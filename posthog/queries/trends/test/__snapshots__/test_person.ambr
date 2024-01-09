@@ -1,3 +1,4 @@
+# serializer version: 1
 # name: TestPerson.test_group_query_includes_recording_events
   '''
   

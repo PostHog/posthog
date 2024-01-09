@@ -1,3 +1,4 @@
+# serializer version: 1
 # name: TestBreakdowns.test_breakdown_by_event_property_of_unique_sessions_with_bucketing
   '''
   

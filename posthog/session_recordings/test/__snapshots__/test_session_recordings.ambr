@@ -1,3 +1,4 @@
+# serializer version: 1
 # name: TestSessionRecordings.test_get_session_recordings
   '''
   SELECT "posthog_team"."id",
