@@ -10,6 +10,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { PluginInstallationType, PluginType } from '~/types'
 
+import { AppCode } from './AppCode'
 import { appsManagementLogic } from './appsManagementLogic'
 import { SourcePluginKind } from './sourceAppInitialCode'
 import { RenderApp } from './utils'
@@ -75,8 +76,6 @@ type RenderAppsTable = {
 function AppsTable({ plugins }: RenderAppsTable): JSX.Element {
     const { unusedPlugins } = useValues(appsManagementLogic)
     const { uninstallPlugin, patchPlugin } = useActions(appsManagementLogic)
-
-    // TODO: row expansion to show the source code and allow updating source apps
 
     const data = plugins.map((plugin) => ({ ...plugin, key: plugin.id }))
     return (
@@ -194,6 +193,12 @@ function AppsTable({ plugins }: RenderAppsTable): JSX.Element {
                         },
                     },
                 ]}
+                expandable={{
+                    // TODO: how to handle expanding multiple rows?
+                    expandedRowRender: function Render(plugin: PluginType) {
+                        return <AppCode pluginId={plugin.id} pluginType={plugin.plugin_type} />
+                    },
+                }}
             />
         </>
     )

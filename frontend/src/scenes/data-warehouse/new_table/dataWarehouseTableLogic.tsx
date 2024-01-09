@@ -5,7 +5,6 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode } from '~/queries/schema'
@@ -103,12 +102,7 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
             () => [],
             (): Breadcrumb[] => [
                 {
-                    key: Scene.DataWarehouse,
-                    name: `Data warehouse`,
-                    path: urls.dataWarehouseExternal(),
-                },
-                {
-                    key: [Scene.DataWarehouseTable, 'new'],
+                    key: 'new',
                     name: 'New',
                 },
             ],
