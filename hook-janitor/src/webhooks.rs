@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -350,9 +350,23 @@ impl WebhookCleaner {
 #[async_trait]
 impl Cleaner for WebhookCleaner {
     async fn cleanup(&self) {
+        let start_time = Instant::now();
+
         match self.cleanup_impl().await {
             Ok(stats) => {
+                metrics::counter!("webhook_cleanup_runs",).increment(1);
+
                 if stats.rows_processed > 0 {
+                    let elapsed_time = start_time.elapsed().as_secs_f64();
+                    metrics::histogram!("webhook_cleanup_duration").record(elapsed_time);
+
+                    metrics::counter!("webhook_cleanup_rows_processed",)
+                        .increment(stats.rows_processed);
+                    metrics::counter!("webhook_cleanup_completed_agg_row_count",)
+                        .increment(stats.completed_agg_row_count as u64);
+                    metrics::counter!("webhook_cleanup_failed_agg_row_count",)
+                        .increment(stats.failed_agg_row_count as u64);
+
                     debug!(
                         rows_processed = stats.rows_processed,
                         completed_agg_row_count = stats.completed_agg_row_count,
@@ -364,6 +378,7 @@ impl Cleaner for WebhookCleaner {
                 }
             }
             Err(error) => {
+                metrics::counter!("webhook_cleanup_failures",).increment(1);
                 error!(error = ?error, "WebhookCleaner::cleanup failed");
             }
         }

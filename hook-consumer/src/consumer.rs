@@ -192,7 +192,7 @@ async fn spawn_webhook_job_processing_task<W: WebhookJob + 'static>(
         ("target", webhook_job.target()),
     ];
 
-    metrics::increment_counter!("webhook_jobs_total", &labels);
+    metrics::counter!("webhook_jobs_total", &labels).increment(1);
 
     tokio::spawn(async move {
         let result = process_webhook_job(client, webhook_job, &retry_policy).await;
@@ -247,8 +247,9 @@ async fn process_webhook_job<W: WebhookJob>(
                 .await
                 .map_err(|error| ConsumerError::PgJobError(error.to_string()))?;
 
-            metrics::increment_counter!("webhook_jobs_completed", &labels);
-            metrics::histogram!("webhook_jobs_processing_duration_seconds", elapsed, &labels);
+            metrics::counter!("webhook_jobs_completed", &labels).increment(1);
+            metrics::histogram!("webhook_jobs_processing_duration_seconds", &labels)
+                .record(elapsed);
 
             Ok(())
         }
@@ -258,7 +259,7 @@ async fn process_webhook_job<W: WebhookJob>(
                 .await
                 .map_err(|job_error| ConsumerError::PgJobError(job_error.to_string()))?;
 
-            metrics::increment_counter!("webhook_jobs_failed", &labels);
+            metrics::counter!("webhook_jobs_failed", &labels).increment(1);
 
             Ok(())
         }
@@ -268,7 +269,7 @@ async fn process_webhook_job<W: WebhookJob>(
                 .await
                 .map_err(|job_error| ConsumerError::PgJobError(job_error.to_string()))?;
 
-            metrics::increment_counter!("webhook_jobs_failed", &labels);
+            metrics::counter!("webhook_jobs_failed", &labels).increment(1);
 
             Ok(())
         }
@@ -278,7 +279,7 @@ async fn process_webhook_job<W: WebhookJob>(
                 .await
                 .map_err(|job_error| ConsumerError::PgJobError(job_error.to_string()))?;
 
-            metrics::increment_counter!("webhook_jobs_failed", &labels);
+            metrics::counter!("webhook_jobs_failed", &labels).increment(1);
 
             Ok(())
         }
@@ -293,7 +294,7 @@ async fn process_webhook_job<W: WebhookJob>(
                 .await
             {
                 Ok(_) => {
-                    metrics::increment_counter!("webhook_jobs_retried", &labels);
+                    metrics::counter!("webhook_jobs_retried", &labels).increment(1);
 
                     Ok(())
                 }
@@ -305,7 +306,7 @@ async fn process_webhook_job<W: WebhookJob>(
                         .await
                         .map_err(|job_error| ConsumerError::PgJobError(job_error.to_string()))?;
 
-                    metrics::increment_counter!("webhook_jobs_failed", &labels);
+                    metrics::counter!("webhook_jobs_failed", &labels).increment(1);
 
                     Ok(())
                 }
@@ -318,7 +319,7 @@ async fn process_webhook_job<W: WebhookJob>(
                 .await
                 .map_err(|job_error| ConsumerError::PgJobError(job_error.to_string()))?;
 
-            metrics::increment_counter!("webhook_jobs_failed", &labels);
+            metrics::counter!("webhook_jobs_failed", &labels).increment(1);
 
             Ok(())
         }

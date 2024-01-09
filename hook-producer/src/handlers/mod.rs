@@ -1,4 +1,4 @@
 mod app;
 mod webhook;
 
-pub use app::app;
+pub use app::add_routes;

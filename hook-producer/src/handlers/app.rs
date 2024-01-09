@@ -1,23 +1,13 @@
 use axum::{routing, Router};
-use metrics_exporter_prometheus::PrometheusHandle;
 
-use hook_common::metrics;
 use hook_common::pgqueue::PgQueue;
 
 use super::webhook;
 
-pub fn app(pg_pool: PgQueue, metrics: Option<PrometheusHandle>) -> Router {
-    Router::new()
+pub fn add_routes(router: Router, pg_pool: PgQueue) -> Router {
+    router
         .route("/", routing::get(index))
-        .route(
-            "/metrics",
-            routing::get(move || match metrics {
-                Some(ref recorder_handle) => std::future::ready(recorder_handle.render()),
-                None => std::future::ready("no metrics recorder installed".to_owned()),
-            }),
-        )
         .route("/webhook", routing::post(webhook::post).with_state(pg_pool))
-        .layer(axum::middleware::from_fn(metrics::track_metrics))
 }
 
 pub async fn index() -> &'static str {
@@ -42,7 +32,7 @@ mod tests {
             .await
             .expect("failed to construct pg_queue");
 
-        let app = app(pg_queue, None);
+        let app = add_routes(Router::new(), pg_queue);
 
         let response = app
             .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
