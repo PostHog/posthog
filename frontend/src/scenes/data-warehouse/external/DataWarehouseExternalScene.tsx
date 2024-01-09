@@ -213,7 +213,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                         </div>
                     </div>
                 ) : (
-                    <div className="px-4 py-3 col-span-2 flex justify-center items-center">
+                    <div className="px-4 py-3 h-100 col-span-2 flex justify-center items-center">
                         <EmptyMessage
                             title="No table selected"
                             description="Please select a table from the list on the left"
