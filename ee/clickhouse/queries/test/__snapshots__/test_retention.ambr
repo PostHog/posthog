@@ -1,3 +1,4 @@
+# serializer version: 1
 # name: TestClickhouseRetention.test_groups_aggregating_person_on_events
   '''
   WITH actor_query AS

@@ -1,3 +1,4 @@
+# serializer version: 1
 # name: TestClickhouseLifecycle.test_interval_dates_days
   '''
   WITH 'day' AS selected_period,

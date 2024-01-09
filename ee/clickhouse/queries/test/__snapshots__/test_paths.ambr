@@ -1,3 +1,4 @@
+# serializer version: 1
 # name: TestClickhousePaths.test_by_funnel_after_dropoff
   '''
   WITH funnel_actors AS

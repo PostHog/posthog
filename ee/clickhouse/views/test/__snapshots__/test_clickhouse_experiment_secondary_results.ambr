@@ -1,3 +1,4 @@
+# serializer version: 1
 # name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results
   '''
   /* user_id:132 celery:posthog.celery.sync_insight_caching_state */
