@@ -670,7 +670,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
                 secret_fields=_get_secret_fields_for_plugin(plugin_config.plugin),
             ),
             user=self.context["request"].user,
-            was_impersonated=is_impersonated_session(self.request),
+            was_impersonated=is_impersonated_session(self.context["request"]),
         )
 
         _update_plugin_attachments(self.context["request"], plugin_config)
@@ -708,7 +708,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
             old_enabled=old_enabled,
             secret_fields=secret_fields,
             user=self.context["request"].user,
-            was_impersonated=is_impersonated_session(self.request),
+            was_impersonated=is_impersonated_session(self.context["request"]),
         )
 
         _update_plugin_attachments(self.context["request"], plugin_config)
