@@ -52,6 +52,9 @@ export default {
     parameters: {
         layout: 'fullscreen',
         options: { showPanel: false },
+        testOptions: {
+            excludeNavigationFromSnapshot: true,
+        },
         viewMode: 'story',
         mockDate: '2023-02-18',
         featureFlags: [FEATURE_FLAGS.PIPELINE_UI],

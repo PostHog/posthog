@@ -110,7 +110,7 @@ async function expectStoryToMatchSnapshot(
         if (excludeNavigationFromSnapshot) {
             check = expectStoryToMatchSceneSnapshot
         } else {
-            check = expectStoryToMatchFullPageSnapshot
+            check = expectStoryToMatchViewportSnapshot
         }
     } else {
         check = expectStoryToMatchComponentSnapshot
@@ -151,7 +151,7 @@ async function expectStoryToMatchSnapshot(
     await check(page, context, browser, 'dark', storyContext.parameters?.testOptions?.snapshotTargetSelector)
 }
 
-async function expectStoryToMatchFullPageSnapshot(
+async function expectStoryToMatchViewportSnapshot(
     page: Page,
     context: TestContext,
     browser: SupportedBrowserName,
@@ -166,12 +166,7 @@ async function expectStoryToMatchSceneSnapshot(
     browser: SupportedBrowserName,
     theme: SnapshotTheme
 ): Promise<void> {
-    await page.evaluate(() => {
-        // The screenshot gets clipped by overflow hidden on .Navigation3000
-        document.querySelector('Navigation3000')?.setAttribute('style', 'overflow: visible;')
-    })
-
-    await expectLocatorToMatchStorySnapshot(page.locator('main'), context, browser, theme)
+    await expectLocatorToMatchStorySnapshot(page.locator('.Navigation3000__scene'), context, browser, theme)
 }
 
 async function expectStoryToMatchComponentSnapshot(
