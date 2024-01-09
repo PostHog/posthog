@@ -73,7 +73,7 @@ export const actionsAndEventsToSeries = ({
                     id: f.id,
                     ...shared,
                 }
-            } else if (f.type === 'events') {
+            } else {
                 return {
                     kind: NodeKind.EventsNode,
                     event: f.id,

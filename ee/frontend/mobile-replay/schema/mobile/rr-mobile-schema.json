@@ -124,6 +124,26 @@
             "additionalProperties": false,
             "properties": {
                 "data": {
+                    "$ref": "#/definitions/MobileNodeMutationData",
+                    "description": "This sits alongside the RRWeb incremental snapshot event type, mobile replay can send any of the RRWeb incremental snapshot event types, which will be passed unchanged to the player - for example to send touch events. removed node mutations are passed unchanged to the player."
+                },
+                "delay": {
+                    "type": "number"
+                },
+                "timestamp": {
+                    "type": "number"
+                },
+                "type": {
+                    "$ref": "#/definitions/EventType.IncrementalSnapshot"
+                }
+            },
+            "required": ["data", "timestamp", "type"],
+            "type": "object"
+        },
+        {
+            "additionalProperties": false,
+            "properties": {
+                "data": {
                     "additionalProperties": false,
                     "properties": {
                         "payload": {
@@ -207,6 +227,53 @@
             "const": 4,
             "type": "number"
         },
+        "IncrementalSource.Mutation": {
+            "const": 0,
+            "type": "number"
+        },
+        "MobileNodeMutation": {
+            "additionalProperties": false,
+            "properties": {
+                "parentId": {
+                    "type": "number"
+                },
+                "wireframe": {
+                    "$ref": "#/definitions/wireframe"
+                }
+            },
+            "required": ["parentId", "wireframe"],
+            "type": "object"
+        },
+        "MobileNodeMutationData": {
+            "additionalProperties": false,
+            "properties": {
+                "adds": {
+                    "items": {
+                        "$ref": "#/definitions/MobileNodeMutation"
+                    },
+                    "type": "array"
+                },
+                "removes": {
+                    "description": "A mobile remove is identical to a web remove",
+                    "items": {
+                        "$ref": "#/definitions/removedNodeMutation"
+                    },
+                    "type": "array"
+                },
+                "source": {
+                    "$ref": "#/definitions/IncrementalSource.Mutation"
+                },
+                "updates": {
+                    "description": "An update is implemented as a remove and then an add, so the updates array contains the ID of the removed node and the wireframe for the added node",
+                    "items": {
+                        "$ref": "#/definitions/MobileNodeMutation"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["source"],
+            "type": "object"
+        },
         "MobileNodeType": {
             "enum": ["text", "image", "rectangle", "placeholder", "web_view", "input", "div", "radio_group"],
             "type": "string"
@@ -253,6 +320,22 @@
                     "type": "string"
                 }
             },
+            "type": "object"
+        },
+        "removedNodeMutation": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "number"
+                },
+                "isShadow": {
+                    "type": "boolean"
+                },
+                "parentId": {
+                    "type": "number"
+                }
+            },
+            "required": ["parentId", "id"],
             "type": "object"
         },
         "wireframe": {

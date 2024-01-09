@@ -6,7 +6,6 @@ import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
 import { router } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -49,6 +48,7 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
 import {
+    ActivityScope,
     AnyPropertyFilter,
     AvailableFeature,
     DashboardPlacement,
@@ -135,8 +135,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
             key: FeatureFlagsTab.OVERVIEW,
             content: (
                 <>
-                    <div className="flex space-x-4">
-                        <div className="flex-7">
+                    <div className="flex gap-4 flex-wrap">
+                        <div className="flex-1">
                             <FeatureFlagRollout readOnly />
                             {featureFlag.filters.super_groups && <FeatureFlagReleaseConditions readOnly isSuper />}
                             <FeatureFlagReleaseConditions readOnly />
@@ -144,7 +144,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 <FeatureFlagAutoRollback readOnly />
                             )}
                         </div>
-                        <div className="flex-6">
+                        <div className="max-w-120 w-full">
                             <RecentFeatureFlagInsights />
                             <div className="my-4" />
                         </div>
@@ -169,6 +169,14 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
             label: 'Projects',
             key: FeatureFlagsTab.PROJECTS,
             content: <FeatureFlagProjects />,
+        })
+    }
+
+    if (featureFlags[FEATURE_FLAGS.SCHEDULED_CHANGES_FEATURE_FLAGS]) {
+        tabs.push({
+            label: 'Schedule',
+            key: FeatureFlagsTab.SCHEDULE,
+            content: <FeatureFlagSchedule />,
         })
     }
 
@@ -219,14 +227,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                     />
                 </PayGateMini>
             ),
-        })
-    }
-
-    if (featureFlags[FEATURE_FLAGS.SCHEDULED_CHANGES_FEATURE_FLAGS]) {
-        tabs.push({
-            label: 'Schedule',
-            key: FeatureFlagsTab.SCHEDULE,
-            content: <FeatureFlagSchedule />,
         })
     }
 
@@ -403,7 +403,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 <div>
                                     <LemonButton
                                         fullWidth
-                                        status="stealth"
                                         onClick={() => setAdvancedSettingsExpanded(!advancedSettingsExpanded)}
                                         sideIcon={advancedSettingsExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                     >
@@ -682,7 +681,7 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
                     {featureFlagLoading ? (
                         <EmptyDashboardComponent loading={true} canEdit={false} />
                     ) : (
-                        <LemonButton type={'primary'} onClick={() => generateUsageDashboard()}>
+                        <LemonButton type="primary" onClick={() => generateUsageDashboard()}>
                             Generate Usage Dashboard
                         </LemonButton>
                     )}
@@ -933,9 +932,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             </div>
                             <div className="col-span-4 flex items-center gap-1">
                                 <span>Rollout</span>
-                                <LemonButton type="tertiary" onClick={distributeVariantsEqually}>
-                                    (Redistribute)
-                                </LemonButton>
+                                <LemonButton onClick={distributeVariantsEqually}>(Redistribute)</LemonButton>
                             </div>
                         </div>
                         {variants.map((variant, index) => (
@@ -1036,7 +1033,6 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                         {variants.length > 1 && (
                                             <LemonButton
                                                 icon={<IconDelete />}
-                                                status="primary-alt"
                                                 data-attr={`delete-prop-filter-${index}`}
                                                 noPadding
                                                 onClick={() => removeVariant(index)}

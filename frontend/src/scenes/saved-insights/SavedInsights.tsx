@@ -15,7 +15,6 @@ import {
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -57,7 +56,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { NodeKind } from '~/queries/schema'
 import { isInsightVizNode } from '~/queries/utils'
-import { InsightModel, InsightType, LayoutView, SavedInsightsTabs } from '~/types'
+import { ActivityScope, InsightModel, InsightType, LayoutView, SavedInsightsTabs } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
@@ -475,15 +474,14 @@ export function SavedInsights(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton status="stealth" to={urls.insightView(insight.short_id)} fullWidth>
+                                <LemonButton to={urls.insightView(insight.short_id)} fullWidth>
                                     View
                                 </LemonButton>
                                 <LemonDivider />
-                                <LemonButton status="stealth" to={urls.insightEdit(insight.short_id)} fullWidth>
+                                <LemonButton to={urls.insightEdit(insight.short_id)} fullWidth>
                                     Edit
                                 </LemonButton>
                                 <LemonButton
-                                    status="stealth"
                                     onClick={() => renameInsight(insight)}
                                     data-attr={`insight-item-${insight.short_id}-dropdown-rename`}
                                     fullWidth
@@ -491,7 +489,6 @@ export function SavedInsights(): JSX.Element {
                                     Rename
                                 </LemonButton>
                                 <LemonButton
-                                    status="stealth"
                                     onClick={() => duplicateInsight(insight)}
                                     data-attr={`duplicate-insight-from-list-view`}
                                     fullWidth

@@ -299,7 +299,6 @@ export function Experiment(): JSX.Element {
                                                                             placement="bottomLeft"
                                                                         >
                                                                             <LemonButton
-                                                                                status="primary-alt"
                                                                                 size="small"
                                                                                 icon={<IconDelete />}
                                                                                 onClick={() =>
@@ -566,7 +565,6 @@ export function Experiment(): JSX.Element {
                                                     overlay={
                                                         <>
                                                             <LemonButton
-                                                                status="stealth"
                                                                 onClick={() => loadExperimentResults(true)}
                                                                 fullWidth
                                                                 data-attr="refresh-experiment"
@@ -595,9 +593,7 @@ export function Experiment(): JSX.Element {
                                                 }
                                                 onConfirm={() => resetRunningExperiment()}
                                             >
-                                                <LemonButton type="secondary" status="primary">
-                                                    Reset
-                                                </LemonButton>
+                                                <LemonButton type="secondary">Reset</LemonButton>
                                             </Popconfirm>
                                             {!experiment.end_date && (
                                                 <LemonButton

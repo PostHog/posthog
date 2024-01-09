@@ -10,19 +10,25 @@ import {
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { urls } from 'scenes/urls'
 
-import { PipelineAppTabs, PipelineTabs, PluginConfigTypeNew, ProductKey } from '~/types'
+import { PipelineAppTabs, PipelineTabs, PluginConfigWithPluginInfoNew, ProductKey } from '~/types'
 
 import { pipelineDestinationsLogic } from './destinationsLogic'
 import { NewButton } from './NewButton'
 import { RenderApp } from './utils'
 
 export function Destinations(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    if (!featureFlags[FEATURE_FLAGS.PIPELINE_UI]) {
+        return <></>
+    }
     const { enabledPluginConfigs, disabledPluginConfigs, shouldShowProductIntroduction } =
         useValues(pipelineDestinationsLogic)
 
@@ -58,7 +64,7 @@ function BatchExportsTable(): JSX.Element {
 }
 
 function AppsTable(): JSX.Element {
-    const { loading, enabledPluginConfigs, disabledPluginConfigs, plugins, canConfigurePlugins } =
+    const { loading, displayablePluginConfigs, enabledPluginConfigs, disabledPluginConfigs, canConfigurePlugins } =
         useValues(pipelineDestinationsLogic)
     const { toggleEnabled, loadPluginConfigs } = useActions(pipelineDestinationsLogic)
 
@@ -70,7 +76,7 @@ function AppsTable(): JSX.Element {
         <>
             <h2>Webhooks</h2>
             <LemonTable
-                dataSource={[...enabledPluginConfigs, ...disabledPluginConfigs]}
+                dataSource={displayablePluginConfigs}
                 size="xs"
                 loading={loading}
                 columns={[
@@ -97,7 +103,7 @@ function AppsTable(): JSX.Element {
                     {
                         title: 'App',
                         render: function RenderAppInfo(_, pluginConfig) {
-                            return <RenderApp plugin={plugins[pluginConfig.plugin]} />
+                            return <RenderApp plugin={pluginConfig.plugin_info} />
                         },
                     },
                     {
@@ -130,7 +136,7 @@ function AppsTable(): JSX.Element {
                             )
                         },
                     },
-                    updatedAtColumn() as LemonTableColumn<PluginConfigTypeNew, any>,
+                    updatedAtColumn() as LemonTableColumn<PluginConfigWithPluginInfoNew, any>,
                     {
                         title: 'Status',
                         render: function RenderStatus(_, pluginConfig) {
@@ -157,7 +163,6 @@ function AppsTable(): JSX.Element {
                                     overlay={
                                         <>
                                             <LemonButton
-                                                status="stealth"
                                                 onClick={() => {
                                                     toggleEnabled({
                                                         enabled: !pluginConfig.enabled,
@@ -175,7 +180,6 @@ function AppsTable(): JSX.Element {
                                                 {pluginConfig.enabled ? 'Disable' : 'Enable'} app
                                             </LemonButton>
                                             <LemonButton
-                                                status="stealth"
                                                 to={urls.pipelineApp(pluginConfig.id, PipelineAppTabs.Configuration)}
                                                 id={`app-${pluginConfig.id}-configuration`}
                                                 fullWidth
@@ -183,7 +187,6 @@ function AppsTable(): JSX.Element {
                                                 {canConfigurePlugins ? 'Edit' : 'View'} app configuration
                                             </LemonButton>
                                             <LemonButton
-                                                status="stealth"
                                                 to={urls.pipelineApp(pluginConfig.id, PipelineAppTabs.Metrics)}
                                                 id={`app-${pluginConfig.id}-metrics`}
                                                 fullWidth
@@ -191,24 +194,21 @@ function AppsTable(): JSX.Element {
                                                 View app metrics
                                             </LemonButton>
                                             <LemonButton
-                                                status="stealth"
                                                 to={urls.pipelineApp(pluginConfig.id, PipelineAppTabs.Logs)}
                                                 id={`app-${pluginConfig.id}-logs`}
                                                 fullWidth
                                             >
                                                 View app logs
                                             </LemonButton>
-                                            {plugins[pluginConfig.plugin].url && (
-                                                <LemonButton
-                                                    status="stealth"
-                                                    to={plugins[pluginConfig.plugin].url}
-                                                    targetBlank={true}
-                                                    id={`app-${pluginConfig.id}-source-code`}
-                                                    fullWidth
-                                                >
-                                                    View app source code
-                                                </LemonButton>
-                                            )}
+                                            <LemonButton
+                                                to={pluginConfig.plugin_info?.url}
+                                                targetBlank={true}
+                                                loading={!pluginConfig.plugin_info?.url}
+                                                id={`app-${pluginConfig.id}-source-code`}
+                                                fullWidth
+                                            >
+                                                View app source code
+                                            </LemonButton>
                                             <LemonDivider />
                                             <LemonButton
                                                 status="danger"
@@ -222,7 +222,7 @@ function AppsTable(): JSX.Element {
                                                         callback: loadPluginConfigs,
                                                     })
                                                 }}
-                                                id={`app-reorder`}
+                                                id="app-reorder"
                                                 disabledReason={
                                                     canConfigurePlugins
                                                         ? undefined

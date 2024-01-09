@@ -102,7 +102,6 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     }
                                 />
                             )}
-                            <LemonDivider vertical />
                             {!isNewCohort && (
                                 <NotebookSelectButton
                                     type="secondary"

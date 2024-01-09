@@ -153,7 +153,7 @@ body:not(.posthog-3000) {
         }
 
         &:not(:last-child) {
-            .LemonButton {
+            .LemonButton__chrome {
                 border-right: none;
             }
         }

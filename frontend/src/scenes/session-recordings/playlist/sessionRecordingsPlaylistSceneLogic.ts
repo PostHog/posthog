@@ -152,7 +152,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
                     path: urls.replay(ReplayTabs.Playlists),
                 },
                 {
-                    key: playlist?.short_id || 'new',
+                    key: [Scene.ReplayPlaylist, playlist?.short_id || 'new'],
                     name: playlist?.name || playlist?.derived_name || 'Unnamed',
                     onRename: async (name: string) => {
                         if (!playlist) {

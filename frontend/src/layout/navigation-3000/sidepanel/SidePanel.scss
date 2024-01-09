@@ -45,6 +45,10 @@
     overflow: hidden;
     user-select: none;
     border-left-width: 1px;
+
+    .LemonButton__icon {
+        transform: rotate(-90deg);
+    }
 }
 
 .SidePanel3000__tabs {

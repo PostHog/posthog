@@ -12,6 +12,7 @@ import { NotebookPanel } from 'scenes/notebooks/NotebookPanel/NotebookPanel'
 import { SidePanelTab } from '~/types'
 
 import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
+import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion'
 import { SidePanelActivation, SidePanelActivationIcon } from './panels/SidePanelActivation'
 import { SidePanelDocs } from './panels/SidePanelDocs'
 import { SidePanelFeaturePreviews } from './panels/SidePanelFeaturePreviews'
@@ -59,6 +60,11 @@ export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; C
         label: 'Activity',
         Icon: SidePanelActivityIcon,
         Content: SidePanelActivity,
+    },
+    [SidePanelTab.Discussion]: {
+        label: 'Discussion',
+        Icon: SidePanelDiscussionIcon,
+        Content: SidePanelDiscussion,
     },
     [SidePanelTab.Welcome]: {
         label: "What's new?",
@@ -144,14 +150,14 @@ export function SidePanel(): JSX.Element | null {
                             return (
                                 <LemonButton
                                     key={tab}
-                                    icon={<Icon className="rotate-270 w-6" />}
+                                    icon={<Icon />}
                                     onClick={() =>
                                         activeTab === tab ? closeSidePanel() : openSidePanel(tab as SidePanelTab)
                                     }
                                     data-attr={`sidepanel-tab-${tab}`}
                                     active={activeTab === tab}
                                     type="secondary"
-                                    stealth={true}
+                                    status="alt"
                                 >
                                     {label}
                                 </LemonButton>
@@ -162,7 +168,7 @@ export function SidePanel(): JSX.Element | null {
                 {menuOptions ? (
                     <div className="shrink-0 flex items-center m-2">
                         <LemonMenu items={menuOptions}>
-                            <LemonButton size="small" status="stealth" icon={<IconEllipsis />} />
+                            <LemonButton size="small" icon={<IconEllipsis />} />
                         </LemonMenu>
                     </div>
                 ) : null}
