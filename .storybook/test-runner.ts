@@ -22,11 +22,10 @@ declare module '@storybook/types' {
             /** If set, we'll wait for the given selector to be satisfied. */
             waitForSelector?: string
             /**
-             * Whether navigation (sidebar + topbar) should be excluded from the snapshot.
-             * Warning: Fails if enabled for stories in which navigation is not present.
+             * Whether navigation should be included in the snapshot. Only applies to `layout: 'fullscreen'` stories.
              * @default false
              */
-            excludeNavigationFromSnapshot?: boolean
+            includeNavigationInSnapshot?: boolean
             /**
              * The test will always run for all the browers, but snapshots are only taken in Chromium by default.
              * Override this to take snapshots in other browsers too.
@@ -96,7 +95,7 @@ async function expectStoryToMatchSnapshot(
     const {
         waitForLoadersToDisappear = true,
         waitForSelector,
-        excludeNavigationFromSnapshot = false,
+        includeNavigationInSnapshot = false,
     } = storyContext.parameters?.testOptions ?? {}
 
     let check: (
@@ -107,10 +106,10 @@ async function expectStoryToMatchSnapshot(
         targetSelector?: string
     ) => Promise<void>
     if (storyContext.parameters?.layout === 'fullscreen') {
-        if (excludeNavigationFromSnapshot) {
-            check = expectStoryToMatchSceneSnapshot
-        } else {
+        if (includeNavigationInSnapshot) {
             check = expectStoryToMatchViewportSnapshot
+        } else {
+            check = expectStoryToMatchSceneSnapshot
         }
     } else {
         check = expectStoryToMatchComponentSnapshot
@@ -166,7 +165,8 @@ async function expectStoryToMatchSceneSnapshot(
     browser: SupportedBrowserName,
     theme: SnapshotTheme
 ): Promise<void> {
-    await expectLocatorToMatchStorySnapshot(page.locator('.Navigation3000__scene'), context, browser, theme)
+    // Using .or() because in some cases there's no <main> (primarily logged-out screens)
+    await expectLocatorToMatchStorySnapshot(page.locator('main').or(page), context, browser, theme)
 }
 
 async function expectStoryToMatchComponentSnapshot(
