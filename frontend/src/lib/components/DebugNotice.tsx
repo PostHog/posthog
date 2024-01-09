@@ -61,7 +61,7 @@ export function DebugNotice(): JSX.Element | null {
             // eslint-disable-next-line react/forbid-dom-props
             style={{ fontSize: 13 }} // utility classes don't have a 13px variant
         >
-            <div className="p-2 border-l-4 border-primary text-primary-3000 truncate flex justify-between">
+            <div className="p-2 border-l-4 border-brand-blue text-primary-3000 truncate flex justify-between">
                 <b>DEBUG mode</b>
                 <LemonButton icon={<IconClose />} size="small" noPadding onClick={() => setNoticeHidden(true)} />
             </div>
