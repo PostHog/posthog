@@ -39,8 +39,6 @@ click==8.1.7
     #   pip-tools
 colorama==0.4.4
     # via pytest-watch
-colored==1.4.2
-    # via syrupy
 coreapi==2.3.3
     # via djangorestframework-stubs
 coreschema==0.0.4
@@ -220,7 +218,7 @@ sqlparse==0.4.4
     # via
     #   -c requirements.txt
     #   django
-syrupy==2.0.0
+syrupy==4.6.0
     # via -r requirements-dev.in
 toml==0.10.1
     # via
