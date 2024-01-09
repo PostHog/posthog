@@ -1,3 +1,4 @@
+# serializer version: 1
 # name: TestClickhouseFunnelCorrelation.test_action_events_are_excluded_from_correlations
   '''
   WITH funnel_actors as

@@ -1,3 +1,4 @@
+# serializer version: 1
 # name: TestClickhouseFunnelCorrelationsActors.test_funnel_correlation_on_event_with_recordings
   '''
   WITH funnel_actors as
