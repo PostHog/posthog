@@ -289,6 +289,7 @@
          "posthog_activitylog"."team_id",
          "posthog_activitylog"."organization_id",
          "posthog_activitylog"."user_id",
+         "posthog_activitylog"."was_impersonated",
          "posthog_activitylog"."is_system",
          "posthog_activitylog"."activity",
          "posthog_activitylog"."item_id",
