@@ -1,3 +1,4 @@
+# serializer version: 1
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down
   '''
   SELECT "posthog_user"."id",

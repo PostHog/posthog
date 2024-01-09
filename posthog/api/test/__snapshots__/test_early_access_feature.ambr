@@ -1,3 +1,4 @@
+# serializer version: 1
 # name: TestPreviewList.test_early_access_features
   '''
   SELECT "posthog_team"."id",

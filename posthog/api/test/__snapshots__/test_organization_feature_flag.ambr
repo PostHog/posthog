@@ -1,3 +1,4 @@
+# serializer version: 1
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new
   '''
   SELECT "posthog_user"."id",

@@ -1,3 +1,4 @@
+# serializer version: 1
 # name: TestInsight.test_insight_funnels_hogql_breakdown
   '''
   /* user_id:0 request:_snapshot_ */

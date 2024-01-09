@@ -1,3 +1,4 @@
+# serializer version: 1
 # name: TestPreflight.test_cloud_preflight_limited_db_queries
   '''
   SELECT "posthog_user"."id",

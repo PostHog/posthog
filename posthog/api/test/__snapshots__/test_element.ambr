@@ -1,3 +1,4 @@
+# serializer version: 1
 # name: TestElement.test_element_stats_postgres_queries_are_as_expected
   '''
   SELECT "posthog_user"."id",

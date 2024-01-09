@@ -1,3 +1,4 @@
+# serializer version: 1
 # name: TestCohort.test_async_deletion_of_cohort
   '''
   /* user_id:119 celery:posthog.tasks.calculate_cohort.calculate_cohort_ch */
