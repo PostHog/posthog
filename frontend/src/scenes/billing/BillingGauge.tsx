@@ -18,7 +18,7 @@ type BillingGaugeItemProps = {
     isWithinUsageLimit: boolean
 }
 
-const BillingGaugeItem3000 = ({ item, maxValue, isWithinUsageLimit }: BillingGaugeItemProps): JSX.Element => {
+const BillingGaugeItem = ({ item, maxValue, isWithinUsageLimit }: BillingGaugeItemProps): JSX.Element => {
     const width = `${(item.value / maxValue) * 100}%`
 
     return (
@@ -54,7 +54,7 @@ export type BillingGaugeProps = {
     product: BillingProductV2Type
 }
 
-export function BillingGauge3000({ items, product }: BillingGaugeProps): JSX.Element {
+export function BillingGauge({ items, product }: BillingGaugeProps): JSX.Element {
     const maxValue = useMemo(() => {
         return Math.max(100, ...items.map((item) => item.value)) * 1.3
     }, [items])
@@ -63,7 +63,7 @@ export function BillingGauge3000({ items, product }: BillingGaugeProps): JSX.Ele
     return (
         <div className="relative h-2 bg-border-light my-16">
             {items.map((item, i) => (
-                <BillingGaugeItem3000 key={i} item={item} maxValue={maxValue} isWithinUsageLimit={isWithinUsageLimit} />
+                <BillingGaugeItem key={i} item={item} maxValue={maxValue} isWithinUsageLimit={isWithinUsageLimit} />
             ))}
         </div>
     )

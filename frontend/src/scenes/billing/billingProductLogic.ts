@@ -166,43 +166,6 @@ export const billingProductLogic = kea<billingProductLogicType>([
             (s, p) => [p.product, s.freeTier, s.billingLimitAsUsage],
             (product, freeTier, billingLimitAsUsage): BillingGaugeItemType[] => {
                 return [
-                    freeTier
-                        ? {
-                              type: BillingGaugeItemKind.FreeTier,
-                              text: 'Free tier limit',
-                              value: freeTier,
-                              top: true,
-                          }
-                        : undefined,
-                    {
-                        type: BillingGaugeItemKind.CurrentUsage,
-                        text: 'Current',
-                        value: product.current_usage || 0,
-                        top: false,
-                    },
-                    product.projected_usage && product.projected_usage > (product.current_usage || 0)
-                        ? {
-                              type: BillingGaugeItemKind.ProjectedUsage,
-                              text: 'Projected',
-                              value: product.projected_usage || 0,
-                              top: false,
-                          }
-                        : undefined,
-                    billingLimitAsUsage
-                        ? {
-                              type: BillingGaugeItemKind.BillingLimit,
-                              text: 'Billing limit',
-                              top: true,
-                              value: billingLimitAsUsage || 0,
-                          }
-                        : (undefined as any),
-                ].filter(Boolean)
-            },
-        ],
-        billingGaugeItems3000: [
-            (s, p) => [p.product, s.freeTier, s.billingLimitAsUsage],
-            (product, freeTier, billingLimitAsUsage): BillingGaugeItemType[] => {
-                return [
                     billingLimitAsUsage
                         ? {
                               type: BillingGaugeItemKind.BillingLimit,
