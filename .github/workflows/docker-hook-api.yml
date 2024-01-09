@@ -1,4 +1,4 @@
-name: Build hook-consumer docker image
+name: Build hook-api docker image
 
 on:
   workflow_dispatch:
@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build:
-    name: build and publish hook-consumer image
+    name: build and publish hook-api image
     runs-on: buildjet-4vcpu-ubuntu-2204-arm
     steps:
 
@@ -25,7 +25,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v4
         with:
-          images: ghcr.io/posthog/hook-consumer
+          images: ghcr.io/posthog/hook-api
           tags: |
             type=ref,event=pr
             type=ref,event=branch
@@ -44,8 +44,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push consumer
-        id: docker_build_hook_consumer
+      - name: Build and push api
+        id: docker_build_hook_api
         uses: docker/build-push-action@v4
         with:
           context: ./
@@ -57,7 +57,7 @@ jobs:
           platforms: linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          build-args: BIN=hook-consumer
+          build-args: BIN=hook-producer
 
-      - name: Hook-consumer image digest
-        run: echo ${{ steps.docker_build_hook_consumer.outputs.digest }}
+      - name: Hook-api image digest
+        run: echo ${{ steps.docker_build_hook_api.outputs.digest }}
