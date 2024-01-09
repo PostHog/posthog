@@ -11,7 +11,6 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         testOptions: {
-            excludeNavigationFromSnapshot: true,
             snapshotBrowsers: ['chromium', 'webkit'],
         },
         viewMode: 'story',

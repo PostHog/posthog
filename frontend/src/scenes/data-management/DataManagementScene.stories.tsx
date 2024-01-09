@@ -84,9 +84,7 @@ const meta: Meta = {
     title: 'Scenes-App/Data Management',
     parameters: {
         layout: 'fullscreen',
-        testOptions: {
-            excludeNavigationFromSnapshot: true,
-        },
+        testOptions: {},
         viewMode: 'story',
         mockDate: '2023-02-15', // To stabilize relative dates
     },

@@ -33,9 +33,7 @@ const meta: Meta = {
     ],
     parameters: {
         layout: 'fullscreen',
-        testOptions: {
-            excludeNavigationFromSnapshot: true,
-        },
+        testOptions: {},
         viewMode: 'story',
         mockDate: '2023-02-01',
     },

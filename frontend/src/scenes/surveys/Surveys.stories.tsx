@@ -143,9 +143,7 @@ const meta: Meta = {
     title: 'Scenes-App/Surveys',
     parameters: {
         layout: 'fullscreen',
-        testOptions: {
-            excludeNavigationFromSnapshot: true,
-        },
+        testOptions: {},
         viewMode: 'story',
         mockDate: '2023-06-28', // To stabilize relative dates
     },

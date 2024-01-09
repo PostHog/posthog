@@ -12,9 +12,7 @@ const meta: Meta = {
     title: 'Scenes-App/Annotations',
     parameters: {
         layout: 'fullscreen',
-        testOptions: {
-            excludeNavigationFromSnapshot: true,
-        },
+        testOptions: {},
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
     },
