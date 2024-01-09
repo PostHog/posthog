@@ -1,5 +1,5 @@
 # name: TestFunnelUnorderedStepsPersons.test_unordered_funnel_does_not_return_recordings
-  '
+  '''
   
   SELECT aggregation_target AS actor_id,
          array() as matching_events
@@ -228,10 +228,10 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestFunnelUnorderedStepsPersons.test_unordered_funnel_does_not_return_recordings.1
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
@@ -239,5 +239,5 @@
     and session_id in []
     AND min_first_timestamp >= '2020-12-31 00:00:00'
     AND max_last_timestamp <= '2021-01-09 23:59:59'
-  '
----
+  '''
+# ---

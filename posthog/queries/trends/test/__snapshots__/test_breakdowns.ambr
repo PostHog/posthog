@@ -1,5 +1,5 @@
 # name: TestBreakdowns.test_breakdown_by_event_property_of_unique_sessions_with_bucketing
-  '
+  '''
   
   SELECT arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value)))
   FROM
@@ -11,10 +11,10 @@
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
      GROUP BY value)
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_by_event_property_of_unique_sessions_with_bucketing.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -62,10 +62,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_by_event_property_with_bucketing
-  '
+  '''
   
   SELECT arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value)))
   FROM
@@ -77,10 +77,10 @@
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
      GROUP BY value)
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_by_event_property_with_bucketing.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -128,10 +128,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_by_event_property_with_entity_session_filter
-  '
+  '''
   
   SELECT replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') AS value,
          count(*) as count
@@ -154,10 +154,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_by_event_property_with_entity_session_filter.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -209,10 +209,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_by_session_duration_of_events
-  '
+  '''
   
   SELECT sessions.session_duration AS value,
          count(*) as count
@@ -235,10 +235,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_by_session_duration_of_events.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -290,10 +290,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_by_session_duration_of_events_single_aggregate
-  '
+  '''
   
   SELECT arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value)))
   FROM
@@ -314,10 +314,10 @@
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
      GROUP BY value)
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_by_session_duration_of_events_single_aggregate.1
-  '
+  '''
   
   SELECT count(*) AS total,
          multiIf(toFloat64OrNull(toString(sessions.session_duration)) >= 0.0
@@ -341,10 +341,10 @@
     AND toFloat64OrNull(toString(sessions.session_duration)) is not null
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_by_session_duration_of_events_with_bucketing
-  '
+  '''
   
   SELECT arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value)))
   FROM
@@ -366,10 +366,10 @@
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
        AND (NOT has(['https://test.com'], replaceRegexpAll(JSONExtractRaw(e.properties, '$current_url'), '^"|"$', '')))
      GROUP BY value)
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_by_session_duration_of_events_with_bucketing.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -427,10 +427,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_by_session_duration_of_unique_sessions
-  '
+  '''
   
   SELECT sessions.session_duration AS value,
          count(DISTINCT e."$session_id") as count
@@ -452,10 +452,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_by_session_duration_of_unique_sessions.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -506,10 +506,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_by_session_duration_of_unique_sessions_with_bucketing
-  '
+  '''
   
   SELECT arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00, 0.33, 0.67, 1.00)(value)))
   FROM
@@ -530,10 +530,10 @@
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
      GROUP BY value)
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_by_session_duration_of_unique_sessions_with_bucketing.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -590,10 +590,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_histogram_by_missing_property_regression
-  '
+  '''
   
   SELECT arrayCompact(arrayMap(x -> floor(x, 2), quantiles(0.00, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 1.00)(value)))
   FROM
@@ -605,10 +605,10 @@
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
      GROUP BY value)
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_histogram_by_missing_property_regression.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -652,10 +652,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_numeric_hogql
-  '
+  '''
   
   SELECT length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')) AS value,
          count(*) as count
@@ -668,10 +668,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 3
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_numeric_hogql.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -713,10 +713,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_numeric_hogql_hide_other
-  '
+  '''
   
   SELECT length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')) AS value,
          count(*) as count
@@ -729,10 +729,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 3
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_numeric_hogql_hide_other.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -775,10 +775,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_numeric_hogql_hide_other.2
-  '
+  '''
   
   SELECT length(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '')) AS value,
          count(*) as count
@@ -791,10 +791,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 4
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_numeric_hogql_hide_other.3
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -837,10 +837,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_string_hogql
-  '
+  '''
   
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '') AS value,
          count(*) as count
@@ -853,10 +853,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 3
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_string_hogql.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -898,10 +898,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_string_hogql_hide_other
-  '
+  '''
   
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '') AS value,
          count(*) as count
@@ -914,10 +914,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 3
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_string_hogql_hide_other.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -960,10 +960,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_string_hogql_hide_other.2
-  '
+  '''
   
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '$current_url'), ''), 'null'), '^"|"$', '') AS value,
          count(*) as count
@@ -976,10 +976,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 4
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestBreakdowns.test_breakdown_string_hogql_hide_other.3
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -1022,5 +1022,5 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---

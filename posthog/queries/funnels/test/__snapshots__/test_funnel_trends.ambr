@@ -1,5 +1,5 @@
 # name: TestFunnelTrends.test_timezones_trends
-  '
+  '''
   
   SELECT entrance_period_start,
          reached_from_step_count,
@@ -81,10 +81,10 @@
     (SELECT toStartOfDay(toDateTime('2021-04-30 00:00:00', 'UTC')) + toIntervalDay(number) AS entrance_period_start
      FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2021-04-30 00:00:00', 'UTC')), toStartOfDay(toDateTime('2021-05-07 00:00:00', 'UTC'))) + 1) AS period_offsets) fill USING (entrance_period_start)
   ORDER BY entrance_period_start ASC
-  '
----
+  '''
+# ---
 # name: TestFunnelTrends.test_timezones_trends.1
-  '
+  '''
   
   SELECT entrance_period_start,
          reached_from_step_count,
@@ -166,10 +166,10 @@
     (SELECT toStartOfDay(toDateTime('2021-04-30 00:00:00', 'US/Pacific')) + toIntervalDay(number) AS entrance_period_start
      FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2021-04-30 00:00:00', 'US/Pacific')), toStartOfDay(toDateTime('2021-05-07 00:00:00', 'US/Pacific'))) + 1) AS period_offsets) fill USING (entrance_period_start)
   ORDER BY entrance_period_start ASC
-  '
----
+  '''
+# ---
 # name: TestFunnelTrends.test_week_interval
-  '
+  '''
   
   SELECT entrance_period_start,
          reached_from_step_count,
@@ -251,10 +251,10 @@
     (SELECT toStartOfWeek(toDateTime('2021-05-01 00:00:00', 'UTC'), 0) + toIntervalWeek(number) AS entrance_period_start
      FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2021-05-01 00:00:00', 'UTC'), 0), toStartOfWeek(toDateTime('2021-05-07 00:00:00', 'UTC'), 0)) + 1) AS period_offsets) fill USING (entrance_period_start)
   ORDER BY entrance_period_start ASC
-  '
----
+  '''
+# ---
 # name: TestFunnelTrends.test_week_interval.1
-  '
+  '''
   
   SELECT aggregation_target AS actor_id
   FROM
@@ -329,5 +329,5 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---

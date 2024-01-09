@@ -1,5 +1,5 @@
 # name: TestBreakdownsByCurrentURL.test_breakdown_by_current_url
-  '
+  '''
   
   SELECT if(empty(trim(TRAILING '/?#'
                        from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
@@ -14,10 +14,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestBreakdownsByCurrentURL.test_breakdown_by_current_url.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -61,10 +61,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestBreakdownsByCurrentURL.test_breakdown_by_pathname
-  '
+  '''
   
   SELECT if(empty(trim(TRAILING '/?#'
                        from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
@@ -79,10 +79,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestBreakdownsByCurrentURL.test_breakdown_by_pathname.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -126,5 +126,5 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
