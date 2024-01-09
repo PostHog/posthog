@@ -12,7 +12,7 @@ from posthog.caching.utils import is_stale
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner
@@ -65,30 +65,52 @@ class StickinessQueryRunner(QueryRunner):
 
         return refresh_frequency
 
-    def to_query(self) -> ast.SelectQuery:
-        select_query = parse_select(
-            """
-                SELECT groupArray(aggregation_target), groupArray(num_intervals)
-                FROM (
-                    SELECT count(DISTINCT aggregation_target) as aggregation_target, num_intervals
-                    FROM (
-                        SELECT e.person_id as aggregation_target, count(DISTINCT toStartOfDay(e.timestamp)) as num_intervals
-                        FROM events e
-                        WHERE {where_clause}
-                        GROUP BY aggregation_target
-                    )
-                    WHERE num_intervals <= {num_intervals}
-                    GROUP BY num_intervals
-                    ORDER BY num_intervals
-                )
-            """,
-            placeholders={
-                "where_clause": self.where_clause(),
-                "num_intervals": ast.Constant(value=self.intervals_num()),
-            },
+    def to_query(self) -> List[ast.SelectQuery]:
+        interval_subtract = ast.Call(
+            name=f"toInterval{self.query_date_range.interval_name.capitalize()}",
+            args=[ast.Constant(value=2)],
         )
 
-        return cast(ast.SelectQuery, select_query)
+        queries = []
+
+        for series in self.query.series:
+            select_query = parse_select(
+                """
+                    SELECT groupArray(aggregation_target), groupArray(num_intervals)
+                    FROM (
+                        SELECT sum(aggregation_target) as aggregation_target, num_intervals
+                        FROM (
+                            SELECT 0 as aggregation_target, (number + 1) as num_intervals
+                            FROM numbers(dateDiff({interval}, {date_from} - {interval_subtract}, {date_to}))
+                            UNION ALL
+                            SELECT count(DISTINCT aggregation_target) as aggregation_target, num_intervals
+                            FROM (
+                                SELECT e.person_id as aggregation_target, count(DISTINCT toStartOfDay(e.timestamp)) as num_intervals
+                                FROM events e
+                                SAMPLE {sample}
+                                WHERE {where_clause}
+                                GROUP BY aggregation_target
+                            )
+                            WHERE num_intervals <= {num_intervals}
+                            GROUP BY num_intervals
+                            ORDER BY num_intervals
+                        )
+                        GROUP BY num_intervals
+                        ORDER BY num_intervals
+                    )
+                """,
+                placeholders={
+                    **self.query_date_range.to_placeholders(),
+                    "where_clause": self.where_clause(series),
+                    "num_intervals": ast.Constant(value=self.intervals_num()),
+                    "interval_subtract": interval_subtract,
+                    "sample": self._sample_value(),
+                },
+            )
+
+            queries.append(cast(ast.SelectQuery, select_query))
+
+        return queries
 
     def to_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         return ast.SelectUnionQuery(select_queries=[])
@@ -96,42 +118,48 @@ class StickinessQueryRunner(QueryRunner):
     def calculate(self):
         queries = self.to_query()
 
-        response = execute_hogql_query(
-            query_type="StickinessQuery",
-            query=queries,
-            team=self.team,
-            timings=self.timings,
-            modifiers=self.modifiers,
-        )
-
         res = []
         timings = []
 
-        for val in response.results or []:
-            try:
-                # TODO: Split out series[]
-                series_label = self.series_event(self.query.series[0])
-            except Action.DoesNotExist:
-                # Dont append the series if the action doesnt exist
-                continue
+        for index, query in enumerate(queries):
+            response = execute_hogql_query(
+                query_type="StickinessQuery",
+                query=query,
+                team=self.team,
+                timings=self.timings,
+                modifiers=self.modifiers,
+            )
 
-            data = val[0]
+            if response.timings is not None:
+                timings.extend(response.timings)
 
-            series_object = {
-                "count": sum(data),
-                "data": data,
-                "days": val[1],
-                "label": "All events" if series_label is None else series_label,
-                "labels": [f"{day} day{'s' if day == 1 else ''}" for day in val[1]],
-            }
+            for val in response.results or []:
+                try:
+                    series_label = self.series_event(self.query.series[index])
+                except Action.DoesNotExist:
+                    # Dont append the series if the action doesnt exist
+                    continue
 
-            res.append(series_object)
+                data = val[0]
+
+                series_object = {
+                    "count": sum(data),
+                    "data": data,
+                    "days": val[1],
+                    "label": "All events" if series_label is None else series_label,
+                    "labels": [
+                        f"{day} {self.query_date_range.interval_name}{'' if day == 1 else 's'}" for day in val[1]
+                    ],
+                }
+
+                res.append(series_object)
 
         return StickinessQueryResponse(results=res, timings=timings)
 
-    def where_clause(self) -> ast.Expr:
+    def where_clause(self, series: EventsNode | ActionsNode) -> ast.Expr:
         filters: List[ast.Expr] = []
 
+        # Dates
         filters.extend(
             [
                 parse_expr(
@@ -145,14 +173,14 @@ class StickinessQueryRunner(QueryRunner):
             ]
         )
 
-        # TODO: Split out series[]
         # Series
-        filters.append(
-            parse_expr(
-                "event = {event}",
-                placeholders={"event": ast.Constant(value=self.query.series[0].name)},
+        if self.series_event(series) is not None:
+            filters.append(
+                parse_expr(
+                    "event = {event}",
+                    placeholders={"event": ast.Constant(value=self.series_event(series))},
+                )
             )
-        )
 
         # Filter Test Accounts
         if (
@@ -163,12 +191,35 @@ class StickinessQueryRunner(QueryRunner):
             for property in self.team.test_account_filters:
                 filters.append(property_to_expr(property, self.team))
 
+        # Properties
+        if self.query.properties is not None and self.query.properties != []:
+            filters.append(property_to_expr(self.query.properties, self.team))
+
+        # Series Filters
+        if series.properties is not None and series.properties != []:
+            filters.append(property_to_expr(series.properties, self.team))
+
+        # Actions
+        if isinstance(series, ActionsNode):
+            try:
+                action = Action.objects.get(pk=int(series.id), team=self.team)
+                filters.append(action_to_expr(action))
+            except Action.DoesNotExist:
+                # If an action doesn't exist, we want to return no events
+                filters.append(parse_expr("1 = 2"))
+
         if len(filters) == 0:
             return ast.Constant(value=True)
         elif len(filters) == 1:
             return filters[0]
         else:
             return ast.And(exprs=filters)
+
+    def _sample_value(self) -> ast.RatioExpr:
+        if self.query.samplingFactor is None:
+            return ast.RatioExpr(left=ast.Constant(value=1))
+
+        return ast.RatioExpr(left=ast.Constant(value=self.query.samplingFactor))
 
     def series_event(self, series: EventsNode | ActionsNode) -> str | None:
         if isinstance(series, EventsNode):
