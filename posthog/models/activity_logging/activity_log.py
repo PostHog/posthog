@@ -7,7 +7,7 @@ import structlog
 from django.core.paginator import Paginator
 from django.db import models
 from django.utils import timezone
-
+from django.conf import settings
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.user import User
@@ -373,6 +373,10 @@ def log_activity(
             activity=activity,
             exception=e,
         )
+        if settings.TEST:
+            # Re-raise in tests, so that we can catch failures in test suites - but keep quiet in production,
+            # as we currently don't treat activity logs as critical
+            raise e
 
 
 @dataclasses.dataclass(frozen=True)

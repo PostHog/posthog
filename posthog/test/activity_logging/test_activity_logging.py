@@ -84,21 +84,22 @@ class TestActivityLogModel(BaseTest):
 
     def test_does_not_throw_if_cannot_log_activity(self) -> None:
         with self.assertLogs(level="WARN") as log:
-            try:
-                log_activity(
-                    organization_id=UUIDT(),
-                    team_id=1,
-                    # will cause logging to raise exception because user is unsaved
-                    # avoids needing to mock anything to force the exception
-                    user=User(first_name="testy", email="test@example.com"),
-                    was_impersonated=False,
-                    item_id="12345",
-                    scope="testing throwing exceptions on create",
-                    activity="does not explode",
-                    detail=Detail(),
-                )
-            except Exception as e:
-                raise pytest.fail(f"Should not have raised exception: {e}")
+            with self.settings(TEST=False):  # Enable production-level silencing
+                try:
+                    log_activity(
+                        organization_id=UUIDT(),
+                        team_id=1,
+                        # will cause logging to raise exception because user is unsaved
+                        # avoids needing to mock anything to force the exception
+                        user=User(first_name="testy", email="test@example.com"),
+                        was_impersonated=False,
+                        item_id="12345",
+                        scope="testing throwing exceptions on create",
+                        activity="does not explode",
+                        detail=Detail(),
+                    )
+                except Exception as e:
+                    raise pytest.fail(f"Should not have raised exception: {e}")
 
             logged_warning = log.records[0].__dict__
             self.assertEqual(logged_warning["levelname"], "WARNING")
