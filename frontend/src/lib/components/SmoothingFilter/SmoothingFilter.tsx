@@ -25,11 +25,12 @@ export function SmoothingFilter(): JSX.Element | null {
         label:
             value === smoothing_intervals ? (
                 <>
-                    <FundOutlined /> {label}
+                    <FundOutlined className="mr-1 text-muted" /> {label}
                 </>
             ) : (
                 label
             ),
+        labelInMenu: label,
     }))
 
     return options.length ? (
