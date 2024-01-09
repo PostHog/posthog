@@ -3354,9 +3354,9 @@ export interface DataWarehouseTable {
     /** UUID */
     id: string
     name: string
-    format?: string
-    url_pattern?: string
-    credential?: DataWarehouseCredential
+    format: string
+    url_pattern: string
+    credential: DataWarehouseCredential
     columns: DatabaseSchemaQueryResponseField[]
     external_data_source?: ExternalDataStripeSource
     external_schema?: SimpleExternalDataSourceSchema
