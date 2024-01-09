@@ -117,6 +117,7 @@ INSIGHT_REFRESH_INITIATED_COUNTER = Counter(
 
 
 def log_insight_activity(
+    *,
     activity: str,
     insight: Insight,
     insight_id: int,
@@ -124,6 +125,7 @@ def log_insight_activity(
     organization_id: UUIDT,
     team_id: int,
     user: User,
+    was_impersonated: bool,
     changes: Optional[List[Change]] = None,
 ) -> None:
     """
@@ -138,7 +140,7 @@ def log_insight_activity(
             organization_id=organization_id,
             team_id=team_id,
             user=user,
-            was_impersonated=is_impersonated_session(user),
+            was_impersonated=was_impersonated,
             item_id=insight_id,
             scope="Insight",
             activity=activity,
