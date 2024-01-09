@@ -55,6 +55,17 @@
                      WHERE has(['2@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '')) ) )))
   '''
 # ---
+# name: test_parse_groups_persons_edge_case_with_single_filter
+  tuple(
+    'AND (  has(%(vglobalperson_0)s, replaceRegexpAll(JSONExtractRaw(person_props, %(kglobalperson_0)s), \'^"|"$\', \'\')))',
+    dict({
+      'kglobalperson_0': 'email',
+      'vglobalperson_0': list([
+        '1@posthog.com',
+      ]),
+    }),
+  )
+# ---
 # name: test_parse_prop_clauses_defaults
   tuple(
     '''

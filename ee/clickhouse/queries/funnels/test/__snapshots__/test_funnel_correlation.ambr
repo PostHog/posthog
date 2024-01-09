@@ -1,5 +1,5 @@
 # name: TestClickhouseFunnelCorrelation.test_action_events_are_excluded_from_correlations
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -91,10 +91,10 @@
          countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
          countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
   FROM funnel_actors AS actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -179,10 +179,10 @@
          countDistinctIf(actor_id, steps = target_step) AS success_count,
          countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM funnel_actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.1
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -263,10 +263,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.2
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -347,10 +347,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.3
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -431,10 +431,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties.4
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -515,10 +515,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -603,10 +603,10 @@
          countDistinctIf(actor_id, steps = target_step) AS success_count,
          countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM funnel_actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.1
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -687,10 +687,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.2
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -771,10 +771,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.3
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -855,10 +855,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_basic_funnel_correlation_with_properties_materialized.4
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -939,10 +939,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_event_properties_and_groups
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -1024,10 +1024,10 @@
          countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
          countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
   FROM funnel_actors AS actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_event_properties_and_groups_materialized
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -1109,10 +1109,10 @@
          countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
          countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
   FROM funnel_actors AS actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -1187,10 +1187,10 @@
          countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
          countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
   FROM funnel_actors AS actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.1
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -1262,10 +1262,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.2
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -1337,10 +1337,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.3
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -1412,10 +1412,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.4
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -1487,10 +1487,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.5
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -1573,10 +1573,10 @@
          countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
          countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
   FROM funnel_actors AS actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.6
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -1656,10 +1656,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups.7
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -1739,10 +1739,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -1825,10 +1825,10 @@
          countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
          countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
   FROM funnel_actors AS actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.1
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -1908,10 +1908,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.2
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -1991,10 +1991,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.3
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -2074,10 +2074,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.4
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -2157,10 +2157,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.5
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -2251,10 +2251,10 @@
          countDistinctIf(actors.actor_id, actors.steps = target_step) AS success_count,
          countDistinctIf(actors.actor_id, actors.steps <> target_step) AS failure_count
   FROM funnel_actors AS actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.6
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -2342,10 +2342,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_events_and_groups_poe_v2.7
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -2433,10 +2433,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -2513,10 +2513,10 @@
          countDistinctIf(actor_id, steps = target_step) AS success_count,
          countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM funnel_actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.1
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -2585,10 +2585,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.2
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -2657,10 +2657,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.3
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -2729,10 +2729,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.4
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -2801,10 +2801,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups.5
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -2881,10 +2881,10 @@
          countDistinctIf(actor_id, steps = target_step) AS success_count,
          countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM funnel_actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -2961,10 +2961,10 @@
          countDistinctIf(actor_id, steps = target_step) AS success_count,
          countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM funnel_actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.1
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -3033,10 +3033,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.2
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -3105,10 +3105,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.3
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -3177,10 +3177,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.4
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -3249,10 +3249,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_materialized.5
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -3329,10 +3329,10 @@
          countDistinctIf(actor_id, steps = target_step) AS success_count,
          countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM funnel_actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -3411,10 +3411,10 @@
          countDistinctIf(actor_id, steps = target_step) AS success_count,
          countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM funnel_actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.1
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -3485,10 +3485,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.2
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -3559,10 +3559,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.3
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -3633,10 +3633,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.4
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -3707,10 +3707,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.5
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -3789,10 +3789,10 @@
          countDistinctIf(actor_id, steps = target_step) AS success_count,
          countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM funnel_actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -3871,10 +3871,10 @@
          countDistinctIf(actor_id, steps = target_step) AS success_count,
          countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM funnel_actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.1
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -3945,10 +3945,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.2
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -4019,10 +4019,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.3
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -4093,10 +4093,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.4
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -4167,10 +4167,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_materialized.5
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -4249,10 +4249,10 @@
          countDistinctIf(actor_id, steps = target_step) AS success_count,
          countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM funnel_actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -4337,10 +4337,10 @@
          countDistinctIf(actor_id, steps = target_step) AS success_count,
          countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM funnel_actors
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.1
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -4417,10 +4417,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.2
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -4497,10 +4497,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.3
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -4577,10 +4577,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.4
-  '
+  '''
   WITH funnel_actors AS
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -4657,10 +4657,10 @@
   ORDER BY actor_id
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events_poe_v2.5
-  '
+  '''
   WITH funnel_actors as
     (SELECT aggregation_target AS actor_id , timestamp, steps,
                                                         final_timestamp,
@@ -4745,5 +4745,5 @@
          countDistinctIf(actor_id, steps = target_step) AS success_count,
          countDistinctIf(actor_id, steps <> target_step) AS failure_count
   FROM funnel_actors
-  '
----
+  '''
+# ---
