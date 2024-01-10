@@ -6,6 +6,7 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb, PipelineAppTabs, PipelineTabs } from '~/types'
 
+import { DestinationType } from './destinationsLogic'
 import type { pipelineAppLogicType } from './pipelineAppLogicType'
 
 export interface PipelineAppLogicProps {
@@ -47,6 +48,10 @@ export const pipelineAppLogic = kea<pipelineAppLogicType>([
                     name: 'App name',
                 },
             ],
+        ],
+        appType: [
+            (_, p) => [p.id],
+            (id): DestinationType['type'] => (typeof id === 'number' ? 'webhook' : 'batch_export'),
         ],
     }),
     actionToUrl(({ values, props }) => {
