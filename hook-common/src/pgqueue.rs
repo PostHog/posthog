@@ -172,7 +172,7 @@ UPDATE
     job_queue
 SET
     last_attempt_finished_at = NOW(),
-    status = 'failed'::job_status
+    status = 'failed'::job_status,
     errors = array_append(errors, $3)
 WHERE
     queue = $1
