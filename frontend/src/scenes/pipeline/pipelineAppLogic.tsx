@@ -36,8 +36,8 @@ export const pipelineAppLogic = kea<pipelineAppLogicType>([
     }),
     selectors({
         breadcrumbs: [
-            (_, p) => [p.kind],
-            (kind): Breadcrumb[] => [
+            (s, p) => [p.kind, s.maybePluginConfig],
+            (kind, maybePluginConfig): Breadcrumb[] => [
                 {
                     key: Scene.Pipeline,
                     name: 'Data pipeline',
@@ -49,7 +49,7 @@ export const pipelineAppLogic = kea<pipelineAppLogicType>([
                 },
                 {
                     key: 'todo',
-                    name: 'App name',
+                    name: maybePluginConfig?.name || 'Unknown',
                 },
             ],
         ],
