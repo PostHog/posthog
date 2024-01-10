@@ -10,6 +10,7 @@ use hook_common::{
 use http::StatusCode;
 use reqwest::header;
 use tokio::sync;
+use tracing::error;
 
 use crate::error::{WebhookError, WorkerError};
 
@@ -197,7 +198,13 @@ async fn spawn_webhook_job_processing_task<W: WebhookJob + 'static>(
     tokio::spawn(async move {
         let result = process_webhook_job(client, webhook_job, &retry_policy).await;
         drop(permit);
-        result
+        match result {
+            Ok(_) => Ok(()),
+            Err(error) => {
+                error!("failed to process webhook job: {}", error);
+                Err(error)
+            }
+        }
     })
 }
 

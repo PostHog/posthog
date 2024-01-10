@@ -10,6 +10,8 @@ use hook_worker::worker::WebhookWorker;
 
 #[tokio::main]
 async fn main() -> Result<(), WorkerError> {
+    tracing_subscriber::fmt::init();
+
     let config = Config::init_from_env().expect("Invalid configuration:");
 
     let retry_policy = RetryPolicy::build(

@@ -15,5 +15,7 @@ serde = { workspace = true }
 serde_derive = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
 tokio = { workspace = true }
 url = { version = "2.2" }
