@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { PipelineAppLogs } from 'scenes/plugins/plugin/PipelineAppLogs'
+import { PipelineAppLogs } from 'scenes/pipeline/PipelineAppLogs'
 
 import { PipelineTabs } from '~/types'
 
