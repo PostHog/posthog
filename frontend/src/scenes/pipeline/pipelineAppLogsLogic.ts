@@ -7,8 +7,7 @@ import { pipelineAppLogic } from 'scenes/pipeline/pipelineAppLogic'
 import api from '~/lib/api'
 import { BatchExportLogEntry, PipelineTabs, PluginLogEntry } from '~/types'
 
-import { teamLogic } from '../../teamLogic'
-import type { pluginLogsLogicType } from './pluginLogsLogicType'
+import { teamLogic } from '../teamLogic'
 
 export enum PipelineAppLogLevel {
     Debug = 'DEBUG',
@@ -18,16 +17,16 @@ export enum PipelineAppLogLevel {
     Error = 'ERROR',
 }
 
-export interface PluginLogsProps {
+export interface PipelineAppLogsProps {
     id: number | string
     kind: PipelineTabs
 }
 
-export const pluginLogsLogic = kea<pluginLogsLogicType>([
-    props({} as PluginLogsProps),
-    key(({ id }: PluginLogsProps) => id),
+export const pipelineAppLogsLogic = kea([
+    props({} as PipelineAppLogsProps),
+    key(({ id }: PipelineAppLogsProps) => id),
     path((key) => ['scenes', 'plugins', 'plugin', 'pluginLogsLogic', key]),
-    connect((props: PluginLogsProps) => ({
+    connect((props: PipelineAppLogsProps) => ({
         values: [teamLogic, ['currentTeamId'], pipelineAppLogic(props), ['appType']],
     })),
     actions({
