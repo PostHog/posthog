@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { PluginLogs } from 'scenes/plugins/plugin/PluginLogs'
+import { PipelineAppLogs } from 'scenes/plugins/plugin/PipelineAppLogs'
 
 import { PipelineTabs } from '~/types'
 
@@ -15,7 +15,7 @@ export function AppLogsTab(): JSX.Element {
 
     return (
         <div className="space-y-8">
-            <PluginLogs id={pluginConfig.id} kind={PipelineTabs.Destinations} />
+            <PipelineAppLogs id={pluginConfig.id} kind={PipelineTabs.Destinations} />
         </div>
     )
 }

@@ -7,7 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { PluginLogs } from 'scenes/plugins/plugin/PluginLogs'
+import { PipelineAppLogs } from 'scenes/plugins/plugin/PipelineAppLogs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -49,7 +49,7 @@ export function PipelineApp(params: { kind?: string; id?: string } = {}): JSX.El
     const tabToContent: Record<PipelineAppTabs, JSX.Element> = {
         [PipelineAppTabs.Configuration]: <PipelineAppConfiguration />,
         [PipelineAppTabs.Metrics]: <AppMetrics pluginConfigId={id as number} />,
-        [PipelineAppTabs.Logs]: <PluginLogs id={id} kind={kind} />,
+        [PipelineAppTabs.Logs]: <PipelineAppLogs id={id} kind={kind} />,
     }
 
     return (
