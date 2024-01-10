@@ -98,7 +98,6 @@ function AppsToUpdate(): JSX.Element {
                           'Check again for updates'}
                 </LemonButton>
             )}
-            {/* todo: print out the table of apps, that need updating??? */}
             {pluginsNeedingUpdates.length > 0 && (
                 <>
                     <h3 className="mt-3">Apps to update</h3>
