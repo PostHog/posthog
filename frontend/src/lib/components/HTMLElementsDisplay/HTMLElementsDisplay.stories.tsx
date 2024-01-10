@@ -14,7 +14,7 @@ export function EmptyDisplay(): JSX.Element {
     return <HTMLElementsDisplay elements={[] as ElementType[]} />
 }
 
-export const EXAMPLE_ELEMENTS = [
+export const EXAMPLE_ELEMENTS: ElementType[] = [
     {
         text: 'Insights',
         tag_name: 'span',
