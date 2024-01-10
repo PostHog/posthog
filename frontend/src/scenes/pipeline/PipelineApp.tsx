@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 import { PipelineAppTabs, PipelineTabs } from '~/types'
 
 import { AppMetrics } from './AppMetrics'
+import { PipelineAppConfiguration } from './PipelineAppConfiguration'
 import { pipelineAppLogic } from './pipelineAppLogic'
 
 export const scene: SceneExport = {
@@ -45,7 +46,7 @@ export function PipelineApp({ kind, id }: { kind?: string; id?: string } = {}): 
     }
 
     const tabToContent: Record<PipelineAppTabs, JSX.Element> = {
-        [PipelineAppTabs.Configuration]: <div>Configuration editing</div>,
+        [PipelineAppTabs.Configuration]: <PipelineAppConfiguration />,
         [PipelineAppTabs.Metrics]: <AppMetrics pluginConfigId={confId} />,
         [PipelineAppTabs.Logs]: <PluginLogs pluginConfigId={confId} />,
     }
