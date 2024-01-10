@@ -2,24 +2,26 @@ import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { LOGS_PORTION_LIMIT } from 'lib/constants'
+import { pipelineAppLogic } from 'scenes/pipeline/pipelineAppLogic'
 
 import api from '~/lib/api'
-import { PluginLogEntry, PluginLogEntryType } from '~/types'
+import { PipelineTabs, PluginLogEntry, PluginLogEntryType } from '~/types'
 
 import { teamLogic } from '../../teamLogic'
 import type { pluginLogsLogicType } from './pluginLogsLogicType'
 
 export interface PluginLogsProps {
-    id: number
+    id: number | string
+    kind: PipelineTabs
 }
 
 export const pluginLogsLogic = kea<pluginLogsLogicType>([
     props({} as PluginLogsProps),
     key(({ id }: PluginLogsProps) => id),
     path((key) => ['scenes', 'plugins', 'plugin', 'pluginLogsLogic', key]),
-    connect({
-        values: [teamLogic, ['currentTeamId']],
-    }),
+    connect((props: PluginLogsProps) => ({
+        values: [teamLogic, ['currentTeamId'], pipelineAppLogic(props), ['appType']],
+    })),
     actions({
         clearPluginLogsBackground: true,
         markLogsEnd: true,

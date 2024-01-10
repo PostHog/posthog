@@ -45,7 +45,7 @@ export function PipelineApp({ kind, id }: { kind?: string; id?: string | number 
     const tabToContent: Record<PipelineAppTabs, JSX.Element> = {
         [PipelineAppTabs.Configuration]: <div>Configuration editing</div>,
         [PipelineAppTabs.Metrics]: <AppMetrics pluginConfigId={id as number} />,
-        [PipelineAppTabs.Logs]: <PluginLogs id={id} />,
+        [PipelineAppTabs.Logs]: <PluginLogs id={id} kind={kind as PipelineTabs} />,
     }
 
     return (
@@ -54,7 +54,7 @@ export function PipelineApp({ kind, id }: { kind?: string; id?: string | number 
             <LemonTabs
                 activeKey={currentTab}
                 onChange={(tab) =>
-                    router.actions.push(urls.pipelineApp(kind as PipelineTabs, confId, tab as PipelineAppTabs))
+                    router.actions.push(urls.pipelineApp(kind as PipelineTabs, id, tab as PipelineAppTabs))
                 }
                 tabs={Object.values(PipelineAppTabs).map((tab) => ({
                     label: capitalizeFirstLetter(tab),
