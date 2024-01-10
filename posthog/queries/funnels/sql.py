@@ -7,4 +7,5 @@ WHERE {persons_steps}
 ORDER BY aggregation_target
 {limit}
 {offset}
+SETTINGS max_ast_elements=1000000, max_expanded_ast_elements=1000000
 """
