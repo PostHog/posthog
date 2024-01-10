@@ -5,10 +5,29 @@ import { DestinationTypeKind } from 'scenes/pipeline/destinationsLogic'
 import { pipelineAppLogic } from 'scenes/pipeline/pipelineAppLogic'
 
 import api from '~/lib/api'
-import { BatchExportLogEntry, PipelineTabs, PluginLogEntry } from '~/types'
+import { BatchExportLogEntry, PipelineTabs, PluginLogEntry, PluginLogEntryType } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import type { pipelineAppLogsLogicType } from './pipelineAppLogsLogicType'
+
+const logLevelToTypeFilter = (level: PipelineAppLogLevel): PluginLogEntryType => {
+    switch (level) {
+        case PipelineAppLogLevel.Debug:
+            return PluginLogEntryType.Debug
+        case PipelineAppLogLevel.Error:
+            return PluginLogEntryType.Error
+        case PipelineAppLogLevel.Info:
+            return PluginLogEntryType.Info
+        case PipelineAppLogLevel.Log:
+            return PluginLogEntryType.Log
+        case PipelineAppLogLevel.Warning:
+            return PluginLogEntryType.Warn
+        default:
+            throw new Error('unknown log level')
+    }
+}
+const logLevelsToTypeFilters = (levels: PipelineAppLogLevel[]): PluginLogEntryType[] =>
+    levels.map((l) => logLevelToTypeFilter(l))
 
 export enum PipelineAppLogLevel {
     Debug = 'DEBUG',
@@ -55,7 +74,7 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
                         id as number,
                         values.currentTeamId,
                         values.searchTerm,
-                        values.selectedLogLevels
+                        logLevelsToTypeFilters(values.selectedLogLevels)
                     )
                 }
 
@@ -70,7 +89,7 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
                     id,
                     values.currentTeamId,
                     values.searchTerm,
-                    values.selectedLogLevels,
+                    logLevelsToTypeFilters(values.selectedLogLevels),
                     values.trailingEntry
                 )
 
@@ -96,7 +115,7 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
                     id,
                     values.currentTeamId,
                     values.searchTerm,
-                    values.selectedLogLevels,
+                    logLevelsToTypeFilters(values.selectedLogLevels),
                     null,
                     values.leadingEntry
                 )
