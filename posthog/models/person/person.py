@@ -31,7 +31,7 @@ class Person(models.Model):
     @property
     def distinct_ids(self) -> List[str]:
         if hasattr(self, "distinct_ids_cache"):
-            return [id.distinct_id for id in self.distinct_ids_cache]  # type: ignore
+            return [id.distinct_id for id in self.distinct_ids_cache]
         if hasattr(self, "_distinct_ids") and self._distinct_ids:
             return self._distinct_ids
         return [
@@ -307,5 +307,5 @@ def get_distinct_ids_for_subquery(person: Person | None, team: Team) -> List[str
         )
         distinct_ids = first_ids.union(last_ids)
     else:
-        distinct_ids = []  # type: ignore
+        distinct_ids = []
     return list(map(str, distinct_ids))
