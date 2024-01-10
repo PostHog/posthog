@@ -1,7 +1,7 @@
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { PipelineAppLogLevel } from 'scenes/plugins/plugin/pluginLogsLogic'
+import { PipelineAppLogLevel } from 'scenes/pipeline/pipelineAppLogsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import api from '~/lib/api'
