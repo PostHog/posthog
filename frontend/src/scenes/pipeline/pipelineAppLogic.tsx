@@ -1,5 +1,6 @@
 import { actions, kea, key, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -34,12 +35,12 @@ export const pipelineAppLogic = kea<pipelineAppLogicType>([
             (kind): Breadcrumb[] => [
                 {
                     key: Scene.Pipeline,
-                    name: 'Pipeline',
+                    name: 'Data pipeline',
                     path: urls.pipeline(),
                 },
                 {
                     key: 'Kind',
-                    name: kind,
+                    name: capitalizeFirstLetter(kind),
                 },
                 {
                     key: 'todo',
