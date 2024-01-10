@@ -57,8 +57,8 @@ const columns: LemonTableColumns<Record<string, any>> = [
     },
 ]
 
-export function PluginLogs({ id }: PluginLogsProps): JSX.Element {
-    const logic = pluginLogsLogic({ id })
+export function PluginLogs({ id, kind }: PluginLogsProps): JSX.Element {
+    const logic = pluginLogsLogic({ id, kind })
 
     const { pluginLogs, pluginLogsLoading, pluginLogsBackground, isThereMoreToLoad, pluginLogsTypes } = useValues(logic)
     const { revealBackground, loadPluginLogsMore, setPluginLogsTypes, setSearchTerm } = useActions(logic)
