@@ -446,6 +446,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportFailedToCreateFeatureFlagWithCohort: (code: string, detail: string) => ({ code, detail }),
         reportFeatureFlagCopySuccess: true,
         reportFeatureFlagCopyFailure: (error) => ({ error }),
+        reportFeatureFlagScheduleSuccess: true,
+        reportFeatureFlagScheduleFailure: (error) => ({ error }),
         reportInviteMembersButtonClicked: true,
         reportDashboardLoadingTime: (loadingMilliseconds: number, dashboardId: number) => ({
             loadingMilliseconds,
@@ -1062,6 +1064,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportFeatureFlagCopyFailure: ({ error }) => {
             posthog.capture('feature flag copy failure', { error })
+        },
+        reportFeatureFlagScheduleSuccess: () => {
+            posthog.capture('feature flag scheduled')
+        },
+        reportFeatureFlagScheduleFailure: ({ error }) => {
+            posthog.capture('feature flag schedule failure', { error })
         },
         reportInviteMembersButtonClicked: () => {
             posthog.capture('invite members button clicked')
