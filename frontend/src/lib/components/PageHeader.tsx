@@ -7,7 +7,7 @@ import { DraggableToNotebookProps } from 'scenes/notebooks/AddToNotebook/Draggab
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 
 interface PageHeaderProps {
-    title: string | JSX.Element
+    title?: string | JSX.Element
     caption?: string | JSX.Element | null | false
     buttons?: JSX.Element | false
     tabbedPage?: boolean // Whether the page has tabs for secondary navigation

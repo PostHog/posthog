@@ -1,41 +1,18 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { ExternalDataSourceType } from '~/types'
-
 import { dataWarehouseTableLogic } from '../new_table/dataWarehouseTableLogic'
 import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLogic'
 import { dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { SOURCE_DETAILS, SourceConfig } from './sourceFormLogic'
 import type { sourceModalLogicType } from './sourceModalLogicType'
 
 export const getHubspotRedirectUri = (): string => `${window.location.origin}/data-warehouse/hubspot/redirect`
-export interface ConnectorConfigType {
-    name: ExternalDataSourceType
-    fields: string[]
-    caption: string
-    disabledReason: string | null
-}
-
-// TODO: add icon
-export const CONNECTORS: ConnectorConfigType[] = [
-    {
-        name: 'Stripe',
-        fields: ['account_id', 'client_secret'],
-        caption: 'Enter your Stripe credentials to link your Stripe to PostHog',
-        disabledReason: null,
-    },
-    {
-        name: 'Hubspot',
-        fields: [],
-        caption: '',
-        disabledReason: null,
-    },
-]
 
 export const sourceModalLogic = kea<sourceModalLogicType>([
     path(['scenes', 'data-warehouse', 'external', 'sourceModalLogic']),
     actions({
-        selectConnector: (connector: ConnectorConfigType | null) => ({ connector }),
+        selectConnector: (connector: SourceConfig | null) => ({ connector }),
         toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
         handleRedirect: (kind: string, searchParams: any) => ({ kind, searchParams }),
         onClear: true,
@@ -60,7 +37,7 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
     }),
     reducers({
         selectedConnector: [
-            null as ConnectorConfigType | null,
+            null as SourceConfig | null,
             {
                 selectConnector: (_, { connector }) => connector,
             },
@@ -79,8 +56,8 @@ export const sourceModalLogic = kea<sourceModalLogicType>([
         ],
         connectors: [
             (s) => [s.dataWarehouseSources],
-            (sources) => {
-                return CONNECTORS.map((connector) => ({
+            (sources): SourceConfig[] => {
+                return Object.values(SOURCE_DETAILS).map((connector) => ({
                     ...connector,
                     disabledReason:
                         sources && sources.results.find((source) => source.source_type === connector.name)

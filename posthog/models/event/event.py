@@ -83,7 +83,7 @@ class Selector:
     def __init__(self, selector: str, escape_slashes=True):
         self.parts = []
         # Sometimes people manually add *, just remove them as they don't do anything
-        selector = selector.replace("> * > ", "").replace("> *", "").strip()
+        selector = selector.replace("> * > ", "").replace("> *", "").replace("\\:", ":").strip()
         tags = list(self._split(selector))
         tags.reverse()
         # Detecting selector parts

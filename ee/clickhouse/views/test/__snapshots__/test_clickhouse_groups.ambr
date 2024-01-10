@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: ClickhouseTestGroupsApi.test_related_groups
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT pdi.person_id
   FROM events e
@@ -14,10 +15,10 @@
     AND timestamp > '2021-02-09T00:00:00.000000'
     AND timestamp < '2021-05-10T00:00:00.000000'
     AND $group_0 = '0::0'
-  '
----
+  '''
+# ---
 # name: ClickhouseTestGroupsApi.test_related_groups.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT $group_1 AS group_key
   FROM events e
@@ -33,10 +34,10 @@
     AND group_key != ''
     AND $group_0 = '0::0'
   ORDER BY group_key
-  '
----
+  '''
+# ---
 # name: ClickhouseTestGroupsApi.test_related_groups_person
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT $group_0 AS group_key
   FROM events e
@@ -59,10 +60,10 @@
     AND group_key != ''
     AND pdi.person_id = '01795392-cc00-0003-7dc7-67a694604d72'
   ORDER BY group_key
-  '
----
+  '''
+# ---
 # name: ClickhouseTestGroupsApi.test_related_groups_person.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT $group_1 AS group_key
   FROM events e
@@ -85,5 +86,5 @@
     AND group_key != ''
     AND pdi.person_id = '01795392-cc00-0003-7dc7-67a694604d72'
   ORDER BY group_key
-  '
----
+  '''
+# ---

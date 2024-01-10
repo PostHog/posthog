@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestFunnelTrendsPersons.test_funnel_trend_persons_returns_recordings
-  '
+  '''
   
   SELECT aggregation_target AS actor_id,
          step_1_matching_events as matching_events
@@ -138,10 +139,10 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestFunnelTrendsPersons.test_funnel_trend_persons_returns_recordings.1
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
@@ -149,21 +150,10 @@
     and session_id in ['s1b']
     AND min_first_timestamp >= '2021-04-30 00:00:00'
     AND max_last_timestamp <= '2021-05-08 23:59:59'
-  '
----
-# name: TestFunnelTrendsPersons.test_funnel_trend_persons_returns_recordings.2
-  '
-  
-  SELECT DISTINCT session_id
-  FROM session_replay_events
-  WHERE team_id = 2
-    and session_id in ['s1b']
-    AND min_first_timestamp >= '2021-04-30 00:00:00'
-    AND max_last_timestamp <= '2021-05-08 23:59:59'
-  '
----
+  '''
+# ---
 # name: TestFunnelTrendsPersons.test_funnel_trend_persons_with_drop_off
-  '
+  '''
   
   SELECT aggregation_target AS actor_id,
          final_matching_events as matching_events
@@ -303,10 +293,10 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestFunnelTrendsPersons.test_funnel_trend_persons_with_drop_off.1
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
@@ -314,21 +304,10 @@
     and session_id in ['s1a']
     AND min_first_timestamp >= '2021-04-30 00:00:00'
     AND max_last_timestamp <= '2021-05-08 23:59:59'
-  '
----
-# name: TestFunnelTrendsPersons.test_funnel_trend_persons_with_drop_off.2
-  '
-  
-  SELECT DISTINCT session_id
-  FROM session_replay_events
-  WHERE team_id = 2
-    and session_id in ['s1a']
-    AND min_first_timestamp >= '2021-04-30 00:00:00'
-    AND max_last_timestamp <= '2021-05-08 23:59:59'
-  '
----
+  '''
+# ---
 # name: TestFunnelTrendsPersons.test_funnel_trend_persons_with_no_to_step
-  '
+  '''
   
   SELECT aggregation_target AS actor_id,
          final_matching_events as matching_events
@@ -467,10 +446,10 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestFunnelTrendsPersons.test_funnel_trend_persons_with_no_to_step.1
-  '
+  '''
   
   SELECT DISTINCT session_id
   FROM session_replay_events
@@ -478,16 +457,5 @@
     and session_id in ['s1c']
     AND min_first_timestamp >= '2021-04-30 00:00:00'
     AND max_last_timestamp <= '2021-05-08 23:59:59'
-  '
----
-# name: TestFunnelTrendsPersons.test_funnel_trend_persons_with_no_to_step.2
-  '
-  
-  SELECT DISTINCT session_id
-  FROM session_replay_events
-  WHERE team_id = 2
-    and session_id in ['s1c']
-    AND min_first_timestamp >= '2021-04-30 00:00:00'
-    AND max_last_timestamp <= '2021-05-08 23:59:59'
-  '
----
+  '''
+# ---
