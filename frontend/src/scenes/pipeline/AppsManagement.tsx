@@ -136,7 +136,7 @@ function AppsTable({ plugins }: RenderAppsTable): JSX.Element {
                                             <Link
                                                 to={plugin.url + '/compare/' + plugin.tag + '...' + plugin.latest_tag}
                                             >
-                                                <LemonTag type="success">See update diff</LemonTag>
+                                                <LemonTag type="completion">See update diff</LemonTag>
                                             </Link>
                                         )}
                                     </div>
