@@ -28,6 +28,6 @@ pub enum WorkerError {
     TimeoutError,
     #[error("an error occurred in the underlying queue")]
     QueueError(#[from] pgqueue::PgQueueError),
-    #[error("an error occurred in the underlying job")]
+    #[error("an error occurred in the underlying job: {0}")]
     PgJobError(String),
 }
