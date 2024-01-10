@@ -2,7 +2,6 @@ import json
 import re
 import uuid
 
-from pydantic import BaseModel
 from django.http import JsonResponse
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import viewsets
@@ -14,7 +13,7 @@ from rest_framework.response import Response
 from sentry_sdk import capture_exception
 
 from posthog.api.documentation import extend_schema
-from posthog.api.parsers import PydanticJSONParser
+from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.clickhouse.client.execute_async import (
@@ -44,16 +43,12 @@ class QueryThrottle(TeamRateThrottle):
     rate = "120/hour"
 
 
-class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
+class QueryViewSet(PydanticModelMixin, StructuredViewSetMixin, viewsets.ViewSet):
     permission_classes = [
         IsAuthenticated,
         ProjectMembershipNecessaryPermissions,
         TeamMemberAccessPermission,
     ]
-    parser_classes = (PydanticJSONParser,)
-    pydantic_models = {
-        "create": QueryRequest,
-    }
 
     def get_throttles(self):
         if self.action == "draft_sql":
@@ -68,7 +63,7 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         },
     )
     def create(self, request, *args, **kwargs) -> Response:
-        data: QueryRequest = request.data
+        data = self.get_model(request.data, QueryRequest)
         client_query_id = data.client_query_id or uuid.uuid4().hex
 
         self._tag_client_query_id(client_query_id)
@@ -84,8 +79,6 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
         try:
             result = process_query_model(self.team, data.query, refresh_requested=data.refresh)
-            if isinstance(result, BaseModel):
-                return Response(result.model_dump())
             return Response(result)
         except (HogQLException, ExposedCHQueryError) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))

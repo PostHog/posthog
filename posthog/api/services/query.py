@@ -1,5 +1,5 @@
 import structlog
-from typing import Dict, Optional
+from typing import Optional
 
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
@@ -41,11 +41,11 @@ QUERY_WITH_RUNNER_NO_CACHE = HogQLQuery | EventsQuery | ActorsQuery | SessionsTi
 
 def process_query(
     team: Team,
-    query: QuerySchemaRoot,
+    query_json: dict,
     limit_context: Optional[LimitContext] = None,
     refresh_requested: Optional[bool] = False,
-):
-    model = QuerySchemaRoot.model_validate(query)
+) -> dict:
+    model = QuerySchemaRoot.model_validate(query_json)
     return process_query_model(
         team,
         model.root,
@@ -59,26 +59,26 @@ def process_query_model(
     query: "QuerySchemaRoot.root",
     limit_context: Optional[LimitContext] = None,
     refresh_requested: Optional[bool] = False,
-) -> Dict | BaseModel:
+) -> dict:
     tag_queries(query=query.kind)  # TODO: ?
 
     if isinstance(query, QUERY_WITH_RUNNER):
         query_runner = get_query_runner(query, team, limit_context=limit_context)
-        return query_runner.run(refresh_requested=refresh_requested)
-    if isinstance(query, QUERY_WITH_RUNNER_NO_CACHE):
+        result = query_runner.run(refresh_requested=refresh_requested)
+    elif isinstance(query, QUERY_WITH_RUNNER_NO_CACHE):
         query_runner = get_query_runner(query, team, limit_context=limit_context)
-        return query_runner.calculate()
+        result = query_runner.calculate()
     elif isinstance(query, HogQLMetadata):
         metadata_query = HogQLMetadata.model_validate(query)
         metadata_response = get_hogql_metadata(query=metadata_query, team=team)
-        return metadata_response
+        result = metadata_response
     elif isinstance(query, DatabaseSchemaQuery):
         database = create_hogql_database(team.pk, modifiers=create_default_modifiers_for_team(team))
-        return serialize_database(database)
+        result = serialize_database(database)
     elif isinstance(query, TimeToSeeDataSessionsQuery):
         sessions_query_serializer = SessionsQuerySerializer(data=query)
         sessions_query_serializer.is_valid(raise_exception=True)
-        return {"results": get_sessions(sessions_query_serializer).data}
+        result = {"results": get_sessions(sessions_query_serializer).data}
     elif isinstance(query, TimeToSeeDataQuery):
         serializer = SessionEventsQuerySerializer(
             data={
@@ -89,8 +89,12 @@ def process_query_model(
             }
         )
         serializer.is_valid(raise_exception=True)
-        return get_session_events(serializer) or {}
+        result = get_session_events(serializer) or {}
     elif query.source:
-        return process_query(team, query.source)
+        result = process_query(team, query.source)
+    else:
+        raise ValidationError(f"Unsupported query kind: {query.kind}")
 
-    raise ValidationError(f"Unsupported query kind: {query.kind}")
+    if isinstance(result, BaseModel):
+        return result.model_dump()
+    return result
