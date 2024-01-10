@@ -81,11 +81,20 @@ class ActorsQueryRunner(QueryRunner):
 
         return self.strategy.input_columns()
 
-    def source_id_column(self, source_query: ast.SelectQuery) -> List[str]:
+    # TODO: Figure out a more sure way of getting the person id than using the alias or chain name
+    def source_id_column(self, source_query: ast.SelectQuery | ast.SelectUnionQuery) -> List[str]:
         # Figure out the id column of the source query, first column that has id in the name
-        for column in source_query.select:
-            if isinstance(column, ast.Field) and any("id" in part.lower() for part in column.chain):
-                return column.chain
+        if isinstance(source_query, ast.SelectQuery):
+            select = source_query.select
+        else:
+            select = source_query.select_queries[0].select
+
+        for column in select:
+            if isinstance(column, ast.Alias) and "id" in column.alias:
+                return [column.alias]
+
+            if isinstance(column, ast.Field) and any("id" in str(part).lower() for part in column.chain):
+                return [str(part) for part in column.chain]
         raise ValueError("Source query must have an id column")
 
     def source_table_join(self) -> ast.JoinExpr:

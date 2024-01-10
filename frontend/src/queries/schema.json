@@ -1783,7 +1783,7 @@
             "additionalProperties": false,
             "properties": {
                 "day": {
-                    "type": "string"
+                    "type": ["string", "number"]
                 },
                 "interval": {
                     "description": "An interval selected out of available intervals in source query",

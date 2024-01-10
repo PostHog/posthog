@@ -5,6 +5,7 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
 from posthog.hogql_queries.insights.retention_query_runner import RetentionQueryRunner
+from posthog.hogql_queries.insights.stickiness_query_runner import StickinessQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner
 from posthog.models.filters.mixins.utils import cached_property
@@ -31,6 +32,11 @@ class InsightActorsQueryRunner(QueryRunner):
         elif isinstance(self.source_runner, RetentionQueryRunner):
             retention_runner = cast(RetentionQueryRunner, self.source_runner)
             return retention_runner.to_actors_query(interval=self.query.interval)
+        elif isinstance(self.source_runner, StickinessQueryRunner):
+            stickiness_runner = cast(StickinessQueryRunner, self.source_runner)
+            return stickiness_runner.to_actors_query(
+                interval_num=int(self.query.day) if self.query.day is not None else None
+            )
 
         raise ValueError(f"Cannot convert source query of type {self.query.source.kind} to persons query")
 

@@ -786,7 +786,7 @@ export type InsightFilter =
 export interface InsightActorsQuery {
     kind: NodeKind.InsightActorsQuery
     source: InsightQueryNode
-    day?: string
+    day?: string | number
     status?: string
     /**
      * An interval selected out of available intervals in source query
