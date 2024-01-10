@@ -10,12 +10,12 @@ import { teamLogic } from '../../teamLogic'
 import type { pluginLogsLogicType } from './pluginLogsLogicType'
 
 export interface PluginLogsProps {
-    pluginConfigId: number
+    id: number
 }
 
 export const pluginLogsLogic = kea<pluginLogsLogicType>([
     props({} as PluginLogsProps),
-    key(({ pluginConfigId }: PluginLogsProps) => pluginConfigId),
+    key(({ id }: PluginLogsProps) => id),
     path((key) => ['scenes', 'plugins', 'plugin', 'pluginLogsLogic', key]),
     connect({
         values: [teamLogic, ['currentTeamId']],
@@ -28,12 +28,12 @@ export const pluginLogsLogic = kea<pluginLogsLogicType>([
         }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     }),
-    loaders(({ props: { pluginConfigId }, values, actions, cache }) => ({
+    loaders(({ props: { id }, values, actions, cache }) => ({
         pluginLogs: {
             __default: [] as PluginLogEntry[],
             loadPluginLogs: async () => {
                 const results = await api.pluginLogs.search(
-                    pluginConfigId,
+                    id,
                     values.currentTeamId,
                     values.searchTerm,
                     values.typeFilters
@@ -46,7 +46,7 @@ export const pluginLogsLogic = kea<pluginLogsLogicType>([
             },
             loadPluginLogsMore: async () => {
                 const results = await api.pluginLogs.search(
-                    pluginConfigId,
+                    id,
                     values.currentTeamId,
                     values.searchTerm,
                     values.typeFilters,
@@ -72,7 +72,7 @@ export const pluginLogsLogic = kea<pluginLogsLogicType>([
                 }
 
                 const results = await api.pluginLogs.search(
-                    pluginConfigId,
+                    id,
                     values.currentTeamId,
                     values.searchTerm,
                     values.typeFilters,
