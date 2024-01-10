@@ -23,7 +23,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, identifierToHuman } from 'lib/utils'
 import { pluralize } from 'lib/utils'
 import { useEffect, useState } from 'react'
-import { PipelineAppLogLevel } from 'scenes/plugins/plugin/pluginLogsLogic'
+import { PipelineAppLogLevel } from 'scenes/pipeline/pipelineAppLogsLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
