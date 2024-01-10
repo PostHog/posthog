@@ -98,7 +98,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2021-01-08 23:59:59', 'UTC') AS date_to,
        toDateTime('2021-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -306,7 +307,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2, 3]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2021-01-08 23:59:59', 'UTC') AS date_to,
        toDateTime('2021-01-01 00:00:00', 'UTC') AS date_from,
        3 AS target_step,
@@ -458,7 +460,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id ,
          any(funnel_actors.matching_events) AS matching_events
@@ -590,7 +593,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id ,
          any(funnel_actors.matching_events) AS matching_events
@@ -722,7 +726,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id ,
          any(funnel_actors.matching_events) AS matching_events
