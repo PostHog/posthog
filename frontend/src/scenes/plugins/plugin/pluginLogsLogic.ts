@@ -2,10 +2,11 @@ import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { LOGS_PORTION_LIMIT } from 'lib/constants'
+import { DestinationTypeKind } from 'scenes/pipeline/destinationsLogic'
 import { pipelineAppLogic } from 'scenes/pipeline/pipelineAppLogic'
 
 import api from '~/lib/api'
-import { PipelineTabs, PluginLogEntry, PluginLogEntryType } from '~/types'
+import { BatchExportLogEntry, PipelineTabs, PluginLogEntry, PluginLogEntryType } from '~/types'
 
 import { teamLogic } from '../../teamLogic'
 import type { pluginLogsLogicType } from './pluginLogsLogicType'
@@ -32,14 +33,25 @@ export const pluginLogsLogic = kea<pluginLogsLogicType>([
     }),
     loaders(({ props: { id }, values, actions, cache }) => ({
         pluginLogs: {
-            __default: [] as PluginLogEntry[],
+            __default: [] as PluginLogEntry[] | BatchExportLogEntry[],
             loadPluginLogs: async () => {
-                const results = await api.pluginLogs.search(
-                    id,
-                    values.currentTeamId,
-                    values.searchTerm,
-                    values.typeFilters
-                )
+                let results: PluginLogEntry[] | BatchExportLogEntry[]
+                if (values.appType === DestinationTypeKind.BatchExport) {
+                    results = await api.batchExportLogs.search(
+                        id as string,
+                        values.currentTeamId,
+                        values.searchTerm,
+                        values.typeFilters
+                    )
+                } else {
+                    results = await api.pluginLogs.search(
+                        id as number,
+                        values.currentTeamId,
+                        values.searchTerm,
+                        values.typeFilters
+                    )
+                }
+
                 if (!cache.pollingInterval) {
                     cache.pollingInterval = setInterval(actions.loadPluginLogsBackgroundPoll, 2000)
                 }

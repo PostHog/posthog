@@ -39,14 +39,19 @@ interface DestinationTypeBase {
     updated_at: string
     frequency: 'realtime' | BatchExportConfiguration['interval']
 }
+export enum DestinationTypeKind {
+    BatchExport = 'batch_export',
+    Webhook = 'webhook',
+}
+
 export interface BatchExportDestination extends DestinationTypeBase {
-    type: 'batch_export'
+    type: DestinationTypeKind.BatchExport
     id: string
     success_rates: BatchExportSuccessRate
     app_source_code_url?: never
 }
 export interface WebhookDestination extends DestinationTypeBase {
-    type: 'webhook'
+    type: DestinationTypeKind.Webhook
     id: number
     plugin: PluginType
     app_source_code_url?: string
