@@ -1,25 +1,23 @@
 import './Announcement.scss'
 
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { IconClose } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
-import { announcementLogic, AnnouncementType } from '~/layout/navigation/TopBar/announcementLogic'
+import { announcementLogic } from '~/layout/navigation/TopBar/announcementLogic'
 
 export function Announcement(): JSX.Element | null {
-    const { shownAnnouncementType, cloudAnnouncement } = useValues(announcementLogic)
+    const { showAnnouncement, cloudAnnouncement } = useValues(announcementLogic)
     const { hideAnnouncement } = useActions(announcementLogic)
 
-    let message: JSX.Element | undefined
-    if (shownAnnouncementType === AnnouncementType.CloudFlag && cloudAnnouncement) {
-        message = <LemonMarkdown className="strong">{cloudAnnouncement}</LemonMarkdown>
+    if (!showAnnouncement) {
+        return null
     }
 
     return (
-        <div className={clsx('Announcement', !shownAnnouncementType && 'Announcement--hidden')}>
-            {message}
-            <div className="Announcement__close" onClick={() => hideAnnouncement(shownAnnouncementType)}>
+        <div className="Announcement">
+            <LemonMarkdown className="strong">{cloudAnnouncement as string}</LemonMarkdown>
+            <div className="Announcement__close" onClick={hideAnnouncement}>
                 <IconClose />
             </div>
         </div>

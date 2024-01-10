@@ -6,10 +6,6 @@ import posthog from 'posthog-js'
 
 import type { announcementLogicType } from './announcementLogicType'
 
-export enum AnnouncementType {
-    CloudFlag = 'CloudFlag',
-}
-
 export const DEFAULT_CLOUD_ANNOUNCEMENT =
     "We're experiencing technical difficulties. Check [status.posthog.com](https://status.posthog.com) for updates."
 
@@ -19,22 +15,9 @@ export const announcementLogic = kea<announcementLogicType>([
         values: [featureFlagLogic, ['featureFlags']],
     }),
     actions({
-        hideAnnouncement: (type: AnnouncementType | null) => ({ type }),
+        hideAnnouncement: true,
     }),
     reducers({
-        persistedClosedAnnouncements: [
-            {} as Record<AnnouncementType, boolean>,
-            { persist: true },
-            {
-                hideAnnouncement: (state, { type }) => {
-                    // :TRICKY: We don't close cloud announcements forever, just until reload
-                    if (!type || type === AnnouncementType.CloudFlag) {
-                        return state
-                    }
-                    return { ...state, [type]: true }
-                },
-            },
-        ],
         closed: [
             false,
             {
@@ -43,27 +26,18 @@ export const announcementLogic = kea<announcementLogicType>([
         ],
     }),
     selectors({
-        shownAnnouncementType: [
-            (s) => [router.selectors.location, s.relevantAnnouncementType, s.closed, s.persistedClosedAnnouncements],
-            ({ pathname }, relevantAnnouncementType, closed, persistedClosedAnnouncements): AnnouncementType | null => {
+        showAnnouncement: [
+            (s) => [router.selectors.location, s.cloudAnnouncement, s.closed],
+            ({ pathname }, cloudAnnouncement, closed): boolean => {
                 if (
+                    !cloudAnnouncement ||
                     closed ||
-                    (relevantAnnouncementType && persistedClosedAnnouncements[relevantAnnouncementType]) || // hide if already closed
                     pathname.includes('/onboarding') ||
                     pathname.includes('/products') // hide during the onboarding phase
                 ) {
-                    return null
+                    return false
                 }
-                return relevantAnnouncementType
-            },
-        ],
-        relevantAnnouncementType: [
-            (s) => [s.cloudAnnouncement],
-            (cloudAnnouncement): AnnouncementType | null => {
-                if (cloudAnnouncement) {
-                    return AnnouncementType.CloudFlag
-                }
-                return null
+                return true
             },
         ],
         cloudAnnouncement: [
