@@ -30,7 +30,7 @@ export function PipelineApp({ kind, id }: { kind?: string; id?: string } = {}): 
     if (!featureFlags[FEATURE_FLAGS.PIPELINE_UI]) {
         return <p>Pipeline 3000 not available yet</p>
     }
-    if (!Object.values(PipelineAppTabs).includes(kind as PipelineAppTabs)) {
+    if (!Object.values(PipelineTabs).includes(kind as PipelineTabs)) {
         return <NotFound object="pipeline app" />
     }
     const { currentTab } = useValues(pipelineAppLogic)
