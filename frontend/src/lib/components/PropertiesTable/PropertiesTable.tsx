@@ -141,7 +141,7 @@ function ValueDisplay({
                     {(propertyType === PropertyType.String && valueType === 'number') ||
                     (propertyType === PropertyType.Numeric && valueType === 'string') ? (
                         <Tooltip
-                            title={`The event property's type is set to "${propertyType}", while the received value is of type "${valueType}". Click to correct.`}
+                            title={`This property's type is set to "${propertyType}", yet the displayed value is of type "${valueType}". Click to correct.`}
                         >
                             <Link to={combineUrl(urls.propertyDefinitions(), { property: rootKey }).url}>
                                 <LemonTag type="danger">Type mismatch</LemonTag>
