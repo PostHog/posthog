@@ -1,5 +1,5 @@
 import structlog
-from typing import Optional
+from typing import Optional, Any
 
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
@@ -63,16 +63,17 @@ def process_query(
 
 def process_query_model(
     team: Team,
-    query: "QuerySchemaRoot.root",
+    query: Any,  # mypy has problems with unions and isinstance
     limit_context: Optional[LimitContext] = None,
     refresh_requested: Optional[bool] = False,
 ) -> dict:
     tag_queries(query=query.kind)  # TODO: ?
+    result: dict | BaseModel
 
-    if isinstance(query, QUERY_WITH_RUNNER):
+    if isinstance(query, QUERY_WITH_RUNNER):  # type: ignore
         query_runner = get_query_runner(query, team, limit_context=limit_context)
         result = query_runner.run(refresh_requested=refresh_requested)
-    elif isinstance(query, QUERY_WITH_RUNNER_NO_CACHE):
+    elif isinstance(query, QUERY_WITH_RUNNER_NO_CACHE):  # type: ignore
         query_runner = get_query_runner(query, team, limit_context=limit_context)
         result = query_runner.calculate()
     elif isinstance(query, HogQLMetadata):
@@ -90,9 +91,9 @@ def process_query_model(
         serializer = SessionEventsQuerySerializer(
             data={
                 "team_id": team.pk,
-                "session_start": query["sessionStart"],
-                "session_end": query["sessionEnd"],
-                "session_id": query["sessionId"],
+                "session_start": query.sessionStart,
+                "session_end": query.sessionEnd,
+                "session_id": query.sessionId,
             }
         )
         serializer.is_valid(raise_exception=True)
