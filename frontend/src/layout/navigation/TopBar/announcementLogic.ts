@@ -3,14 +3,12 @@ import { router } from 'kea-router'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { navigationLogic } from '../navigationLogic'
 import type { announcementLogicType } from './announcementLogicType'
 
 export enum AnnouncementType {
-    Demo = 'Demo',
     CloudFlag = 'CloudFlag',
     AttentionRequired = 'AttentionRequired',
 }
@@ -23,16 +21,7 @@ const ShowAttentionRequiredBanner = false
 export const announcementLogic = kea<announcementLogicType>([
     path(['layout', 'navigation', 'TopBar', 'announcementLogic']),
     connect({
-        values: [
-            featureFlagLogic,
-            ['featureFlags'],
-            preflightLogic,
-            ['preflight'],
-            userLogic,
-            ['user'],
-            navigationLogic,
-            ['asyncMigrationsOk'],
-        ],
+        values: [featureFlagLogic, ['featureFlags'], userLogic, ['user'], navigationLogic, ['asyncMigrationsOk']],
     }),
     actions({
         hideAnnouncement: (type: AnnouncementType | null) => ({ type }),
@@ -59,30 +48,12 @@ export const announcementLogic = kea<announcementLogicType>([
         ],
     }),
     selectors({
-        closable: [
-            (s) => [s.relevantAnnouncementType],
-            // The demo announcement is persistent
-            (relevantAnnouncementType): boolean => relevantAnnouncementType !== AnnouncementType.Demo,
-        ],
         shownAnnouncementType: [
-            (s) => [
-                router.selectors.location,
-                s.relevantAnnouncementType,
-                s.closable,
-                s.closed,
-                s.persistedClosedAnnouncements,
-            ],
-            (
-                { pathname },
-                relevantAnnouncementType,
-                closable,
-                closed,
-                persistedClosedAnnouncements
-            ): AnnouncementType | null => {
+            (s) => [router.selectors.location, s.relevantAnnouncementType, s.closed, s.persistedClosedAnnouncements],
+            ({ pathname }, relevantAnnouncementType, closed, persistedClosedAnnouncements): AnnouncementType | null => {
                 if (
-                    (closable &&
-                        (closed ||
-                            (relevantAnnouncementType && persistedClosedAnnouncements[relevantAnnouncementType]))) || // hide if already closed
+                    closed ||
+                    (relevantAnnouncementType && persistedClosedAnnouncements[relevantAnnouncementType]) || // hide if already closed
                     pathname.includes('/onboarding') ||
                     pathname.includes('/products') // hide during the onboarding phase
                 ) {
@@ -92,11 +63,9 @@ export const announcementLogic = kea<announcementLogicType>([
             },
         ],
         relevantAnnouncementType: [
-            (s) => [s.cloudAnnouncement, s.preflight, s.user, s.asyncMigrationsOk],
-            (cloudAnnouncement, preflight, user, asyncMigrationsOk): AnnouncementType | null => {
-                if (preflight?.demo) {
-                    return AnnouncementType.Demo
-                } else if (cloudAnnouncement) {
+            (s) => [s.cloudAnnouncement, s.user, s.asyncMigrationsOk],
+            (cloudAnnouncement, user, asyncMigrationsOk): AnnouncementType | null => {
+                if (cloudAnnouncement) {
                     return AnnouncementType.CloudFlag
                 } else if (
                     ShowAttentionRequiredBanner &&
