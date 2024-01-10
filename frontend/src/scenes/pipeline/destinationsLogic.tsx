@@ -82,7 +82,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 loadPluginConfigs: async () => {
                     const pluginConfigs: Record<number, PluginConfigTypeNew> = {}
                     const results = await api.loadPaginatedResults(
-                        `api/projects/${values.currentTeamId}/pipeline_destinations_configs`
+                        `api/projects/${values.currentTeamId}/pipeline_destination_configs`
                     )
 
                     for (const pluginConfig of results) {
