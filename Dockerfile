@@ -21,6 +21,13 @@ COPY . .
 RUN cargo build --release --bin $BIN
 
 FROM debian:bullseye-20230320-slim AS runtime
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    "ca-certificates" \
+    && \
+    rm -rf /var/lib/apt/lists/*
+
 ARG BIN
 ENV ENTRYPOINT=/usr/local/bin/$BIN
 WORKDIR app
