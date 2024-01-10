@@ -1,4 +1,3 @@
-import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { LOGS_PORTION_LIMIT } from 'lib/constants'
@@ -6,7 +5,7 @@ import { DestinationTypeKind } from 'scenes/pipeline/destinationsLogic'
 import { pipelineAppLogic } from 'scenes/pipeline/pipelineAppLogic'
 
 import api from '~/lib/api'
-import { BatchExportLogEntry, PipelineTabs, PluginLogEntry, PluginLogEntryType } from '~/types'
+import { BatchExportLogEntry, BatchExportLogEntryLevel, PipelineTabs, PluginLogEntry } from '~/types'
 
 import { teamLogic } from '../../teamLogic'
 import type { pluginLogsLogicType } from './pluginLogsLogicType'
@@ -26,8 +25,8 @@ export const pluginLogsLogic = kea<pluginLogsLogicType>([
     actions({
         clearPluginLogsBackground: true,
         markLogsEnd: true,
-        setPluginLogsTypes: (typeFilters: CheckboxValueType[]) => ({
-            typeFilters,
+        setSelectedLogLevels: (levels: BatchExportLogEntryLevel[]) => ({
+            levels,
         }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     }),
@@ -41,15 +40,14 @@ export const pluginLogsLogic = kea<pluginLogsLogicType>([
                         id as string,
                         values.currentTeamId,
                         values.searchTerm,
-                        // values.typeFilters
-                        ['INFO']
+                        values.selectedLogLevels
                     )
                 } else {
                     results = await api.pluginLogs.search(
                         id as number,
                         values.currentTeamId,
                         values.searchTerm,
-                        values.typeFilters
+                        values.selectedLogLevels
                     )
                 }
 
@@ -64,7 +62,7 @@ export const pluginLogsLogic = kea<pluginLogsLogicType>([
                     id,
                     values.currentTeamId,
                     values.searchTerm,
-                    values.typeFilters,
+                    values.selectedLogLevels,
                     values.trailingEntry
                 )
 
@@ -90,7 +88,7 @@ export const pluginLogsLogic = kea<pluginLogsLogicType>([
                     id,
                     values.currentTeamId,
                     values.searchTerm,
-                    values.typeFilters,
+                    values.selectedLogLevels,
                     null,
                     values.leadingEntry
                 )
@@ -100,10 +98,10 @@ export const pluginLogsLogic = kea<pluginLogsLogicType>([
         },
     })),
     reducers({
-        pluginLogsTypes: [
-            Object.values(PluginLogEntryType).filter((type) => type !== 'DEBUG'),
+        selectedLogLevels: [
+            Object.values(BatchExportLogEntryLevel).filter((level) => level !== 'DEBUG'),
             {
-                setPluginLogsTypes: (_, { typeFilters }) => typeFilters.map((tf) => tf as PluginLogEntryType),
+                setSelectedLogLevels: (_, { levels }) => levels,
             },
         ],
         pluginLogsBackground: [
@@ -116,12 +114,6 @@ export const pluginLogsLogic = kea<pluginLogsLogicType>([
             '',
             {
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
-            },
-        ],
-        typeFilters: [
-            Object.values(PluginLogEntryType).filter((type) => type !== 'DEBUG') as CheckboxValueType[],
-            {
-                setPluginLogsTypes: (_, { typeFilters }) => typeFilters || [],
             },
         ],
         isThereMoreToLoad: [
@@ -159,7 +151,7 @@ export const pluginLogsLogic = kea<pluginLogsLogicType>([
         ],
     })),
     listeners(({ actions }) => ({
-        setPluginLogsTypes: () => {
+        setSelectedLogLevels: () => {
             actions.loadPluginLogs()
         },
         setSearchTerm: async ({ searchTerm }, breakpoint) => {
