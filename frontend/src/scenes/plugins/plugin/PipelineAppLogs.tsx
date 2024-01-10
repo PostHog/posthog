@@ -4,7 +4,7 @@ import { LOGS_PORTION_LIMIT } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils'
 
-import { PipelineAppLogLevel, pluginLogsLogic, PluginLogsProps } from './pluginLogsLogic'
+import { PipelineAppLogLevel, pluginLogsLogic, PluginLogsProps as PipelineAppLogsProps } from './pluginLogsLogic'
 
 function LogLevelDisplay(type: PipelineAppLogLevel): JSX.Element {
     let color: string | undefined
@@ -56,7 +56,7 @@ const columns: LemonTableColumns<Record<string, any>> = [
     },
 ]
 
-export function PluginLogs({ id, kind }: PluginLogsProps): JSX.Element {
+export function PipelineAppLogs({ id, kind }: PipelineAppLogsProps): JSX.Element {
     const logic = pluginLogsLogic({ id, kind })
 
     const { pluginLogs, pluginLogsLoading, pluginLogsBackground, isThereMoreToLoad, selectedLogLevels } =
