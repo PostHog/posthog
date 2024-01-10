@@ -468,13 +468,13 @@ class PropertyDefinitionViewSet(
 
         property_definition_fields = ", ".join(
             [
-                f'posthog_propertydefinition."{f.column}"'  # type: ignore
+                f'posthog_propertydefinition."{f.column}"'
                 for f in PropertyDefinition._meta.get_fields()
                 if hasattr(f, "column")
             ]
         )
 
-        use_enterprise_taxonomy = self.request.user.organization.is_feature_available(  # type: ignore
+        use_enterprise_taxonomy = self.request.user.organization.is_feature_available(
             AvailableFeature.INGESTION_TAXONOMY
         )
         order_by_verified = False
@@ -485,9 +485,9 @@ class PropertyDefinitionViewSet(
                 # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
                 property_definition_fields = ", ".join(
                     [
-                        f'{f.cached_col.alias}."{f.column}"'  # type: ignore
+                        f'{f.cached_col.alias}."{f.column}"'
                         for f in EnterprisePropertyDefinition._meta.get_fields()
-                        if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]  # type: ignore
+                        if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]
                     ]
                 )
 
@@ -502,8 +502,8 @@ class PropertyDefinitionViewSet(
             except ImportError:
                 use_enterprise_taxonomy = False
 
-        limit = self.paginator.get_limit(self.request)  # type: ignore
-        offset = self.paginator.get_offset(self.request)  # type: ignore
+        limit = self.paginator.get_limit(self.request)
+        offset = self.paginator.get_offset(self.request)
 
         query = PropertyDefinitionQuerySerializer(data=self.request.query_params)
         query.is_valid(raise_exception=True)
@@ -547,13 +547,13 @@ class PropertyDefinitionViewSet(
             cursor.execute(query_context.as_count_sql(), query_context.params)
             full_count = cursor.fetchone()[0]
 
-        self.paginator.set_count(full_count)  # type: ignore
+        self.paginator.set_count(full_count)
 
         return queryset.raw(query_context.as_sql(order_by_verified), params=query_context.params)
 
     def get_serializer_class(self) -> Type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class
-        if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
+        if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):
             try:
                 from ee.api.ee_property_definition import (
                     EnterprisePropertyDefinitionSerializer,
@@ -561,12 +561,12 @@ class PropertyDefinitionViewSet(
             except ImportError:
                 pass
             else:
-                serializer_class = EnterprisePropertyDefinitionSerializer  # type: ignore
+                serializer_class = EnterprisePropertyDefinitionSerializer
         return serializer_class
 
     def get_object(self):
         id = self.kwargs["id"]
-        if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
+        if self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):
             try:
                 from ee.models.property_definition import EnterprisePropertyDefinition
             except ImportError:
