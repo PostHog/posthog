@@ -6,11 +6,11 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb, PipelineAppTabs, PipelineTabs } from '~/types'
 
-import { DestinationType } from './destinationsLogic'
+import { DestinationTypeKind } from './destinationsLogic'
 import type { pipelineAppLogicType } from './pipelineAppLogicType'
 
 export interface PipelineAppLogicProps {
-    id: number
+    id: number | string
     kind: PipelineTabs
 }
 
@@ -50,7 +50,10 @@ export const pipelineAppLogic = kea<pipelineAppLogicType>([
         ],
         appType: [
             (_, p) => [p.id],
-            (id): DestinationType['type'] => (typeof id === 'number' ? 'webhook' : 'batch_export'),
+            (id): DestinationTypeKind =>
+                typeof id === 'string' && /^\d+$/.test(id)
+                    ? DestinationTypeKind.Webhook
+                    : DestinationTypeKind.BatchExport,
         ],
     }),
     actionToUrl(({ values, props }) => {
