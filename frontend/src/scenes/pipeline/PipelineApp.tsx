@@ -29,7 +29,7 @@ export const scene: SceneExport = {
     },
 }
 
-export function PipelineApp({ kind, id }: { kind?: string; id?: string } = {}): JSX.Element {
+export function PipelineApp({ kind, id }: { kind?: string; id?: string | number } = {}): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     if (!featureFlags[FEATURE_FLAGS.PIPELINE_UI]) {
         return <p>Pipeline 3000 not available yet</p>
@@ -39,16 +39,14 @@ export function PipelineApp({ kind, id }: { kind?: string; id?: string } = {}): 
     }
     const { currentTab } = useValues(pipelineAppLogic)
 
-    const confId = id ? parseInt(id) : undefined
-
-    if (!confId) {
+    if (!id) {
         return <Spinner />
     }
 
     const tabToContent: Record<PipelineAppTabs, JSX.Element> = {
         [PipelineAppTabs.Configuration]: <PipelineAppConfiguration />,
-        [PipelineAppTabs.Metrics]: <AppMetrics pluginConfigId={confId} />,
-        [PipelineAppTabs.Logs]: <PluginLogs pluginConfigId={confId} />,
+        [PipelineAppTabs.Metrics]: <AppMetrics pluginConfigId={id as number} />,
+        [PipelineAppTabs.Logs]: <PluginLogs id={id} />,
     }
 
     return (
