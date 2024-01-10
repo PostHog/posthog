@@ -3,12 +3,54 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { canConfigurePlugins } from 'scenes/plugins/access'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { PluginConfigTypeNew, PluginConfigWithPluginInfoNew, PluginType, ProductKey } from '~/types'
+import {
+    PipelineAppTabs,
+    PipelineTabs,
+    PluginConfigTypeNew,
+    PluginConfigWithPluginInfoNew,
+    PluginType,
+    ProductKey,
+} from '~/types'
 
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
 import { capturePluginEvent } from './utils'
+
+interface WebhookSuccessRate {
+    '24h': number | null
+    '7d': number | null
+}
+interface BatchExportSuccessRate {
+    '24h': [successes: number, failures: number]
+    '7d': [successes: number, failures: number]
+}
+
+interface DestinationTypeBase {
+    name: string
+    description?: string
+    enabled: boolean
+    config_url: string
+    metrics_url: string
+    logs_url: string
+    updated_at: string
+    frequency: 'realtime' | 'hourly' | 'daily'
+}
+export interface BatchExportDestination extends DestinationTypeBase {
+    type: 'batch_export'
+    id: string
+    success_rates: BatchExportSuccessRate
+    app_source_code_url?: never
+}
+export interface WebhookDestination extends DestinationTypeBase {
+    type: 'webhook'
+    id: number
+    plugin: PluginType
+    app_source_code_url?: string
+    success_rates: WebhookSuccessRate
+}
+export type DestinationType = BatchExportDestination | WebhookDestination
 
 export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
     path(['scenes', 'pipeline', 'destinationsLogic']),
@@ -94,6 +136,35 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     plugin_info: plugins[pluginConfig.plugin] || null,
                 }))
                 return withPluginInfo
+            },
+        ],
+        destinations: [
+            (s) => [s.pluginConfigs, s.plugins],
+            (pluginConfigs, plugins): DestinationType[] => {
+                const dests = Object.values(pluginConfigs).map<DestinationType>((pluginConfig) => ({
+                    type: 'webhook',
+                    frequency: 'realtime',
+                    id: pluginConfig.id,
+                    name: pluginConfig.name,
+                    description: pluginConfig.description,
+                    enabled: pluginConfig.enabled,
+                    config_url: urls.pipelineApp(
+                        PipelineTabs.Destinations,
+                        pluginConfig.id,
+                        PipelineAppTabs.Configuration
+                    ),
+                    metrics_url: urls.pipelineApp(PipelineTabs.Destinations, pluginConfig.id, PipelineAppTabs.Metrics),
+                    logs_url: urls.pipelineApp(PipelineTabs.Destinations, pluginConfig.id, PipelineAppTabs.Logs),
+                    app_source_code_url: '',
+                    plugin: plugins[pluginConfig.plugin],
+                    success_rates: {
+                        '24h': pluginConfig.delivery_rate_24h === undefined ? null : pluginConfig.delivery_rate_24h,
+                        '7d': null, // TODO: start populating real data for this
+                    },
+                    updated_at: pluginConfig.updated_at,
+                }))
+                const enabledFirst = Object.values(dests).sort((a, b) => Number(b.enabled) - Number(a.enabled))
+                return enabledFirst
             },
         ],
         // This is currently an organization level setting but might in the future be user level

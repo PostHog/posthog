@@ -1,7 +1,7 @@
-import { LemonBanner, LemonDivider, LemonMenu, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDivider, LemonMenu, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { Popconfirm } from 'antd'
 import { useActions, useValues } from 'kea'
-import { IconDelete, IconLock, IconLockOpen } from 'lib/lemon-ui/icons'
+import { IconCloudDownload, IconDelete, IconLock, IconLockOpen, IconRefresh } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
@@ -21,6 +21,11 @@ export const scene: SceneExport = {
 }
 
 export function AppsManagement(): JSX.Element {
+    // NOTE: We don't want to unmount appsManagementLogic once it's mounted. This is a memoization technique for
+    // `checkForUpdates`, as otherwise leaving the page and coming back to it would result in us checking for updates
+    // each time. Normally such a hack is a bit of a smell, but this is a staff-only page, so totally fine.
+    appsManagementLogic.mount()
+
     const {
         canInstallPlugins,
         canGloballyManagePlugins,
@@ -50,6 +55,7 @@ export function AppsManagement(): JSX.Element {
             <LemonDivider className="my-6" />
 
             <h2>Installed apps</h2>
+            <AppsToUpdate />
             {globalPlugins && (
                 <>
                     <h3 className="mt-3">Global apps</h3>
@@ -73,9 +79,39 @@ type RenderAppsTable = {
     plugins: PluginType[]
 }
 
+function AppsToUpdate(): JSX.Element {
+    const { updatablePlugins, pluginsNeedingUpdates, checkingForUpdates } = useValues(appsManagementLogic)
+    const { checkForUpdates } = useActions(appsManagementLogic)
+
+    return (
+        <>
+            {updatablePlugins && (
+                <LemonButton
+                    type="secondary"
+                    icon={<IconRefresh />}
+                    onClick={checkForUpdates}
+                    loading={checkingForUpdates}
+                >
+                    {checkingForUpdates
+                        ? `Checking ${Object.keys(updatablePlugins).length} apps for updates`
+                        : // we by default already check all apps for updates on initial load
+                          'Check again for updates'}
+                </LemonButton>
+            )}
+            {pluginsNeedingUpdates.length > 0 && (
+                <>
+                    <h3 className="mt-3">Apps to update</h3>
+                    <p>These apps have newer commits in the repository they link to.</p>
+                    <AppsTable plugins={pluginsNeedingUpdates} />
+                </>
+            )}
+        </>
+    )
+}
+
 function AppsTable({ plugins }: RenderAppsTable): JSX.Element {
     const { unusedPlugins } = useValues(appsManagementLogic)
-    const { uninstallPlugin, patchPlugin } = useActions(appsManagementLogic)
+    const { uninstallPlugin, patchPlugin, updatePlugin } = useActions(appsManagementLogic)
 
     const data = plugins.map((plugin) => ({ ...plugin, key: plugin.id }))
     return (
@@ -96,6 +132,13 @@ function AppsTable({ plugins }: RenderAppsTable): JSX.Element {
                                 <>
                                     <div className="flex gap-2 items-center">
                                         <span className="font-semibold truncate">{plugin.name}</span>
+                                        {plugin.latest_tag && plugin.tag && plugin.latest_tag !== plugin.tag && (
+                                            <Link
+                                                to={plugin.url + '/compare/' + plugin.tag + '...' + plugin.latest_tag}
+                                            >
+                                                <LemonTag type="completion">See update diff</LemonTag>
+                                            </Link>
+                                        )}
                                     </div>
                                     <div className="text-sm">{plugin.description}</div>
                                 </>
@@ -127,6 +170,16 @@ function AppsTable({ plugins }: RenderAppsTable): JSX.Element {
                         render: function RenderAccess(_, plugin) {
                             return (
                                 <div className="flex items-center gap-2 justify-end">
+                                    {plugin.latest_tag && plugin.tag != plugin.latest_tag && (
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            icon={<IconCloudDownload />}
+                                            onClick={() => updatePlugin(plugin.id)}
+                                        >
+                                            Update
+                                        </LemonButton>
+                                    )}
                                     {plugin.is_global ? (
                                         <Tooltip
                                             title={

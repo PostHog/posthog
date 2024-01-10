@@ -23,7 +23,7 @@ class TestQuery(BaseModel):
 
 
 class TestQueryRunner(BaseTest):
-    def setup_test_query_runner_class(self, query_class: Type[RunnableQueryNode] = TestQuery):  # type: ignore
+    def setup_test_query_runner_class(self, query_class: Type[RunnableQueryNode] = TestQuery):
         """Setup required methods and attributes of the abstract base class."""
 
         class TestQueryRunner(QueryRunner):
@@ -47,21 +47,21 @@ class TestQueryRunner(BaseTest):
     def test_init_with_query_instance(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 
-        runner = TestQueryRunner(query=TestQuery(some_attr="bla"), team=self.team)  # type: ignore
+        runner = TestQueryRunner(query=TestQuery(some_attr="bla"), team=self.team)
 
         self.assertEqual(runner.query, TestQuery(some_attr="bla"))
 
     def test_init_with_query_dict(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 
-        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)  # type: ignore
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
         self.assertEqual(runner.query, TestQuery(some_attr="bla"))
 
     def test_serializes_to_json(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 
-        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)  # type: ignore
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
         json = runner.toJSON()
         self.assertEqual(json, '{"some_attr":"bla"}')
@@ -80,7 +80,7 @@ class TestQueryRunner(BaseTest):
         # implement custom validators for this.
         TestQueryRunner = self.setup_test_query_runner_class()
 
-        runner = TestQueryRunner(query={"some_attr": "bla", "other_attr": []}, team=self.team)  # type: ignore
+        runner = TestQueryRunner(query={"some_attr": "bla", "other_attr": []}, team=self.team)
 
         json = runner.toJSON()
         self.assertEqual(json, '{"some_attr":"bla"}')
@@ -90,7 +90,7 @@ class TestQueryRunner(BaseTest):
         # set the pk directly as it affects the hash in the _cache_key call
         team = Team.objects.create(pk=42, organization=self.organization)
 
-        runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)  # type: ignore
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner._cache_key()
         self.assertEqual(cache_key, "cache_b8a6b70478ec6139c8f7f379c808d5b9")
@@ -98,13 +98,13 @@ class TestQueryRunner(BaseTest):
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 
-        class TestSubclassQueryRunner(TestQueryRunner):  # type: ignore
+        class TestSubclassQueryRunner(TestQueryRunner):
             pass
 
         # set the pk directly as it affects the hash in the _cache_key call
         team = Team.objects.create(pk=42, organization=self.organization)
 
-        runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)  # type: ignore
+        runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner._cache_key()
         self.assertEqual(cache_key, "cache_cfab9e42d088def74792922de5b513ac")
@@ -115,7 +115,7 @@ class TestQueryRunner(BaseTest):
         team.timezone = "Europe/Vienna"
         team.save()
 
-        runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)  # type: ignore
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner._cache_key()
         self.assertEqual(cache_key, "cache_9f12fefe07c0ab79e93935aed6b0bfa6")
@@ -123,7 +123,7 @@ class TestQueryRunner(BaseTest):
     def test_cache_response(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 
-        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)  # type: ignore
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
         with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
             # returns fresh response if uncached

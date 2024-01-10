@@ -21,6 +21,7 @@ QUERY_WITH_RUNNER = [
     "LifecycleQuery",
     "RetentionQuery",
     "TrendsQuery",
+    "StickinessQuery",
     "WebOverviewQuery",
     "WebTopSourcesQuery",
     "WebTopClicksQuery",

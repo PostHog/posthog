@@ -86,7 +86,7 @@ export function PipelineDestinationsPage(): JSX.Element {
 
 export function PipelineAppConfiguration(): JSX.Element {
     useEffect(() => {
-        router.actions.push(urls.pipelineApp(1, PipelineAppTabs.Configuration))
+        router.actions.push(urls.pipelineApp(PipelineTabs.Destinations, 1, PipelineAppTabs.Configuration))
     }, [])
     return <App />
 }
@@ -99,7 +99,7 @@ export function PipelineAppMetrics(): JSX.Element {
         },
     })
     useEffect(() => {
-        router.actions.push(urls.pipelineApp(4, PipelineAppTabs.Metrics))
+        router.actions.push(urls.pipelineApp(PipelineTabs.Destinations, 4, PipelineAppTabs.Metrics))
         appMetricsLogic({ pluginConfigId: 4 }).mount()
     }, [])
     return <App />
@@ -113,7 +113,7 @@ export function PipelineAppMetricsErrorModal(): JSX.Element {
         },
     })
     useEffect(() => {
-        router.actions.push(urls.pipelineApp(4, PipelineAppTabs.Metrics))
+        router.actions.push(urls.pipelineApp(PipelineTabs.Destinations, 4, PipelineAppTabs.Metrics))
         const logic = appMetricsLogic({ pluginConfigId: 4 })
         logic.mount()
         logic.actions.openErrorDetailsModal('Error')
@@ -128,7 +128,7 @@ export function PipelineAppLogs(): JSX.Element {
         },
     })
     useEffect(() => {
-        router.actions.push(urls.pipelineApp(1, PipelineAppTabs.Logs))
+        router.actions.push(urls.pipelineApp(PipelineTabs.Destinations, 1, PipelineAppTabs.Logs))
     }, [])
     return <App />
 }

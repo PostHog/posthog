@@ -213,8 +213,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
     4. Export downloading - used to download the actual content of an export if requested with the correct extension
     """
 
-    authentication_classes = []  # type: ignore
-    permission_classes = []  # type: ignore
+    authentication_classes = []
+    permission_classes = []
     include_in_docs = False
 
     def get_object(self) -> Optional[SharingConfiguration | ExportedAsset]:

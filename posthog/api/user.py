@@ -133,7 +133,7 @@ class UserSerializer(serializers.ModelSerializer):
         return is_impersonated_session(self.context["request"])
 
     def get_has_social_auth(self, instance: User) -> bool:
-        return instance.social_auth.exists()  # type: ignore
+        return instance.social_auth.exists()
 
     def get_is_2fa_enabled(self, instance: User) -> bool:
         return default_device(instance) is not None
@@ -167,7 +167,7 @@ class UserSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     f"{value} is not a valid type for notification settings, should be {Notifications.__annotations__[key]}"
                 )
-        return {**NOTIFICATION_DEFAULTS, **notification_settings}  # type: ignore
+        return {**NOTIFICATION_DEFAULTS, **notification_settings}
 
     def validate_password_change(
         self, instance: User, current_password: Optional[str], password: Optional[str]
