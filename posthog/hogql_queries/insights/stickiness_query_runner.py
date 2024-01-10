@@ -65,7 +65,7 @@ class StickinessQueryRunner(QueryRunner):
 
         return refresh_frequency
 
-    def to_query(self) -> List[ast.SelectQuery]:
+    def to_query(self) -> List[ast.SelectQuery]:  # type: ignore
         interval_subtract = ast.Call(
             name=f"toInterval{self.query_date_range.interval_name.capitalize()}",
             args=[ast.Constant(value=2)],
@@ -228,7 +228,6 @@ class StickinessQueryRunner(QueryRunner):
             # TODO: Can we load the Action in more efficiently?
             action = Action.objects.get(pk=int(series.id), team=self.team)
             return action.name
-        return None
 
     def intervals_num(self):
         delta = self.query_date_range.date_to() - self.query_date_range.date_from()
