@@ -4,25 +4,24 @@ import { LOGS_PORTION_LIMIT } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils'
 
-import { BatchExportLogEntryLevel } from '../../../types'
-import { pluginLogsLogic, PluginLogsProps } from './pluginLogsLogic'
+import { PipelineAppLogLevel, pluginLogsLogic, PluginLogsProps } from './pluginLogsLogic'
 
-function LogLevelDisplay(type: BatchExportLogEntryLevel): JSX.Element {
+function LogLevelDisplay(type: PipelineAppLogLevel): JSX.Element {
     let color: string | undefined
     switch (type) {
-        case BatchExportLogEntryLevel.Debug:
+        case PipelineAppLogLevel.Debug:
             color = 'text-muted'
             break
-        case BatchExportLogEntryLevel.Log:
+        case PipelineAppLogLevel.Log:
             color = 'text-default'
             break
-        case BatchExportLogEntryLevel.Info:
+        case PipelineAppLogLevel.Info:
             color = 'text-primary'
             break
-        case BatchExportLogEntryLevel.Warning:
+        case PipelineAppLogLevel.Warning:
             color = 'text-warning'
             break
-        case BatchExportLogEntryLevel.Error:
+        case PipelineAppLogLevel.Error:
             color = 'text-danger'
             break
         default:
@@ -75,7 +74,7 @@ export function PluginLogs({ id, kind }: PluginLogsProps): JSX.Element {
             />
             <div className="flex items-center gap-4">
                 <span>Show logs of type:&nbsp;</span>
-                {Object.values(BatchExportLogEntryLevel).map((level) => {
+                {Object.values(PipelineAppLogLevel).map((level) => {
                     return (
                         <LemonCheckbox
                             key={level}
