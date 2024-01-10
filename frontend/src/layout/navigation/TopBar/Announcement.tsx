@@ -3,7 +3,6 @@ import './Announcement.scss'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { NewFeatureBanner } from 'lib/introductions/NewFeatureBanner'
 import { IconClose } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -38,8 +37,6 @@ export function Announcement(): JSX.Element | null {
         )
     } else if (shownAnnouncementType === AnnouncementType.CloudFlag && cloudAnnouncement) {
         message = <LemonMarkdown className="strong">{cloudAnnouncement}</LemonMarkdown>
-    } else if (shownAnnouncementType === AnnouncementType.NewFeature) {
-        message = <NewFeatureBanner />
     }
 
     return (
