@@ -34,21 +34,21 @@ export const pipelineAppLogic = kea<pipelineAppLogicType>([
             },
         ],
     }),
-    selectors({
+    selectors(() => ({
         breadcrumbs: [
-            (s, p) => [p.kind, s.maybePluginConfig],
-            (kind, maybePluginConfig): Breadcrumb[] => [
+            (s, p) => [p.id, p.kind, s.maybePluginConfig],
+            (id, kind, maybePluginConfig): Breadcrumb[] => [
                 {
                     key: Scene.Pipeline,
                     name: 'Data pipeline',
                     path: urls.pipeline(),
                 },
                 {
-                    key: 'Kind',
+                    key: kind,
                     name: capitalizeFirstLetter(kind),
                 },
                 {
-                    key: 'todo',
+                    key: [Scene.PipelineApp, id],
                     name: maybePluginConfig?.name || 'Unknown',
                 },
             ],
@@ -75,7 +75,7 @@ export const pipelineAppLogic = kea<pipelineAppLogicType>([
                 return plugins[maybePluginConfig.plugin] || null
             },
         ],
-    }),
+    })),
     forms({
         configuration: {
             // TOOD: Validate that required fields are filled in
