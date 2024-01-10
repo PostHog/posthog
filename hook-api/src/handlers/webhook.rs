@@ -68,7 +68,7 @@ pub async fn post(
     pg_queue.enqueue(job).await.map_err(internal_error)?;
 
     let elapsed_time = start_time.elapsed().as_secs_f64();
-    metrics::histogram!("webhook_producer_enqueue").record(elapsed_time);
+    metrics::histogram!("webhook_api_enqueue").record(elapsed_time);
 
     Ok(Json(WebhookPostResponse { error: None }))
 }

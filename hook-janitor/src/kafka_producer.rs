@@ -38,8 +38,7 @@ pub async fn create_kafka_producer(
     };
 
     debug!("rdkafka configuration: {:?}", client_config);
-    let producer: FutureProducer<KafkaContext> =
-        client_config.create_with_context(KafkaContext {})?;
+    let api: FutureProducer<KafkaContext> = client_config.create_with_context(KafkaContext {})?;
 
-    Ok(producer)
+    Ok(api)
 }

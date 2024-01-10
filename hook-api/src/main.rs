@@ -24,7 +24,7 @@ async fn main() {
     let config = Config::init_from_env().expect("failed to load configuration from env");
 
     let pg_queue = PgQueue::new(
-        // TODO: Coupling the queue name to the PgQueue object doesn't seem ideal from the producer
+        // TODO: Coupling the queue name to the PgQueue object doesn't seem ideal from the api
         // side, but we don't need more than one queue for now.
         &config.queue_name,
         &config.database_url,
@@ -37,6 +37,6 @@ async fn main() {
 
     match listen(app, config.bind()).await {
         Ok(_) => {}
-        Err(e) => tracing::error!("failed to start hook-producer http server, {}", e),
+        Err(e) => tracing::error!("failed to start hook-api http server, {}", e),
     }
 }

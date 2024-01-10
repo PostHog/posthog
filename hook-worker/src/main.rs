@@ -4,12 +4,12 @@ use envconfig::Envconfig;
 use hook_common::{
     metrics::serve, metrics::setup_metrics_router, pgqueue::PgQueue, retry::RetryPolicy,
 };
-use hook_consumer::config::Config;
-use hook_consumer::consumer::WebhookConsumer;
-use hook_consumer::error::ConsumerError;
+use hook_worker::config::Config;
+use hook_worker::error::WorkerError;
+use hook_worker::worker::WebhookWorker;
 
 #[tokio::main]
-async fn main() -> Result<(), ConsumerError> {
+async fn main() -> Result<(), WorkerError> {
     let config = Config::init_from_env().expect("Invalid configuration:");
 
     let retry_policy = RetryPolicy::build(
@@ -23,8 +23,8 @@ async fn main() -> Result<(), ConsumerError> {
         .await
         .expect("failed to initialize queue");
 
-    let consumer = WebhookConsumer::new(
-        &config.consumer_name,
+    let worker = WebhookWorker::new(
+        &config.worker_name,
         &queue,
         config.poll_interval.0,
         config.request_timeout.0,
@@ -40,7 +40,7 @@ async fn main() -> Result<(), ConsumerError> {
             .expect("failed to start serving metrics");
     });
 
-    consumer.run(config.transactional).await?;
+    worker.run(config.transactional).await?;
 
     Ok(())
 }

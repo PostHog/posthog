@@ -14,8 +14,8 @@ pub struct Config {
     #[envconfig(default = "postgres://posthog:posthog@localhost:15432/test_database")]
     pub database_url: String,
 
-    #[envconfig(default = "consumer")]
-    pub consumer_name: String,
+    #[envconfig(default = "worker")]
+    pub worker_name: String,
 
     #[envconfig(default = "default")]
     pub queue_name: String,

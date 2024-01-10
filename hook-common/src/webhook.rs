@@ -117,7 +117,7 @@ impl From<&HttpMethod> for http::Method {
     }
 }
 
-/// `JobParameters` required for the `WebhookConsumer` to execute a webhook.
+/// `JobParameters` required for the `WebhookWorker` to execute a webhook.
 /// These parameters should match the exported Webhook interface that PostHog plugins.
 /// implement. See: https://github.com/PostHog/plugin-scaffold/blob/main/src/types.ts#L15.
 #[derive(Deserialize, Serialize, Debug, PartialEq, Clone)]
@@ -128,7 +128,7 @@ pub struct WebhookJobParameters {
     pub url: String,
 }
 
-/// `JobMetadata` required for the `WebhookConsumer` to execute a webhook.
+/// `JobMetadata` required for the `WebhookWorker` to execute a webhook.
 /// These should be set if the Webhook is associated with a plugin `composeWebhook` invocation.
 #[derive(Deserialize, Serialize, Debug, PartialEq, Clone)]
 pub struct WebhookJobMetadata {

@@ -11,7 +11,7 @@ pub fn add_routes(router: Router, pg_pool: PgQueue) -> Router {
 }
 
 pub async fn index() -> &'static str {
-    "rusty-hook producer"
+    "rusty-hook api"
 }
 
 #[cfg(test)]
@@ -42,6 +42,6 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
-        assert_eq!(&body[..], b"rusty-hook producer");
+        assert_eq!(&body[..], b"rusty-hook api");
     }
 }

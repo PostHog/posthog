@@ -1,5 +1,5 @@
 [package]
-name = "hook-consumer"
+name = "hook-worker"
 version = "0.1.0"
 edition = "2021"
 

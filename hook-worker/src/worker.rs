@@ -11,7 +11,7 @@ use http::StatusCode;
 use reqwest::header;
 use tokio::sync;
 
-use crate::error::{ConsumerError, WebhookError};
+use crate::error::{WebhookError, WorkerError};
 
 /// A WebhookJob is any `PgQueueJob` with `WebhookJobParameters` and `WebhookJobMetadata`.
 trait WebhookJob: PgQueueJob + std::marker::Send {
@@ -60,9 +60,9 @@ impl WebhookJob for PgJob<WebhookJobParameters, WebhookJobMetadata> {
     }
 }
 
-/// A consumer to poll `PgQueue` and spawn tasks to process webhooks when a job becomes available.
-pub struct WebhookConsumer<'p> {
-    /// An identifier for this consumer. Used to mark jobs we have consumed.
+/// A worker to poll `PgQueue` and spawn tasks to process webhooks when a job becomes available.
+pub struct WebhookWorker<'p> {
+    /// An identifier for this worker. Used to mark jobs we have consumed.
     name: String,
     /// The queue we will be dequeuing jobs from.
     queue: &'p PgQueue,
@@ -76,7 +76,7 @@ pub struct WebhookConsumer<'p> {
     retry_policy: RetryPolicy,
 }
 
-impl<'p> WebhookConsumer<'p> {
+impl<'p> WebhookWorker<'p> {
     pub fn new(
         name: &str,
         queue: &'p PgQueue,
@@ -95,7 +95,7 @@ impl<'p> WebhookConsumer<'p> {
             .default_headers(headers)
             .timeout(request_timeout)
             .build()
-            .expect("failed to construct reqwest client for webhook consumer");
+            .expect("failed to construct reqwest client for webhook worker");
 
         Self {
             name: name.to_owned(),
@@ -110,7 +110,7 @@ impl<'p> WebhookConsumer<'p> {
     /// Wait until a job becomes available in our queue.
     async fn wait_for_job<'a>(
         &self,
-    ) -> Result<PgJob<WebhookJobParameters, WebhookJobMetadata>, ConsumerError> {
+    ) -> Result<PgJob<WebhookJobParameters, WebhookJobMetadata>, WorkerError> {
         let mut interval = tokio::time::interval(self.poll_interval);
 
         loop {
@@ -125,7 +125,7 @@ impl<'p> WebhookConsumer<'p> {
     /// Wait until a job becomes available in our queue in transactional mode.
     async fn wait_for_job_tx<'a>(
         &self,
-    ) -> Result<PgTransactionJob<'a, WebhookJobParameters, WebhookJobMetadata>, ConsumerError> {
+    ) -> Result<PgTransactionJob<'a, WebhookJobParameters, WebhookJobMetadata>, WorkerError> {
         let mut interval = tokio::time::interval(self.poll_interval);
 
         loop {
@@ -137,8 +137,8 @@ impl<'p> WebhookConsumer<'p> {
         }
     }
 
-    /// Run this consumer to continuously process any jobs that become available.
-    pub async fn run(&self, transactional: bool) -> Result<(), ConsumerError> {
+    /// Run this worker to continuously process any jobs that become available.
+    pub async fn run(&self, transactional: bool) -> Result<(), WorkerError> {
         let semaphore = Arc::new(sync::Semaphore::new(self.max_concurrent_jobs));
 
         if transactional {
@@ -181,7 +181,7 @@ async fn spawn_webhook_job_processing_task<W: WebhookJob + 'static>(
     semaphore: Arc<sync::Semaphore>,
     retry_policy: RetryPolicy,
     webhook_job: W,
-) -> tokio::task::JoinHandle<Result<(), ConsumerError>> {
+) -> tokio::task::JoinHandle<Result<(), WorkerError>> {
     let permit = semaphore
         .acquire_owned()
         .await
@@ -219,7 +219,7 @@ async fn process_webhook_job<W: WebhookJob>(
     client: reqwest::Client,
     webhook_job: W,
     retry_policy: &RetryPolicy,
-) -> Result<(), ConsumerError> {
+) -> Result<(), WorkerError> {
     let parameters = webhook_job.parameters();
 
     let labels = [
@@ -245,7 +245,7 @@ async fn process_webhook_job<W: WebhookJob>(
             webhook_job
                 .complete()
                 .await
-                .map_err(|error| ConsumerError::PgJobError(error.to_string()))?;
+                .map_err(|error| WorkerError::PgJobError(error.to_string()))?;
 
             metrics::counter!("webhook_jobs_completed", &labels).increment(1);
             metrics::histogram!("webhook_jobs_processing_duration_seconds", &labels)
@@ -257,7 +257,7 @@ async fn process_webhook_job<W: WebhookJob>(
             webhook_job
                 .fail(WebhookJobError::new_parse(&e.to_string()))
                 .await
-                .map_err(|job_error| ConsumerError::PgJobError(job_error.to_string()))?;
+                .map_err(|job_error| WorkerError::PgJobError(job_error.to_string()))?;
 
             metrics::counter!("webhook_jobs_failed", &labels).increment(1);
 
@@ -267,7 +267,7 @@ async fn process_webhook_job<W: WebhookJob>(
             webhook_job
                 .fail(WebhookJobError::new_parse(&e))
                 .await
-                .map_err(|job_error| ConsumerError::PgJobError(job_error.to_string()))?;
+                .map_err(|job_error| WorkerError::PgJobError(job_error.to_string()))?;
 
             metrics::counter!("webhook_jobs_failed", &labels).increment(1);
 
@@ -277,7 +277,7 @@ async fn process_webhook_job<W: WebhookJob>(
             webhook_job
                 .fail(WebhookJobError::new_parse(&e.to_string()))
                 .await
-                .map_err(|job_error| ConsumerError::PgJobError(job_error.to_string()))?;
+                .map_err(|job_error| WorkerError::PgJobError(job_error.to_string()))?;
 
             metrics::counter!("webhook_jobs_failed", &labels).increment(1);
 
@@ -304,20 +304,20 @@ async fn process_webhook_job<W: WebhookJob>(
                     webhook_job
                         .fail(WebhookJobError::from(&error))
                         .await
-                        .map_err(|job_error| ConsumerError::PgJobError(job_error.to_string()))?;
+                        .map_err(|job_error| WorkerError::PgJobError(job_error.to_string()))?;
 
                     metrics::counter!("webhook_jobs_failed", &labels).increment(1);
 
                     Ok(())
                 }
-                Err(job_error) => Err(ConsumerError::PgJobError(job_error.to_string())),
+                Err(job_error) => Err(WorkerError::PgJobError(job_error.to_string())),
             }
         }
         Err(WebhookError::NonRetryableRetryableRequestError(error)) => {
             webhook_job
                 .fail(WebhookJobError::from(&error))
                 .await
-                .map_err(|job_error| ConsumerError::PgJobError(job_error.to_string()))?;
+                .map_err(|job_error| WorkerError::PgJobError(job_error.to_string()))?;
 
             metrics::counter!("webhook_jobs_failed", &labels).increment(1);
 
@@ -512,7 +512,7 @@ mod tests {
         )
         .await
         .expect("failed to enqueue job");
-        let consumer = WebhookConsumer::new(
+        let worker = WebhookWorker::new(
             &worker_id,
             &queue,
             time::Duration::from_millis(100),
@@ -521,7 +521,7 @@ mod tests {
             RetryPolicy::default(),
         );
 
-        let consumed_job = consumer
+        let consumed_job = worker
             .wait_for_job()
             .await
             .expect("failed to wait and read job");

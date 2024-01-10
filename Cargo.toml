@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 
-members = ["hook-common", "hook-producer", "hook-consumer", "hook-janitor"]
+members = ["hook-common", "hook-api", "hook-worker", "hook-janitor"]
 
 [workspace.dependencies]
 async-trait = "0.1.74"

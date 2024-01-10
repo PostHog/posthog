@@ -755,6 +755,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "hook-api"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "envconfig",
+ "eyre",
+ "hook-common",
+ "http-body-util",
+ "metrics",
+ "metrics-exporter-prometheus",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "sqlx",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "hook-common"
 version = "0.1.0"
 dependencies = [
@@ -773,25 +795,6 @@ dependencies = [
  "thiserror",
  "tokio",
  "uuid",
-]
-
-[[package]]
-name = "hook-consumer"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "envconfig",
- "futures",
- "hook-common",
- "http 0.2.11",
- "metrics",
- "reqwest",
- "serde",
- "serde_derive",
- "sqlx",
- "thiserror",
- "tokio",
- "url",
 ]
 
 [[package]]
@@ -821,24 +824,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "hook-producer"
+name = "hook-worker"
 version = "0.1.0"
 dependencies = [
- "axum",
+ "chrono",
  "envconfig",
- "eyre",
+ "futures",
  "hook-common",
- "http-body-util",
+ "http 0.2.11",
  "metrics",
- "metrics-exporter-prometheus",
+ "reqwest",
  "serde",
  "serde_derive",
- "serde_json",
  "sqlx",
+ "thiserror",
  "tokio",
- "tower",
- "tracing",
- "tracing-subscriber",
  "url",
 ]
 
