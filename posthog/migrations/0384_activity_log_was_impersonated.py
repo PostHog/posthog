@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0382_user_strapi_id"),
+        ("posthog", "0383_externaldatasource_cascade"),
     ]
 
     operations = [

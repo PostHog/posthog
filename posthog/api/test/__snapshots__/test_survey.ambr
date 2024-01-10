@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestResponsesCount.test_responses_count
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT JSONExtractString(properties, '$survey_id') as survey_id,
          count()
@@ -7,10 +8,10 @@
   WHERE event = 'survey sent'
     AND team_id = 2
   GROUP BY survey_id
-  '
----
+  '''
+# ---
 # name: TestSurveysAPIList.test_list_surveys
-  '
+  '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_survey"
   WHERE (NOT "posthog_survey"."archived"
@@ -18,10 +19,10 @@
          AND "posthog_survey"."start_date" IS NOT NULL
          AND "posthog_survey"."team_id" = 2
          AND NOT ("posthog_survey"."type" = 'api'))
-  '
----
+  '''
+# ---
 # name: TestSurveysAPIList.test_list_surveys.1
-  '
+  '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -41,10 +42,10 @@
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
          AND "posthog_featureflag"."team_id" = 2)
-  '
----
+  '''
+# ---
 # name: TestSurveysAPIList.test_list_surveys.2
-  '
+  '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -64,10 +65,10 @@
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
          AND "posthog_featureflag"."team_id" = 2)
-  '
----
+  '''
+# ---
 # name: TestSurveysAPIList.test_list_surveys.3
-  '
+  '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_survey"
   WHERE (NOT "posthog_survey"."archived"
@@ -75,10 +76,10 @@
          AND "posthog_survey"."start_date" IS NOT NULL
          AND "posthog_survey"."team_id" = 2
          AND NOT ("posthog_survey"."type" = 'api'))
-  '
----
+  '''
+# ---
 # name: TestSurveysAPIList.test_list_surveys.4
-  '
+  '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -106,10 +107,10 @@
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
-  '
----
+  '''
+# ---
 # name: TestSurveysAPIList.test_list_surveys.5
-  '
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -157,10 +158,10 @@
   FROM "posthog_team"
   WHERE "posthog_team"."api_token" = 'token123'
   LIMIT 21 /*controller='posthog.api.survey.surveys',route='%5Eapi/surveys/%3F%28%3F%3A%5B%3F%23%5D.%2A%29%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestSurveysAPIList.test_list_surveys.6
-  '
+  '''
   SELECT "posthog_survey"."id",
          "posthog_survey"."team_id",
          "posthog_survey"."name",
@@ -212,5 +213,5 @@
   LEFT OUTER JOIN "posthog_featureflag" T4 ON ("posthog_survey"."targeting_flag_id" = T4."id")
   WHERE ("posthog_survey"."team_id" = 2
          AND NOT ("posthog_survey"."archived")) /*controller='posthog.api.survey.surveys',route='%5Eapi/surveys/%3F%28%3F%3A%5B%3F%23%5D.%2A%29%3F%24'*/
-  '
----
+  '''
+# ---

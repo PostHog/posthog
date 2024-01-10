@@ -3,6 +3,7 @@ import { actions, connect, kea, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { ExternalDataSourceCreatePayload, ExternalDataSourceType } from '~/types'
@@ -14,36 +15,59 @@ export interface SourceFormProps {
     sourceType: ExternalDataSourceType
 }
 
-interface SourceConfig {
-    name: string
-    caption: string
+export interface SourceConfig {
+    name: ExternalDataSourceType
+    caption: string | JSX.Element
     fields: FieldConfig[]
+    disabledReason?: string | null
 }
 interface FieldConfig {
     name: string
     label: string
     type: string
     required: boolean
+    placeholder: string
 }
 
 export const SOURCE_DETAILS: Record<string, SourceConfig> = {
     Stripe: {
         name: 'Stripe',
-        caption: 'Enter your Stripe credentials to link your Stripe to PostHog',
+        caption: (
+            <>
+                Enter your Stripe credentials to automatically pull your Stripe data into the PostHog Data warehouse.
+                <br />
+                You can find your account ID{' '}
+                <Link to="https://dashboard.stripe.com/settings/user" target="_blank">
+                    in your Stripe dashboard
+                </Link>
+                , and create a secret key{' '}
+                <Link to="https://dashboard.stripe.com/apikeys" target="_blank">
+                    here
+                </Link>
+                .
+            </>
+        ),
         fields: [
             {
                 name: 'account_id',
                 label: 'Account ID',
                 type: 'text',
                 required: true,
+                placeholder: 'acct_...',
             },
             {
                 name: 'client_secret',
                 label: 'Client Secret',
                 type: 'text',
                 required: true,
+                placeholder: 'sk_live_...',
             },
         ],
+    },
+    Hubspot: {
+        name: 'Hubspot',
+        fields: [],
+        caption: '',
     },
 }
 

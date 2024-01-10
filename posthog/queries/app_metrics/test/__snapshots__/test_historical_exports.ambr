@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestHistoricalExports.test_historical_export_metrics
-  '
+  '''
   
   SELECT groupArray(date),
          groupArray(successes),
@@ -25,10 +26,10 @@
      GROUP BY date
      ORDER BY date WITH FILL
      FROM dateTrunc('hour', toDateTime('2021-08-25 00:00:00'), 'UTC') TO dateTrunc('hour', toDateTime('2021-08-25 06:00:00') + toIntervalHour(1), 'UTC') STEP 3600)
-  '
----
+  '''
+# ---
 # name: TestHistoricalExports.test_historical_export_metrics.1
-  '
+  '''
   
   SELECT error_type,
          count() AS count,
@@ -43,10 +44,10 @@
     AND error_type <> ''
   GROUP BY error_type
   ORDER BY count DESC
-  '
----
+  '''
+# ---
 # name: TestHistoricalExports.test_historical_export_metrics.2
-  '
+  '''
   SELECT "posthog_activitylog"."id",
          "posthog_activitylog"."team_id",
          "posthog_activitylog"."organization_id",
@@ -69,10 +70,10 @@
          AND "posthog_activitylog"."item_id" = '3'
          AND "posthog_activitylog"."scope" = 'PluginConfig'
          AND "posthog_activitylog"."team_id" = 2)
-  '
----
+  '''
+# ---
 # name: TestHistoricalExports.test_historical_export_metrics.3
-  '
+  '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -101,10 +102,10 @@
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
-  '
----
+  '''
+# ---
 # name: TestHistoricalExports.test_historical_exports_activity_for_failed_export
-  '
+  '''
   SELECT "posthog_activitylog"."id",
          "posthog_activitylog"."team_id",
          "posthog_activitylog"."organization_id",
@@ -125,10 +126,10 @@
          AND "posthog_activitylog"."item_id" = '3'
          AND "posthog_activitylog"."scope" = 'PluginConfig'
          AND "posthog_activitylog"."team_id" = 2)
-  '
----
+  '''
+# ---
 # name: TestHistoricalExports.test_historical_exports_activity_for_failed_export.1
-  '
+  '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -157,10 +158,10 @@
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
-  '
----
+  '''
+# ---
 # name: TestHistoricalExports.test_historical_exports_activity_for_finished_export
-  '
+  '''
   SELECT "posthog_activitylog"."id",
          "posthog_activitylog"."team_id",
          "posthog_activitylog"."organization_id",
@@ -181,10 +182,10 @@
          AND "posthog_activitylog"."item_id" = '3'
          AND "posthog_activitylog"."scope" = 'PluginConfig'
          AND "posthog_activitylog"."team_id" = 2)
-  '
----
+  '''
+# ---
 # name: TestHistoricalExports.test_historical_exports_activity_for_finished_export.1
-  '
+  '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -213,10 +214,10 @@
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
-  '
----
+  '''
+# ---
 # name: TestHistoricalExports.test_historical_exports_activity_for_not_finished_export
-  '
+  '''
   SELECT "posthog_activitylog"."id",
          "posthog_activitylog"."team_id",
          "posthog_activitylog"."organization_id",
@@ -237,10 +238,10 @@
          AND "posthog_activitylog"."item_id" = '3'
          AND "posthog_activitylog"."scope" = 'PluginConfig'
          AND "posthog_activitylog"."team_id" = 2)
-  '
----
+  '''
+# ---
 # name: TestHistoricalExports.test_historical_exports_activity_for_not_finished_export.1
-  '
+  '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -269,10 +270,10 @@
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
-  '
----
+  '''
+# ---
 # name: TestHistoricalExports.test_historical_exports_activity_for_not_finished_export.2
-  '
+  '''
   SELECT "posthog_pluginstorage"."id",
          "posthog_pluginstorage"."plugin_config_id",
          "posthog_pluginstorage"."key",
@@ -282,5 +283,5 @@
          AND "posthog_pluginstorage"."plugin_config_id" = 2)
   ORDER BY "posthog_pluginstorage"."id" ASC
   LIMIT 1
-  '
----
+  '''
+# ---
