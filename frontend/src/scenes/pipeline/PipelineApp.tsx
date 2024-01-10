@@ -20,7 +20,7 @@ export const scene: SceneExport = {
     component: PipelineApp,
     logic: pipelineAppLogic,
     paramsToProps: ({ params: { kind, id } }: { params: { kind?: string; id?: string } }) => {
-        const numericId = id ? parseInt(id) : undefined
+        const numericId = id && /^\d+$/.test(id) ? parseInt(id) : undefined
         return {
             kind: kind,
             id: numericId && !isNaN(numericId) ? numericId : id,
