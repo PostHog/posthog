@@ -15,10 +15,15 @@ export function Announcement(): JSX.Element | null {
     }
 
     return (
-        <div className="Announcement">
-            <LemonMarkdown className="strong">{cloudAnnouncement as string}</LemonMarkdown>
-            <div className="Announcement__close" onClick={hideAnnouncement}>
-                <IconClose />
+        <div className="Announcement h-12 p-3 px-4 font-bold bg-primary text-md">
+            <div className="relative w-full flex items-center">
+                <LemonMarkdown className="strong">{cloudAnnouncement as string}</LemonMarkdown>
+                <div
+                    className="Announcement__close w-8 h-8 flex items-center justify-center rounded cursor-pointer absolute right-0 text-lg border"
+                    onClick={hideAnnouncement}
+                >
+                    <IconClose />
+                </div>
             </div>
         </div>
     )
