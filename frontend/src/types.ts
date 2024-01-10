@@ -1518,7 +1518,7 @@ export interface PluginType {
     url?: string
     tag?: string
     icon?: string
-    latest_tag?: string
+    latest_tag?: string // apps management page: The latest git hash for the repo behind the url
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
     maintainer?: string
