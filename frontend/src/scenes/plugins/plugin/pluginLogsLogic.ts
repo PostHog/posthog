@@ -41,7 +41,8 @@ export const pluginLogsLogic = kea<pluginLogsLogicType>([
                         id as string,
                         values.currentTeamId,
                         values.searchTerm,
-                        values.typeFilters
+                        // values.typeFilters
+                        ['INFO']
                     )
                 } else {
                     results = await api.pluginLogs.search(
