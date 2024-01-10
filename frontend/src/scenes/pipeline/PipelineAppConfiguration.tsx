@@ -62,7 +62,7 @@ function WebhookAppConfiguration(): JSX.Element {
     if (!maybePlugin) {
         // This will never show up when we realize that the plugin doesn't exist, since then the whole scene is NotFound
         return (
-            <div className="space-y-4">
+            <div className="space-y-3 m-3">
                 {Array(3)
                     .fill(null)
                     .map((_, index) => (
