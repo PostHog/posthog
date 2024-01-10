@@ -19,7 +19,7 @@ export enum PipelineAppLogLevel {
 
 export interface PipelineAppLogsProps {
     id: number | string
-    kind: PipelineTabs
+    kind: PipelineTabs // This needs to be props passed for connecting to pipelineAppLogic
 }
 
 export const pipelineAppLogsLogic = kea([
