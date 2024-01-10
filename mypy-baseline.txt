@@ -365,7 +365,6 @@ posthog/hogql/query.py:0: error: Argument 1 to "get_default_limit_for_context" h
 posthog/hogql/query.py:0: error: "SelectQuery" has no attribute "select_queries"  [attr-defined]
 posthog/hogql/query.py:0: error: Subclass of "SelectQuery" and "SelectUnionQuery" cannot exist: would have incompatible method signatures  [unreachable]
 posthog/hogql_queries/query_runner.py:0: error: Unused "type: ignore" comment  [unused-ignore]
-posthog/hogql_queries/query_runner.py:0: error: Argument "limit_context" to "TrendsQueryRunner" has incompatible type "LimitContext | None"; expected "bool | None"  [arg-type]
 posthog/hogql_queries/insights/trends/breakdown_values.py:0: error: Argument "chain" to "Field" has incompatible type "list[str]"; expected "list[str | int]"  [arg-type]
 posthog/hogql_queries/insights/trends/breakdown_values.py:0: note: "List" is invariant -- see https://mypy.readthedocs.io/en/stable/common_issues.html#variance
 posthog/hogql_queries/insights/trends/breakdown_values.py:0: note: Consider using "Sequence" instead, which is covariant
@@ -439,7 +438,6 @@ posthog/api/person.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/api/person.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/api/person.py:0: error: Unused "type: ignore" comment  [unused-ignore]
 posthog/hogql_queries/web_analytics/web_analytics_query_runner.py:0: error: Argument 1 to "append" of "list" has incompatible type "EventPropertyFilter"; expected "Expr"  [arg-type]
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Argument "limit_context" to "__init__" of "QueryRunner" has incompatible type "bool | None"; expected "LimitContext | None"  [arg-type]
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Return type "list[SelectQuery]" of "to_query" incompatible with return type "SelectQuery" in supertype "QueryRunner"  [override]
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Incompatible return value type (got "list[SelectQuery | SelectUnionQuery]", expected "list[SelectQuery]")  [return-value]
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Need type annotation for "timings" (hint: "timings: List[<type>] = ...")  [var-annotated]

@@ -561,6 +561,18 @@ class StickinessFilter(BaseModel):
     show_values_on_series: Optional[bool] = None
 
 
+class StickinessQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List[Dict[str, Any]]
+    timings: Optional[List[QueryTiming]] = None
+
+
 class TimeToSeeDataQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

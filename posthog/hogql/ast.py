@@ -389,8 +389,8 @@ class ArithmeticOperation(Expr):
 
 @dataclass(kw_only=True)
 class And(Expr):
-    exprs: List[Expr]
     type: Optional[ConstantType] = None
+    exprs: List[Expr]
 
 
 @dataclass(kw_only=True)
@@ -566,8 +566,8 @@ class SelectQuery(Expr):
 
 @dataclass(kw_only=True)
 class SelectUnionQuery(Expr):
-    select_queries: List[SelectQuery]
     type: Optional[SelectUnionQueryType] = None
+    select_queries: List[SelectQuery]
 
 
 @dataclass(kw_only=True)
