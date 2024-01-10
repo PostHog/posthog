@@ -19,10 +19,13 @@ import { pipelineAppLogic } from './pipelineAppLogic'
 export const scene: SceneExport = {
     component: PipelineApp,
     logic: pipelineAppLogic,
-    paramsToProps: ({ params: { kind, id } }: { params: { kind?: string; id?: string } }) => ({
-        kind: kind,
-        id: id ? parseInt(id) : 'new',
-    }),
+    paramsToProps: ({ params: { kind, id } }: { params: { kind?: string; id?: string } }) => {
+        const numericId = id ? parseInt(id) : undefined
+        return {
+            kind: kind,
+            id: numericId && !isNaN(numericId) ? numericId : id,
+        }
+    },
 }
 
 export function PipelineApp({ kind, id }: { kind?: string; id?: string } = {}): JSX.Element {
@@ -41,7 +44,7 @@ export function PipelineApp({ kind, id }: { kind?: string; id?: string } = {}): 
         return <Spinner />
     }
 
-    const tab_to_content: Record<PipelineAppTabs, JSX.Element> = {
+    const tabToContent: Record<PipelineAppTabs, JSX.Element> = {
         [PipelineAppTabs.Configuration]: <div>Configuration editing</div>,
         [PipelineAppTabs.Metrics]: <AppMetrics pluginConfigId={confId} />,
         [PipelineAppTabs.Logs]: <PluginLogs pluginConfigId={confId} />,
@@ -58,7 +61,7 @@ export function PipelineApp({ kind, id }: { kind?: string; id?: string } = {}): 
                 tabs={Object.values(PipelineAppTabs).map((tab) => ({
                     label: capitalizeFirstLetter(tab),
                     key: tab,
-                    content: tab_to_content[tab],
+                    content: tabToContent[tab],
                 }))}
             />
         </div>
