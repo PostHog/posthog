@@ -24,7 +24,6 @@ export const pipelineAppLogic = kea<pipelineAppLogicType>([
     })),
     actions({
         setCurrentTab: (tab: PipelineAppTabs = PipelineAppTabs.Configuration) => ({ tab }),
-        setKind: (kind: PipelineTabs) => ({ kind }),
     }),
     reducers({
         currentTab: [
