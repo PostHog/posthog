@@ -1,27 +1,22 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
-import { userLogic } from 'scenes/userLogic'
 
-import { navigationLogic } from '../navigationLogic'
 import type { announcementLogicType } from './announcementLogicType'
 
 export enum AnnouncementType {
     CloudFlag = 'CloudFlag',
-    AttentionRequired = 'AttentionRequired',
 }
 
 export const DEFAULT_CLOUD_ANNOUNCEMENT =
     "We're experiencing technical difficulties. Check [status.posthog.com](https://status.posthog.com) for updates."
 
-const ShowAttentionRequiredBanner = false
-
 export const announcementLogic = kea<announcementLogicType>([
     path(['layout', 'navigation', 'TopBar', 'announcementLogic']),
     connect({
-        values: [featureFlagLogic, ['featureFlags'], userLogic, ['user'], navigationLogic, ['asyncMigrationsOk']],
+        values: [featureFlagLogic, ['featureFlags']],
     }),
     actions({
         hideAnnouncement: (type: AnnouncementType | null) => ({ type }),
@@ -63,16 +58,10 @@ export const announcementLogic = kea<announcementLogicType>([
             },
         ],
         relevantAnnouncementType: [
-            (s) => [s.cloudAnnouncement, s.user, s.asyncMigrationsOk],
-            (cloudAnnouncement, user, asyncMigrationsOk): AnnouncementType | null => {
+            (s) => [s.cloudAnnouncement],
+            (cloudAnnouncement): AnnouncementType | null => {
                 if (cloudAnnouncement) {
                     return AnnouncementType.CloudFlag
-                } else if (
-                    ShowAttentionRequiredBanner &&
-                    !asyncMigrationsOk &&
-                    (user?.is_staff || (user?.organization?.membership_level ?? 0) >= OrganizationMembershipLevel.Admin)
-                ) {
-                    return AnnouncementType.AttentionRequired
                 }
                 return null
             },
