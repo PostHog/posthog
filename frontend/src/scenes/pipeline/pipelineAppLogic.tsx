@@ -20,7 +20,6 @@ export const pipelineAppLogic = kea<pipelineAppLogicType>([
     path((id) => ['scenes', 'pipeline', 'pipelineAppLogic', id]),
     actions({
         setCurrentTab: (tab: PipelineAppTabs = PipelineAppTabs.Configuration) => ({ tab }),
-        setKind: (kind: PipelineTabs) => ({ kind }),
     }),
     reducers({
         currentTab: [
