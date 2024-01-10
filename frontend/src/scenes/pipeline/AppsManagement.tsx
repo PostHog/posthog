@@ -21,6 +21,11 @@ export const scene: SceneExport = {
 }
 
 export function AppsManagement(): JSX.Element {
+    // NOTE: We don't want to unmount appsManagementLogic once it's mounted. This is a memoization technique for
+    // `checkForUpdates`, as otherwise leaving the page and coming back to it would result in us checking for updates
+    // each time. Normally such a hack is a bit of a smell, but this is a staff-only page, so totally fine.
+    appsManagementLogic.mount()
+
     const {
         canInstallPlugins,
         canGloballyManagePlugins,
@@ -30,7 +35,6 @@ export function AppsManagement(): JSX.Element {
         globalPlugins,
         localPlugins,
     } = useValues(appsManagementLogic)
-    appsManagementLogic.mount() // keep the page always mounted, so we do less lookups for latest tag etc
     const { isDev, isCloudOrDev } = useValues(preflightLogic)
 
     if (!canInstallPlugins || !canGloballyManagePlugins) {
