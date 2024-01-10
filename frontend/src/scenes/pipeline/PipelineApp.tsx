@@ -28,7 +28,7 @@ export const scene: SceneExport = {
 export function PipelineApp({ kind, id }: { kind?: string; id?: string } = {}): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     if (!featureFlags[FEATURE_FLAGS.PIPELINE_UI]) {
-        return <></>
+        return <p>Pipeline 3000 not available yet</p>
     }
     if (!Object.values(PipelineAppTabs).includes(kind as PipelineAppTabs)) {
         return <NotFound object="pipeline app" />
