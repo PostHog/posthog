@@ -26,10 +26,6 @@ export const navigationLogic = kea<navigationLogicType>([
         actions: [eventUsageLogic, ['reportProjectNoticeDismissed']],
     })),
     actions({
-        toggleActivationSideBar: true,
-        showActivationSideBar: true,
-        hideActivationSideBar: true,
-        hideSideBarMobile: true,
         openSitePopover: true,
         closeSitePopover: true,
         toggleSitePopover: true,
@@ -55,22 +51,6 @@ export const navigationLogic = kea<navigationLogicType>([
         mobileLayout: (window: Window) => window.innerWidth < 992, // Sync width threshold with Sass variable $lg!
     })),
     reducers({
-        // Non-mobile base
-        isSideBarShownBase: [true, { persist: true }, {}],
-        // Mobile, applied on top of base, so that the sidebar does not show up annoyingly when shrinking the window
-        isSideBarShownMobile: [
-            false,
-            {
-                hideSideBarMobile: () => false,
-            },
-        ],
-        isActivationSideBarShownBase: [
-            false,
-            {
-                showActivationSideBar: () => true,
-                hideActivationSideBar: () => false,
-            },
-        ],
         isSitePopoverOpen: [
             false,
             {
@@ -95,17 +75,6 @@ export const navigationLogic = kea<navigationLogicType>([
         ],
     }),
     selectors({
-        /** `noSidebar` whether the current scene should display a sidebar at all */
-        noSidebar: [
-            (s) => [s.fullscreen, s.sceneConfig],
-            (fullscreen, sceneConfig) => fullscreen || sceneConfig?.layout === 'plain',
-        ],
-        isActivationSideBarShown: [
-            (s) => [s.mobileLayout, s.isActivationSideBarShownBase, s.isSideBarShownMobile, s.noSidebar],
-            (mobileLayout, isActivationSideBarShownBase, isSideBarShownMobile, noSidebar) =>
-                !noSidebar &&
-                (mobileLayout ? isActivationSideBarShownBase && !isSideBarShownMobile : isActivationSideBarShownBase),
-        ],
         systemStatusHealthy: [
             (s) => [s.navigationStatus, preflightLogic.selectors.siteUrlMisconfigured],
             (status, siteUrlMisconfigured) => {
@@ -167,16 +136,9 @@ export const navigationLogic = kea<navigationLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         closeProjectNotice: ({ projectNoticeVariant }) => {
             actions.reportProjectNoticeDismissed(projectNoticeVariant)
-        },
-        toggleActivationSideBar: () => {
-            if (values.isActivationSideBarShown) {
-                actions.hideActivationSideBar()
-            } else {
-                actions.showActivationSideBar()
-            }
         },
     })),
 ])

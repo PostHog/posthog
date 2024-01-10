@@ -19,6 +19,7 @@ from posthog.models import Team
 from posthog.schema import (
     QueryTiming,
     SessionsTimelineQuery,
+    StickinessQuery,
     TrendsQuery,
     LifecycleQuery,
     WebTopClicksQuery,
@@ -86,6 +87,7 @@ RunnableQueryNode = Union[
     WebOverviewQuery,
     WebTopClicksQuery,
     WebStatsTableQuery,
+    StickinessQuery,
 ]
 
 
@@ -119,6 +121,16 @@ def get_query_runner(
 
         return TrendsQueryRunner(
             query=cast(TrendsQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "StickinessQuery":
+        from .insights.stickiness_query_runner import StickinessQueryRunner
+
+        return StickinessQueryRunner(
+            query=cast(StickinessQuery | Dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,

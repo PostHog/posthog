@@ -29,12 +29,19 @@ from posthog.schema import (
     DatabaseSchemaQuery,
     TimeToSeeDataSessionsQuery,
     TimeToSeeDataQuery,
+    StickinessQuery,
 )
 
 logger = structlog.get_logger(__name__)
 
 QUERY_WITH_RUNNER = (
-    LifecycleQuery | RetentionQuery | TrendsQuery | WebOverviewQuery | WebTopClicksQuery | WebStatsTableQuery
+    LifecycleQuery
+    | RetentionQuery
+    | StickinessQuery
+    | TrendsQuery
+    | WebOverviewQuery
+    | WebTopClicksQuery
+    | WebStatsTableQuery
 )
 QUERY_WITH_RUNNER_NO_CACHE = HogQLQuery | EventsQuery | ActorsQuery | SessionsTimelineQuery
 

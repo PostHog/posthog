@@ -23,7 +23,7 @@ import { getProductIcon } from 'scenes/products/Products'
 import { BillingProductV2AddonType, BillingProductV2Type, BillingV2TierType } from '~/types'
 
 import { convertLargeNumberToWords, getUpgradeProductLink, summarizeUsage } from './billing-utils'
-import { BillingGauge3000 } from './BillingGauge'
+import { BillingGauge } from './BillingGauge'
 import { BillingLimitInput } from './BillingLimitInput'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
@@ -193,7 +193,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
     const {
         customLimitUsd,
         showTierBreakdown,
-        billingGaugeItems3000,
+        billingGaugeItems,
         isPricingModalOpen,
         isPlanComparisonModalOpen,
         currentAndUpgradePlans,
@@ -457,7 +457,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                 />
                                             )}
                                             <div className="grow">
-                                                <BillingGauge3000 items={billingGaugeItems3000} product={product} />
+                                                <BillingGauge items={billingGaugeItems} product={product} />
                                             </div>
                                             {product.current_amount_usd ? (
                                                 <div className="flex justify-end gap-8 flex-wrap items-end">
