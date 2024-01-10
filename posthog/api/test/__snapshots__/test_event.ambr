@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestEvents.test_event_property_values
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
@@ -8,10 +9,10 @@
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
   LIMIT 10
-  '
----
+  '''
+# ---
 # name: TestEvents.test_event_property_values.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
@@ -21,10 +22,10 @@
     AND timestamp <= '2020-01-20 23:59:59'
     AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%qw%'
   LIMIT 10
-  '
----
+  '''
+# ---
 # name: TestEvents.test_event_property_values.2
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
@@ -34,10 +35,10 @@
     AND timestamp <= '2020-01-20 23:59:59'
     AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%QW%'
   LIMIT 10
-  '
----
+  '''
+# ---
 # name: TestEvents.test_event_property_values.3
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
@@ -47,10 +48,10 @@
     AND timestamp <= '2020-01-20 23:59:59'
     AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%6%'
   LIMIT 10
-  '
----
+  '''
+# ---
 # name: TestEvents.test_event_property_values.4
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
@@ -61,10 +62,10 @@
     AND (event = 'random event')
     AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%6%'
   LIMIT 10
-  '
----
+  '''
+# ---
 # name: TestEvents.test_event_property_values.5
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
@@ -76,10 +77,10 @@
          OR event = 'random event')
     AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%6%'
   LIMIT 10
-  '
----
+  '''
+# ---
 # name: TestEvents.test_event_property_values.6
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
@@ -90,10 +91,10 @@
     AND (event = '404_i_dont_exist')
     AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%qw%'
   LIMIT 10
-  '
----
+  '''
+# ---
 # name: TestEvents.test_event_property_values_materialized
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
   FROM events
@@ -102,10 +103,10 @@
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
   LIMIT 10
-  '
----
+  '''
+# ---
 # name: TestEvents.test_event_property_values_materialized.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
   FROM events
@@ -115,10 +116,10 @@
     AND timestamp <= '2020-01-20 23:59:59'
     AND "mat_random_prop" ILIKE '%qw%'
   LIMIT 10
-  '
----
+  '''
+# ---
 # name: TestEvents.test_event_property_values_materialized.2
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
   FROM events
@@ -128,10 +129,10 @@
     AND timestamp <= '2020-01-20 23:59:59'
     AND "mat_random_prop" ILIKE '%QW%'
   LIMIT 10
-  '
----
+  '''
+# ---
 # name: TestEvents.test_event_property_values_materialized.3
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
   FROM events
@@ -141,10 +142,10 @@
     AND timestamp <= '2020-01-20 23:59:59'
     AND "mat_random_prop" ILIKE '%6%'
   LIMIT 10
-  '
----
+  '''
+# ---
 # name: TestEvents.test_event_property_values_materialized.4
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
   FROM events
@@ -155,10 +156,10 @@
     AND (event = 'random event')
     AND "mat_random_prop" ILIKE '%6%'
   LIMIT 10
-  '
----
+  '''
+# ---
 # name: TestEvents.test_event_property_values_materialized.5
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
   FROM events
@@ -170,10 +171,10 @@
          OR event = 'random event')
     AND "mat_random_prop" ILIKE '%6%'
   LIMIT 10
-  '
----
+  '''
+# ---
 # name: TestEvents.test_event_property_values_materialized.6
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT DISTINCT "mat_random_prop"
   FROM events
@@ -184,5 +185,5 @@
     AND (event = '404_i_dont_exist')
     AND "mat_random_prop" ILIKE '%qw%'
   LIMIT 10
-  '
----
+  '''
+# ---
