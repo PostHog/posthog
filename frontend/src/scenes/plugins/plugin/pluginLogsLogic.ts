@@ -5,10 +5,18 @@ import { DestinationTypeKind } from 'scenes/pipeline/destinationsLogic'
 import { pipelineAppLogic } from 'scenes/pipeline/pipelineAppLogic'
 
 import api from '~/lib/api'
-import { BatchExportLogEntry, BatchExportLogEntryLevel, PipelineTabs, PluginLogEntry } from '~/types'
+import { BatchExportLogEntry, PipelineTabs, PluginLogEntry } from '~/types'
 
 import { teamLogic } from '../../teamLogic'
 import type { pluginLogsLogicType } from './pluginLogsLogicType'
+
+export enum PipelineAppLogLevel {
+    Debug = 'DEBUG',
+    Log = 'LOG',
+    Info = 'INFO',
+    Warning = 'WARNING',
+    Error = 'ERROR',
+}
 
 export interface PluginLogsProps {
     id: number | string
@@ -25,7 +33,7 @@ export const pluginLogsLogic = kea<pluginLogsLogicType>([
     actions({
         clearPluginLogsBackground: true,
         markLogsEnd: true,
-        setSelectedLogLevels: (levels: BatchExportLogEntryLevel[]) => ({
+        setSelectedLogLevels: (levels: PipelineAppLogLevel[]) => ({
             levels,
         }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
@@ -99,7 +107,7 @@ export const pluginLogsLogic = kea<pluginLogsLogicType>([
     })),
     reducers({
         selectedLogLevels: [
-            Object.values(BatchExportLogEntryLevel).filter((level) => level !== 'DEBUG'),
+            Object.values(PipelineAppLogLevel).filter((level) => level !== 'DEBUG'),
             {
                 setSelectedLogLevels: (_, { levels }) => levels,
             },
