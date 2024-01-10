@@ -53,7 +53,6 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
             ) : (
                 <>
                     <PageHeader
-                        title={survey.name}
                         buttons={
                             <div className="flex items-center gap-2">
                                 <More

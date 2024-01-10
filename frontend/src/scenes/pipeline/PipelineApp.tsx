@@ -42,7 +42,7 @@ export function PipelineApp({ id }: { id?: string } = {}): JSX.Element {
 
     return (
         <div className="pipeline-app-scene">
-            <PageHeader title={`Pipeline App`} />
+            <PageHeader />
             <LemonTabs
                 activeKey={currentTab}
                 onChange={(tab) => router.actions.push(urls.pipelineApp(confId, tab as PipelineAppTabs))}

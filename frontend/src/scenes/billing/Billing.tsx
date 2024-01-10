@@ -29,7 +29,7 @@ export const scene: SceneExport = {
 }
 
 export function BillingPageHeader(): JSX.Element {
-    return <PageHeader title="Billing &amp; usage" />
+    return <PageHeader />
 }
 
 export function Billing(): JSX.Element {

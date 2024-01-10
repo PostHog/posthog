@@ -34,7 +34,6 @@ import { ActivityScope, NotebookNodeType, PersonsTabType, PersonType, PropertyDe
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
 import { PersonDashboard } from './PersonDashboard'
-import { PersonDisplay } from './PersonDisplay'
 import PersonFeedCanvas from './PersonFeedCanvas'
 import { personsLogic } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
@@ -137,7 +136,6 @@ export function PersonScene(): JSX.Element | null {
     return (
         <>
             <PageHeader
-                title={<PersonDisplay person={person} noLink withIcon={'lg'} noPopover />}
                 caption={<PersonCaption person={person} />}
                 notebookProps={
                     url
