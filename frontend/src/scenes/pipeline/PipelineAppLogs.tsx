@@ -4,7 +4,11 @@ import { LOGS_PORTION_LIMIT } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils'
 
-import { PipelineAppLogLevel, pluginLogsLogic, PluginLogsProps as PipelineAppLogsProps } from './pluginLogsLogic'
+import {
+    PipelineAppLogLevel,
+    pluginLogsLogic,
+    PluginLogsProps as PipelineAppLogsProps,
+} from '../plugins/plugin/pluginLogsLogic'
 
 function LogLevelDisplay(type: PipelineAppLogLevel): JSX.Element {
     let color: string | undefined

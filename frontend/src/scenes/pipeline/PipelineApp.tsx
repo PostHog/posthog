@@ -7,7 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { PipelineAppLogs } from 'scenes/plugins/plugin/PipelineAppLogs'
+import { PipelineAppLogs } from 'scenes/pipeline/PipelineAppLogs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
