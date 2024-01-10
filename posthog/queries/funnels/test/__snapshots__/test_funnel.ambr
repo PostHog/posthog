@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestFOSSFunnel.test_funnel_conversion_window_seconds
-  '
+  '''
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -85,10 +86,10 @@
      GROUP BY aggregation_target,
               steps
      HAVING steps = max_steps)
-  '
----
+  '''
+# ---
 # name: TestFOSSFunnel.test_funnel_conversion_window_seconds.1
-  '
+  '''
   
   SELECT aggregation_target AS actor_id
   FROM
@@ -172,10 +173,10 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestFOSSFunnel.test_funnel_events_with_person_on_events_v2
-  '
+  '''
   
   SELECT distinct_id,
          person_id
@@ -186,10 +187,10 @@
   GROUP BY distinct_id,
            person_id
   ORDER BY if(distinct_id = 'stopped_after_signup', -1, 0)
-  '
----
+  '''
+# ---
 # name: TestFOSSFunnel.test_funnel_events_with_person_on_events_v2.1
-  '
+  '''
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -279,10 +280,10 @@
      GROUP BY aggregation_target,
               steps
      HAVING steps = max_steps)
-  '
----
+  '''
+# ---
 # name: TestFOSSFunnel.test_funnel_with_cohorts_step_filter
-  '
+  '''
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -354,30 +355,30 @@
      GROUP BY aggregation_target,
               steps
      HAVING steps = max_steps)
-  '
----
+  '''
+# ---
 # name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = NULL
-  '
----
+  '''
+# ---
 # name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter.1
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 0
-  '
----
+  '''
+# ---
 # name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter.2
-  '
+  '''
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -443,10 +444,10 @@
      GROUP BY aggregation_target,
               steps
      HAVING steps = max_steps)
-  '
----
+  '''
+# ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups
-  '
+  '''
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -552,10 +553,10 @@
      GROUP BY aggregation_target,
               steps
      HAVING steps = max_steps)
-  '
----
+  '''
+# ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups.1
-  '
+  '''
   
   SELECT aggregation_target AS actor_id
   FROM
@@ -659,10 +660,10 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups.2
-  '
+  '''
   
   SELECT aggregation_target AS actor_id
   FROM
@@ -766,10 +767,10 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups.3
-  '
+  '''
   
   SELECT aggregation_target AS actor_id
   FROM
@@ -873,19 +874,19 @@
   ORDER BY aggregation_target
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestFOSSFunnel.test_funnel_with_static_cohort_step_filter
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM person_static_cohort
   WHERE team_id = 2
     AND cohort_id = 2
-  '
----
+  '''
+# ---
 # name: TestFOSSFunnel.test_funnel_with_static_cohort_step_filter.1
-  '
+  '''
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -950,10 +951,10 @@
      GROUP BY aggregation_target,
               steps
      HAVING steps = max_steps)
-  '
----
+  '''
+# ---
 # name: TestFOSSFunnel.test_timezones
-  '
+  '''
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -1007,10 +1008,10 @@
      GROUP BY aggregation_target,
               steps
      HAVING steps = max_steps)
-  '
----
+  '''
+# ---
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen
-  '
+  '''
   
   SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')) AS value,
          count(*) as count
@@ -1023,10 +1024,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen.1
-  '
+  '''
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -1096,10 +1097,10 @@
               prop
      HAVING steps = max_steps)
   GROUP BY prop
-  '
----
+  '''
+# ---
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step
-  '
+  '''
   
   SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')) AS value,
          count(*) as count
@@ -1113,10 +1114,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step.1
-  '
+  '''
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -1190,10 +1191,10 @@
               prop
      HAVING steps = max_steps)
   GROUP BY prop
-  '
----
+  '''
+# ---
 # name: TestFunnelBreakdown.test_funnel_step_multiple_breakdown_snapshot
-  '
+  '''
   
   SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''), replaceRegexpAll(JSONExtractRaw(properties, '$version'), '^"|"$', '')) AS value,
          count(*) as count
@@ -1206,10 +1207,10 @@
   ORDER BY count DESC, value DESC
   LIMIT 26
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestFunnelBreakdown.test_funnel_step_multiple_breakdown_snapshot.1
-  '
+  '''
   
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -1278,5 +1279,5 @@
               prop
      HAVING steps = max_steps)
   GROUP BY prop
-  '
----
+  '''
+# ---

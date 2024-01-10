@@ -359,15 +359,15 @@ input::-ms-clear {
         cursor: pointer;
 
         div:nth-child(1) {
-            background: var(--primary-3000);
-        }
-
-        div:nth-child(2) {
             background: var(--brand-blue);
         }
 
+        div:nth-child(2) {
+            background: var(--brand-red);
+        }
+
         div:nth-child(3) {
-            background: var(--warning);
+            background: var(--brand-yellow);
         }
 
         span {
@@ -729,4 +729,8 @@ body {
     .ant-empty-img-simple-ellipse {
         fill: var(--border-3000);
     }
+}
+
+.ligatures-none {
+    font-variant-ligatures: none;
 }

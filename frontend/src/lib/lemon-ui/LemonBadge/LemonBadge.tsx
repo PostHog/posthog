@@ -8,7 +8,7 @@ interface LemonBadgePropsBase {
     size?: 'small' | 'medium' | 'large'
     position?: 'none' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
     className?: string
-    status?: 'primary' | 'success' | 'warning' | 'danger' | 'muted'
+    status?: 'primary' | 'success' | 'warning' | 'danger' | 'muted' | 'data'
     active?: boolean
     style?: React.CSSProperties
     title?: string

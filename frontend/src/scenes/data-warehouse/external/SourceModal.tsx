@@ -10,8 +10,8 @@ import stripeLogo from 'public/stripe-logo.svg'
 import { ExternalDataSourceType } from '~/types'
 
 import { DatawarehouseTableForm } from '../new_table/DataWarehouseTableForm'
-import { SOURCE_DETAILS, sourceFormLogic } from './sourceFormLogic'
-import { ConnectorConfigType, sourceModalLogic } from './sourceModalLogic'
+import { SOURCE_DETAILS, SourceConfig, sourceFormLogic } from './sourceFormLogic'
+import { sourceModalLogic } from './sourceModalLogic'
 
 interface SourceModalProps extends LemonModalProps {}
 
@@ -21,7 +21,7 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
     const { selectConnector, toggleManualLinkFormVisible, onClear } = useActions(sourceModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const MenuButton = (config: ConnectorConfigType): JSX.Element => {
+    const MenuButton = (config: SourceConfig): JSX.Element => {
         const onClick = (): void => {
             selectConnector(config)
         }
@@ -104,7 +104,7 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
         <LemonModal
             {...props}
             onAfterClose={() => onClear()}
-            title="Data Sources"
+            title={selectedConnector ? 'Link ' + selectedConnector.name : 'Select source to link'}
             description={selectedConnector ? selectedConnector.caption : null}
         >
             {formToShow()}
@@ -129,14 +129,14 @@ function SourceForm({ sourceType }: SourceFormProps): JSX.Element {
             className="space-y-4"
             enableFormOnSubmit
         >
-            <Field name="prefix" label="Table Prefix">
-                <LemonInput className="ph-ignore-input" autoFocus data-attr="prefix" placeholder="internal_" />
-            </Field>
             {SOURCE_DETAILS[sourceType].fields.map((field) => (
                 <Field key={field.name} name={['payload', field.name]} label={field.label}>
                     <LemonInput className="ph-ignore-input" data-attr={field.name} />
                 </Field>
             ))}
+            <Field name="prefix" label="Table Prefix (optional)">
+                <LemonInput className="ph-ignore-input" data-attr="prefix" placeholder="internal_" />
+            </Field>
             <LemonDivider className="mt-4" />
             <div className="mt-2 flex flex-row justify-end gap-2">
                 <LemonButton type="secondary" center data-attr="source-modal-back-button" onClick={onBack}>
