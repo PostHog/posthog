@@ -8,6 +8,7 @@ import api from '~/lib/api'
 import { BatchExportLogEntry, PipelineTabs, PluginLogEntry } from '~/types'
 
 import { teamLogic } from '../teamLogic'
+import type { pipelineAppLogsLogicType } from './pipelineAppLogsLogicType'
 
 export enum PipelineAppLogLevel {
     Debug = 'DEBUG',
@@ -22,7 +23,7 @@ export interface PipelineAppLogsProps {
     kind: PipelineTabs // This needs to be props passed for connecting to pipelineAppLogic
 }
 
-export const pipelineAppLogsLogic = kea([
+export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
     props({} as PipelineAppLogsProps),
     key(({ id }: PipelineAppLogsProps) => id),
     path((key) => ['scenes', 'plugins', 'plugin', 'pluginLogsLogic', key]),
