@@ -60,7 +60,6 @@ export function SessionsRecordings(): JSX.Element {
     return (
         <div>
             <PageHeader
-                title={<div>Session Replay</div>}
                 buttons={
                     <>
                         {tab === ReplayTabs.Recent && !recordingsDisabled && (
