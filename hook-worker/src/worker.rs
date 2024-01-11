@@ -94,6 +94,7 @@ impl<'p> WebhookWorker<'p> {
 
         let client = reqwest::Client::builder()
             .default_headers(headers)
+            .user_agent("PostHog Webhook Worker")
             .timeout(request_timeout)
             .build()
             .expect("failed to construct reqwest client for webhook worker");
