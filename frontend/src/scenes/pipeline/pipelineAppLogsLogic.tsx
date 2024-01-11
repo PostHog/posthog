@@ -162,7 +162,7 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
         ],
         columns: [
             (s) => [s.appType],
-            (appType): LemonTableColumns<BatchExportLogEntry | PluginLogEntry> => {
+            (appType): LemonTableColumns<Record<string, any>> => {
                 return [
                     {
                         title: 'Timestamp',
