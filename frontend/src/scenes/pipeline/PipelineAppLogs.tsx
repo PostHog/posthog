@@ -8,8 +8,7 @@ import { PipelineAppLogLevel, pipelineAppLogsLogic, PipelineAppLogsProps } from 
 export function PipelineAppLogs({ id, kind }: PipelineAppLogsProps): JSX.Element {
     const logic = pipelineAppLogsLogic({ id, kind })
 
-    const { pluginLogs, pluginLogsLoading, pluginLogsBackground, columns, isThereMoreToLoad, selectedLogLevels } =
-        useValues(logic)
+    const { logs, logsLoading, pluginLogsBackground, columns, isThereMoreToLoad, selectedLogLevels } = useValues(logic)
     const { revealBackground, loadPluginLogsMore, setSelectedLogLevels, setSearchTerm } = useActions(logic)
 
     return (
@@ -41,7 +40,7 @@ export function PipelineAppLogs({ id, kind }: PipelineAppLogsProps): JSX.Element
             </div>
             <LemonButton
                 onClick={revealBackground}
-                loading={pluginLogsLoading}
+                loading={logsLoading}
                 type="secondary"
                 fullWidth
                 center
@@ -53,18 +52,18 @@ export function PipelineAppLogs({ id, kind }: PipelineAppLogsProps): JSX.Element
             </LemonButton>
 
             <LemonTable
-                dataSource={pluginLogs}
+                dataSource={logs}
                 columns={columns}
-                loading={pluginLogsLoading}
+                loading={logsLoading}
                 size="small"
                 className="ph-no-capture"
                 rowKey="id"
                 pagination={{ pageSize: 200, hideOnSinglePage: true }}
             />
-            {!!pluginLogs.length && (
+            {!!logs.length && (
                 <LemonButton
                     onClick={loadPluginLogsMore}
-                    loading={pluginLogsLoading}
+                    loading={logsLoading}
                     type="secondary"
                     fullWidth
                     center
