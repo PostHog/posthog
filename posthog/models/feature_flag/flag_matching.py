@@ -940,7 +940,7 @@ def get_all_properties_with_math_operators(
         if prop.type == "cohort":
             cohort_id = int(cast(Union[str, int], prop.value))
             if cohorts_cache.get(cohort_id) is None:
-                cohorts_cache[cohort_id] = Cohort.objects.using(DATABASE_FOR_FLAG_MATCHING).get(pk=cohort_id)
+                cohorts_cache[cohort_id] = Cohort.objects.using(DATABASE_FOR_FLAG_MATCHING).filter(pk=cohort_id).first()
             cohort = cohorts_cache[cohort_id]
             if cohort:
                 all_keys_and_fields.extend(
