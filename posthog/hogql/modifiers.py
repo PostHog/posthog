@@ -22,7 +22,7 @@ def create_default_modifiers_for_team(
         modifiers.personsArgMaxVersion = "auto"
 
     if modifiers.inCohortVia is None:
-        modifiers.inCohortVia = "subquery"
+        modifiers.inCohortVia = "leftjoin_multiple"
 
     if modifiers.materializationMode is None or modifiers.materializationMode == MaterializationMode.auto:
         modifiers.materializationMode = MaterializationMode.legacy_null_as_null

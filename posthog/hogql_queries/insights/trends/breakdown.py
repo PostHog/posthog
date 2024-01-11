@@ -70,10 +70,10 @@ class Breakdown:
                 expr=parse_expr(self.query.breakdown.breakdown),
             )
         elif self.query.breakdown.breakdown_type == "cohort":
-            cohort_breakdown = 0 if self.query.breakdown.breakdown == "all" else int(self.query.breakdown.breakdown)
+            # cohort_breakdown = 0 if self.query.breakdown.breakdown == "all" else int(self.query.breakdown.breakdown)
             return ast.Alias(
                 alias="breakdown_value",
-                expr=ast.Constant(value=cohort_breakdown),
+                expr=ast.Field(chain=["__in_cohort", "cohort_id"]),
             )
 
         if self.query.breakdown.breakdown_type == "hogql":
@@ -89,17 +89,43 @@ class Breakdown:
         return ast.Alias(alias="breakdown_value", expr=self._get_breakdown_transform_func)
 
     def events_where_filter(self) -> ast.Expr | None:
-        if self.query.breakdown.breakdown_type == "cohort":
+        if (
+            self.query.breakdown is not None
+            and self.query.breakdown.breakdown is not None
+            and self.query.breakdown.breakdown_type == "cohort"
+        ):
             if self.query.breakdown.breakdown == "all":
                 return None
+
+            if isinstance(self.query.breakdown.breakdown, List):
+                or_clause = ast.Or(
+                    exprs=[
+                        ast.CompareOperation(
+                            left=ast.Field(chain=["person", "id"]),
+                            op=ast.CompareOperationOp.InCohort,
+                            right=ast.Constant(value=breakdown),
+                        )
+                        for breakdown in self.query.breakdown.breakdown
+                    ]
+                )
+                if len(self.query.breakdown.breakdown) > 1:
+                    return or_clause
+                elif len(self.query.breakdown.breakdown) == 1:
+                    return or_clause.exprs[0]
+                else:
+                    return ast.Constant(value=True)
 
             return ast.CompareOperation(
                 left=ast.Field(chain=["person", "id"]),
                 op=ast.CompareOperationOp.InCohort,
-                right=ast.Constant(value=int(self.query.breakdown.breakdown)),
+                right=ast.Constant(value=self.query.breakdown.breakdown),
             )
 
-        if self.query.breakdown.breakdown_type == "hogql":
+        if (
+            self.query.breakdown is not None
+            and self.query.breakdown.breakdown is not None
+            and self.query.breakdown.breakdown_type == "hogql"
+        ):
             left = parse_expr(self.query.breakdown.breakdown)
         else:
             left = ast.Field(chain=self._properties_chain)

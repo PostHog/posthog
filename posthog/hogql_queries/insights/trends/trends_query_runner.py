@@ -1,4 +1,3 @@
-from copy import deepcopy
 from datetime import timedelta
 from itertools import groupby
 from math import ceil
@@ -341,27 +340,27 @@ class TrendsQueryRunner(QueryRunner):
             for series in self.query.series
         ]
 
-        if self.query.breakdown is not None and self.query.breakdown.breakdown_type == "cohort":
-            updated_series = []
-            if isinstance(self.query.breakdown.breakdown, List):
-                cohort_ids = self.query.breakdown.breakdown
-            else:
-                cohort_ids = [self.query.breakdown.breakdown]
+        # if self.query.breakdown is not None and self.query.breakdown.breakdown_type == "cohort":
+        #     updated_series = []
+        #     if isinstance(self.query.breakdown.breakdown, List):
+        #         cohort_ids = self.query.breakdown.breakdown
+        #     else:
+        #         cohort_ids = [self.query.breakdown.breakdown]
 
-            for cohort_id in cohort_ids:
-                for series in series_with_extras:
-                    copied_query = deepcopy(self.query)
-                    copied_query.breakdown.breakdown = cohort_id
+        #     for cohort_id in cohort_ids:
+        #         for series in series_with_extras:
+        #             copied_query = deepcopy(self.query)
+        #             copied_query.breakdown.breakdown = cohort_id
 
-                    updated_series.append(
-                        SeriesWithExtras(
-                            series=series.series,
-                            is_previous_period_series=series.is_previous_period_series,
-                            overriden_query=copied_query,
-                            aggregate_values=self._trends_display.should_aggregate_values(),
-                        )
-                    )
-            series_with_extras = updated_series
+        #             updated_series.append(
+        #                 SeriesWithExtras(
+        #                     series=series.series,
+        #                     is_previous_period_series=series.is_previous_period_series,
+        #                     overriden_query=copied_query,
+        #                     aggregate_values=self._trends_display.should_aggregate_values(),
+        #                 )
+        #             )
+        #     series_with_extras = updated_series
 
         if self.query.trendsFilter is not None and self.query.trendsFilter.compare:
             updated_series = []

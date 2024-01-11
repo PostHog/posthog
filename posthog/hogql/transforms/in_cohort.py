@@ -1,10 +1,11 @@
 from typing import List, Optional, cast, Literal
 
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import HogQLException
 from posthog.hogql.escape_sql import escape_clickhouse_string
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
@@ -16,6 +17,171 @@ def resolve_in_cohorts(
     context: HogQLContext = None,
 ):
     InCohortResolver(stack=stack, dialect=dialect, context=context).visit(node)
+
+
+def resolve_in_multiple_cohorts(
+    node: ast.Expr,
+    dialect: Literal["hogql", "clickhouse"],
+    context: HogQLContext,
+    stack: Optional[List[ast.SelectQuery]] = None,
+):
+    MultipleInCohortResolver(stack=stack, dialect=dialect, context=context).visit(node)
+
+
+class CohortCompareOperationTraverser(TraversingVisitor):
+    ops: List[ast.CompareOperation] = []
+
+    def __init__(self, expr: ast.Expr):
+        self.ops = []
+        super().visit(expr)
+
+    def visit_compare_operation(self, node: ast.CompareOperation):
+        if node.op == ast.CompareOperationOp.InCohort or node.op == ast.CompareOperationOp.NotInCohort:
+            self.ops.append(node)
+
+
+class MultipleInCohortResolver(TraversingVisitor):
+    dialect: Literal["hogql", "clickhouse"]
+
+    def __init__(
+        self,
+        dialect: Literal["hogql", "clickhouse"],
+        context: HogQLContext,
+        stack: Optional[List[ast.SelectQuery]] = None,
+    ):
+        super().__init__()
+        self.stack: List[ast.SelectQuery] = stack or []
+        self.context = context
+        self.dialect = dialect
+
+    def visit_select_query(self, node: ast.SelectQuery):
+        self.stack.append(node)
+
+        super().visit_select_query(node)
+
+        if node.where is not None:
+            compare_operations = CohortCompareOperationTraverser(node.where).ops
+            self._execute(node, compare_operations)
+
+        self.stack.pop()
+
+    def _execute(self, node: ast.SelectQuery, compare_operations: List[ast.CompareOperation]):
+        if len(compare_operations) == 0:
+            return
+
+        cohorts = self._resolve_cohorts(compare_operations)
+        self._add_join(cohort_ids=cohorts, select=node, compare_operations=compare_operations)
+
+        for compare_node in compare_operations:
+            compare_node.op = ast.CompareOperationOp.Eq
+            compare_node.left = ast.Constant(value=1)
+            compare_node.right = ast.Constant(value=1)
+
+    def _resolve_cohorts(self, compare_operations: List[ast.CompareOperation]) -> List[int]:
+        from posthog.models import Cohort
+
+        cohort_ids: List[int] = []
+
+        for node in compare_operations:
+            arg = node.right
+            if not isinstance(arg, ast.Constant):
+                raise HogQLException("IN COHORT only works with constant arguments", node=arg)
+
+            if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
+                int_cohorts = Cohort.objects.filter(id=int(arg.value), team_id=self.context.team_id).values_list(
+                    "id", "is_static", "name"
+                )
+                if len(int_cohorts) == 1:
+                    if node.op == ast.CompareOperationOp.NotInCohort:
+                        raise HogQLException("NOT IN COHORT is not supported by this cohort mode")
+
+                    cohort_ids.append(int_cohorts[0][0])
+                    continue
+                raise HogQLException(f"Could not find cohort with id {arg.value}", node=arg)
+
+            if isinstance(arg.value, str):
+                str_cohorts = Cohort.objects.filter(name=arg.value, team_id=self.context.team_id).values_list(
+                    "id", "is_static"
+                )
+                if len(str_cohorts) == 1:
+                    if node.op == ast.CompareOperationOp.NotInCohort:
+                        raise HogQLException("NOT IN COHORT is not supported by this cohort mode")
+
+                    cohort_ids.append(str_cohorts[0][0])
+                    continue
+                elif len(str_cohorts) > 1:
+                    raise HogQLException(f"Found multiple cohorts with name '{arg.value}'", node=arg)
+                raise HogQLException(f"Could not find a cohort with the name '{arg.value}'", node=arg)
+
+        return cohort_ids
+
+    def _add_join(self, cohort_ids: List[int], select: ast.SelectQuery, compare_operations: List[ast.CompareOperation]):
+        must_add_join = True
+        last_join = select.select_from
+
+        while last_join:
+            if isinstance(last_join.table, ast.Field) and last_join.table.chain[0] == "__in_cohort":
+                must_add_join = False
+                break
+            if last_join.next_join:
+                last_join = last_join.next_join
+            else:
+                break
+
+        if must_add_join:
+            cohort_in = ast.CompareOperation(
+                left=ast.Field(chain=["cohort_id"]),
+                op=ast.CompareOperationOp.In,
+                right=ast.Array(exprs=[ast.Constant(value=id) for id in cohort_ids]),
+            )
+
+            table_query = parse_select(
+                """
+                    SELECT person_id, 1 as matched, cohort_id
+                    FROM static_cohort_people
+                    WHERE {cohort_clause}
+                    UNION ALL
+                    SELECT person_id, 1 as matched, cohort_id
+                    FROM raw_cohort_people
+                    WHERE {cohort_clause}
+                    GROUP BY person_id, cohort_id, version
+                    HAVING sum(sign) > 0
+                """,
+                placeholders={"cohort_clause": cohort_in},
+            )
+
+            new_join = ast.JoinExpr(
+                alias=f"__in_cohort",
+                table=table_query,
+                join_type="LEFT JOIN",
+                next_join=None,
+                constraint=ast.JoinConstraint(
+                    expr=ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Constant(value=1),
+                        right=ast.Constant(value=1),
+                    )
+                ),
+            )
+
+            new_join.constraint.expr.left = ast.Field(chain=[f"__in_cohort", "person_id"])  # type: ignore
+            new_join.constraint.expr.right = clone_expr(compare_operations[0].left)  # type: ignore
+            if last_join:
+                last_join.next_join = new_join
+            else:
+                select.select_from = new_join
+
+        # equals(in_cohort.matched, 1)
+        cohort_match_compare_op = ast.CompareOperation(
+            left=ast.Field(chain=["__in_cohort", "matched"]),
+            op=ast.CompareOperationOp.Eq,
+            right=ast.Constant(value=1),
+        )
+
+        if select.where is not None:
+            select.where = ast.And(exprs=[select.where, cohort_match_compare_op])
+        else:
+            select.where = cohort_match_compare_op
 
 
 class InCohortResolver(TraversingVisitor):
