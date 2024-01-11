@@ -57,21 +57,33 @@ export function DebugNotice(): JSX.Element | null {
     }
     return (
         <div
-            className="border rounded-md bg-bg-3000 overflow-hidden mb-1.5 w-full font-mono"
+            className="border rounded-md bg-bg-3000 overflow-hidden mb-1.5 w-full font-mono max-w-60"
             // eslint-disable-next-line react/forbid-dom-props
             style={{ fontSize: 13 }} // utility classes don't have a 13px variant
         >
-            <div className="p-2 border-l-4 border-brand-blue text-primary-3000 truncate flex justify-between">
+            <div className="flex items-center gap-2 px-2 h-8 border-l-4 border-brand-blue justify-between">
                 <b>DEBUG mode</b>
-                <LemonButton icon={<IconClose />} size="small" noPadding onClick={() => setNoticeHidden(true)} />
+                <LemonButton
+                    icon={<IconClose />}
+                    tooltip="Dismiss"
+                    size="small"
+                    noPadding
+                    onClick={() => setNoticeHidden(true)}
+                />
             </div>
-            <div className="flex items-center gap-2 px-2 h-8 border-l-4 border-brand-red truncate" title="Branch">
+            <div
+                className="flex items-center gap-2 px-2 h-8 border-l-4 border-brand-red"
+                title={`Branch: ${debugInfo.branch}`}
+            >
                 <IconBranch className="text-lg" />
-                <b>{debugInfo.branch}</b>
+                <b className="min-w-0 flex-1 truncate">{debugInfo.branch}</b>
             </div>
-            <div className="flex items-center gap-2 px-2 h-8 border-l-4 border-brand-yellow truncate" title="Revision">
+            <div
+                className="flex items-center gap-2 px-2 h-8 border-l-4 border-brand-yellow"
+                title={`Revision: ${debugInfo.revision}`}
+            >
                 <IconCode className="text-lg" />
-                <b>{debugInfo.revision}</b>
+                <b className="min-w-0 flex-1 truncate">{debugInfo.revision}</b>
             </div>
         </div>
     )

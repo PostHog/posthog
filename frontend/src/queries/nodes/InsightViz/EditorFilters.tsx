@@ -64,7 +64,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         shouldShowSessionAnalysisWarning,
         hasFormula,
     } = useValues(insightVizDataLogic(insightProps))
-    const { isStepsFunnel } = useValues(funnelDataLogic(insightProps))
+    const { isStepsFunnel, isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
 
     if (!querySource) {
         return null
@@ -72,7 +72,8 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
 
     const hasBreakdown =
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)) ||
-        isStepsFunnel
+        isStepsFunnel ||
+        isTrendsFunnel
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
     const hasAttribution = isStepsFunnel
     const hasPathsHogQL = isPaths && pathsFilter?.include_event_types?.includes(PathType.HogQL)

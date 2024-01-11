@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestResolver.test_asterisk_expander_from_subquery_table
-  '
+  '''
   {
     select: [
       {
@@ -542,10 +543,10 @@
       tables: {}
     }
   }
-  '
----
+  '''
+# ---
 # name: TestResolver.test_asterisk_expander_select_union
-  '
+  '''
   {
     select: [
       {
@@ -1389,10 +1390,10 @@
       tables: {}
     }
   }
-  '
----
+  '''
+# ---
 # name: TestResolver.test_asterisk_expander_subquery
-  '
+  '''
   {
     select: [
       {
@@ -1491,10 +1492,10 @@
       tables: {}
     }
   }
-  '
----
+  '''
+# ---
 # name: TestResolver.test_asterisk_expander_subquery_alias
-  '
+  '''
   {
     select: [
       {
@@ -1597,10 +1598,10 @@
       }
     }
   }
-  '
----
+  '''
+# ---
 # name: TestResolver.test_asterisk_expander_table
-  '
+  '''
   {
     select: [
       {
@@ -1892,10 +1893,10 @@
       }
     }
   }
-  '
----
+  '''
+# ---
 # name: TestResolver.test_asterisk_expander_table_alias
-  '
+  '''
   {
     select: [
       {
@@ -2191,10 +2192,10 @@
       }
     }
   }
-  '
----
+  '''
+# ---
 # name: TestResolver.test_call_type
-  '
+  '''
   {
     select: [
       {
@@ -2285,10 +2286,10 @@
       }
     }
   }
-  '
----
+  '''
+# ---
 # name: TestResolver.test_resolve_boolean_operation_types
-  '
+  '''
   {
     select: [
       {
@@ -2349,10 +2350,10 @@
       tables: {}
     }
   }
-  '
----
+  '''
+# ---
 # name: TestResolver.test_resolve_constant_type
-  '
+  '''
   {
     select: [
       {
@@ -2449,10 +2450,10 @@
       tables: {}
     }
   }
-  '
----
+  '''
+# ---
 # name: TestResolver.test_resolve_events_table
-  '
+  '''
   {
     select: [
       {
@@ -2577,10 +2578,10 @@
       }
     }
   }
-  '
----
+  '''
+# ---
 # name: TestResolver.test_resolve_events_table_alias
-  '
+  '''
   {
     select: [
       {
@@ -2709,10 +2710,10 @@
       }
     }
   }
-  '
----
+  '''
+# ---
 # name: TestResolver.test_resolve_events_table_column_alias
-  '
+  '''
   {
     select: [
       {
@@ -2873,10 +2874,10 @@
       }
     }
   }
-  '
----
+  '''
+# ---
 # name: TestResolver.test_resolve_events_table_column_alias_inside_subquery
-  '
+  '''
   {
     select: [
       {
@@ -3058,10 +3059,10 @@
       }
     }
   }
-  '
----
+  '''
+# ---
 # name: TestResolver.test_resolve_lazy_events_pdi_person_table
-  '
+  '''
   {
     select: [
       {
@@ -3189,10 +3190,10 @@
       }
     }
   }
-  '
----
+  '''
+# ---
 # name: TestResolver.test_resolve_lazy_events_pdi_person_table_aliased
-  '
+  '''
   {
     select: [
       {
@@ -3325,10 +3326,10 @@
       }
     }
   }
-  '
----
+  '''
+# ---
 # name: TestResolver.test_resolve_lazy_events_pdi_table
-  '
+  '''
   {
     select: [
       {
@@ -3438,10 +3439,10 @@
       }
     }
   }
-  '
----
+  '''
+# ---
 # name: TestResolver.test_resolve_lazy_events_pdi_table_aliased
-  '
+  '''
   {
     select: [
       {
@@ -3556,10 +3557,10 @@
       }
     }
   }
-  '
----
+  '''
+# ---
 # name: TestResolver.test_resolve_lazy_pdi_person_table
-  '
+  '''
   {
     select: [
       {
@@ -3646,10 +3647,10 @@
       }
     }
   }
-  '
----
+  '''
+# ---
 # name: TestResolver.test_resolve_union_all
-  '
+  '''
   {
     select_queries: [
       {
@@ -3846,10 +3847,10 @@
       ]
     }
   }
-  '
----
+  '''
+# ---
 # name: TestResolver.test_resolve_virtual_events_poe
-  '
+  '''
   {
     select: [
       {
@@ -3954,5 +3955,5 @@
       }
     }
   }
-  '
----
+  '''
+# ---

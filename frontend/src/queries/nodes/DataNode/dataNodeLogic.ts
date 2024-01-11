@@ -48,6 +48,7 @@ import {
     isInsightQueryNode,
     isLifecycleQuery,
     isPersonsNode,
+    isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
 
@@ -126,6 +127,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         isInsightQueryNode(props.query) &&
                         !(values.hogQLInsightsLifecycleFlagEnabled && isLifecycleQuery(props.query)) &&
                         !(values.hogQLInsightsTrendsFlagEnabled && isTrendsQuery(props.query)) &&
+                        !(values.hogQLInsightsStickinessFlagEnabled && isStickinessQuery(props.query)) &&
                         props.cachedResults &&
                         props.cachedResults['id'] &&
                         props.cachedResults['filters'] &&
@@ -356,6 +358,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         hogQLInsightsTrendsFlagEnabled: [
             (s) => [s.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS],
+        ],
+        hogQLInsightsStickinessFlagEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_STICKINESS],
         ],
         query: [(_, p) => [p.query], (query) => query],
         newQuery: [

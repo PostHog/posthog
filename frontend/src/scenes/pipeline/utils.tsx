@@ -5,13 +5,20 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import posthog from 'posthog-js'
 import { PluginImage, PluginImageSize } from 'scenes/plugins/plugin/PluginImage'
 
-import { PluginConfigTypeNew, PluginType } from '~/types'
+import { BatchExportConfiguration, PluginConfigTypeNew, PluginType } from '~/types'
 
 export function capturePluginEvent(event: string, plugin: PluginType, pluginConfig: PluginConfigTypeNew): void {
     posthog.capture(event, {
         plugin_id: plugin.id,
         plugin_name: plugin.name,
         plugin_config_id: pluginConfig.id,
+    })
+}
+export function captureBatchExportEvent(event: string, batchExport: BatchExportConfiguration): void {
+    posthog.capture(event, {
+        batch_export_id: batchExport.id,
+        batch_export_name: batchExport.name,
+        batch_export_destination_type: batchExport.destination.type,
     })
 }
 

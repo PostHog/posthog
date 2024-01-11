@@ -72,7 +72,7 @@ def validate_date_input(date_input: Any) -> dt.datetime:
         # As far as I'm concerned, if you give me something that quacks like an isoformatted str, you are golden.
         # Read more here: https://github.com/python/mypy/issues/2420.
         # Once PostHog is 3.11, try/except is zero cost if nothing is raised: https://bugs.python.org/issue40222.
-        parsed = dt.datetime.fromisoformat(date_input.replace("Z", "+00:00"))  # type: ignore
+        parsed = dt.datetime.fromisoformat(date_input.replace("Z", "+00:00"))
     except (TypeError, ValueError):
         raise ValidationError(f"Input {date_input} is not a valid ISO formatted datetime.")
     return parsed

@@ -135,7 +135,7 @@ jobs:
 
             - name: Check static typing
               run: |
-                  mypy -p posthog --exclude bin/migrate_kafka_data.py --exclude posthog/hogql/grammar/HogQLParser.py --exclude gunicorn.config.py --enable-recursive-aliases
+                  mypy -p posthog | mypy-baseline filter
 
             - name: Check if "schema.py" is up to date
               run: |

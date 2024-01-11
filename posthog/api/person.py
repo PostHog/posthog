@@ -396,7 +396,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             ),
         ],
     )
-    def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
+    def destroy(self, request: request.Request, pk=None, **kwargs):
         try:
             person = self.get_object()
             person_id = person.id
@@ -441,7 +441,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                     # Try loading as json for dicts or arrays
                     flattened.append(
                         {
-                            "name": convert_property_value(json.loads(value)),  # type: ignore
+                            "name": convert_property_value(json.loads(value)),
                             "count": count,
                         }
                     )
@@ -481,7 +481,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team.id,
-            user=request.user,  # type: ignore
+            user=request.user,
             item_id=person.id,
             scope="Person",
             activity="split_person",
@@ -572,7 +572,7 @@ class PersonViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team.id,
-            user=request.user,  # type: ignore
+            user=request.user,
             item_id=person.id,
             scope="Person",
             activity="delete_property",
@@ -921,14 +921,14 @@ def prepare_actor_query_filter(filter: T) -> T:
                 "key": "name",
                 "value": search,
                 "type": "group",
-                "group_type_index": filter.aggregation_group_type_index,  # type: ignore
+                "group_type_index": filter.aggregation_group_type_index,
                 "operator": "icontains",
             },
             {
                 "key": "slug",
                 "value": search,
                 "type": "group",
-                "group_type_index": filter.aggregation_group_type_index,  # type: ignore
+                "group_type_index": filter.aggregation_group_type_index,
                 "operator": "icontains",
             },
         ]
