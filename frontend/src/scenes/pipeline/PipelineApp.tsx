@@ -58,7 +58,7 @@ export function PipelineApp(params: { kindTab?: string; id?: string } = {}): JSX
     }
 
     if (!loading && !maybePlugin) {
-        return <NotFound object={kind.replace(/s$/, '')} />
+        return <NotFound object={kind} />
     }
 
     const tabToContent: Record<PipelineAppTab, JSX.Element> = {

@@ -77,7 +77,7 @@ function WebhookAppConfiguration(): JSX.Element {
     const configSchemaArray = getConfigSchemaArray(maybePlugin.config_schema)
 
     if (configSchemaArray.length === 0) {
-        return <p className="m-3 italic">This {kind.replace(/s$/, '')} isn't configurable.</p>
+        return <p className="m-3 italic">This {kind} isn't configurable.</p>
     }
 
     const fields = configSchemaArray.map((fieldConfig, index) => (
