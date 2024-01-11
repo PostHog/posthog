@@ -196,7 +196,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     updated_at: pluginConfig.updated_at,
                 }))
                 const batchDests = Object.values(batchExportConfigs).map<DestinationType>((batchExport) => ({
-                    type: 'batch_export',
+                    type: DestinationTypeKind.BatchExport,
                     frequency: batchExport.interval,
                     id: batchExport.id,
                     name: batchExport.name,
