@@ -581,7 +581,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             self._select("select 1, a, [1,2,3] as nums from events array join nums as a"),
-            f"SELECT 1, a FROM events ARRAY JOIN [1, 2, 3] AS a WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
+            f"SELECT 1, a, [1, 2, 3] AS nums FROM events ARRAY JOIN nums AS a WHERE equals(events.team_id, {self.team.pk}) LIMIT 10000",
         )
         self.assertEqual(
             self._select("select 1, a from events left array join [1,2,3] as a"),
