@@ -46,30 +46,14 @@ export function Destinations(): JSX.Element {
                     isEmpty={true}
                 />
             )}
-            <AppsTable />
-            <BatchExportsTable />
+            <DestinationsTable />
         </>
     )
 }
 
-function BatchExportsTable(): JSX.Element {
-    return (
-        <>
-            <h2>Batch exports</h2>
-
-            <h2>Backfills</h2>
-        </>
-    )
-}
-
-function AppsTable(): JSX.Element {
-    const { loading, destinations, enabledPluginConfigs, disabledPluginConfigs, canConfigurePlugins } =
-        useValues(pipelineDestinationsLogic)
+function DestinationsTable(): JSX.Element {
+    const { loading, destinations, canConfigurePlugins } = useValues(pipelineDestinationsLogic)
     const { toggleEnabled, loadPluginConfigs } = useActions(pipelineDestinationsLogic)
-
-    if (enabledPluginConfigs.length === 0 && disabledPluginConfigs.length === 0) {
-        return <></>
-    }
 
     return (
         <>
@@ -105,6 +89,12 @@ function AppsTable(): JSX.Element {
                                 return <RenderApp plugin={destination.plugin} />
                             }
                             return <></> // TODO: batch export
+                        },
+                    },
+                    {
+                        title: 'Frequency',
+                        render: function RenderFrequency(_, destination) {
+                            return destination.frequency
                         },
                     },
                     {
@@ -154,11 +144,11 @@ function AppsTable(): JSX.Element {
                                 <>
                                     {destination.enabled ? (
                                         <LemonTag type="success" className="uppercase">
-                                            Enabled
+                                            Active
                                         </LemonTag>
                                     ) : (
                                         <LemonTag type="default" className="uppercase">
-                                            Disabled
+                                            Paused
                                         </LemonTag>
                                     )}
                                 </>
@@ -172,45 +162,38 @@ function AppsTable(): JSX.Element {
                                 <More
                                     overlay={
                                         <>
-                                            {destination.type === 'webhook' && (
-                                                <LemonButton
-                                                    onClick={() => {
-                                                        toggleEnabled({
-                                                            enabled: !destination.enabled,
-                                                            id: destination.id,
-                                                        })
-                                                    }}
-                                                    id={`app-${destination.id}-enable-switch`}
-                                                    disabledReason={
-                                                        canConfigurePlugins
-                                                            ? undefined
-                                                            : 'You do not have permission to enable/disable apps.'
-                                                    }
-                                                    fullWidth
-                                                >
-                                                    {destination.enabled ? 'Disable' : 'Enable'} app
-                                                </LemonButton>
-                                            )}
+                                            <LemonButton
+                                                onClick={() => toggleEnabled(destination, !destination.enabled)}
+                                                id={`app-${destination.id}-enable-switch`}
+                                                disabledReason={
+                                                    canConfigurePlugins
+                                                        ? undefined
+                                                        : 'You do not have permission to enable/disable destinations.'
+                                                }
+                                                fullWidth
+                                            >
+                                                {destination.enabled ? 'Pause' : 'Unpause'} destination
+                                            </LemonButton>
                                             <LemonButton
                                                 to={destination.config_url}
                                                 id={`app-${destination.id}-configuration`}
                                                 fullWidth
                                             >
-                                                {canConfigurePlugins ? 'Edit' : 'View'} app configuration
+                                                {canConfigurePlugins ? 'Edit' : 'View'} destination configuration
                                             </LemonButton>
                                             <LemonButton
                                                 to={destination.metrics_url}
                                                 id={`app-${destination.id}-metrics`}
                                                 fullWidth
                                             >
-                                                View app metrics
+                                                View metrics
                                             </LemonButton>
                                             <LemonButton
                                                 to={destination.logs_url}
                                                 id={`app-${destination.id}-logs`}
                                                 fullWidth
                                             >
-                                                View app logs
+                                                View logs
                                             </LemonButton>
                                             {destination.app_source_code_url && (
                                                 <LemonButton
