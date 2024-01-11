@@ -26,7 +26,6 @@ export function Pipeline(): JSX.Element {
     return (
         <div className="pipeline-scene">
             <PageHeader
-                title="Pipeline"
                 caption="Add filters or transformations to the events sent to PostHog or export them to other tools."
                 buttons={<NewButton tab={currentTab} />}
             />

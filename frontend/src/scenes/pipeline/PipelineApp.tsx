@@ -53,7 +53,7 @@ export function PipelineApp({ kind, id }: { kind?: string; id?: string } = {}): 
 
     return (
         <div className="pipeline-app-scene">
-            <PageHeader title={`Pipeline App`} />
+            <PageHeader />
             <LemonTabs
                 activeKey={currentTab}
                 onChange={(tab) =>

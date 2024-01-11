@@ -8,7 +8,6 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { appMetricsSceneLogic } from 'scenes/apps/appMetricsSceneLogic'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { PluginTags } from 'scenes/plugins/tabs/apps/components'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { ActivityScope, AppMetricsTab } from '~/types'
@@ -39,16 +38,6 @@ export function AppMetrics(): JSX.Element {
                 )}
                 <div className="flex-1">
                     <PageHeader
-                        title={
-                            pluginConfig ? (
-                                <span className="flex items-center gap-2">
-                                    {pluginConfig.plugin_info.name}
-                                    <PluginTags plugin={pluginConfig.plugin_info} />
-                                </span>
-                            ) : (
-                                <LemonSkeleton />
-                            )
-                        }
                         caption={pluginConfig ? 'An overview of metrics and exports for this app.' : undefined}
                         buttons={
                             pluginConfig?.plugin ? (

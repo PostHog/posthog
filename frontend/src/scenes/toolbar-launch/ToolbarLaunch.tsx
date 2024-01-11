@@ -39,7 +39,7 @@ function ToolbarLaunch(): JSX.Element {
 
     return (
         <div className="toolbar-launch-page">
-            <PageHeader title="Toolbar" caption="The toolbar launches PostHog right in your app or website." />
+            <PageHeader caption="The toolbar launches PostHog right in your app or website." />
             <LemonDivider />
 
             <h2 className="subtitle" id="urls">

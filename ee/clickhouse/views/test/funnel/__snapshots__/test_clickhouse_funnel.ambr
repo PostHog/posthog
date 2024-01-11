@@ -98,7 +98,8 @@
   WHERE steps IN [1, 2]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: ClickhouseTestFunnelGroups.test_funnel_group_aggregation_with_groups_entity_filtering
@@ -202,7 +203,8 @@
   WHERE steps IN [1, 2]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: ClickhouseTestFunnelGroups.test_funnel_with_groups_entity_filtering
@@ -319,7 +321,8 @@
   WHERE steps IN [1, 2]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: ClickhouseTestFunnelGroups.test_funnel_with_groups_global_filtering
@@ -450,6 +453,7 @@
   WHERE steps IN [1, 2]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
