@@ -309,12 +309,12 @@ function TypeSwitcher({
                         label: 'Autocapture',
                     },
                     {
-                        value: 'event',
-                        label: 'Custom event',
+                        value: '$pageview',
+                        label: 'Pageview',
                     },
                     {
-                        value: '$pageview',
-                        label: 'Page view',
+                        value: 'event',
+                        label: 'All events',
                     },
                 ]}
                 fullWidth
