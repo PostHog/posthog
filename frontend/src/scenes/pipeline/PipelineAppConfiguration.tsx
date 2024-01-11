@@ -52,7 +52,6 @@ function WebhookAppConfiguration(): JSX.Element {
                 ...(maybePluginConfig.config || defaultConfigForPlugin(maybePlugin)),
                 __enabled: maybePluginConfig.enabled,
             })
-            // TODO: Do we need this: generateApiKeysIfNeeded(form)
         } else {
             resetConfiguration()
         }

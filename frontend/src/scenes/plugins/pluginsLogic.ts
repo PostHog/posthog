@@ -662,6 +662,8 @@ export const pluginsLogic = kea<pluginsLogicType>([
             }
         },
         generateApiKeysIfNeeded: async ({ form }, breakpoint) => {
+            // TODO: Auto-generated keys for posthogApiKey fields are deprecated
+            // This whole action can be removed at some point
             const { editingPlugin } = values
             if (!editingPlugin) {
                 return
