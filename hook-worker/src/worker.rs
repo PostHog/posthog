@@ -188,10 +188,7 @@ async fn spawn_webhook_job_processing_task<W: WebhookJob + 'static>(
         .await
         .expect("semaphore has been closed");
 
-    let labels = [
-        ("queue", webhook_job.queue()),
-        ("target", webhook_job.target()),
-    ];
+    let labels = [("queue", webhook_job.queue())];
 
     metrics::counter!("webhook_jobs_total", &labels).increment(1);
 
@@ -229,10 +226,7 @@ async fn process_webhook_job<W: WebhookJob>(
 ) -> Result<(), WorkerError> {
     let parameters = webhook_job.parameters();
 
-    let labels = [
-        ("queue", webhook_job.queue()),
-        ("target", webhook_job.target()),
-    ];
+    let labels = [("queue", webhook_job.queue())];
 
     let now = tokio::time::Instant::now();
 
