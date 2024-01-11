@@ -147,7 +147,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             (s) => [s.pluginConfigs, s.plugins],
             (pluginConfigs, plugins): DestinationType[] => {
                 const dests = Object.values(pluginConfigs).map<DestinationType>((pluginConfig) => ({
-                    type: 'webhook',
+                    type: DestinationTypeKind.Webhook,
                     frequency: 'realtime',
                     id: pluginConfig.id,
                     name: pluginConfig.name,

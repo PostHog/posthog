@@ -13,7 +13,7 @@ import { teamLogic } from '../teamLogic'
 import type { pipelineAppLogsLogicType } from './pipelineAppLogsLogicType'
 import { LogLevelDisplay, logLevelsToTypeFilters, LogTypeDisplay } from './utils'
 
-type LogEntry = BatchExportLogEntry | PluginLogEntry
+export type LogEntry = BatchExportLogEntry | PluginLogEntry
 
 export enum PipelineAppLogLevel {
     Debug = 'DEBUG',
@@ -45,7 +45,7 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
     }),
     loaders(({ props: { id }, values, actions, cache }) => ({
         logs: {
-            __default: [] as LogEntry[],
+            __default: [] as PluginLogEntry[] | BatchExportLogEntry[],
             loadLogs: async () => {
                 let results: LogEntry[]
                 if (values.appType === DestinationTypeKind.BatchExport) {
@@ -71,13 +71,24 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
                 return results
             },
             loadMoreLogs: async () => {
-                const results = await api.pluginLogs.search(
-                    id,
-                    values.currentTeamId,
-                    values.searchTerm,
-                    logLevelsToTypeFilters(values.selectedLogLevels),
-                    values.trailingEntry
-                )
+                let results: LogEntry[]
+                if (values.appType === DestinationTypeKind.BatchExport) {
+                    results = await api.batchExportLogs.search(
+                        id as string,
+                        values.currentTeamId,
+                        values.searchTerm,
+                        values.selectedLogLevels,
+                        values.trailingEntry as BatchExportLogEntry | null
+                    )
+                } else {
+                    results = await api.pluginLogs.search(
+                        id as number,
+                        values.currentTeamId,
+                        values.searchTerm,
+                        logLevelsToTypeFilters(values.selectedLogLevels),
+                        values.trailingEntry as PluginLogEntry | null
+                    )
+                }
 
                 if (results.length < LOGS_PORTION_LIMIT) {
                     actions.markLogsEnd()
@@ -91,7 +102,7 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
             },
         },
         backgroundLogs: {
-            __default: [] as LogEntry[],
+            __default: [] as PluginLogEntry[] | BatchExportLogEntry[],
             pollBackgroundLogs: async () => {
                 // we fetch new logs in the background and allow the user to expand
                 // them into the array of visible logs
@@ -99,14 +110,26 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
                     return values.backgroundLogs
                 }
 
-                const results = await api.pluginLogs.search(
-                    id,
-                    values.currentTeamId,
-                    values.searchTerm,
-                    logLevelsToTypeFilters(values.selectedLogLevels),
-                    null,
-                    values.leadingEntry
-                )
+                let results: LogEntry[]
+                if (values.appType === DestinationTypeKind.BatchExport) {
+                    results = await api.batchExportLogs.search(
+                        id as string,
+                        values.currentTeamId,
+                        values.searchTerm,
+                        values.selectedLogLevels,
+                        null,
+                        values.leadingEntry as BatchExportLogEntry | null
+                    )
+                } else {
+                    results = await api.pluginLogs.search(
+                        id as number,
+                        values.currentTeamId,
+                        values.searchTerm,
+                        logLevelsToTypeFilters(values.selectedLogLevels),
+                        null,
+                        values.leadingEntry as PluginLogEntry | null
+                    )
+                }
 
                 return [...results, ...values.backgroundLogs]
             },
@@ -120,7 +143,7 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
             },
         ],
         backgroundLogs: [
-            [] as PluginLogEntry[],
+            [] as PluginLogEntry[] | BatchExportLogEntry[],
             {
                 clearBackgroundLogs: () => [],
             },
@@ -166,7 +189,7 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
         ],
         columns: [
             (s) => [s.appType],
-            (appType): LemonTableColumns<Record<string, any>> => {
+            (appType): LemonTableColumns<LogEntry> => {
                 return [
                     {
                         title: 'Timestamp',
@@ -191,7 +214,7 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
                         dataIndex: 'message',
                         render: (message: string) => <code className="whitespace-pre-wrap">{message}</code>,
                     },
-                ]
+                ] as LemonTableColumns<LogEntry>
             },
         ],
     }),
