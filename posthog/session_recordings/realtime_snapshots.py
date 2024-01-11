@@ -26,14 +26,32 @@ REALTIME_SUBSCRIPTIONS_LOADED_COUNTER = Counter(
 
 SUBSCRIPTION_CHANNEL = "@posthog/replay/realtime-subscriptions"
 
-ATTEMPT_MAX = 5
-# we multiply by the attempt count to increase the timeout
-# so this gives us a sequence of 0.1, 0.2, 0.3, 0.4, 0.5
+ATTEMPT_MAX = 6
 ATTEMPT_TIMEOUT_SECONDS = 0.1
 
 
 def get_key(team_id: str, suffix: str) -> str:
     return f"@posthog/replay/snapshots/team-{team_id}/{suffix}"
+
+
+def publish_subscription(team_id: str, session_id: str) -> None:
+    # We always publish as it could be that a rebalance has occurred
+    # and the consumer doesn't know it should be sending data to redis
+    try:
+        redis = get_client(settings.SESSION_RECORDING_REDIS_URL)
+        redis.publish(
+            SUBSCRIPTION_CHANNEL,
+            json.dumps({"team_id": team_id, "session_id": session_id}),
+        )
+    except Exception as e:
+        capture_exception(
+            e,
+            extras={
+                "operation": "publish_realtime_subscription",
+            },
+            tags={"team_id": team_id, "session_id": session_id},
+        )
+        raise e
 
 
 def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Optional[List[Dict]]:
@@ -44,10 +62,7 @@ def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Op
 
         # We always publish as it could be that a rebalance has occurred
         # and the consumer doesn't know it should be sending data to redis
-        redis.publish(
-            SUBSCRIPTION_CHANNEL,
-            json.dumps({"team_id": team_id, "session_id": session_id}),
-        )
+        publish_subscription(team_id, session_id)
 
         if not encoded_snapshots and attempt_count < ATTEMPT_MAX:
             logger.info(
@@ -57,15 +72,15 @@ def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Op
                 attempt_count=attempt_count,
             )
             # If we don't have it we could be in the process of getting it and syncing it
-            redis.publish(
-                SUBSCRIPTION_CHANNEL,
-                json.dumps({"team_id": team_id, "session_id": session_id}),
-            )
+            publish_subscription(team_id, session_id)
+
             PUBLISHED_REALTIME_SUBSCRIPTIONS_COUNTER.labels(
                 team_id=team_id, session_id=session_id, attempt_count=attempt_count
             ).inc()
 
-            sleep(ATTEMPT_TIMEOUT_SECONDS * attempt_count)
+            # this means we'll sleep 0.1, 0.1, 0,1, 0.2, 0.2, 0.2
+            # for a total of 0.9 seconds
+            sleep(ATTEMPT_TIMEOUT_SECONDS if attempt_count < 4 else ATTEMPT_TIMEOUT_SECONDS * 2)
             return get_realtime_snapshots(team_id, session_id, attempt_count + 1)
 
         if encoded_snapshots:
