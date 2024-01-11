@@ -1,5 +1,5 @@
 import { actions, connect, kea, path, reducers, selectors, useActions, useValues } from 'kea'
-import { actionToUrl, urlToAction } from 'kea-router'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
@@ -163,7 +163,15 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
         ],
     }),
     actionToUrl(() => ({
-        setTab: ({ tab }) => tabs[tab as DataManagementTab]?.url || tabs.events.url,
+        setTab: ({ tab }) => {
+            const tabUrl = tabs[tab as DataManagementTab]?.url || tabs.events.url
+            if (combineUrl(tabUrl).pathname === router.values.location.pathname) {
+                // don't clear the parameters if we're already on the right page
+                // otherwise we can't use a url with parameters as a landing page
+                return
+            }
+            return tabUrl
+        },
     })),
     urlToAction(({ actions, values }) => {
         return Object.fromEntries(
