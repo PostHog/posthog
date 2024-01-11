@@ -1,9 +1,15 @@
+import datetime as dt
 from typing import Any
 import uuid
+import itertools
+import operator
 
+from django.db.models.functions import TruncDay, TruncHour
+from django.db.models.functions.datetime import TruncBase
+from django.db.models import Count
 from rest_framework import mixins, request, response, viewsets
 from rest_framework.decorators import action
-
+from posthog.batch_exports.models import BatchExportRun
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models.plugin import PluginConfig
 from posthog.queries.app_metrics.app_metrics import (
@@ -21,38 +27,83 @@ from posthog.queries.app_metrics.serializers import (
 )
 
 
+def query_batch_export_metrics(batch_export_id: uuid.UUID, date_from: str) -> dict[str, Any]:
+    """Fetch metrics for batch export matching batch_export_id from given date_from.
+
+    The counts contained in the metrics represent counts of batch export runs, aggregated by the
+    date they were created. If these runs are triggered manually, 'created_at' will not match
+    'data_interval_end' (i.e. the batch period).
+    """
+    now = dt.datetime.now(tz=dt.timezone.utc)
+    if date_from == "-30d":
+        created_at_date_from = now - dt.timedelta(days=30)
+        trunc_func: type[TruncBase] = TruncDay
+        datetime_format = "%Y-%m-%d"
+
+    elif date_from == "-7d":
+        created_at_date_from = now - dt.timedelta(days=7)
+        trunc_func = TruncDay
+        datetime_format = "%Y-%m-%d"
+
+    else:
+        created_at_date_from = now - dt.timedelta(hours=24)
+        trunc_func = TruncHour
+        datetime_format = "%Y-%m-%d %H:%M:%S"
+
+    runs_query_set = (
+        BatchExportRun.objects.filter(
+            batch_export_id=batch_export_id,
+            created_at__gte=created_at_date_from,
+        )
+        .annotate(aggregate_date=trunc_func("created_at"))
+        .values("aggregate_date", "status")
+        .annotate(count=Count("*"))
+        .order_by("aggregate_date", "status")
+    )
+
+    dates = []
+    successes = []
+    failures = []
+    totals = {"successes": 0, "successes_on_retry": 0, "failures": 0}
+
+    for aggregate_date, group in itertools.groupby(runs_query_set, operator.itemgetter("aggregate_date")):
+        dates.append(aggregate_date.strftime(datetime_format))
+
+        for row in group:
+            if row["status"] == "Completed":
+                successes.append(row["count"])
+                totals["successes"] += row["count"]
+
+            elif row["status"] == "Failed":
+                failures.append(row["count"])
+                totals["failures"] += row["count"]
+
+    return {
+        "dates": dates,
+        "successes": successes,
+        "successes_on_retry": [],
+        "failures": failures,
+        "totals": totals,
+    }
+
+
 class AppMetricsViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     queryset = PluginConfig.objects.all()
 
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         try:
             # probe if we have a valid uuid, and thus are requesting metrics for a batch export
-            uuid.UUID(kwargs["pk"])
+            batch_export_id = uuid.UUID(kwargs["pk"])
+        except ValueError:
+            pass
+        else:
+            metrics = query_batch_export_metrics(batch_export_id, date_from=request.query_params["date_from"])
             return response.Response(
                 {
-                    "metrics": [
-                        {
-                            "dates": [
-                                "2024-01-04",
-                                "2024-01-05",
-                                "2024-01-06",
-                                "2024-01-07",
-                                "2024-01-08",
-                                "2024-01-09",
-                                "2024-01-10",
-                                "2024-01-11",
-                            ],
-                            "successes": [0, 0, 0, 0, 0, 0, 9379, 6237],
-                            "successes_on_retry": [0, 0, 0, 0, 0, 0, 0, 0],
-                            "failures": [0, 0, 0, 0, 0, 0, 665, 0],
-                            "totals": {"successes": 15616, "successes_on_retry": 0, "failures": 665},
-                        }
-                    ],
+                    "metrics": [metrics],
                     "errors": None,
                 }
             )
-        except ValueError:
-            pass
 
         plugin_config = self.get_object()
 
