@@ -51,9 +51,7 @@ export const pipelineAppLogic = kea<pipelineAppLogicType>([
         appType: [
             (_, p) => [p.id],
             (id): DestinationTypeKind =>
-                typeof id === 'string' && /^\d+$/.test(id)
-                    ? DestinationTypeKind.Webhook
-                    : DestinationTypeKind.BatchExport,
+                typeof id === 'string' ? DestinationTypeKind.BatchExport : DestinationTypeKind.Webhook,
         ],
     }),
     actionToUrl(({ values, props }) => {
