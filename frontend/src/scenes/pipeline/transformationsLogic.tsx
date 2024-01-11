@@ -53,7 +53,7 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
             {
                 loadPluginConfigs: async () => {
                     const res: PluginConfigTypeNew[] = await api.loadPaginatedResults(
-                        `api/projects/${values.currentTeamId}/pipeline_transformations_configs`
+                        `api/projects/${values.currentTeamId}/pipeline_transformation_configs`
                     )
 
                     return Object.fromEntries(res.map((pluginConfig) => [pluginConfig.id, pluginConfig]))
