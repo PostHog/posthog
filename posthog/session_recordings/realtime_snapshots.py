@@ -71,8 +71,6 @@ def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Op
                 session_id=session_id,
                 attempt_count=attempt_count,
             )
-            # If we don't have it we could be in the process of getting it and syncing it
-            publish_subscription(team_id, session_id)
 
             PUBLISHED_REALTIME_SUBSCRIPTIONS_COUNTER.labels(attempt_count=attempt_count).inc()
 
