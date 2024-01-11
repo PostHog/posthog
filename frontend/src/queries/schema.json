@@ -726,6 +726,9 @@
             },
             "type": "object"
         },
+        "Day": {
+            "type": "integer"
+        },
         "ElementPropertyFilter": {
             "additionalProperties": false,
             "description": "Sync with plugin-server/src/types.ts",
@@ -1783,7 +1786,14 @@
             "additionalProperties": false,
             "properties": {
                 "day": {
-                    "type": "string"
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/Day"
+                        }
+                    ]
                 },
                 "interval": {
                     "description": "An interval selected out of available intervals in source query",
