@@ -45,13 +45,13 @@ export enum PipelineAppBackend {
 }
 
 export interface BatchExportDestination extends DestinationTypeBase {
-    type: PipelineAppBackend.BatchExport
+    backend: PipelineAppBackend.BatchExport
     id: string
     success_rates: BatchExportSuccessRate
     app_source_code_url?: never
 }
 export interface WebhookDestination extends DestinationTypeBase {
-    type: PipelineAppBackend.Plugin
+    backend: PipelineAppBackend.Plugin
     id: number
     plugin: PluginType
     app_source_code_url?: string
@@ -174,7 +174,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             (s) => [s.pluginConfigs, s.plugins, s.batchExportConfigs],
             (pluginConfigs, plugins, batchExportConfigs): DestinationType[] => {
                 const appDests = Object.values(pluginConfigs).map<DestinationType>((pluginConfig) => ({
-                    type: PipelineAppBackend.Plugin,
+                    backend: PipelineAppBackend.Plugin,
                     frequency: 'realtime',
                     id: pluginConfig.id,
                     name: pluginConfig.name,
@@ -196,7 +196,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     updated_at: pluginConfig.updated_at,
                 }))
                 const batchDests = Object.values(batchExportConfigs).map<DestinationType>((batchExport) => ({
-                    type: PipelineAppBackend.BatchExport,
+                    backend: PipelineAppBackend.BatchExport,
                     frequency: batchExport.interval,
                     id: batchExport.id,
                     name: batchExport.name,
@@ -235,7 +235,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 lemonToast.error("You don't have permission to enable or disable destinations")
                 return
             }
-            if (destination.type === 'webhook') {
+            if (destination.backend === 'plugin') {
                 actions.toggleEnabledWebhook({ destination: destination, enabled: enabled })
             } else {
                 actions.toggleEnabledBatchExport({ destination: destination, enabled: enabled })

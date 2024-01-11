@@ -80,6 +80,7 @@ export function PipelineTransformationsPage(): JSX.Element {
     }, [])
     return <App />
 }
+
 export function PipelineDestinationsPage(): JSX.Element {
     useEffect(() => {
         router.actions.push(urls.pipeline(PipelineTab.Destinations))

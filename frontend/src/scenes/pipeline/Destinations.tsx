@@ -85,7 +85,7 @@ function DestinationsTable(): JSX.Element {
                     {
                         title: 'App',
                         render: function RenderAppInfo(_, destination) {
-                            if (destination.type === 'webhook') {
+                            if (destination.backend === 'plugin') {
                                 return <RenderApp plugin={destination.plugin} />
                             }
                             return <></> // TODO: batch export
@@ -100,7 +100,7 @@ function DestinationsTable(): JSX.Element {
                     {
                         title: '24h', // TODO: two options 24h or 7d selected
                         render: function Render24hDeliveryRate(_, destination) {
-                            if (destination.type === 'webhook') {
+                            if (destination.backend === 'plugin') {
                                 let tooltip = 'No events exported in the past 24 hours'
                                 let value = '-'
                                 let tagType: LemonTagType = 'muted'
@@ -206,7 +206,7 @@ function DestinationsTable(): JSX.Element {
                                                 </LemonButton>
                                             )}
                                             <LemonDivider />
-                                            {destination.type === 'webhook' && (
+                                            {destination.backend === 'plugin' && (
                                                 <LemonButton // TODO: batch exports
                                                     status="danger"
                                                     onClick={() => {

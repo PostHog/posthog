@@ -17,9 +17,9 @@ import { PluginField } from 'scenes/plugins/edit/PluginField'
 import { pipelineAppLogic } from './pipelineAppLogic'
 
 export function PipelineAppConfiguration(): JSX.Element {
-    const { appType } = useValues(pipelineAppLogic)
+    const { appBackend } = useValues(pipelineAppLogic)
 
-    if (appType === 'webhook') {
+    if (appBackend === 'plugin') {
         return (
             <LemonWidget title="Configuration">
                 <WebhookAppConfiguration />

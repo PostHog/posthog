@@ -54,24 +54,24 @@ export const pipelineAppLogic = kea<pipelineAppLogicType>([
                 },
             ],
         ],
-        appType: [
+        appBackend: [
             (_, p) => [p.id],
             (id): PipelineAppBackend =>
                 typeof id === 'string' ? PipelineAppBackend.BatchExport : PipelineAppBackend.Plugin,
         ],
         loading: [
-            (s) => [s.appType, s.pluginConfigsLoading, s.pluginsLoading],
-            (appType, pluginConfigsLoading, pluginsLoading): boolean => {
-                if (appType === PipelineAppBackend.BatchExport) {
+            (s) => [s.appBackend, s.pluginConfigsLoading, s.pluginsLoading],
+            (appBackend, pluginConfigsLoading, pluginsLoading): boolean => {
+                if (appBackend === PipelineAppBackend.BatchExport) {
                     return false // TODO: Support loading state for batch exports
                 }
                 return pluginConfigsLoading || pluginsLoading
             },
         ],
         maybePluginConfig: [
-            (s, p) => [s.pluginConfigs, s.appType, p.id],
-            (pluginConfigs, appType, maybePluginConfigId): PluginConfigTypeNew | null => {
-                if (appType !== 'webhook') {
+            (s, p) => [s.pluginConfigs, s.appBackend, p.id],
+            (pluginConfigs, appBackend, maybePluginConfigId): PluginConfigTypeNew | null => {
+                if (appBackend !== 'plugin') {
                     return null
                 }
                 return pluginConfigs[maybePluginConfigId] || null
