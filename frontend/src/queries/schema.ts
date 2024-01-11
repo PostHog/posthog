@@ -783,10 +783,13 @@ export type InsightFilter =
     | StickinessFilter
     | LifecycleFilter
 
+/** @asType integer */
+export type Day = number
+
 export interface InsightActorsQuery {
     kind: NodeKind.InsightActorsQuery
     source: InsightQueryNode
-    day?: string | number
+    day?: string | Day
     status?: string
     /**
      * An interval selected out of available intervals in source query

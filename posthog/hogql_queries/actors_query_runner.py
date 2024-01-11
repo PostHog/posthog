@@ -81,7 +81,7 @@ class ActorsQueryRunner(QueryRunner):
 
         return self.strategy.input_columns()
 
-    # TODO: Figure out a more sure way of getting the person id than using the alias or chain name
+    # TODO: Figure out a more sure way of getting the actor id than using the alias or chain name
     def source_id_column(self, source_query: ast.SelectQuery | ast.SelectUnionQuery) -> List[str]:
         # Figure out the id column of the source query, first column that has id in the name
         if isinstance(source_query, ast.SelectQuery):
