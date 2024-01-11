@@ -9,8 +9,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import {
     BatchExportConfiguration,
-    PipelineAppTabs,
-    PipelineTabs,
+    PipelineAppKind,
+    PipelineAppTab,
     PluginConfigTypeNew,
     PluginConfigWithPluginInfoNew,
     PluginType,
@@ -181,12 +181,12 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     description: pluginConfig.description,
                     enabled: pluginConfig.enabled,
                     config_url: urls.pipelineApp(
-                        PipelineTabs.Destinations,
+                        PipelineAppKind.Destination,
                         pluginConfig.id,
-                        PipelineAppTabs.Configuration
+                        PipelineAppTab.Configuration
                     ),
-                    metrics_url: urls.pipelineApp(PipelineTabs.Destinations, pluginConfig.id, PipelineAppTabs.Metrics),
-                    logs_url: urls.pipelineApp(PipelineTabs.Destinations, pluginConfig.id, PipelineAppTabs.Logs),
+                    metrics_url: urls.pipelineApp(PipelineAppKind.Destination, pluginConfig.id, PipelineAppTab.Metrics),
+                    logs_url: urls.pipelineApp(PipelineAppKind.Destination, pluginConfig.id, PipelineAppTab.Logs),
                     app_source_code_url: '',
                     plugin: plugins[pluginConfig.plugin],
                     success_rates: {
@@ -203,12 +203,12 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     description: `${batchExport.destination.type} batch export`, // TODO: add to backend
                     enabled: !batchExport.paused,
                     config_url: urls.pipelineApp(
-                        PipelineTabs.Destinations,
+                        PipelineAppKind.Destination,
                         batchExport.id,
-                        PipelineAppTabs.Configuration
+                        PipelineAppTab.Configuration
                     ),
-                    metrics_url: urls.pipelineApp(PipelineTabs.Destinations, batchExport.id, PipelineAppTabs.Metrics),
-                    logs_url: urls.pipelineApp(PipelineTabs.Destinations, batchExport.id, PipelineAppTabs.Logs),
+                    metrics_url: urls.pipelineApp(PipelineAppKind.Destination, batchExport.id, PipelineAppTab.Metrics),
+                    logs_url: urls.pipelineApp(PipelineAppKind.Destination, batchExport.id, PipelineAppTab.Logs),
                     success_rates: {
                         '24h': [5, 17],
                         '7d': [12, 100043],

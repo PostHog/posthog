@@ -4,10 +4,10 @@ import { loaders } from 'kea-loaders'
 import { LOGS_PORTION_LIMIT } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { DestinationTypeKind } from 'scenes/pipeline/destinationsLogic'
-import { pipelineAppLogic } from 'scenes/pipeline/pipelineAppLogic'
+import { pipelineAppLogic, PipelineAppLogicProps } from 'scenes/pipeline/pipelineAppLogic'
 
 import api from '~/lib/api'
-import { BatchExportLogEntry, PipelineTabs, PluginLogEntry } from '~/types'
+import { BatchExportLogEntry, PluginLogEntry } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import type { pipelineAppLogsLogicType } from './pipelineAppLogsLogicType'
@@ -23,17 +23,12 @@ export enum PipelineAppLogLevel {
     Error = 'ERROR',
 }
 
-export interface PipelineAppLogsProps {
-    id: number | string
-    kind: PipelineTabs // This needs to be props passed for connecting to pipelineAppLogic
-}
-
 export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
-    props({} as PipelineAppLogsProps),
-    key(({ id }: PipelineAppLogsProps) => id),
+    props({} as PipelineAppLogicProps),
+    key(({ id }: PipelineAppLogicProps) => id),
     path((key) => ['scenes', 'pipeline', 'pipelineAppLogsLogic', key]),
-    connect((props: PipelineAppLogsProps) => ({
-        values: [teamLogic, ['currentTeamId'], pipelineAppLogic(props), ['appType']],
+    connect((props: PipelineAppLogicProps) => ({
+        values: [teamLogic(), ['currentTeamId'], pipelineAppLogic(props), ['appType']],
     })),
     actions({
         setSelectedLogLevels: (levels: PipelineAppLogLevel[]) => ({
