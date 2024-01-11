@@ -210,6 +210,8 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
                 bq_client,
             )
 
+            logger.debug("Working with table schema %s", table_schema)
+
             with BatchExportTemporaryFile() as jsonl_file:
                 rows_exported = get_rows_exported_metric()
                 bytes_exported = get_bytes_exported_metric()
