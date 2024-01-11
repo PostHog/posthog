@@ -1,33 +1,17 @@
+import { LemonTableColumns } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { LOGS_PORTION_LIMIT } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { DestinationTypeKind } from 'scenes/pipeline/destinationsLogic'
 import { pipelineAppLogic } from 'scenes/pipeline/pipelineAppLogic'
 
 import api from '~/lib/api'
-import { BatchExportLogEntry, PipelineTabs, PluginLogEntry, PluginLogEntryType } from '~/types'
+import { BatchExportLogEntry, PipelineTabs, PluginLogEntry } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import type { pipelineAppLogsLogicType } from './pipelineAppLogsLogicType'
-
-const logLevelToTypeFilter = (level: PipelineAppLogLevel): PluginLogEntryType => {
-    switch (level) {
-        case PipelineAppLogLevel.Debug:
-            return PluginLogEntryType.Debug
-        case PipelineAppLogLevel.Error:
-            return PluginLogEntryType.Error
-        case PipelineAppLogLevel.Info:
-            return PluginLogEntryType.Info
-        case PipelineAppLogLevel.Log:
-            return PluginLogEntryType.Log
-        case PipelineAppLogLevel.Warning:
-            return PluginLogEntryType.Warn
-        default:
-            throw new Error('unknown log level')
-    }
-}
-const logLevelsToTypeFilters = (levels: PipelineAppLogLevel[]): PluginLogEntryType[] =>
-    levels.map((l) => logLevelToTypeFilter(l))
+import { LogLevelDisplay, logLevelsToTypeFilters, LogTypeDisplay } from './utils'
 
 export enum PipelineAppLogLevel {
     Debug = 'DEBUG',
@@ -174,6 +158,36 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
                     return pluginLogsBackground[pluginLogsBackground.length - 1]
                 }
                 return null
+            },
+        ],
+        columns: [
+            (s) => [s.appType],
+            (appType): LemonTableColumns<BatchExportLogEntry | PluginLogEntry> => {
+                return [
+                    {
+                        title: 'Timestamp',
+                        key: 'timestamp',
+                        dataIndex: 'timestamp',
+                        render: (timestamp: string) => dayjs(timestamp).format('YYYY-MM-DD HH:mm:ss.SSS UTC'),
+                    },
+                    {
+                        title: appType === DestinationTypeKind.BatchExport ? 'Run Id' : 'Source',
+                        dataIndex: appType === DestinationTypeKind.BatchExport ? 'run_id' : 'source',
+                        key: appType === DestinationTypeKind.BatchExport ? 'run_id' : 'source',
+                    },
+                    {
+                        title: 'Level',
+                        key: appType === DestinationTypeKind.BatchExport ? 'level' : 'type',
+                        dataIndex: appType === DestinationTypeKind.BatchExport ? 'level' : 'type',
+                        render: appType === DestinationTypeKind.BatchExport ? LogLevelDisplay : LogTypeDisplay,
+                    },
+                    {
+                        title: 'Message',
+                        key: 'message',
+                        dataIndex: 'message',
+                        render: (message: string) => <code className="whitespace-pre-wrap">{message}</code>,
+                    },
+                ]
             },
         ],
     })),
