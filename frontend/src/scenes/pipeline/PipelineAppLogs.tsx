@@ -22,7 +22,7 @@ export function PipelineAppLogs({ id, kind }: PipelineAppLogsProps): JSX.Element
                 allowClear
             />
             <div className="flex items-center gap-4">
-                <span>Show logs of type:&nbsp;</span>
+                <span className="mr-1">Show logs of level:</span>
                 {Object.values(PipelineAppLogLevel).map((level) => {
                     return (
                         <LemonCheckbox
