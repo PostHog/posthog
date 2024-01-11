@@ -35,8 +35,11 @@ def get_key(team_id: str, suffix: str) -> str:
 
 
 def publish_subscription(team_id: str, session_id: str) -> None:
-    # We always publish as it could be that a rebalance has occurred
-    # and the consumer doesn't know it should be sending data to redis
+    """
+    Publishing a subscription notifies each instance of Mr Blobby of the request for realtime playback
+    Only zero or one instances will be handling the session, if they are, they will start publishing
+    the snapshot data to Redis so that it can be played before the data has been sent to blob storage
+    """
     try:
         redis = get_client(settings.SESSION_RECORDING_REDIS_URL)
         redis.publish(
