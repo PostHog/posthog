@@ -55,6 +55,10 @@ def _unwrap_pydantic(response: Any) -> Dict | List:
     return response
 
 
+def some_func() -> None:
+    return "Hello"
+
+
 def _unwrap_pydantic_dict(response: Any) -> Dict:
     return cast(dict, _unwrap_pydantic(response))
 

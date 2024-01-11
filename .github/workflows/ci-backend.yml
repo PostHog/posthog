@@ -133,6 +133,9 @@ jobs:
               run: |
                   ruff format --exclude posthog/hogql/grammar --check --diff .
 
+            - name: Add Problem Matcher
+              run: echo "::add-matcher::.github/mypy-problem-matcher.json"
+
             - name: Check static typing
               run: |
                   mypy -p posthog | mypy-baseline filter
