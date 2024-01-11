@@ -42,10 +42,10 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
     }),
     loaders(({ props: { id }, values, actions, cache }) => ({
-        pluginLogs: {
-            __default: [] as PluginLogEntry[] | BatchExportLogEntry[],
-            loadPluginLogs: async () => {
-                let results: PluginLogEntry[] | BatchExportLogEntry[]
+        logs: {
+            __default: [] as BatchExportLogEntry[] | PluginLogEntry[],
+            loadLogs: async () => {
+                let results: BatchExportLogEntry[] | PluginLogEntry[]
                 if (values.appType === DestinationTypeKind.BatchExport) {
                     results = await api.batchExportLogs.search(
                         id as string,
@@ -80,10 +80,10 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
                 if (results.length < LOGS_PORTION_LIMIT) {
                     actions.markLogsEnd()
                 }
-                return [...values.pluginLogs, ...results]
+                return [...values.logs, ...results]
             },
             revealBackground: () => {
-                const newArray = [...values.pluginLogsBackground, ...values.pluginLogs]
+                const newArray = [...values.pluginLogsBackground, ...values.logs]
                 actions.clearPluginLogsBackground()
                 return newArray
             },
@@ -91,7 +91,7 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
         pluginLogsBackground: {
             __default: [] as PluginLogEntry[],
             loadPluginLogsBackgroundPoll: async () => {
-                if (values.pluginLogsLoading) {
+                if (values.logsLoading) {
                     return values.pluginLogsBackground
                 }
 
@@ -130,14 +130,14 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
         isThereMoreToLoad: [
             true,
             {
-                loadPluginLogsSuccess: (_, { pluginLogs }) => pluginLogs.length >= LOGS_PORTION_LIMIT,
+                loadLogsSuccess: (_, { logs }) => logs.length >= LOGS_PORTION_LIMIT,
                 markLogsEnd: () => false,
             },
         ],
     }),
     selectors(({ selectors }) => ({
         leadingEntry: [
-            () => [selectors.pluginLogs, selectors.pluginLogsBackground],
+            () => [selectors.logs, selectors.pluginLogsBackground],
             (pluginLogs: PluginLogEntry[], pluginLogsBackground: PluginLogEntry[]): PluginLogEntry | null => {
                 if (pluginLogsBackground.length) {
                     return pluginLogsBackground[0]
@@ -149,7 +149,7 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
             },
         ],
         trailingEntry: [
-            () => [selectors.pluginLogs, selectors.pluginLogsBackground],
+            () => [selectors.logs, selectors.pluginLogsBackground],
             (pluginLogs: PluginLogEntry[], pluginLogsBackground: PluginLogEntry[]): PluginLogEntry | null => {
                 if (pluginLogs.length) {
                     return pluginLogs[pluginLogs.length - 1]
@@ -193,18 +193,18 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
     })),
     listeners(({ actions }) => ({
         setSelectedLogLevels: () => {
-            actions.loadPluginLogs()
+            actions.loadLogs()
         },
         setSearchTerm: async ({ searchTerm }, breakpoint) => {
             if (searchTerm) {
                 await breakpoint(1000)
             }
-            actions.loadPluginLogs()
+            actions.loadLogs()
         },
     })),
     events(({ actions, cache }) => ({
         afterMount: () => {
-            actions.loadPluginLogs()
+            actions.loadLogs()
         },
         beforeUnmount: () => {
             clearInterval(cache.pollingInterval)
