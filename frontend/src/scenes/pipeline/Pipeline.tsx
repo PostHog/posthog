@@ -10,6 +10,7 @@ import { PipelineTabs } from '~/types'
 import { AppsManagement } from './AppsManagement'
 import { Destinations } from './Destinations'
 import { NewButton } from './NewButton'
+import { Overview } from './Overview'
 import { humanFriendlyTabName, pipelineLogic } from './pipelineLogic'
 import { Transformations } from './Transformations'
 
@@ -17,7 +18,7 @@ export function Pipeline(): JSX.Element {
     const { currentTab } = useValues(pipelineLogic)
 
     const tabToContent: Record<PipelineTabs, JSX.Element> = {
-        [PipelineTabs.Overview]: <div>Overview</div>,
+        [PipelineTabs.Overview]: <Overview />,
         [PipelineTabs.Filters]: <div>Coming soon</div>,
         [PipelineTabs.Transformations]: <Transformations />,
         [PipelineTabs.Destinations]: <Destinations />,
