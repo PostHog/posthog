@@ -1,10 +1,9 @@
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Field, Form, Group } from 'kea-forms'
 import { IconClose, IconDelete, IconEdit, IconMagnifier, IconMinusOutlined, IconPlus } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { AndSeparator } from 'scenes/actions/ActionStep'
 
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { SelectorEditingModal } from '~/toolbar/actions/SelectorEditingModal'
@@ -145,14 +144,18 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                                                     </>
                                                 }
                                             />
-                                            <AndSeparator />
+                                            <LemonTag type={'highlight'}>
+                                                <span className="uppercase">and</span>
+                                            </LemonTag>
                                             <StepField
                                                 step={step}
                                                 item="text"
                                                 label="Text"
                                                 caption="Text content inside your element"
                                             />
-                                            <AndSeparator />
+                                            <LemonTag type={'highlight'}>
+                                                <span className="uppercase">and</span>
+                                            </LemonTag>
                                             <StepField
                                                 step={step}
                                                 item="url"

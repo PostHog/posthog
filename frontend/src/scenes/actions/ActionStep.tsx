@@ -178,7 +178,7 @@ function Option({
     )
 }
 
-export const AndSeparator = (): JSX.Element => {
+const AndSeparator = (): JSX.Element => {
     return (
         <div className="flex w-full justify-center">
             <OperandTag operand="and" />
