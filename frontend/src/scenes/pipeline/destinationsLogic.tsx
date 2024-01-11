@@ -39,14 +39,19 @@ interface DestinationTypeBase {
     updated_at: string
     frequency: 'realtime' | BatchExportConfiguration['interval']
 }
+export enum DestinationTypeKind {
+    BatchExport = 'batch_export',
+    Webhook = 'webhook',
+}
+
 export interface BatchExportDestination extends DestinationTypeBase {
-    type: 'batch_export'
+    type: DestinationTypeKind.BatchExport
     id: string
     success_rates: BatchExportSuccessRate
     app_source_code_url?: never
 }
 export interface WebhookDestination extends DestinationTypeBase {
-    type: 'webhook'
+    type: DestinationTypeKind.Webhook
     id: number
     plugin: PluginType
     app_source_code_url?: string
@@ -169,7 +174,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             (s) => [s.pluginConfigs, s.plugins, s.batchExportConfigs],
             (pluginConfigs, plugins, batchExportConfigs): DestinationType[] => {
                 const appDests = Object.values(pluginConfigs).map<DestinationType>((pluginConfig) => ({
-                    type: 'webhook',
+                    type: DestinationTypeKind.Webhook,
                     frequency: 'realtime',
                     id: pluginConfig.id,
                     name: pluginConfig.name,
@@ -191,7 +196,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     updated_at: pluginConfig.updated_at,
                 }))
                 const batchDests = Object.values(batchExportConfigs).map<DestinationType>((batchExport) => ({
-                    type: 'batch_export',
+                    type: DestinationTypeKind.BatchExport,
                     frequency: batchExport.interval,
                     id: batchExport.id,
                     name: batchExport.name,
