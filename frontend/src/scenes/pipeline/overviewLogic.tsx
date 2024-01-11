@@ -16,7 +16,7 @@ export const pipelineOverviewLogic = kea<pipelineOverviewLogicType>([
     }),
     loaders(({ values }) => ({
         transformations: [
-            {} as Record<number, PluginType>,
+            [] as PluginType[],
             {
                 loadTransformations: async () => {
                     const results: PluginType[] = await api.loadPaginatedResults(
@@ -26,7 +26,7 @@ export const pipelineOverviewLogic = kea<pipelineOverviewLogicType>([
                     for (const plugin of results) {
                         plugins[plugin.id] = plugin
                     }
-                    return plugins
+                    return Object.values(plugins)
                 },
             },
         ],

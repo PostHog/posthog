@@ -1,7 +1,28 @@
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonCard, LemonSegmentedButton, Spinner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 
 import { pipelineOverviewLogic } from './overviewLogic'
+
+type PipelineStepProps = {
+    order?: number
+    name: string
+    description?: string
+    status?: string
+    url: string
+    success_rate?: number
+}
+
+const PipelineStep = ({ name, description }: PipelineStepProps): JSX.Element => (
+    <LemonCard className="cursor-pointer" onClick={() => {}}>
+        <span className="relative flex h-3 w-3">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-primary" />
+        </span>
+
+        <h3>{name}</h3>
+        {description ? <p>{description}</p> : <p className="italic">No description.</p>}
+    </LemonCard>
+)
 
 export function Overview(): JSX.Element {
     const { transformations, destinations, loading } = useValues(pipelineOverviewLogic)
@@ -9,16 +30,41 @@ export function Overview(): JSX.Element {
     return (
         <div>
             {loading && <Spinner />}
+            <div className="absolute right-0">
+                <LemonSegmentedButton
+                    size="small"
+                    value="24h"
+                    options={[
+                        { value: '24h', label: '24h' },
+                        { value: '7d', label: '7d' },
+                    ]}
+                />
+            </div>
+
             <h2>Filters</h2>
             <p>
-                <i>None</i>
+                <i>Coming soon.</i>
             </p>
 
-            <h2>Transformations</h2>
-            {transformations && <pre>{JSON.stringify(transformations, null, 2)}</pre>}
+            <h2 className="mt-4">Transformations</h2>
+            {transformations && (
+                <div className="grid grid-cols-3 gap-4">
+                    {transformations.map((t) => (
+                        <PipelineStep key={t.id} {...t} />
+                    ))}
+                    {/* <pre>{JSON.stringify(transformations, null, 2)}</pre> */}
+                </div>
+            )}
 
-            <h2>Destinations</h2>
-            {destinations && <pre>{JSON.stringify(destinations, null, 2)}</pre>}
+            <h2 className="mt-4">Destinations</h2>
+            {destinations && (
+                <div className="grid grid-cols-3 gap-4">
+                    {destinations.map((d) => (
+                        <PipelineStep key={d.id} {...d} />
+                    ))}
+                    {/* <pre>{JSON.stringify(destinations, null, 2)}</pre> */}
+                </div>
+            )}
         </div>
     )
 }
