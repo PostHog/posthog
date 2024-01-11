@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb, PipelineAppKind, PipelineAppTab, PluginConfigTypeNew, PluginType } from '~/types'
 
-import { DestinationTypeKind, pipelineDestinationsLogic } from './destinationsLogic'
+import { PipelineAppBackend, pipelineDestinationsLogic } from './destinationsLogic'
 import type { pipelineAppLogicType } from './pipelineAppLogicType'
 
 export interface PipelineAppLogicProps {
@@ -56,13 +56,13 @@ export const pipelineAppLogic = kea<pipelineAppLogicType>([
         ],
         appType: [
             (_, p) => [p.id],
-            (id): DestinationTypeKind =>
-                typeof id === 'string' ? DestinationTypeKind.BatchExport : DestinationTypeKind.Webhook,
+            (id): PipelineAppBackend =>
+                typeof id === 'string' ? PipelineAppBackend.BatchExport : PipelineAppBackend.Plugin,
         ],
         loading: [
             (s) => [s.appType, s.pluginConfigsLoading, s.pluginsLoading],
             (appType, pluginConfigsLoading, pluginsLoading): boolean => {
-                if (appType === DestinationTypeKind.BatchExport) {
+                if (appType === PipelineAppBackend.BatchExport) {
                     return false // TODO: Support loading state for batch exports
                 }
                 return pluginConfigsLoading || pluginsLoading

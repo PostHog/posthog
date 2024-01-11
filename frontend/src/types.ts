@@ -537,11 +537,6 @@ export enum PipelineAppKind {
     Destination = 'destination',
 }
 
-export enum PipelineAppBackend {
-    Plugin = 'plugin',
-    BatchExport = 'batch_export',
-}
-
 export enum PipelineAppTab {
     Configuration = 'configuration',
     Logs = 'logs',
