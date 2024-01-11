@@ -11,7 +11,7 @@ use sqlx::postgres::{PgPool, PgPoolOptions, Postgres};
 use sqlx::types::{chrono, Uuid};
 use sqlx::{Row, Transaction};
 use thiserror::Error;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 use crate::cleanup::Cleaner;
 use crate::kafka_producer::KafkaContext;
@@ -432,7 +432,7 @@ impl Cleaner for WebhookCleaner {
                     metrics::counter!("webhook_cleanup_failed_agg_row_count",)
                         .increment(stats.failed_agg_row_count);
 
-                    debug!(
+                    info!(
                         rows_processed = stats.rows_processed,
                         completed_row_count = stats.completed_row_count,
                         completed_agg_row_count = stats.completed_agg_row_count,
