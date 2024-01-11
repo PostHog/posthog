@@ -279,10 +279,14 @@ def property_to_Q(
         cohort_id = int(cast(Union[str, int], value))
         if cohorts_cache is not None:
             if cohorts_cache.get(cohort_id) is None:
-                cohorts_cache[cohort_id] = Cohort.objects.using(using_database).get(pk=cohort_id)
+                cohorts_cache[cohort_id] = Cohort.objects.using(using_database).filter(pk=cohort_id).first()
             cohort = cohorts_cache[cohort_id]
         else:
-            cohort = Cohort.objects.using(using_database).get(pk=cohort_id)
+            cohort = Cohort.objects.using(using_database).filter(pk=cohort_id).first()
+
+        if not cohort:
+            # Don't match anything if cohort doesn't exist
+            return Q(pk__isnull=True)
 
         if cohort.is_static:
             return Q(

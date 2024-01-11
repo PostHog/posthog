@@ -2157,10 +2157,19 @@ class TestDecide(BaseTest, QueryMatchingTest):
             key="cohort-flag",
             created_by=self.user,
         )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            name="This is a regular flag",
+            key="simple-flag",
+            created_by=self.user,
+        )
 
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(7):
+            # multiple queries to get the same cohort, because it doesn't exist
+            # TODO: Find a better way to optimise this in cache
             response = self._post_decide(api_version=3, distinct_id="example_id_1")
-            self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
+            self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False, "simple-flag": True})
             self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
     @snapshot_postgres_queries
