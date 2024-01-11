@@ -133,6 +133,20 @@ export function PipelineAppLogs(): JSX.Element {
     return <App />
 }
 
+export function PipelineAppLogsBatchExport(): JSX.Element {
+    useStorybookMocks({
+        get: {
+            'api/projects/:team_id/batch_exports/018cf79f-a9e5-0001-cd6a-edc4886d939d/logs': require('./__mocks__/batchExportLogs.json'),
+        },
+    })
+    useEffect(() => {
+        router.actions.push(
+            urls.pipelineApp(PipelineTabs.Destinations, '018cf79f-a9e5-0001-cd6a-edc4886d939d', PipelineAppTabs.Logs)
+        )
+    }, [])
+    return <App />
+}
+
 export function PipelineAppsManagementPage(): JSX.Element {
     useStorybookMocks({
         get: {
