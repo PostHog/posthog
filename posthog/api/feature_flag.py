@@ -55,6 +55,7 @@ from posthog.permissions import (
     TeamMemberAccessPermission,
 )
 from posthog.rate_limit import BurstRateThrottle
+from loginas.utils import is_impersonated_session
 
 DATABASE_FOR_LOCAL_EVALUATION = (
     "default"
@@ -683,6 +684,7 @@ class FeatureFlagViewSet(
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=serializer.context["request"].user,
+            was_impersonated=is_impersonated_session(serializer.context["request"]),
             item_id=serializer.instance.id,
             scope="FeatureFlag",
             activity="created",
@@ -705,6 +707,7 @@ class FeatureFlagViewSet(
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=serializer.context["request"].user,
+            was_impersonated=is_impersonated_session(serializer.context["request"]),
             item_id=instance_id,
             scope="FeatureFlag",
             activity="updated",
