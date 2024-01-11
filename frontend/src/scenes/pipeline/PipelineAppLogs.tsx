@@ -8,8 +8,8 @@ import { PipelineAppLogLevel, pipelineAppLogsLogic, PipelineAppLogsProps } from 
 export function PipelineAppLogs({ id, kind }: PipelineAppLogsProps): JSX.Element {
     const logic = pipelineAppLogsLogic({ id, kind })
 
-    const { logs, logsLoading, pluginLogsBackground, columns, isThereMoreToLoad, selectedLogLevels } = useValues(logic)
-    const { revealBackground, loadPluginLogsMore, setSelectedLogLevels, setSearchTerm } = useActions(logic)
+    const { logs, logsLoading, backgroundLogs, columns, isThereMoreToLoad, selectedLogLevels } = useValues(logic)
+    const { revealBackground, loadMoreLogs, setSelectedLogLevels, setSearchTerm } = useActions(logic)
 
     return (
         <div className="ph-no-capture space-y-2 flex-1">
@@ -44,10 +44,10 @@ export function PipelineAppLogs({ id, kind }: PipelineAppLogsProps): JSX.Element
                 type="secondary"
                 fullWidth
                 center
-                disabledReason={!pluginLogsBackground.length ? "There's nothing to load" : undefined}
+                disabledReason={!backgroundLogs.length ? "There's nothing to load" : undefined}
             >
-                {pluginLogsBackground.length
-                    ? `Load ${pluralize(pluginLogsBackground.length, 'newer entry', 'newer entries')}`
+                {backgroundLogs.length
+                    ? `Load ${pluralize(backgroundLogs.length, 'newer entry', 'newer entries')}`
                     : 'No new entries'}
             </LemonButton>
 
@@ -62,7 +62,7 @@ export function PipelineAppLogs({ id, kind }: PipelineAppLogsProps): JSX.Element
             />
             {!!logs.length && (
                 <LemonButton
-                    onClick={loadPluginLogsMore}
+                    onClick={loadMoreLogs}
                     loading={logsLoading}
                     type="secondary"
                     fullWidth
