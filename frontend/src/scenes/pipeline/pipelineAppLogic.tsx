@@ -45,6 +45,7 @@ export const pipelineAppLogic = kea<pipelineAppLogicType>([
                 {
                     key: kind,
                     name: capitalizeFirstLetter(kind),
+                    path: urls.pipeline(kind),
                 },
                 {
                     key: [Scene.PipelineApp, id],
