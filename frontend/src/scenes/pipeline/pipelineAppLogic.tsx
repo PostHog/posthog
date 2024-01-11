@@ -58,6 +58,16 @@ export const pipelineAppLogic = kea<pipelineAppLogicType>([
             (id): DestinationTypeKind =>
                 typeof id === 'string' ? DestinationTypeKind.BatchExport : DestinationTypeKind.Webhook,
         ],
+        tabs: [
+            (s) => [s.appType],
+            (appType) => {
+                if (appType === DestinationTypeKind.BatchExport) {
+                    return Object.values(PipelineAppTabs).filter((t) => t !== PipelineAppTabs.History)
+                }
+
+                return Object.values(PipelineAppTabs)
+            },
+        ],
         maybePluginConfig: [
             (s, p) => [s.pluginConfigs, s.appType, p.id],
             (pluginConfigs, appType, maybePluginConfigId): PluginConfigTypeNew | null => {

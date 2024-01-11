@@ -1,6 +1,7 @@
 import { Spinner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -11,7 +12,7 @@ import { PipelineAppLogs } from 'scenes/pipeline/PipelineAppLogs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { PipelineAppTabs, PipelineTabs } from '~/types'
+import { ActivityScope, PipelineAppTabs, PipelineTabs } from '~/types'
 
 import { AppMetrics } from './AppMetrics'
 import { PipelineAppConfiguration } from './PipelineAppConfiguration'
@@ -40,16 +41,17 @@ export function PipelineApp(params: { kind?: string; id?: string } = {}): JSX.El
     if (!Object.values(PipelineTabs).includes(kind)) {
         return <NotFound object="pipeline app" />
     }
-    const { currentTab } = useValues(pipelineAppLogic)
+    const { tabs, currentTab } = useValues(pipelineAppLogic)
 
     if (!id) {
         return <Spinner />
     }
 
-    const tabToContent: Record<PipelineAppTabs, JSX.Element> = {
+    const tabToContent: Partial<Record<PipelineAppTabs, JSX.Element>> = {
         [PipelineAppTabs.Configuration]: <PipelineAppConfiguration />,
         [PipelineAppTabs.Metrics]: <AppMetrics pluginConfigId={id as number} />,
         [PipelineAppTabs.Logs]: <PipelineAppLogs id={id} kind={kind} />,
+        [PipelineAppTabs.History]: <ActivityLog id={id} scope={ActivityScope.PLUGIN} />,
     }
 
     return (
@@ -58,7 +60,7 @@ export function PipelineApp(params: { kind?: string; id?: string } = {}): JSX.El
             <LemonTabs
                 activeKey={currentTab}
                 onChange={(tab) => router.actions.push(urls.pipelineApp(kind, id, tab as PipelineAppTabs))}
-                tabs={Object.values(PipelineAppTabs).map((tab) => ({
+                tabs={tabs.map((tab) => ({
                     label: capitalizeFirstLetter(tab),
                     key: tab,
                     content: tabToContent[tab],
