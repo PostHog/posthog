@@ -55,7 +55,7 @@ def _unwrap_pydantic(response: Any) -> Dict | List:
     return response
 
 
-def some_func() -> None:
+def test_func() -> None:
     return "Hello"
 
 
