@@ -135,13 +135,15 @@ class Resolver(CloningVisitor):
         # Array joins (pass 1 - so we can use aliases from the array join in columns)
         new_node.array_join_op = node.array_join_op
         ac = AliasCollector()
-        for expr in node.array_join_list:
-            ac.visit(expr)
-        array_join_aliases = ac.aliases
-        for key in array_join_aliases:
-            if key in node_type.aliases:
-                raise ResolverException(f"Cannot redefine an alias with the name: {key}")
-            node_type.aliases[key] = ast.FieldAliasType(alias=key, type=ast.UnknownType())
+        array_join_aliases = []
+        if node.array_join_list:
+            for expr in node.array_join_list:
+                ac.visit(expr)
+            array_join_aliases = ac.aliases
+            for key in array_join_aliases:
+                if key in node_type.aliases:
+                    raise ResolverException(f"Cannot redefine an alias with the name: {key}")
+                node_type.aliases[key] = ast.FieldAliasType(alias=key, type=ast.UnknownType())
 
         # Visit all the "SELECT a,b,c" columns. Mark each for export in "columns".
         select_nodes = []
@@ -183,7 +185,7 @@ class Resolver(CloningVisitor):
         if node.array_join_list:
             for key in array_join_aliases:
                 if key in node_type.aliases:
-                    # delethe the keys we added in the first pass to avoid "can't redefine" errors
+                    # delete the keys we added in the first pass to avoid "can't redefine" errors
                     del node_type.aliases[key]
             # from pdb import set_trace; set_trace()
             new_node.array_join_list = [self.visit(expr) for expr in node.array_join_list]
