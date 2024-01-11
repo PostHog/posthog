@@ -87,7 +87,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps = 1
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT last_path_key as source_event,
          path_key as target_event,
          COUNT(*) AS event_count,
@@ -254,7 +255,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps = 1
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
@@ -416,7 +418,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps = 1
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
@@ -578,7 +581,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps = 1
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
@@ -740,7 +744,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps = 1
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
@@ -902,7 +907,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps = 1
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT last_path_key as source_event,
          path_key as target_event,
          COUNT(*) AS event_count,
@@ -1077,7 +1083,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps = 1
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
@@ -1247,7 +1254,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps = 1
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
@@ -1417,7 +1425,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps = 1
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
@@ -1587,7 +1596,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps = 1
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
@@ -1757,7 +1767,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [2, 3]
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT last_path_key as source_event,
          path_key as target_event,
          COUNT(*) AS event_count,
@@ -1924,7 +1935,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [2, 3]
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT last_path_key as source_event,
          path_key as target_event,
          COUNT(*) AS event_count,
@@ -2091,7 +2103,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps = 2
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT last_path_key as source_event,
          path_key as target_event,
          COUNT(*) AS event_count,
@@ -2258,7 +2271,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [2, 3]
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT last_path_key as source_event,
          path_key as target_event,
          COUNT(*) AS event_count,
@@ -2425,7 +2439,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [2, 3]
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT last_path_key as source_event,
          path_key as target_event,
          COUNT(*) AS event_count,
@@ -2594,7 +2609,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [2, 3]
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
@@ -2758,7 +2774,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [2, 3]
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
@@ -2922,7 +2939,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [2, 3]
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
@@ -3086,7 +3104,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [2, 3]
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,
@@ -3250,7 +3269,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [2, 3]
-     ORDER BY aggregation_target)
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000)
   SELECT DISTINCT person_id AS actor_id
   FROM
     (SELECT person_id,

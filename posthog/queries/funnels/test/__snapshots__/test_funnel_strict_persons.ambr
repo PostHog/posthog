@@ -121,7 +121,8 @@
   WHERE steps IN [1, 2, 3]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.1
@@ -257,7 +258,8 @@
   WHERE steps IN [2, 3]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.3
@@ -393,7 +395,8 @@
   WHERE steps = 2
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
   '''
 # ---
 # name: TestFunnelStrictStepsPersons.test_strict_funnel_person_recordings.5
