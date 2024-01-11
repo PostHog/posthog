@@ -9,6 +9,8 @@ import type { pipelineLogicType } from './pipelineLogicType'
 
 export const singularName = (tab: PipelineTabs): string => {
     switch (tab) {
+        case PipelineTabs.Overview:
+            return 'overview'
         case PipelineTabs.Filters:
             return 'filter'
         case PipelineTabs.Transformations:
@@ -22,6 +24,8 @@ export const singularName = (tab: PipelineTabs): string => {
 
 export const humanFriendlyTabName = (tab: PipelineTabs): string => {
     switch (tab) {
+        case PipelineTabs.Overview:
+            return 'Overview'
         case PipelineTabs.Filters:
             return 'Filters'
         case PipelineTabs.Transformations:

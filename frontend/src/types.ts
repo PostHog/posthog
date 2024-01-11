@@ -525,6 +525,7 @@ export enum ExperimentsTabs {
 }
 
 export enum PipelineTabs {
+    Overview = 'overview',
     Filters = 'filters',
     Transformations = 'transformations',
     Destinations = 'destinations',

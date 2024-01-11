@@ -17,6 +17,7 @@ export function Pipeline(): JSX.Element {
     const { currentTab } = useValues(pipelineLogic)
 
     const tabToContent: Record<PipelineTabs, JSX.Element> = {
+        [PipelineTabs.Overview]: <div>Overview</div>,
         [PipelineTabs.Filters]: <div>Coming soon</div>,
         [PipelineTabs.Transformations]: <Transformations />,
         [PipelineTabs.Destinations]: <Destinations />,
