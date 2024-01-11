@@ -52,7 +52,6 @@ export function DebugScene(): JSX.Element {
     return (
         <div className="QueryScene">
             <PageHeader
-                title="Query Debugger"
                 buttons={
                     <>
                         <LemonButton active={!!query2} onClick={() => (query2 ? setQuery2('') : setQuery2(query1))}>

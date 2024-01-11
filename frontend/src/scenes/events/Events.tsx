@@ -13,7 +13,7 @@ export const scene: SceneExport = {
 export function Events(): JSX.Element {
     return (
         <>
-            <PageHeader title={'Event explorer'} />
+            <PageHeader />
             <div className="non-3000 pt-4 border-t" />
             <AndroidRecordingsPromptBanner context={'events'} />
             <EventsScene />

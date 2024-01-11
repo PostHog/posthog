@@ -42,7 +42,6 @@ export function AppsScene(): JSX.Element | null {
     return (
         <>
             <PageHeader
-                title="Apps & Exports"
                 tabbedPage
                 buttons={
                     pluginTab === PluginTab.BatchExports ? (

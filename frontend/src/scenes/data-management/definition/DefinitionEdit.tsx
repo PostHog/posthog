@@ -25,7 +25,6 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
     return (
         <Form logic={definitionEditLogic} props={props} formKey="definition">
             <PageHeader
-                title={`Edit ${isProperty ? 'Property' : 'Event'} Definition`}
                 buttons={
                     <>
                         <LemonButton

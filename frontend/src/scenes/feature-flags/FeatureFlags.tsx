@@ -373,7 +373,6 @@ export function FeatureFlags(): JSX.Element {
     return (
         <div className="feature_flags">
             <PageHeader
-                title="Feature Flags"
                 buttons={
                     <LemonButton type="primary" to={urls.featureFlag('new')} data-attr="new-feature-flag">
                         New feature flag

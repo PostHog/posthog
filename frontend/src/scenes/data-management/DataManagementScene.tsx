@@ -200,7 +200,6 @@ export function DataManagementScene(): JSX.Element {
     return (
         <>
             <PageHeader
-                title="Data Management"
                 caption="Use data management to organize events that come into PostHog. Reduce noise, clarify usage, and help collaborators get the most value from your data."
                 tabbedPage
                 buttons={<>{tabs[tab].buttons}</>}
