@@ -57,7 +57,7 @@ export function PipelineAppLogs({ id, kind }: PipelineAppLogsProps): JSX.Element
                 loading={logsLoading}
                 size="small"
                 className="ph-no-capture"
-                rowKey="id"
+                rowKey="timestamp"
                 pagination={{ pageSize: 200, hideOnSinglePage: true }}
             />
             {!!logs.length && (
