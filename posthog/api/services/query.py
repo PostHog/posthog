@@ -13,7 +13,7 @@ from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
 from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
-from posthog.schema import HogQLMetadata
+from posthog.schema import HogQLMetadata, QuerySchema
 
 logger = structlog.get_logger(__name__)
 
@@ -55,8 +55,8 @@ def _unwrap_pydantic(response: Any) -> Dict | List:
     return response
 
 
-def test_func() -> None:
-    return "Hello"
+def test_func(query: QuerySchema.root) -> None:
+    return query
 
 
 def _unwrap_pydantic_dict(response: Any) -> Dict:
