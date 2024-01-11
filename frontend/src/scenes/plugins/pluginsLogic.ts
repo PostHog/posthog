@@ -6,8 +6,8 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import posthog from 'posthog-js'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
+import { getConfigSchemaArray, getConfigSchemaObject, getPluginConfigFormData } from 'scenes/pipeline/configUtils'
 import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
-import { getConfigSchemaArray, getConfigSchemaObject, getPluginConfigFormData } from 'scenes/plugins/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -662,6 +662,8 @@ export const pluginsLogic = kea<pluginsLogicType>([
             }
         },
         generateApiKeysIfNeeded: async ({ form }, breakpoint) => {
+            // TODO: Auto-generated keys for posthogApiKey fields are deprecated
+            // This whole action can be removed at some point
             const { editingPlugin } = values
             if (!editingPlugin) {
                 return

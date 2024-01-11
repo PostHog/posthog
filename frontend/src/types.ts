@@ -1596,6 +1596,7 @@ export interface PluginConfigTypeNew {
     description?: string
     updated_at: string
     delivery_rate_24h?: number | null
+    config: Record<string, any>
 }
 
 // TODO: Rename to PluginConfigWithPluginInfo once the are removed from the frontend
