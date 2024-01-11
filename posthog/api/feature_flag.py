@@ -153,7 +153,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
     def get_surveys(self, feature_flag: FeatureFlag) -> Dict:
         from posthog.api.survey import SurveyAPISerializer
 
-        return SurveyAPISerializer(feature_flag.surveys_linked_flag, many=True).data  # type: ignore
+        return SurveyAPISerializer(feature_flag.surveys_linked_flag, many=True).data
         # ignoring type because mypy doesn't know about the surveys_linked_flag `related_name` relationship
 
     def get_rollout_percentage(self, feature_flag: FeatureFlag) -> Optional[int]:
@@ -181,7 +181,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         # If we see this, just return the current filters
         if "groups" not in filters and self.context["request"].method == "PATCH":
             # mypy cannot tell that self.instance is a FeatureFlag
-            return self.instance.filters  # type: ignore
+            return self.instance.filters
 
         aggregation_group_type_index = filters.get("aggregation_group_type_index", None)
 

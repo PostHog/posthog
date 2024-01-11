@@ -1,10 +1,11 @@
 import './PropertiesTable.scss'
 
 import { IconPencil } from '@posthog/icons'
-import { LemonCheckbox, LemonInput, Link } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { Dropdown, Input, Menu, Popconfirm } from 'antd'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 import { IconDeleteForever } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
@@ -12,9 +13,10 @@ import { KEY_MAPPING, keyMappingKeys } from 'lib/taxonomy'
 import { isURL } from 'lib/utils'
 import { useMemo, useState } from 'react'
 import { NewProperty } from 'scenes/persons/NewProperty'
+import { urls } from 'scenes/urls'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { PropertyDefinitionType } from '~/types'
+import { PropertyDefinitionType, PropertyType } from '~/types'
 
 import { CopyToClipboardInline } from '../CopyToClipboard'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
@@ -136,6 +138,16 @@ function ValueDisplay({
                         valueComponent
                     )}
                     <div className="property-value-type">{propertyType || valueType}</div>
+                    {(propertyType === PropertyType.String && valueType === 'number') ||
+                    (propertyType === PropertyType.Numeric && valueType === 'string') ? (
+                        <Tooltip
+                            title={`This property's type is set to "${propertyType}", yet the displayed value is of type "${valueType}". Click to correct.`}
+                        >
+                            <Link to={combineUrl(urls.propertyDefinitions(), { property: rootKey }).url}>
+                                <LemonTag type="danger">Type mismatch</LemonTag>
+                            </Link>
+                        </Tooltip>
+                    ) : null}
                 </>
             ) : (
                 <EditTextValueComponent value={value} onChange={handleValueChange} />

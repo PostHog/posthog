@@ -1,14 +1,16 @@
 import { actions, kea, key, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, PipelineAppTabs } from '~/types'
+import { Breadcrumb, PipelineAppTabs, PipelineTabs } from '~/types'
 
 import type { pipelineAppLogicType } from './pipelineAppLogicType'
 
 export interface PipelineAppLogicProps {
     id: number
+    kind: PipelineTabs
 }
 
 export const pipelineAppLogic = kea<pipelineAppLogicType>([
@@ -17,6 +19,7 @@ export const pipelineAppLogic = kea<pipelineAppLogicType>([
     path((id) => ['scenes', 'pipeline', 'pipelineAppLogic', id]),
     actions({
         setCurrentTab: (tab: PipelineAppTabs = PipelineAppTabs.Configuration) => ({ tab }),
+        setKind: (kind: PipelineTabs) => ({ kind }),
     }),
     reducers({
         currentTab: [
@@ -28,12 +31,16 @@ export const pipelineAppLogic = kea<pipelineAppLogicType>([
     }),
     selectors({
         breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => [
+            (_, p) => [p.kind],
+            (kind): Breadcrumb[] => [
                 {
                     key: Scene.Pipeline,
-                    name: 'Pipeline',
+                    name: 'Data pipeline',
                     path: urls.pipeline(),
+                },
+                {
+                    key: 'Kind',
+                    name: capitalizeFirstLetter(kind),
                 },
                 {
                     key: 'todo',
@@ -44,12 +51,12 @@ export const pipelineAppLogic = kea<pipelineAppLogicType>([
     }),
     actionToUrl(({ values, props }) => {
         return {
-            setCurrentTab: () => [urls.pipelineApp(props.id, values.currentTab)],
+            setCurrentTab: () => [urls.pipelineApp(props.kind, props.id, values.currentTab)],
         }
     }),
     urlToAction(({ actions, values }) => ({
-        '/pipeline/:id/:tab': ({ tab }) => {
-            if (tab !== values.currentTab) {
+        '/pipeline/:kind/:id/:tab': ({ tab }) => {
+            if (tab !== values.currentTab && Object.values(PipelineAppTabs).includes(tab as PipelineAppTabs)) {
                 actions.setCurrentTab(tab as PipelineAppTabs)
             }
         },

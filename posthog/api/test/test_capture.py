@@ -881,7 +881,7 @@ class TestCapture(BaseTest):
                 "distinct_id": "2",
                 "ip": "127.0.0.1",
                 "site_url": "http://testserver",
-                "data": {**data, "properties": {}},  # type: ignore
+                "data": {**data, "properties": {}},
                 "token": self.team.api_token,
             },
         )

@@ -67,7 +67,6 @@ export function Surveys(): JSX.Element {
     return (
         <div>
             <PageHeader
-                title="Surveys"
                 buttons={
                     <>
                         <LemonButton

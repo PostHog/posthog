@@ -69,17 +69,6 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
             ) : (
                 <>
                     <PageHeader
-                        title={
-                            <EditableField
-                                name="name"
-                                value={getPropertyLabel(definition.name) || ''}
-                                placeholder={`Name this ${singular}`}
-                                mode="view"
-                                minLength={1}
-                                maxLength={400} // Sync with action model
-                                data-attr="definition-name-view"
-                            />
-                        }
                         caption={
                             <>
                                 <EditableField

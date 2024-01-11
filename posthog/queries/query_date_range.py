@@ -173,11 +173,11 @@ class QueryDateRange:
     def num_intervals(self) -> int:
         if not hasattr(self._filter, "interval"):
             return 1
-        if self._filter.interval == "month":  # type: ignore
+        if self._filter.interval == "month":
             rel_delta = relativedelta(self.date_to_param, self.date_from_param)
             return (rel_delta.years * 12) + rel_delta.months + 1
 
-        return int(self.delta.total_seconds() / TIME_IN_SECONDS[self._filter.interval]) + 1  # type: ignore
+        return int(self.delta.total_seconds() / TIME_IN_SECONDS[self._filter.interval]) + 1
 
     @cached_property
     def should_round(self) -> bool:
@@ -188,14 +188,14 @@ class QueryDateRange:
             return False
 
         round_interval = False
-        if self._filter.interval in ["week", "month"]:  # type: ignore
+        if self._filter.interval in ["week", "month"]:
             round_interval = True
         else:
-            round_interval = self.delta.total_seconds() >= TIME_IN_SECONDS[self._filter.interval] * 2  # type: ignore
+            round_interval = self.delta.total_seconds() >= TIME_IN_SECONDS[self._filter.interval] * 2
 
         return round_interval
 
     def is_hourly(self, target):
         if not hasattr(self._filter, "interval"):
             return False
-        return self._filter.interval == "hour" or (target and isinstance(target, str) and "h" in target)  # type: ignore
+        return self._filter.interval == "hour" or (target and isinstance(target, str) and "h" in target)

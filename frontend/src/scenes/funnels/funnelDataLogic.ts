@@ -376,5 +376,10 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 return !skewWarningHidden && (conversionMetrics.totalRate < 0.1 || conversionMetrics.totalRate > 0.9)
             },
         ],
+        indexedSteps: [
+            (s) => [s.steps],
+            (steps) =>
+                Array.isArray(steps) ? steps.map((step, index) => ({ ...step, seriesIndex: index, id: index })) : [],
+        ],
     })),
 ])

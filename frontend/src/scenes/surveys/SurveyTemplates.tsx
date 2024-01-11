@@ -24,7 +24,6 @@ export function SurveyTemplates(): JSX.Element {
     return (
         <>
             <PageHeader
-                title={'New survey'}
                 buttons={
                     <LemonButton type="primary" to={urls.survey('new')} data-attr="new-blank-survey">
                         Create blank survey

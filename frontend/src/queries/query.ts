@@ -31,6 +31,7 @@ import {
     isLifecycleQuery,
     isPersonsNode,
     isRetentionQuery,
+    isStickinessQuery,
     isTimeToSeeDataQuery,
     isTimeToSeeDataSessionsNode,
     isTimeToSeeDataSessionsQuery,
@@ -155,6 +156,9 @@ export async function query<N extends DataNode = DataNode>(
     const hogQLInsightsTrendsFlagEnabled = Boolean(
         featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS]
     )
+    const hogQLInsightsStickinessFlagEnabled = Boolean(
+        featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_STICKINESS]
+    )
     const hogQLInsightsLiveCompareEnabled = Boolean(
         featureFlagLogic.findMounted()?.values.featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHT_LIVE_COMPARE]
     )
@@ -198,7 +202,8 @@ export async function query<N extends DataNode = DataNode>(
             if (
                 (hogQLInsightsLifecycleFlagEnabled && isLifecycleQuery(queryNode)) ||
                 (hogQLInsightsRetentionFlagEnabled && isRetentionQuery(queryNode)) ||
-                (hogQLInsightsTrendsFlagEnabled && isTrendsQuery(queryNode))
+                (hogQLInsightsTrendsFlagEnabled && isTrendsQuery(queryNode)) ||
+                (hogQLInsightsStickinessFlagEnabled && isStickinessQuery(queryNode))
             ) {
                 if (hogQLInsightsLiveCompareEnabled) {
                     let legacyResponse
