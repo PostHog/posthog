@@ -77,16 +77,16 @@ project_plugins_configs_router.register(
     "project_plugins_config_logs",
     ["team_id", "plugin_config_id"],
 )
-pipeline_transformations_configs_router = projects_router.register(
-    r"pipeline_transformations_configs",
+pipeline_transformation_configs_router = projects_router.register(
+    r"pipeline_transformation_configs",
     plugin.PipelineTransformationsConfigsViewSet,
-    "pipeline_transformations_configs",
+    "project_pipeline_transformation_configs",
     ["team_id"],
 )
-pipeline_destinations_configs_router = projects_router.register(
-    r"pipeline_destinations_configs",
+pipeline_destination_configs_router = projects_router.register(
+    r"pipeline_destination_configs",
     plugin.PipelineDestinationsConfigsViewSet,
-    "pipeline_destinations_configs",
+    "project_pipeline_destination_configs",
     ["team_id"],
 )
 

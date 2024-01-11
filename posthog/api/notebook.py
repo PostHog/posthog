@@ -40,6 +40,7 @@ from posthog.permissions import (
 )
 from posthog.settings import DEBUG
 from posthog.utils import relative_date_parse
+from loginas.utils import is_impersonated_session
 
 logger = structlog.get_logger(__name__)
 
@@ -62,6 +63,7 @@ def log_notebook_activity(
     organization_id: UUIDT,
     team_id: int,
     user: User,
+    was_impersonated: bool,
     changes: Optional[List[Change]] = None,
 ) -> None:
     short_id = str(notebook.short_id)
@@ -70,6 +72,7 @@ def log_notebook_activity(
         organization_id=organization_id,
         team_id=team_id,
         user=user,
+        was_impersonated=was_impersonated,
         item_id=notebook.short_id,
         scope="Notebook",
         activity=activity,
@@ -139,6 +142,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             organization_id=self.context["request"].user.current_organization_id,
             team_id=team.id,
             user=self.context["request"].user,
+            was_impersonated=is_impersonated_session(request),
         )
 
         return notebook
@@ -173,6 +177,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             organization_id=self.context["request"].user.current_organization_id,
             team_id=self.context["team_id"],
             user=self.context["request"].user,
+            was_impersonated=is_impersonated_session(self.context["request"]),
             changes=changes,
         )
 

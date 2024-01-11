@@ -2139,6 +2139,39 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
             self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
+    def test_flag_with_unknown_cohort(self, *args):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["example_id_1"],
+            properties={"$some_prop_1": "something_1"},
+        )
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [{"key": "id", "value": 99999, "type": "cohort"}]}]},
+            name="This is a cohort-based flag",
+            key="cohort-flag",
+            created_by=self.user,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            name="This is a regular flag",
+            key="simple-flag",
+            created_by=self.user,
+        )
+
+        with self.assertNumQueries(7):
+            # multiple queries to get the same cohort, because it doesn't exist
+            # TODO: Find a better way to optimise this in cache
+            response = self._post_decide(api_version=3, distinct_id="example_id_1")
+            self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False, "simple-flag": True})
+            self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
+
     @snapshot_postgres_queries
     def test_flag_with_behavioural_cohorts(self, *args):
         self.team.app_urls = ["https://example.com"]

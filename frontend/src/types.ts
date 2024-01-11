@@ -27,6 +27,7 @@ import { LogLevel } from 'rrweb'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
+import { PipelineAppLogLevel } from 'scenes/pipeline/pipelineAppLogsLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 import { QueryContext } from '~/queries/types'
@@ -1596,6 +1597,7 @@ export interface PluginConfigTypeNew {
     description?: string
     updated_at: string
     delivery_rate_24h?: number | null
+    config: Record<string, any>
 }
 
 // TODO: Rename to PluginConfigWithPluginInfo once the are removed from the frontend
@@ -1631,20 +1633,12 @@ export interface PluginLogEntry {
     instance_id: string
 }
 
-export enum BatchExportLogEntryLevel {
-    Debug = 'DEBUG',
-    Log = 'LOG',
-    Info = 'INFO',
-    Warning = 'WARNING',
-    Error = 'ERROR',
-}
-
 export interface BatchExportLogEntry {
     team_id: number
     batch_export_id: number
     run_id: number
     timestamp: string
-    level: BatchExportLogEntryLevel
+    level: PipelineAppLogLevel
     message: string
 }
 

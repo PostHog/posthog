@@ -150,7 +150,7 @@ export function Experiment(): JSX.Element {
     if (!hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
         return (
             <>
-                <PageHeader title="Experiments" />
+                <PageHeader />
                 <ExperimentsPayGate />
             </>
         )
@@ -177,7 +177,6 @@ export function Experiment(): JSX.Element {
                         className="space-y-4 experiment-form"
                     >
                         <PageHeader
-                            title={editingExistingExperiment ? 'Edit experiment' : 'New experiment'}
                             buttons={
                                 <div className="flex items-center gap-2">
                                     <LemonButton

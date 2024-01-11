@@ -62,7 +62,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -155,7 +156,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -255,7 +257,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -339,7 +342,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -423,7 +427,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -507,7 +512,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -579,7 +585,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -679,7 +686,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -763,7 +771,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -847,7 +856,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -931,7 +941,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -995,7 +1006,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1080,7 +1092,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1165,7 +1178,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1243,7 +1257,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1318,7 +1333,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1393,7 +1409,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1468,7 +1485,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1551,7 +1569,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1637,7 +1656,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1720,7 +1740,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1803,7 +1824,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1889,7 +1911,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -1972,7 +1995,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -2055,7 +2079,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -2138,7 +2163,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -2229,7 +2255,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -2323,7 +2350,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -2414,7 +2442,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        toDateTime('2020-01-14 23:59:59', 'UTC') AS date_to,
        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
        2 AS target_step,
@@ -2489,7 +2518,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -2577,7 +2607,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -2649,7 +2680,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -2721,7 +2753,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -2793,7 +2826,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -2857,7 +2891,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -2937,7 +2972,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -3025,7 +3061,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3097,7 +3134,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3169,7 +3207,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3241,7 +3280,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3305,7 +3345,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -3387,7 +3428,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -3477,7 +3519,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3551,7 +3594,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3625,7 +3669,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3699,7 +3744,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -3765,7 +3811,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -3847,7 +3894,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -3937,7 +3985,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -4011,7 +4060,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -4085,7 +4135,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -4159,7 +4210,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -4225,7 +4277,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -4313,7 +4366,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,
@@ -4409,7 +4463,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -4489,7 +4544,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -4569,7 +4625,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -4649,7 +4706,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT funnel_actors.actor_id AS actor_id
   FROM funnel_actors
@@ -4721,7 +4779,8 @@
                  steps
         HAVING steps = max_steps)
      WHERE steps IN [1, 2]
-     ORDER BY aggregation_target),
+     ORDER BY aggregation_target SETTINGS max_ast_elements=1000000,
+                                          max_expanded_ast_elements=1000000),
        2 AS target_step
   SELECT concat(prop.1, '::', prop.2) as name,
          countDistinctIf(actor_id, steps = target_step) AS success_count,

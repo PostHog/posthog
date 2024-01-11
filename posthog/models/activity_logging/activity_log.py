@@ -7,7 +7,7 @@ import structlog
 from django.core.paginator import Paginator
 from django.db import models
 from django.utils import timezone
-
+from django.conf import settings
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.user import User
@@ -81,15 +81,16 @@ class ActivityLog(UUIDModel):
     class Meta:
         constraints = [
             models.CheckConstraint(
-                check=models.Q(team_id__isnull=False) | models.Q(organization_id__isnull=False),
                 name="must_have_team_or_organization_id",
-            )
+                check=models.Q(team_id__isnull=False) | models.Q(organization_id__isnull=False),
+            ),
         ]
         indexes = [models.Index(fields=["team_id", "scope", "item_id"])]
 
     team_id = models.PositiveIntegerField(null=True)
     organization_id = models.UUIDField(null=True)
     user = models.ForeignKey("posthog.User", null=True, on_delete=models.SET_NULL)
+    was_impersonated = models.BooleanField(null=True)
     # If truthy, user can be unset and this indicates a 'system' user made activity asynchronously
     is_system = models.BooleanField(null=True)
 
@@ -320,15 +321,27 @@ def dict_changes_between(
 
 
 def log_activity(
+    *,
     organization_id: Optional[UUIDT],
     team_id: int,
-    user: User | None,
+    user: Optional[User],
     item_id: Optional[Union[int, str, UUIDT]],
     scope: str,
     activity: str,
     detail: Detail,
+    was_impersonated: Optional[bool],
     force_save: bool = False,
 ) -> None:
+    if was_impersonated and user is None:
+        logger.warn(
+            "activity_log.failed_to_write_to_activity_log",
+            team=team_id,
+            organization_id=organization_id,
+            scope=scope,
+            activity=activity,
+            exception=ValueError("Cannot log impersonated activity without a user"),
+        )
+        return
     try:
         if activity == "updated" and (detail.changes is None or len(detail.changes) == 0) and not force_save:
             logger.warn(
@@ -344,6 +357,7 @@ def log_activity(
             organization_id=organization_id,
             team_id=team_id,
             user=user,
+            was_impersonated=was_impersonated,
             is_system=user is None,
             item_id=str(item_id),
             scope=scope,
@@ -359,6 +373,10 @@ def log_activity(
             activity=activity,
             exception=e,
         )
+        if settings.TEST:
+            # Re-raise in tests, so that we can catch failures in test suites - but keep quiet in production,
+            # as we currently don't treat activity logs as critical
+            raise e
 
 
 @dataclasses.dataclass(frozen=True)

@@ -20,7 +20,7 @@ export default {
             get: {
                 'api/organizations/@current/pipeline_transformations/': {},
                 'api/organizations/@current/plugins/': {},
-                'api/projects/:team_id/pipeline_transformations_configs/': {},
+                'api/projects/:team_id/pipeline_transformation_configs/': {},
             },
         }),
     ],
@@ -61,7 +61,7 @@ export function PipelineTransformationsPage(): JSX.Element {
     useStorybookMocks({
         get: {
             'api/organizations/@current/pipeline_transformations/': require('./__mocks__/plugins.json'),
-            'api/projects/:team_id/pipeline_transformations_configs/': require('./__mocks__/transformationPluginConfigs.json'),
+            'api/projects/:team_id/pipeline_transformation_configs/': require('./__mocks__/transformationPluginConfigs.json'),
         },
     })
     useEffect(() => {
@@ -74,7 +74,7 @@ export function PipelineDestinationsPage(): JSX.Element {
     useStorybookMocks({
         get: {
             'api/organizations/@current/pipeline_destinations/': require('./__mocks__/plugins.json'),
-            'api/projects/:team_id/pipeline_destinations_configs/': require('./__mocks__/transformationPluginConfigs.json'),
+            'api/projects/:team_id/pipeline_destination_configs/': require('./__mocks__/transformationPluginConfigs.json'),
         },
     })
     useEffect(() => {
@@ -129,6 +129,20 @@ export function PipelineAppLogs(): JSX.Element {
     })
     useEffect(() => {
         router.actions.push(urls.pipelineApp(PipelineTabs.Destinations, 1, PipelineAppTabs.Logs))
+    }, [])
+    return <App />
+}
+
+export function PipelineAppLogsBatchExport(): JSX.Element {
+    useStorybookMocks({
+        get: {
+            'api/projects/:team_id/batch_exports/018cf79f-a9e5-0001-cd6a-edc4886d939d/logs': require('./__mocks__/batchExportLogs.json'),
+        },
+    })
+    useEffect(() => {
+        router.actions.push(
+            urls.pipelineApp(PipelineTabs.Destinations, '018cf79f-a9e5-0001-cd6a-edc4886d939d', PipelineAppTabs.Logs)
+        )
     }, [])
     return <App />
 }

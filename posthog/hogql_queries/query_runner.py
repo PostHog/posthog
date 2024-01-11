@@ -272,7 +272,7 @@ class QueryRunner(ABC):
         return fresh_response
 
     @abstractmethod
-    def to_query(self) -> ast.SelectQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         raise NotImplementedError()
 
     def to_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
