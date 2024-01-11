@@ -87,7 +87,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                     })
                 },
                 children: 'Learn more',
-                to: 'https://posthog.com',
+                to: 'https://posthog.com/changelog/2024#data-pipeline-add-on-launched',
                 targetBlank: true,
             },
             dismissKey: 'data-pipelines-notice',
