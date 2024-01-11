@@ -277,7 +277,11 @@ export function formatBreakdownLabel(
             ? 'None'
             : breakdown_value
     } else if (Array.isArray(breakdown_value)) {
-        return breakdown_value.join('::')
+        return breakdown_value
+            .map((v) =>
+                formatBreakdownLabel(cohorts, formatPropertyValueForDisplay, v, breakdown, breakdown_type, isHistogram)
+            )
+            .join('::')
     } else {
         return ''
     }
