@@ -13,9 +13,9 @@ import { urls } from 'scenes/urls'
 
 import { PipelineAppTabs, PipelineTabs } from '~/types'
 
-import { AppMetrics } from './AppMetrics'
 import { PipelineAppConfiguration } from './PipelineAppConfiguration'
 import { pipelineAppLogic, PipelineAppLogicProps } from './pipelineAppLogic'
+import { PipelineAppMetrics } from './PipelineAppMetrics'
 
 const paramsToProps = ({ params: { kind, id } }: { params: { kind?: string; id?: string } }): PipelineAppLogicProps => {
     const numericId = id && /^\d+$/.test(id) ? parseInt(id) : undefined
@@ -48,7 +48,7 @@ export function PipelineApp(params: { kind?: string; id?: string } = {}): JSX.El
 
     const tabToContent: Record<PipelineAppTabs, JSX.Element> = {
         [PipelineAppTabs.Configuration]: <PipelineAppConfiguration />,
-        [PipelineAppTabs.Metrics]: <AppMetrics pluginConfigId={id as number} />,
+        [PipelineAppTabs.Metrics]: <PipelineAppMetrics pluginConfigId={id as number} />,
         [PipelineAppTabs.Logs]: <PipelineAppLogs id={id} kind={kind} />,
     }
 

@@ -17,15 +17,20 @@ import { humanFriendlyNumber, inStorybookTestRunner, lightenDarkenColor } from '
 import { useState } from 'react'
 import { useEffect, useRef } from 'react'
 
-import { AppMetricErrorDetail, AppMetricsData, appMetricsLogic, AppMetricsProps } from './appMetricsLogic'
+import {
+    AppMetricErrorDetail,
+    AppMetricsData,
+    pipelineAppMetricsLogic,
+    PipelineAppMetricsProps,
+} from './pipelineAppMetricsLogic'
 
 export interface MetricsOverviewProps {
     metrics?: AppMetricsData | null
     metricsLoading: boolean
 }
 
-export function AppMetrics({ pluginConfigId }: AppMetricsProps): JSX.Element {
-    const logic = appMetricsLogic({ pluginConfigId })
+export function PipelineAppMetrics({ pluginConfigId }: PipelineAppMetricsProps): JSX.Element {
+    const logic = pipelineAppMetricsLogic({ pluginConfigId })
 
     const { appMetricsResponse, appMetricsResponseLoading, dateFrom } = useValues(logic)
     const { setDateFrom } = useActions(logic)
@@ -185,7 +190,7 @@ function colorConfig(baseColorVar: string): Partial<ChartDataset<'line', any>> {
 }
 
 function ErrorsOverview({ pluginConfigId }: { pluginConfigId: number }): JSX.Element {
-    const logic = appMetricsLogic({ pluginConfigId })
+    const logic = pipelineAppMetricsLogic({ pluginConfigId })
     const { appMetricsResponse, appMetricsResponseLoading } = useValues(logic)
     const { openErrorDetailsModal } = useActions(logic)
 
@@ -253,7 +258,7 @@ function ErrorsOverview({ pluginConfigId }: { pluginConfigId: number }): JSX.Ele
 }
 
 function ErrorDetailsModal({ pluginConfigId }: { pluginConfigId: number }): JSX.Element {
-    const logic = appMetricsLogic({ pluginConfigId })
+    const logic = pipelineAppMetricsLogic({ pluginConfigId })
     // const { appMetricsResponse, appMetricsResponseLoading } = useValues(logic)
     const { errorDetails, errorDetailsModalError, errorDetailsLoading } = useValues(logic)
     const { closeErrorDetailsModal } = useActions(logic)

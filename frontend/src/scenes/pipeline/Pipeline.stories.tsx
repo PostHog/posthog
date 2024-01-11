@@ -8,8 +8,8 @@ import { urls } from 'scenes/urls'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { PipelineAppTabs, PipelineTabs } from '~/types'
 
-import { appMetricsLogic } from './appMetricsLogic'
 import { appsManagementLogic } from './appsManagementLogic'
+import { pipelineAppMetricsLogic } from './pipelineAppMetricsLogic'
 import { pipelineLogic } from './pipelineLogic'
 
 export default {
@@ -100,7 +100,7 @@ export function PipelineAppMetrics(): JSX.Element {
     })
     useEffect(() => {
         router.actions.push(urls.pipelineApp(PipelineTabs.Destinations, 4, PipelineAppTabs.Metrics))
-        appMetricsLogic({ pluginConfigId: 4 }).mount()
+        pipelineAppMetricsLogic({ pluginConfigId: 4 }).mount()
     }, [])
     return <App />
 }
@@ -114,7 +114,7 @@ export function PipelineAppMetricsErrorModal(): JSX.Element {
     })
     useEffect(() => {
         router.actions.push(urls.pipelineApp(PipelineTabs.Destinations, 4, PipelineAppTabs.Metrics))
-        const logic = appMetricsLogic({ pluginConfigId: 4 })
+        const logic = pipelineAppMetricsLogic({ pluginConfigId: 4 })
         logic.mount()
         logic.actions.openErrorDetailsModal('Error')
     }, [])
