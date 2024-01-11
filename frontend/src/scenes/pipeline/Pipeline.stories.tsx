@@ -20,7 +20,7 @@ export default {
             get: {
                 'api/organizations/@current/pipeline_transformations/': {},
                 'api/organizations/@current/plugins/': {},
-                'api/projects/:team_id/pipeline_transformations_configs/': {},
+                'api/projects/:team_id/pipeline_transformation_configs/': {},
             },
         }),
     ],
@@ -61,7 +61,7 @@ export function PipelineTransformationsPage(): JSX.Element {
     useStorybookMocks({
         get: {
             'api/organizations/@current/pipeline_transformations/': require('./__mocks__/plugins.json'),
-            'api/projects/:team_id/pipeline_transformations_configs/': require('./__mocks__/transformationPluginConfigs.json'),
+            'api/projects/:team_id/pipeline_transformation_configs/': require('./__mocks__/transformationPluginConfigs.json'),
         },
     })
     useEffect(() => {
@@ -74,7 +74,7 @@ export function PipelineDestinationsPage(): JSX.Element {
     useStorybookMocks({
         get: {
             'api/organizations/@current/pipeline_destinations/': require('./__mocks__/plugins.json'),
-            'api/projects/:team_id/pipeline_destinations_configs/': require('./__mocks__/transformationPluginConfigs.json'),
+            'api/projects/:team_id/pipeline_destination_configs/': require('./__mocks__/transformationPluginConfigs.json'),
         },
     })
     useEffect(() => {

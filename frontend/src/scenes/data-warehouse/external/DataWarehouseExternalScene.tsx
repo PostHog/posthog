@@ -1,5 +1,5 @@
 import { IconDatabase } from '@posthog/icons'
-import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { DatabaseTableTree, TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
@@ -114,14 +114,6 @@ export function DataWarehouseExternalScene(): JSX.Element {
     return (
         <div>
             <PageHeader
-                title={
-                    <div className="flex items-center gap-2">
-                        Data Warehouse
-                        <LemonTag type="warning" className="uppercase">
-                            Beta
-                        </LemonTag>
-                    </div>
-                }
                 buttons={
                     <>
                         {featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_VIEWS] && (

@@ -68,7 +68,6 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     return (
         <Form id="early-access-feature" formKey="earlyAccessFeature" logic={earlyAccessFeatureLogic}>
             <PageHeader
-                title={isNewEarlyAccessFeature ? 'New feature release' : earlyAccessFeature.name}
                 buttons={
                     !earlyAccessFeatureLoading ? (
                         earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability &&

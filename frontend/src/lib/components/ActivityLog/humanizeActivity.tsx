@@ -2,7 +2,7 @@ import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { fullName } from 'lib/utils'
 
-import { ActivityScope, InsightShortId, PersonType } from '~/types'
+import { ActivityScope, InsightShortId, PersonType, UserBasicType } from '~/types'
 
 export interface ActivityChange {
     type: ActivityScope
@@ -34,21 +34,19 @@ export interface ActivityLogDetail {
     type?: string
 }
 
-export interface ActivityUser {
-    email: string | null
-    first_name: string
-    is_system?: boolean
-}
-
 export type ActivityLogItem = {
-    user?: ActivityUser
+    user?: Pick<UserBasicType, 'email' | 'first_name' | 'last_name'>
     activity: string
     created_at: string
     scope: ActivityScope
     item_id?: string
     detail: ActivityLogDetail
-    unread?: boolean // when used as a notification
-    is_system?: boolean // when auto-created e.g. an exported image when sharing an insight
+    /** Present if the log is used as a notification. Whether the notification is unread. */
+    unread?: boolean
+    /** Whether the activity was initiated by a PostHog staff member impersonating a user. */
+    is_staff?: boolean
+    /** Whether the activity was initiated by the PostHog backend. Example: an exported image when sharing an insight. */
+    is_system?: boolean
 }
 
 // the description of a single activity log is a sentence describing one or more changes that makes up the entry

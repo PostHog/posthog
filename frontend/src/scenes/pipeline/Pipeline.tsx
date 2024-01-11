@@ -16,7 +16,7 @@ import { Transformations } from './Transformations'
 export function Pipeline(): JSX.Element {
     const { currentTab } = useValues(pipelineLogic)
 
-    const tab_to_content: Record<PipelineTabs, JSX.Element> = {
+    const tabToContent: Record<PipelineTabs, JSX.Element> = {
         [PipelineTabs.Filters]: <div>Coming soon</div>,
         [PipelineTabs.Transformations]: <Transformations />,
         [PipelineTabs.Destinations]: <Destinations />,
@@ -26,7 +26,6 @@ export function Pipeline(): JSX.Element {
     return (
         <div className="pipeline-scene">
             <PageHeader
-                title="Pipeline"
                 caption="Add filters or transformations to the events sent to PostHog or export them to other tools."
                 buttons={<NewButton tab={currentTab} />}
             />
@@ -37,7 +36,7 @@ export function Pipeline(): JSX.Element {
                     // TODO: Hide admin management based on `canGloballyManagePlugins` permission
                     label: humanFriendlyTabName(tab),
                     key: tab,
-                    content: tab_to_content[tab],
+                    content: tabToContent[tab],
                 }))}
             />
         </div>

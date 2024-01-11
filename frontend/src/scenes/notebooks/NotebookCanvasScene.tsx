@@ -29,7 +29,6 @@ export function NotebookCanvas(): JSX.Element {
     return (
         <>
             <PageHeader
-                title="Canvas"
                 buttons={
                     <>
                         <LemonMenu

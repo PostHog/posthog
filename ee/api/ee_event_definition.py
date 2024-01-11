@@ -10,6 +10,8 @@ from posthog.models.activity_logging.activity_log import (
     Detail,
 )
 
+from loginas.utils import is_impersonated_session
+
 
 class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     updated_by = UserBasicSerializer(read_only=True)
@@ -98,6 +100,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             item_id=str(event_definition.id),
             scope="EventDefinition",
             activity="changed",
+            was_impersonated=is_impersonated_session(self.context["request"]),
             detail=Detail(name=str(event_definition.name), changes=changes),
         )
 

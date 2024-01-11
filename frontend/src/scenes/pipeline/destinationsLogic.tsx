@@ -1,4 +1,5 @@
-import { actions, afterMount, connect, kea, path, selectors } from 'kea'
+import { lemonToast } from '@posthog/lemon-ui'
+import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { canConfigurePlugins } from 'scenes/plugins/access'
@@ -7,6 +8,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import {
+    BatchExportConfiguration,
     PipelineAppTabs,
     PipelineTabs,
     PluginConfigTypeNew,
@@ -16,7 +18,7 @@ import {
 } from '~/types'
 
 import type { pipelineDestinationsLogicType } from './destinationsLogicType'
-import { capturePluginEvent } from './utils'
+import { captureBatchExportEvent, capturePluginEvent } from './utils'
 
 interface WebhookSuccessRate {
     '24h': number | null
@@ -35,7 +37,7 @@ interface DestinationTypeBase {
     metrics_url: string
     logs_url: string
     updated_at: string
-    frequency: 'realtime' | 'hourly' | 'daily'
+    frequency: 'realtime' | BatchExportConfiguration['interval']
 }
 export interface BatchExportDestination extends DestinationTypeBase {
     type: 'batch_export'
@@ -58,7 +60,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
         values: [teamLogic, ['currentTeamId'], userLogic, ['user']],
     }),
     actions({
-        loadPluginConfigs: true,
+        toggleEnabled: (destination: DestinationType, enabled: boolean) => ({ destination, enabled }),
     }),
     loaders(({ values }) => ({
         plugins: [
@@ -82,7 +84,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 loadPluginConfigs: async () => {
                     const pluginConfigs: Record<number, PluginConfigTypeNew> = {}
                     const results = await api.loadPaginatedResults(
-                        `api/projects/${values.currentTeamId}/pipeline_destinations_configs`
+                        `api/projects/${values.currentTeamId}/pipeline_destination_configs`
                     )
 
                     for (const pluginConfig of results) {
@@ -96,26 +98,51 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     }
                     return pluginConfigs
                 },
-                toggleEnabled: async ({ id, enabled }) => {
+                toggleEnabledWebhook: async ({ destination, enabled }) => {
+                    if (destination.type === 'batch_export') {
+                        return values.pluginConfigs
+                    }
                     if (!values.canConfigurePlugins) {
                         return values.pluginConfigs
                     }
                     const { pluginConfigs, plugins } = values
-                    const pluginConfig = pluginConfigs[id]
+                    const pluginConfig = pluginConfigs[destination.id]
                     const plugin = plugins[pluginConfig.plugin]
                     capturePluginEvent(`plugin ${enabled ? 'enabled' : 'disabled'}`, plugin, pluginConfig)
-                    const response = await api.update(`api/plugin_config/${id}`, {
+                    const response = await api.update(`api/plugin_config/${destination.id}`, {
                         enabled,
                     })
-                    return { ...pluginConfigs, [id]: response }
+                    return { ...pluginConfigs, [destination.id]: response }
+                },
+            },
+        ],
+        batchExportConfigs: [
+            {} as Record<string, BatchExportConfiguration>,
+            {
+                loadBatchExports: async () => {
+                    const results: BatchExportConfiguration[] = await api.loadPaginatedResults(
+                        `api/projects/${values.currentTeamId}/batch_exports`
+                    )
+                    return Object.fromEntries(results.map((batchExport) => [batchExport.id, batchExport]))
+                },
+                toggleEnabledBatchExport: async ({ destination, enabled }) => {
+                    const batchExport = values.batchExportConfigs[destination.id]
+                    if (enabled) {
+                        await api.batchExports.pause(destination.id)
+                    } else {
+                        await api.batchExports.unpause(destination.id)
+                    }
+                    captureBatchExportEvent(`batch export ${enabled ? 'enabled' : 'disabled'}`, batchExport)
+                    return { ...values.batchExportConfigs, [destination.id]: { ...batchExport, paused: !enabled } }
                 },
             },
         ],
     })),
     selectors({
         loading: [
-            (s) => [s.pluginsLoading, s.pluginConfigsLoading],
-            (pluginsLoading, pluginConfigsLoading) => pluginsLoading || pluginConfigsLoading,
+            (s) => [s.pluginsLoading, s.pluginConfigsLoading, s.batchExportConfigsLoading],
+            (pluginsLoading, pluginConfigsLoading, batchExportConfigsLoading) =>
+                pluginsLoading || pluginConfigsLoading || batchExportConfigsLoading,
         ],
         enabledPluginConfigs: [
             (s) => [s.pluginConfigs],
@@ -139,9 +166,9 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             },
         ],
         destinations: [
-            (s) => [s.pluginConfigs, s.plugins],
-            (pluginConfigs, plugins): DestinationType[] => {
-                const dests = Object.values(pluginConfigs).map<DestinationType>((pluginConfig) => ({
+            (s) => [s.pluginConfigs, s.plugins, s.batchExportConfigs],
+            (pluginConfigs, plugins, batchExportConfigs): DestinationType[] => {
+                const appDests = Object.values(pluginConfigs).map<DestinationType>((pluginConfig) => ({
                     type: 'webhook',
                     frequency: 'realtime',
                     id: pluginConfig.id,
@@ -163,7 +190,27 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     },
                     updated_at: pluginConfig.updated_at,
                 }))
-                const enabledFirst = Object.values(dests).sort((a, b) => Number(b.enabled) - Number(a.enabled))
+                const batchDests = Object.values(batchExportConfigs).map<DestinationType>((batchExport) => ({
+                    type: 'batch_export',
+                    frequency: batchExport.interval,
+                    id: batchExport.id,
+                    name: batchExport.name,
+                    description: `${batchExport.destination.type} batch export`, // TODO: add to backend
+                    enabled: !batchExport.paused,
+                    config_url: urls.pipelineApp(
+                        PipelineTabs.Destinations,
+                        batchExport.id,
+                        PipelineAppTabs.Configuration
+                    ),
+                    metrics_url: urls.pipelineApp(PipelineTabs.Destinations, batchExport.id, PipelineAppTabs.Metrics),
+                    logs_url: urls.pipelineApp(PipelineTabs.Destinations, batchExport.id, PipelineAppTabs.Logs),
+                    success_rates: {
+                        '24h': [5, 17],
+                        '7d': [12, 100043],
+                    },
+                    updated_at: batchExport.created_at, // TODO: Add updated_at to batch exports in the backend
+                }))
+                const enabledFirst = [...appDests, ...batchDests].sort((a, b) => Number(b.enabled) - Number(a.enabled))
                 return enabledFirst
             },
         ],
@@ -177,8 +224,22 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             },
         ],
     }),
+    listeners(({ actions, values }) => ({
+        toggleEnabled: async ({ destination, enabled }) => {
+            if (!values.canConfigurePlugins) {
+                lemonToast.error("You don't have permission to enable or disable destinations")
+                return
+            }
+            if (destination.type === 'webhook') {
+                actions.toggleEnabledWebhook({ destination: destination, enabled: enabled })
+            } else {
+                actions.toggleEnabledBatchExport({ destination: destination, enabled: enabled })
+            }
+        },
+    })),
     afterMount(({ actions }) => {
         actions.loadPlugins()
         actions.loadPluginConfigs()
+        actions.loadBatchExports()
     }),
 ])
