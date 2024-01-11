@@ -159,12 +159,12 @@ class User(AbstractUser, UUIDClassicModel):
     events_column_config: models.JSONField = models.JSONField(default=events_column_config_default)
 
     # Remove unused attributes from `AbstractUser`
-    username = None  # type: ignore
+    username = None
 
-    objects: UserManager = UserManager()  # type: ignore
+    objects: UserManager = UserManager()
 
     @property
-    def is_superuser(self) -> bool:  # type: ignore
+    def is_superuser(self) -> bool:
         return self.is_staff
 
     @cached_property
@@ -244,7 +244,7 @@ class User(AbstractUser, UUIDClassicModel):
     @property
     def notification_settings(self) -> Notifications:
         return {
-            **NOTIFICATION_DEFAULTS,  # type: ignore
+            **NOTIFICATION_DEFAULTS,
             **(self.partial_notification_settings if self.partial_notification_settings else {}),
         }
 
@@ -312,8 +312,8 @@ class User(AbstractUser, UUIDClassicModel):
             "project_setup_complete": project_setup_complete,
             "joined_at": self.date_joined,
             "has_password_set": self.has_usable_password(),
-            "has_social_auth": self.social_auth.exists(),  # type: ignore
-            "social_providers": list(self.social_auth.values_list("provider", flat=True)),  # type: ignore
+            "has_social_auth": self.social_auth.exists(),
+            "social_providers": list(self.social_auth.values_list("provider", flat=True)),
             "instance_url": SITE_URL,
             "instance_tag": INSTANCE_TAG,
             "is_email_verified": self.is_email_verified,

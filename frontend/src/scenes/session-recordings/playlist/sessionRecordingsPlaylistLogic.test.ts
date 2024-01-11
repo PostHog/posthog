@@ -145,8 +145,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     updateSearchParams: true,
                 })
                 logic.mount()
-                // the logic persists its filters
-                logic.actions.resetFilters()
             })
 
             describe('core assumptions', () => {

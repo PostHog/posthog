@@ -9,7 +9,7 @@ import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { EventsQuery } from '~/queries/schema'
-import { ActivityScope, InsightShortId, PipelineAppTabs, PipelineTabs, PropertyFilterType, ReplayTabs } from '~/types'
+import { ActivityScope, InsightShortId, PropertyFilterType, ReplayTabs } from '~/types'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -202,20 +202,10 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         name: 'Data warehouse',
         defaultDocsPath: '/docs/feature-flags/creating-feature-flags',
     },
-    [Scene.DataWarehousePosthog]: {
-        projectBased: true,
-        name: 'Data warehouse',
-        defaultDocsPath: '/docs/data-warehouse',
-    },
     [Scene.DataWarehouseExternal]: {
         projectBased: true,
         name: 'Data warehouse',
         defaultDocsPath: '/docs/data-warehouse/setup',
-    },
-    [Scene.DataWarehouseSavedQueries]: {
-        projectBased: true,
-        name: 'Data warehouse',
-        defaultDocsPath: '/docs/data-warehouse/view',
     },
     [Scene.DataWarehouseSettings]: {
         projectBased: true,
@@ -486,16 +476,8 @@ export const routes: Record<string, Scene> = {
     [urls.personByDistinctId('*', false)]: Scene.Person,
     [urls.personByUUID('*', false)]: Scene.Person,
     [urls.persons()]: Scene.PersonsManagement,
-    [urls.pipeline()]: Scene.Pipeline,
-    // One entry for every available tab
-    ...(Object.fromEntries(Object.values(PipelineTabs).map((tab) => [urls.pipeline(tab), Scene.Pipeline])) as Record<
-        string,
-        Scene
-    >),
-    // One entry for each available tab (key by app config id)
-    ...(Object.fromEntries(
-        Object.values(PipelineAppTabs).map((tab) => [urls.pipelineApp(':id', tab), Scene.PipelineApp])
-    ) as Record<string, Scene>),
+    [urls.pipeline(':tab')]: Scene.Pipeline,
+    [urls.pipelineApp(':kind', ':id', ':tab')]: Scene.PipelineApp,
     [urls.groups(':groupTypeIndex')]: Scene.PersonsManagement,
     [urls.group(':groupTypeIndex', ':groupKey', false)]: Scene.Group,
     [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: Scene.Group,
@@ -510,9 +492,6 @@ export const routes: Record<string, Scene> = {
     [urls.surveyTemplates()]: Scene.SurveyTemplates,
     [urls.dataWarehouse()]: Scene.DataWarehouse,
     [urls.dataWarehouseTable()]: Scene.DataWarehouseTable,
-    [urls.dataWarehousePosthog()]: Scene.DataWarehousePosthog,
-    [urls.dataWarehouseExternal()]: Scene.DataWarehouseExternal,
-    [urls.dataWarehouseSavedQueries()]: Scene.DataWarehouseSavedQueries,
     [urls.dataWarehouseSettings()]: Scene.DataWarehouseSettings,
     [urls.dataWarehouseRedirect(':kind')]: Scene.DataWarehouseRedirect,
     [urls.featureFlags()]: Scene.FeatureFlags,

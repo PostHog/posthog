@@ -23,9 +23,7 @@ export const scene: SceneExport = {
 }
 
 export function SessionRecordingsPlaylistScene(): JSX.Element {
-    const { playlist, playlistLoading, pinnedRecordings, hasChanges, derivedName } = useValues(
-        sessionRecordingsPlaylistSceneLogic
-    )
+    const { playlist, playlistLoading, pinnedRecordings, hasChanges } = useValues(sessionRecordingsPlaylistSceneLogic)
     const { setFilters, updatePlaylist, duplicatePlaylist, deletePlaylist, onPinnedChange } = useActions(
         sessionRecordingsPlaylistSceneLogic
     )
@@ -66,17 +64,6 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
         // Margin bottom hacks the fact that our wrapping container has an annoyingly large padding
         <div className="-mb-14">
             <PageHeader
-                title={
-                    <EditableField
-                        name="name"
-                        value={playlist.name || ''}
-                        placeholder={derivedName}
-                        onSave={(value) => updatePlaylist({ short_id: playlist.short_id, name: value })}
-                        saveOnBlur={true}
-                        maxLength={400}
-                        data-attr="playlist-name"
-                    />
-                }
                 buttons={
                     <div className="flex justify-between items-center gap-2">
                         <More

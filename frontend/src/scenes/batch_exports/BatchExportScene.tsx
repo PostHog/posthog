@@ -404,11 +404,6 @@ export function BatchExportScene(): JSX.Element {
     return (
         <>
             <PageHeader
-                title={
-                    <span className="flex items-center gap-2">
-                        {batchExportConfig?.name ?? (batchExportConfigLoading ? 'Loading...' : 'Missing')}
-                    </span>
-                }
                 buttons={
                     batchExportConfig ? (
                         <>

@@ -13,6 +13,7 @@ from posthog.caching.insights_api import (
 from posthog.caching.utils import is_stale
 
 from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.breakdown_values import (
@@ -55,7 +56,7 @@ class TrendsQueryRunner(QueryRunner):
         team: Team,
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
-        limit_context: Optional[bool] = None,
+        limit_context: Optional[LimitContext] = None,
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
         self.series = self.setup_series()

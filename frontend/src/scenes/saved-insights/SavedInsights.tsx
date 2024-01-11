@@ -520,10 +520,7 @@ export function SavedInsights(): JSX.Element {
 
     return (
         <div className="saved-insights">
-            <PageHeader
-                title="Product analytics"
-                buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />}
-            />
+            <PageHeader buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />} />
             <LemonTabs
                 activeKey={tab}
                 onChange={(tab) => setSavedInsightsFilters({ tab })}

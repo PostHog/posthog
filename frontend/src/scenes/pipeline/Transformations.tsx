@@ -33,7 +33,7 @@ import { RenderApp } from './utils'
 export function Transformations(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     if (!featureFlags[FEATURE_FLAGS.PIPELINE_UI]) {
-        return <></>
+        return <p>Pipeline 3000 not available yet</p>
     }
     const {
         loading,
@@ -109,6 +109,7 @@ export function Transformations(): JSX.Element {
                                             <Tooltip title={'Click to update configuration, view metrics, and more'}>
                                                 <Link
                                                     to={urls.pipelineApp(
+                                                        PipelineTabs.Transformations,
                                                         pluginConfig.id,
                                                         PipelineAppTabs.Configuration
                                                     )}
@@ -190,6 +191,7 @@ export function Transformations(): JSX.Element {
                                                     )}
                                                     <LemonButton
                                                         to={urls.pipelineApp(
+                                                            PipelineTabs.Transformations,
                                                             pluginConfig.id,
                                                             PipelineAppTabs.Configuration
                                                         )}
@@ -199,14 +201,22 @@ export function Transformations(): JSX.Element {
                                                         {canConfigurePlugins ? 'Edit' : 'View'} app configuration
                                                     </LemonButton>
                                                     <LemonButton
-                                                        to={urls.pipelineApp(pluginConfig.id, PipelineAppTabs.Metrics)}
+                                                        to={urls.pipelineApp(
+                                                            PipelineTabs.Transformations,
+                                                            pluginConfig.id,
+                                                            PipelineAppTabs.Metrics
+                                                        )}
                                                         id={`app-${pluginConfig.id}-metrics`}
                                                         fullWidth
                                                     >
                                                         View app metrics
                                                     </LemonButton>
                                                     <LemonButton
-                                                        to={urls.pipelineApp(pluginConfig.id, PipelineAppTabs.Logs)}
+                                                        to={urls.pipelineApp(
+                                                            PipelineTabs.Transformations,
+                                                            pluginConfig.id,
+                                                            PipelineAppTabs.Logs
+                                                        )}
                                                         id={`app-${pluginConfig.id}-logs`}
                                                         fullWidth
                                                     >
@@ -234,7 +244,7 @@ export function Transformations(): JSX.Element {
                                                                 callback: loadPluginConfigs,
                                                             })
                                                         }}
-                                                        id={`app-reorder`}
+                                                        id={`app-delete`}
                                                         disabledReason={
                                                             canConfigurePlugins
                                                                 ? undefined

@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating
-  '
+  '''
   SELECT actor_activity.breakdown_values AS breakdown_values,
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
@@ -42,10 +43,10 @@
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating.1
-  '
+  '''
   SELECT groups.key AS key,
          source.appearances AS appearances
   FROM
@@ -104,10 +105,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating.2
-  '
+  '''
   SELECT actor_activity.breakdown_values AS breakdown_values,
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
@@ -150,10 +151,10 @@
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events
-  '
+  '''
   SELECT actor_activity.breakdown_values AS breakdown_values,
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
@@ -196,10 +197,10 @@
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events.1
-  '
+  '''
   SELECT groups.key AS key,
          source.appearances AS appearances
   FROM
@@ -258,10 +259,10 @@
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
                     allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events.2
-  '
+  '''
   SELECT actor_activity.breakdown_values AS breakdown_values,
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
@@ -304,10 +305,10 @@
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestRetention.test_day_interval_sampled
-  '
+  '''
   SELECT actor_activity.breakdown_values AS breakdown_values,
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
@@ -371,10 +372,10 @@
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestRetention.test_month_interval_with_person_on_events_v2
-  '
+  '''
   
   SELECT distinct_id,
          person_id
@@ -385,10 +386,10 @@
   GROUP BY distinct_id,
            person_id
   ORDER BY if(distinct_id = 'person1', -1, 0)
-  '
----
+  '''
+# ---
 # name: TestRetention.test_month_interval_with_person_on_events_v2.1
-  '
+  '''
   SELECT actor_activity.breakdown_values AS breakdown_values,
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
@@ -449,10 +450,10 @@
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestRetention.test_retention_event_action
-  '
+  '''
   SELECT actor_activity.breakdown_values AS breakdown_values,
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
@@ -516,10 +517,10 @@
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestRetention.test_retention_with_user_properties_via_action
-  '
+  '''
   SELECT actor_activity.breakdown_values AS breakdown_values,
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
@@ -603,10 +604,10 @@
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestRetention.test_timezones
-  '
+  '''
   SELECT actor_activity.breakdown_values AS breakdown_values,
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
@@ -670,10 +671,10 @@
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestRetention.test_timezones.1
-  '
+  '''
   SELECT actor_activity.breakdown_values AS breakdown_values,
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
@@ -737,10 +738,10 @@
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestRetention.test_week_interval
-  '
+  '''
   SELECT actor_activity.breakdown_values AS breakdown_values,
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
@@ -804,10 +805,10 @@
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1
-  '
----
+  '''
+# ---
 # name: TestRetention.test_week_interval.1
-  '
+  '''
   SELECT actor_activity.breakdown_values AS breakdown_values,
          actor_activity.intervals_from_base AS intervals_from_base,
          count(DISTINCT actor_activity.actor_id) AS count
@@ -871,5 +872,5 @@
   LIMIT 10000 SETTINGS readonly=2,
                        max_execution_time=60,
                        allow_experimental_object_type=1
-  '
----
+  '''
+# ---
