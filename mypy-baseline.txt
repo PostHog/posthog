@@ -485,7 +485,6 @@ posthog/hogql_queries/web_analytics/web_overview.py:0: error: Value of type "lis
 posthog/hogql_queries/legacy_compatibility/process_insight.py:0: error: Incompatible types in assignment (expression has type "PathFilter", variable has type "RetentionFilter")  [assignment]
 posthog/hogql_queries/legacy_compatibility/process_insight.py:0: error: Incompatible types in assignment (expression has type "StickinessFilter", variable has type "RetentionFilter")  [assignment]
 posthog/hogql_queries/legacy_compatibility/process_insight.py:0: error: Incompatible types in assignment (expression has type "Filter", variable has type "RetentionFilter")  [assignment]
-posthog/hogql_queries/insights/insight_actors_query_runner.py:0: error: Argument "day" to "to_actors_query" of "LifecycleQueryRunner" has incompatible type "str | float | None"; expected "str | None"  [arg-type]
 posthog/hogql_queries/actors_query_runner.py:0: error: Incompatible types in assignment (expression has type "Field", variable has type "Constant")  [assignment]
 posthog/hogql_queries/actors_query_runner.py:0: error: Incompatible types in assignment (expression has type "Expr", variable has type "Constant")  [assignment]
 posthog/hogql_queries/actors_query_runner.py:0: error: Statement is unreachable  [unreachable]
