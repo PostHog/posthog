@@ -44,7 +44,7 @@ pub struct KafkaConfig {
     #[envconfig(default = "false")]
     pub kafka_tls: bool,
 
-    #[envconfig(default = "app_metrics")]
+    #[envconfig(default = "clickhouse_app_metrics")]
     pub app_metrics_topic: String,
 
     #[envconfig(default = "plugin_log_entries")]

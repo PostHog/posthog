@@ -62,6 +62,7 @@ pub struct AppMetric {
     pub successes: u32,
     pub successes_on_retry: u32,
     pub failures: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub error_uuid: Option<Uuid>,
     #[serde(
         serialize_with = "serialize_error_type",
