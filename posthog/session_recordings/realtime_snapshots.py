@@ -14,7 +14,7 @@ logger = structlog.get_logger(__name__)
 PUBLISHED_REALTIME_SUBSCRIPTIONS_COUNTER = Counter(
     "realtime_snapshots_published_subscription_counter",
     "When the API is serving snapshot requests and wants to receive snapshots via a redis subscription.",
-    labelnames=["team_id", "session_id", "attempt_count"],
+    labelnames=["attempt_count"],
 )
 
 REALTIME_SUBSCRIPTIONS_LOADED_COUNTER = Counter(
@@ -23,9 +23,13 @@ REALTIME_SUBSCRIPTIONS_LOADED_COUNTER = Counter(
     labelnames=["attempt_count"],
 )
 
+
 SUBSCRIPTION_CHANNEL = "@posthog/replay/realtime-subscriptions"
-ATTEMPT_MAX = 10
-ATTEMPT_TIMEOUT_SECONDS = 5
+
+ATTEMPT_MAX = 5
+# we multiply by the attempt count to increase the timeout
+# so this gives us a sequence of 0.1, 0.2, 0.3, 0.4, 0.5
+ATTEMPT_TIMEOUT_SECONDS = 0.1
 
 
 def get_key(team_id: str, suffix: str) -> str:
@@ -38,8 +42,8 @@ def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Op
         key = get_key(team_id, session_id)
         encoded_snapshots = redis.zrange(key, 0, -1, withscores=True)
 
-        # We always publish as it could be that a rebalance has occured and the consumer doesn't know it should be
-        # sending data to redis
+        # We always publish as it could be that a rebalance has occurred
+        # and the consumer doesn't know it should be sending data to redis
         redis.publish(
             SUBSCRIPTION_CHANNEL,
             json.dumps({"team_id": team_id, "session_id": session_id}),
@@ -61,7 +65,7 @@ def get_realtime_snapshots(team_id: str, session_id: str, attempt_count=0) -> Op
                 team_id=team_id, session_id=session_id, attempt_count=attempt_count
             ).inc()
 
-            sleep(ATTEMPT_TIMEOUT_SECONDS / ATTEMPT_MAX)
+            sleep(ATTEMPT_TIMEOUT_SECONDS * attempt_count)
             return get_realtime_snapshots(team_id, session_id, attempt_count + 1)
 
         if encoded_snapshots:
