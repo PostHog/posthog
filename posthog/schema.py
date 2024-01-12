@@ -1005,6 +1005,18 @@ class Node(BaseModel):
     kind: NodeKind
 
 
+class PathsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List[Dict[str, Any]]
+    timings: Optional[List[QueryTiming]] = None
+
+
 class PersonPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2049,6 +2061,7 @@ class PathsQuery(BaseModel):
             PropertyGroupFilter,
         ]
     ] = Field(default=None, description="Property filters for all series")
+    response: Optional[PathsQueryResponse] = None
     samplingFactor: Optional[float] = Field(default=None, description="Sampling rate")
 
 

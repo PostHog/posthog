@@ -32,8 +32,8 @@ class QueryDateRange:
         self,
         date_range: Optional[DateRange],
         team: Team,
-        interval: Optional[IntervalType],
         now: datetime,
+        interval: Optional[IntervalType] = None,
     ) -> None:
         self._team = team
         self._date_range = date_range

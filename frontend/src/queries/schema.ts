@@ -593,6 +593,9 @@ export interface RetentionQuery extends InsightsQueryBase {
     retentionFilter: RetentionFilter
 }
 
+export interface PathsQueryResponse extends QueryResponse {
+    results: Record<string, any>[]
+}
 /** `PathsFilterType` minus everything inherited from `FilterType` and persons modal related params */
 export type PathsFilter = Omit<
     PathsFilterType,
@@ -600,6 +603,7 @@ export type PathsFilter = Omit<
 >
 export interface PathsQuery extends InsightsQueryBase {
     kind: NodeKind.PathsQuery
+    response?: PathsQueryResponse
     /** Properties specific to the paths insight */
     pathsFilter?: PathsFilter
 }

@@ -146,6 +146,16 @@ def get_query_runner(
             limit_context=limit_context,
             modifiers=modifiers,
         )
+    if kind == "PathsQuery":
+        from .insights.paths_query_runner import PathsQueryRunner
+
+        return PathsQueryRunner(
+            query=cast(HogQLQuery | Dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
     if kind == "EventsQuery":
         from .events_query_runner import EventsQueryRunner
 

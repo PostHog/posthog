@@ -2277,12 +2277,46 @@
                     ],
                     "description": "Property filters for all series"
                 },
+                "response": {
+                    "$ref": "#/definitions/PathsQueryResponse"
+                },
                 "samplingFactor": {
                     "description": "Sampling rate",
                     "type": ["number", "null"]
                 }
             },
             "required": ["kind"],
+            "type": "object"
+        },
+        "PathsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "hogql": {
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "type": "string"
+                },
+                "results": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
             "type": "object"
         },
         "PersonPropertyFilter": {
