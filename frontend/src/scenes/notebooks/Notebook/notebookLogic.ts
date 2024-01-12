@@ -113,11 +113,11 @@ export const notebookLogic = kea<notebookLogicType>([
         pasteAfterLastNode: (content: string) => ({
             content,
         }),
-        insertAfterLastNode: (content: JSONContent) => ({
+        insertAfterLastNode: (content: JSONContent | JSONContent[]) => ({
             content,
         }),
 
-        insertAfterLastNodeOfType: (nodeType: string, content: JSONContent, knownStartingPosition) => ({
+        insertAfterLastNodeOfType: (nodeType: string, content: JSONContent | JSONContent[], knownStartingPosition) => ({
             content,
             nodeType,
             knownStartingPosition,

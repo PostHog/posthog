@@ -255,8 +255,9 @@ export function Editor(): JSX.Element {
                 findCommentPosition: (markId: string) => findCommentPosition(editor, markId),
                 removeComment: (pos: number) => removeCommentMark(editor, pos),
                 deleteRange: (range: EditorRange) => editor.chain().focus().deleteRange(range),
-                insertContent: (content: JSONContent) => editor.chain().insertContent(content).focus().run(),
-                insertContentAfterNode: (position: number, content: JSONContent) => {
+                insertContent: (content: JSONContent | JSONContent[]) =>
+                    editor.chain().insertContent(content).focus().run(),
+                insertContentAfterNode: (position: number, content: JSONContent | JSONContent[]) => {
                     const endPosition = findEndPositionOfNode(editor, position)
                     if (endPosition) {
                         editor.chain().focus().insertContentAt(endPosition, content).run()

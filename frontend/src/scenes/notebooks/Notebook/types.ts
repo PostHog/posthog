@@ -70,8 +70,8 @@ export interface NotebookEditor {
     getMarks: (type: string) => { id: string; pos: number }[]
     removeComment: (pos: number) => void
     deleteRange: (range: EditorRange) => EditorCommands
-    insertContent: (content: JSONContent) => void
-    insertContentAfterNode: (position: number, content: JSONContent) => void
+    insertContent: (content: JSONContent | JSONContent[]) => void
+    insertContentAfterNode: (position: number, content: JSONContent | JSONContent[]) => void
     pasteContent: (position: number, text: string) => void
     findNode: (position: number) => Node | null
     findNodePositionByAttrs: (attrs: Record<string, any>) => any
