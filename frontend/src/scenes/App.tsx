@@ -10,7 +10,7 @@ import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { appScenes } from 'scenes/appScenes'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { LoadedScene } from 'scenes/sceneTypes'
+import { LoadedScene, SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -86,22 +86,31 @@ export function App(): JSX.Element | null {
     return <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
 }
 
-function LoadedSceneLogic({ scene }: { scene: LoadedScene }): null {
-    if (!scene.logic) {
+function LoadedSceneLogic({
+    scene,
+    sceneExports,
+}: {
+    scene: LoadedScene
+    sceneExports: Record<string, SceneExport>
+}): null {
+    if (!sceneExports[scene.id]?.logic) {
         throw new Error('Loading scene without a logic')
     }
-    useMountedLogic(scene.logic(scene.paramsToProps?.(scene.sceneParams)))
+    useMountedLogic(
+        sceneExports[scene.id]?.logic?.(sceneExports[scene.id]?.paramsToProps?.(scene.sceneParams)) ?? sceneLogic
+    )
     return null
 }
 
 function LoadedSceneLogics(): JSX.Element {
     const { loadedScenes } = useValues(sceneLogic)
+    const sceneExports = sceneLogic.findMounted()?.cache.sceneExports ?? {}
     return (
         <>
             {Object.entries(loadedScenes)
-                .filter(([, { logic }]) => !!logic)
+                .filter(([, { id }]) => !!sceneExports[id].logic)
                 .map(([key, loadedScene]) => (
-                    <LoadedSceneLogic key={key} scene={loadedScene} />
+                    <LoadedSceneLogic key={key} scene={loadedScene} sceneExports={sceneExports} />
                 ))}
         </>
     )
@@ -110,7 +119,7 @@ function LoadedSceneLogics(): JSX.Element {
 function AppScene(): JSX.Element | null {
     useMountedLogic(breadcrumbsLogic)
     const { user } = useValues(userLogic)
-    const { activeScene, activeLoadedScene, sceneParams, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
+    const { activeScene, activeSceneExport, sceneParams, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
     const { showingDelayedSpinner } = useValues(appLogic)
     const { isDarkModeOn } = useValues(themeLogic)
 
@@ -127,8 +136,8 @@ function AppScene(): JSX.Element | null {
     )
 
     let sceneElement: JSX.Element
-    if (activeScene && activeScene in loadedScenes) {
-        const { component: SceneComponent } = loadedScenes[activeScene]
+    if (activeSceneExport && activeScene && activeScene in loadedScenes) {
+        const { component: SceneComponent } = activeSceneExport
         sceneElement = <SceneComponent user={user} {...params} />
     } else {
         sceneElement = <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
@@ -136,8 +145,8 @@ function AppScene(): JSX.Element | null {
 
     const wrappedSceneElement = (
         <ErrorBoundary key={activeScene}>
-            {activeLoadedScene?.logic ? (
-                <BindLogic logic={activeLoadedScene.logic} props={activeLoadedScene.paramsToProps?.(sceneParams) || {}}>
+            {activeSceneExport?.logic ? (
+                <BindLogic logic={activeSceneExport.logic} props={activeSceneExport.paramsToProps?.(sceneParams) || {}}>
                     {sceneElement}
                 </BindLogic>
             ) : (

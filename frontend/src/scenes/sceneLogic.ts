@@ -1,10 +1,17 @@
-import { actions, BuiltLogic, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, BuiltLogic, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
-import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
+import {
+    emptySceneParams,
+    preloadedSceneExports,
+    preloadedScenes,
+    redirects,
+    routes,
+    sceneConfigurations,
+} from 'scenes/scenes'
 import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -29,6 +36,9 @@ export const sceneLogic = kea<sceneLogicType>([
         logic: [router, userLogic, preflightLogic, appContextLogic],
         actions: [router, ['locationChanged'], commandBarLogic, ['setCommandBar']],
     })),
+    afterMount(({ cache }) => {
+        cache.sceneExports = { ...preloadedSceneExports } as Record<string, SceneExport>
+    }),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
         else (e.g. redirecting if unauthenticated), then calls (2) `loadScene`*/
@@ -105,7 +115,7 @@ export const sceneLogic = kea<sceneLogicType>([
             },
         ],
     }),
-    selectors({
+    selectors(({ cache }) => ({
         sceneConfig: [
             (s) => [s.scene],
             (scene: Scene): SceneConfig | null => {
@@ -124,6 +134,10 @@ export const sceneLogic = kea<sceneLogicType>([
             (s) => [s.activeScene, s.loadedScenes],
             (activeScene, loadedScenes) => (activeScene ? loadedScenes[activeScene] : null),
         ],
+        activeSceneExport: [
+            (s) => [s.activeScene],
+            (activeScene) => (activeScene ? cache.sceneExports[activeScene] ?? null : null) as SceneExport | null,
+        ],
         sceneParams: [
             (s) => [s.activeLoadedScene],
             (activeLoadedScene): SceneParams =>
@@ -132,15 +146,17 @@ export const sceneLogic = kea<sceneLogicType>([
         activeSceneLogic: [
             (s) => [s.activeLoadedScene, s.sceneParams],
             (activeLoadedScene, sceneParams): BuiltLogic | null =>
-                activeLoadedScene?.logic
-                    ? activeLoadedScene.logic.build(activeLoadedScene.paramsToProps?.(sceneParams) || {})
+                activeLoadedScene && cache.sceneExports[activeLoadedScene.id].logic
+                    ? cache.sceneExports[activeLoadedScene.id].logic.build(
+                          cache.sceneExports[activeLoadedScene.id].paramsToProps?.(sceneParams) || {}
+                      )
                     : null,
         ],
         params: [(s) => [s.sceneParams], (sceneParams): Record<string, string> => sceneParams.params || {}],
         searchParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.searchParams || {}],
         hashParams: [(s) => [s.sceneParams], (sceneParams): Record<string, any> => sceneParams.hashParams || {}],
-    }),
-    listeners(({ values, actions, props, selectors }) => ({
+    })),
+    listeners(({ values, cache, actions, props, selectors }) => ({
         showUpgradeModal: ({ featureName }) => {
             eventUsageLogic.actions.reportUpgradeModalShown(featureName)
         },
@@ -289,27 +305,28 @@ export const sceneLogic = kea<sceneLogicType>([
                 }
                 breakpoint()
                 const { default: defaultExport, logic, scene: _scene, ...others } = importedScene
-
                 if (_scene) {
-                    loadedScene = { id: scene, ...(_scene as SceneExport), sceneParams: params }
+                    loadedScene = { id: scene, sceneParams: params }
+                    cache.sceneExports[scene] = _scene
                 } else if (defaultExport) {
                     console.warn(`Scene ${scene} not yet converted to use SceneExport!`)
                     loadedScene = {
                         id: scene,
-                        component: defaultExport,
-                        logic: logic,
                         sceneParams: params,
                     }
+                    cache.sceneExports[scene] = { component: defaultExport, logic: logic }
                 } else {
                     console.warn(`Scene ${scene} not yet converted to use SceneExport!`)
                     loadedScene = {
                         id: scene,
+                        sceneParams: params,
+                    }
+                    cache.sceneExports[scene] = {
                         component:
                             Object.keys(others).length === 1
                                 ? others[Object.keys(others)[0]]
-                                : values.loadedScenes[Scene.Error404].component,
+                                : cache.sceneExports[Scene.Error404].component,
                         logic: logic,
-                        sceneParams: params,
                     }
                     if (Object.keys(others).length > 1) {
                         console.error('There are multiple exports for this scene. Showing 404 instead.')
@@ -317,9 +334,11 @@ export const sceneLogic = kea<sceneLogicType>([
                 }
                 actions.setLoadedScene(loadedScene)
 
-                if (loadedScene.logic) {
+                if (cache.sceneExports[scene]?.logic) {
                     // initialize the logic and give it 50ms to load before opening the scene
-                    const unmount = loadedScene.logic.build(loadedScene.paramsToProps?.(params) || {}).mount()
+                    const unmount = cache.sceneExports[scene].logic
+                        .build(cache.sceneExports[scene].paramsToProps?.(params) || {})
+                        .mount()
                     try {
                         await breakpoint(50)
                     } catch (e) {

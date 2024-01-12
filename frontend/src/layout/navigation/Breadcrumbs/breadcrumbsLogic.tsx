@@ -6,6 +6,7 @@ import { identifierToHuman, objectsEqual, stripHTTP } from 'lib/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { SceneParams } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -45,10 +46,10 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
         finishRenaming: true,
     }),
     reducers({
-        actionsContainer: [
-            null as HTMLElement | null,
+        hasActionsContainer: [
+            false,
             {
-                setActionsContainer: (_, { element }) => element,
+                setActionsContainer: () => true,
             },
         ],
         renameState: [
@@ -72,9 +73,11 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                     const activeScene = s.activeScene(state, props)
                     if (activeSceneLogic && 'breadcrumbs' in activeSceneLogic.selectors) {
                         const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, props)
+                        const activeSceneExport = sceneLogic.selectors.activeSceneExport(state, props)
                         return activeSceneLogic.selectors.breadcrumbs(
                             state,
-                            activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
+                            activeSceneExport?.paramsToProps?.(activeLoadedScene?.sceneParams ?? ({} as SceneParams)) ||
+                                props
                         )
                     } else if (activeScene) {
                         const sceneConfig = s.sceneConfig(state, props)
@@ -201,4 +204,9 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
             }
         },
     }),
+    listeners(({ cache }) => ({
+        setActionsContainer: ({ actionsContainer }) => {
+            cache.actionsContainer = actionsContainer
+        },
+    })),
 ])

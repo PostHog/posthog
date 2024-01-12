@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { objectsEqual } from 'kea-test-utils'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { SceneConfig } from 'scenes/sceneTypes'
+import { SceneConfig, SceneParams } from 'scenes/sceneTypes'
 
 import { ActivityScope, UserBasicType } from '~/types'
 
@@ -40,9 +40,11 @@ export const activityForSceneLogic = kea<activityForSceneLogicType>([
                     const sceneConfig = s.sceneConfig(state, props)
                     if (activeSceneLogic && 'activityFilters' in activeSceneLogic.selectors) {
                         const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, props)
+                        const activeSceneExport = sceneLogic.selectors.activeSceneExport(state, props)
                         return activeSceneLogic.selectors.activityFilters(
                             state,
-                            activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
+                            activeSceneExport?.paramsToProps?.(activeLoadedScene?.sceneParams ?? ({} as SceneParams)) ||
+                                props
                         )
                     } else {
                         return activityFiltersForScene(sceneConfig)

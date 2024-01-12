@@ -2,7 +2,7 @@ import { combineUrl } from 'kea-router'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getDefaultEventsSceneQuery } from 'scenes/events/defaults'
-import { LoadedScene, Params, Scene, SceneConfig } from 'scenes/sceneTypes'
+import { LoadedScene, Params, Scene, SceneConfig, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Error404 as Error404Component } from '~/layout/Error404'
@@ -16,18 +16,26 @@ export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 export const preloadedScenes: Record<string, LoadedScene> = {
     [Scene.Error404]: {
         id: Scene.Error404,
-        component: Error404Component,
         sceneParams: emptySceneParams,
     },
     [Scene.ErrorNetwork]: {
         id: Scene.ErrorNetwork,
-        component: ErrorNetworkComponent,
         sceneParams: emptySceneParams,
     },
     [Scene.ErrorProjectUnavailable]: {
         id: Scene.ErrorProjectUnavailable,
-        component: ErrorProjectUnavailableComponent,
         sceneParams: emptySceneParams,
+    },
+}
+export const preloadedSceneExports: Record<string, SceneExport> = {
+    [Scene.Error404]: {
+        component: Error404Component,
+    },
+    [Scene.ErrorNetwork]: {
+        component: ErrorNetworkComponent,
+    },
+    [Scene.ErrorProjectUnavailable]: {
+        component: ErrorProjectUnavailableComponent,
     },
 }
 

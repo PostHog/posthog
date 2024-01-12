@@ -89,13 +89,13 @@ export interface SceneExport {
     logic?: LogicWrapper
     /** convert URL parameters from scenes.ts into logic props */
     paramsToProps?: (params: SceneParams) => SceneProps
-    /** when was the scene last touched, unix timestamp for sortability */
-    lastTouch?: number
 }
 
-export interface LoadedScene extends SceneExport {
+export interface LoadedScene {
     id: string
     sceneParams: SceneParams
+    /** when was the scene last touched, unix timestamp for sortability */
+    lastTouch?: number
 }
 
 export interface SceneParams {

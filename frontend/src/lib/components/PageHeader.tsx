@@ -15,7 +15,10 @@ interface PageHeaderProps {
 }
 
 export function PageHeader({ caption, buttons, tabbedPage }: PageHeaderProps): JSX.Element | null {
-    const { actionsContainer } = useValues(breadcrumbsLogic)
+    const { hasActionsContainer } = useValues(breadcrumbsLogic)
+    const actionsContainer = hasActionsContainer
+        ? breadcrumbsLogic.findMounted()?.cache?.actionsContainer ?? null
+        : null
 
     return (
         <>

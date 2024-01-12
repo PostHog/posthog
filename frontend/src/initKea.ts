@@ -49,7 +49,17 @@ export const loggerPlugin: () => KeaPlugin = () => ({
     events: {
         beforeReduxStore(options) {
             options.middleware.push((store) => (next) => (action) => {
+                try {
+                    JSON.stringify(action)
+                } catch (e) {
+                    console.error('!!!!!!!! Could not stringify action', action)
+                }
                 const response = next(action)
+                try {
+                    JSON.stringify(store.getState())
+                } catch (e) {
+                    console.error('!!!!!!!! Could not stringify store')
+                }
                 /* eslint-disable no-console */
                 console.groupCollapsed('KEA LOGGER', action)
                 console.log(store.getState())
@@ -104,9 +114,9 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
         waitForPlugin,
     ]
 
-    if (window.JS_KEA_VERBOSE_LOGGING) {
-        plugins.push(loggerPlugin)
-    }
+    // if (window.JS_KEA_VERBOSE_LOGGING) {
+    plugins.push(loggerPlugin)
+    // }
 
     resetContext({
         plugins: plugins,
