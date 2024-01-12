@@ -19,7 +19,7 @@ def resolve_in_cohorts(
     InCohortResolver(stack=stack, dialect=dialect, context=context).visit(node)
 
 
-def resolve_in_multiple_cohorts(
+def resolve_in_cohorts_conjoined(
     node: ast.Expr,
     dialect: Literal["hogql", "clickhouse"],
     context: HogQLContext,
@@ -113,6 +113,8 @@ class MultipleInCohortResolver(TraversingVisitor):
                     raise HogQLException(f"Found multiple cohorts with name '{arg.value}'", node=arg)
                 raise HogQLException(f"Could not find a cohort with the name '{arg.value}'", node=arg)
 
+            raise HogQLException("cohort() takes exactly one string or integer argument", node=arg)
+
         return cohort_ids
 
     def _add_join(self, cohort_ids: List[int], select: ast.SelectQuery, compare_operations: List[ast.CompareOperation]):
@@ -137,14 +139,14 @@ class MultipleInCohortResolver(TraversingVisitor):
 
             table_query = parse_select(
                 """
-                    SELECT person_id, 1 as matched, cohort_id
+                    SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id
                     FROM static_cohort_people
                     WHERE {cohort_clause}
                     UNION ALL
-                    SELECT person_id, 1 as matched, cohort_id
+                    SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id
                     FROM raw_cohort_people
                     WHERE {cohort_clause}
-                    GROUP BY person_id, cohort_id, version
+                    GROUP BY cohort_person_id, cohort_id, version
                     HAVING sum(sign) > 0
                 """,
                 placeholders={"cohort_clause": cohort_in},
@@ -164,14 +166,13 @@ class MultipleInCohortResolver(TraversingVisitor):
                 ),
             )
 
-            new_join.constraint.expr.left = ast.Field(chain=[f"__in_cohort", "person_id"])  # type: ignore
+            new_join.constraint.expr.left = ast.Field(chain=[f"__in_cohort", "cohort_person_id"])  # type: ignore
             new_join.constraint.expr.right = clone_expr(compare_operations[0].left)  # type: ignore
             if last_join:
                 last_join.next_join = new_join
             else:
                 select.select_from = new_join
 
-        # equals(in_cohort.matched, 1)
         cohort_match_compare_op = ast.CompareOperation(
             left=ast.Field(chain=["__in_cohort", "matched"]),
             op=ast.CompareOperationOp.Eq,

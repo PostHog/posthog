@@ -70,7 +70,6 @@ class Breakdown:
                 expr=parse_expr(self.query.breakdown.breakdown),
             )
         elif self.query.breakdown.breakdown_type == "cohort":
-            # cohort_breakdown = 0 if self.query.breakdown.breakdown == "all" else int(self.query.breakdown.breakdown)
             return ast.Alias(
                 alias="breakdown_value",
                 expr=ast.Field(chain=["__in_cohort", "cohort_id"]),
@@ -125,6 +124,7 @@ class Breakdown:
             self.query.breakdown is not None
             and self.query.breakdown.breakdown is not None
             and self.query.breakdown.breakdown_type == "hogql"
+            and isinstance(self.query.breakdown.breakdown, str)
         ):
             left = parse_expr(self.query.breakdown.breakdown)
         else:
@@ -200,8 +200,8 @@ class Breakdown:
         with self.timings.measure("breakdown_values_query"):
             breakdown = BreakdownValues(
                 team=self.team,
-                event_name=series_event_name(self.series),
-                breakdown_field=self.query.breakdown.breakdown,
+                event_name=series_event_name(self.series) or "",
+                breakdown_field=self.query.breakdown.breakdown,  # type: ignore
                 breakdown_type=self.query.breakdown.breakdown_type,
                 query_date_range=self.query_date_range,
                 events_filter=self.events_filter,

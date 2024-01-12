@@ -268,7 +268,7 @@ class HogQLNotice(BaseModel):
 class InCohortVia(str, Enum):
     leftjoin = "leftjoin"
     subquery = "subquery"
-    leftjoin_multiple = "leftjoin_multiple"
+    leftjoin_conjoined = "leftjoin_conjoined"
 
 
 class MaterializationMode(str, Enum):

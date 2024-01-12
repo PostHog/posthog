@@ -33,7 +33,7 @@ from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES, validate
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.resolver import ResolverException, resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
-from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_multiple_cohorts
+from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.property_types import resolve_property_types
 from posthog.hogql.visitor import Visitor, clone_expr
@@ -99,9 +99,9 @@ def prepare_ast_for_printing(
     with context.timings.measure("create_hogql_database"):
         context.database = context.database or create_hogql_database(context.team_id, context.modifiers)
 
-    if context.modifiers.inCohortVia == "leftjoin_multiple":
-        with context.timings.measure("resolve_in_cohorts_multiple"):
-            resolve_in_multiple_cohorts(node, dialect, context, stack)
+    if context.modifiers.inCohortVia == "leftjoin_conjoined":
+        with context.timings.measure("resolve_in_cohorts_conjoined"):
+            resolve_in_cohorts_conjoined(node, dialect, context, stack)
     with context.timings.measure("resolve_types"):
         node = resolve_types(node, context, dialect=dialect, scopes=[node.type for node in stack] if stack else None)
     if context.modifiers.inCohortVia == "leftjoin":
