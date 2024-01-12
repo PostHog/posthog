@@ -15,7 +15,7 @@ export const BreakdownTagMenu = (): JSX.Element => {
     const { isHistogramable, isNormalizeable } = useValues(breakdownTagLogic)
     const { removeBreakdown } = useActions(breakdownTagLogic)
     const { breakdownFilter } = useValues(insightVizDataLogic(insightProps))
-    const { updateBreakdown } = useActions(insightVizDataLogic(insightProps))
+    const { updateBreakdownFilter } = useActions(insightVizDataLogic(insightProps))
 
     const { histogramBinCount, breakdownLimit, histogramBinsUsed } = useValues(taxonomicBreakdownFilterLogic)
     const { setHistogramBinCount, setBreakdownLimit, setHistogramBinsUsed, setNormalizeBreakdownURL } =
@@ -95,7 +95,7 @@ export const BreakdownTagMenu = (): JSX.Element => {
                         className="min-h-10 px-2"
                         checked={!breakdownFilter?.breakdown_hide_other_aggregation}
                         onChange={() =>
-                            updateBreakdown({
+                            updateBreakdownFilter({
                                 ...breakdownFilter,
                                 breakdown_hide_other_aggregation: !breakdownFilter?.breakdown_hide_other_aggregation,
                             })
@@ -120,7 +120,7 @@ export const BreakdownTagMenu = (): JSX.Element => {
                     <div>
                         <LemonButton
                             onClick={() => {
-                                updateBreakdown({ breakdown_limit: breakdownLimit })
+                                updateBreakdownFilter({ breakdown_limit: breakdownLimit })
                             }}
                             active={histogramBinsUsed}
                             fullWidth

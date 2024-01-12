@@ -131,11 +131,11 @@ describe('insightVizDataLogic', () => {
         })
     })
 
-    describe('updateBreakdown', () => {
+    describe('updateBreakdownFilter', () => {
         it('updates the breakdown', () => {
             // when breakdown is empty
             expectLogic(builtInsightDataLogic, () => {
-                builtInsightVizDataLogic.actions.updateBreakdown({
+                builtInsightVizDataLogic.actions.updateBreakdownFilter({
                     breakdown_type: 'event',
                     breakdown: '$current_url',
                 })
@@ -159,7 +159,7 @@ describe('insightVizDataLogic', () => {
 
             // merges with existing breakdown
             expectLogic(builtInsightDataLogic, () => {
-                builtInsightVizDataLogic.actions.updateBreakdown({
+                builtInsightVizDataLogic.actions.updateBreakdownFilter({
                     breakdown: '$browser',
                 })
             }).toMatchValues({

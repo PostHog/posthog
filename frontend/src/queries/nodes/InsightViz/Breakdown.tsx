@@ -6,7 +6,7 @@ import { EditorFilterProps } from '~/types'
 
 export function Breakdown({ insightProps }: EditorFilterProps): JSX.Element {
     const { breakdownFilter, display, isTrends } = useValues(insightVizDataLogic(insightProps))
-    const { updateBreakdown, updateDisplay } = useActions(insightVizDataLogic(insightProps))
+    const { updateBreakdownFilter, updateDisplay } = useActions(insightVizDataLogic(insightProps))
 
     return (
         <TaxonomicBreakdownFilter
@@ -14,7 +14,7 @@ export function Breakdown({ insightProps }: EditorFilterProps): JSX.Element {
             breakdownFilter={breakdownFilter}
             display={display}
             isTrends={isTrends}
-            updateBreakdown={updateBreakdown}
+            updateBreakdownFilter={updateBreakdownFilter}
             updateDisplay={updateDisplay}
         />
     )

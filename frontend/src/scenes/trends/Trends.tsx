@@ -23,7 +23,7 @@ export function TrendInsight({ view, context }: Props): JSX.Element {
 
     const { display, series, breakdownFilter, loadMoreBreakdownUrl, hasBreakdownOther, breakdownValuesLoading } =
         useValues(trendsDataLogic(insightProps))
-    const { loadMoreBreakdownValues, updateBreakdown } = useActions(trendsDataLogic(insightProps))
+    const { loadMoreBreakdownValues, updateBreakdownFilter } = useActions(trendsDataLogic(insightProps))
 
     const renderViz = (): JSX.Element | undefined => {
         if (
@@ -74,7 +74,7 @@ export function TrendInsight({ view, context }: Props): JSX.Element {
                             onClick={
                                 hasBreakdownOther
                                     ? () =>
-                                          updateBreakdown({
+                                          updateBreakdownFilter({
                                               ...breakdownFilter,
                                               breakdown_limit: (breakdownFilter.breakdown_limit || 25) * 2,
                                           })
