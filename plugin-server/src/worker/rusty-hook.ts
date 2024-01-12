@@ -1,6 +1,8 @@
 import { Webhook } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import fetch from 'node-fetch'
+import { isProdEnv } from 'utils/env-utils'
+import { raiseIfUserProvidedUrlUnsafe } from 'utils/fetch'
 
 import { Hub, PluginConfig } from '../types'
 import { status } from '../utils/status'
@@ -22,6 +24,10 @@ interface RustyWebhookPayload {
 export async function enqueueInRustyHook(hub: Hub, webhook: Webhook, pluginConfig: PluginConfig) {
     webhook.method ??= 'POST'
     webhook.headers ??= {}
+
+    if (isProdEnv() && !process.env.NODE_ENV?.includes('functional-tests')) {
+        await raiseIfUserProvidedUrlUnsafe(webhook.url)
+    }
 
     const rustyWebhookPayload: RustyWebhookPayload = {
         parameters: webhook,

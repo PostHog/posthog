@@ -1,5 +1,6 @@
 import { PluginEvent, PostHogEvent, ProcessedPluginEvent, Webhook } from '@posthog/plugin-scaffold'
 import { pluginActionMsSummary } from 'worker/metrics'
+import { enqueueInRustyHook } from 'worker/rusty-hook'
 
 import { Hub, PluginConfig, PluginTaskType, VMMethods } from '../../types'
 import { processError } from '../../utils/db/error'
