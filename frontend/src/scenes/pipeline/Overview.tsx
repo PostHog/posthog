@@ -8,7 +8,9 @@ import { urls } from 'scenes/urls'
 
 import { PipelineAppTabs, PipelineTabs } from '~/types'
 
+import { DestinationMoreOverlay } from './Destinations'
 import { pipelineOverviewLogic } from './overviewLogic'
+import { TransformationsMoreOverlay } from './Transformations'
 
 type StatusIndicatorProps = {
     status: 'enabled' | 'disabled'
@@ -39,9 +41,10 @@ type PipelineStepProps = {
     enabled?: boolean
     to: string
     success_rate?: number
+    moreOverlay?: JSX.Element
 }
 
-const PipelineStep = ({ name, description, order, enabled, to }: PipelineStepProps): JSX.Element => (
+const PipelineStep = ({ name, description, order, enabled, to, moreOverlay }: PipelineStepProps): JSX.Element => (
     <LemonCard>
         {order && (
             <div className="mb-3">
@@ -65,9 +68,7 @@ const PipelineStep = ({ name, description, order, enabled, to }: PipelineStepPro
                 </h3>
                 <StatusIndicator status={enabled ? 'enabled' : 'disabled'} />
             </div>
-            <div>
-                <More overlay={<></>} />
-            </div>
+            <div>{moreOverlay && <More overlay={moreOverlay} />}</div>
         </div>
 
         {description ? (
@@ -129,6 +130,7 @@ export function Overview(): JSX.Element {
                             order={1} // TODO
                             // enabled={} // TODO
                             to={urls.pipelineApp(PipelineTabs.Transformations, t.id, PipelineAppTabs.Configuration)}
+                            moreOverlay={<TransformationsMoreOverlay pluginConfig={{}} />}
                         />
                     ))}
                     {/* <pre>{JSON.stringify(transformations, null, 2)}</pre> */}
@@ -145,6 +147,7 @@ export function Overview(): JSX.Element {
                             description={d.description}
                             enabled={d.enabled}
                             to={d.config_url}
+                            moreOverlay={<DestinationMoreOverlay destination={d} />}
                         />
                     ))}
                     {/* <pre>{JSON.stringify(destinations, null, 2)}</pre> */}

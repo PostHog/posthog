@@ -52,8 +52,7 @@ export function Destinations(): JSX.Element {
 }
 
 function DestinationsTable(): JSX.Element {
-    const { loading, destinations, canConfigurePlugins } = useValues(pipelineDestinationsLogic)
-    const { toggleEnabled, loadPluginConfigs } = useActions(pipelineDestinationsLogic)
+    const { loading, destinations } = useValues(pipelineDestinationsLogic)
 
     return (
         <>
@@ -158,86 +157,71 @@ function DestinationsTable(): JSX.Element {
                     {
                         width: 0,
                         render: function Render(_, destination) {
-                            return (
-                                <More
-                                    overlay={
-                                        <>
-                                            <LemonButton
-                                                onClick={() => toggleEnabled(destination, !destination.enabled)}
-                                                id={`app-${destination.id}-enable-switch`}
-                                                disabledReason={
-                                                    canConfigurePlugins
-                                                        ? undefined
-                                                        : 'You do not have permission to enable/disable destinations.'
-                                                }
-                                                fullWidth
-                                            >
-                                                {destination.enabled ? 'Pause' : 'Unpause'} destination
-                                            </LemonButton>
-                                            <LemonButton
-                                                to={destination.config_url}
-                                                id={`app-${destination.id}-configuration`}
-                                                fullWidth
-                                            >
-                                                {canConfigurePlugins ? 'Edit' : 'View'} destination configuration
-                                            </LemonButton>
-                                            <LemonButton
-                                                to={destination.metrics_url}
-                                                id={`app-${destination.id}-metrics`}
-                                                fullWidth
-                                            >
-                                                View metrics
-                                            </LemonButton>
-                                            <LemonButton
-                                                to={destination.logs_url}
-                                                id={`app-${destination.id}-logs`}
-                                                fullWidth
-                                            >
-                                                View logs
-                                            </LemonButton>
-                                            {destination.app_source_code_url && (
-                                                <LemonButton
-                                                    to={destination.app_source_code_url}
-                                                    targetBlank={true}
-                                                    id={`app-${destination.id}-source-code`}
-                                                    fullWidth
-                                                >
-                                                    View app source code
-                                                </LemonButton>
-                                            )}
-                                            <LemonDivider />
-                                            {destination.type === 'webhook' && (
-                                                <LemonButton // TODO: batch exports
-                                                    status="danger"
-                                                    onClick={() => {
-                                                        void deleteWithUndo({
-                                                            endpoint: `plugin_config`,
-                                                            object: {
-                                                                id: destination.id,
-                                                                name: destination.name,
-                                                            },
-                                                            callback: loadPluginConfigs,
-                                                        })
-                                                    }}
-                                                    id="app-delete"
-                                                    disabledReason={
-                                                        canConfigurePlugins
-                                                            ? undefined
-                                                            : 'You do not have permission to delete apps.'
-                                                    }
-                                                    fullWidth
-                                                >
-                                                    Delete app
-                                                </LemonButton>
-                                            )}
-                                        </>
-                                    }
-                                />
-                            )
+                            return <More overlay={<DestinationMoreOverlay destination={destination} />} />
                         },
                     },
                 ]}
             />
+        </>
+    )
+}
+
+export const DestinationMoreOverlay = ({ destination }: { destination: DestinationType }): JSX.Element => {
+    const { canConfigurePlugins } = useValues(pipelineDestinationsLogic)
+    const { toggleEnabled, loadPluginConfigs } = useActions(pipelineDestinationsLogic)
+
+    return (
+        <>
+            <LemonButton
+                onClick={() => toggleEnabled(destination, !destination.enabled)}
+                id={`app-${destination.id}-enable-switch`}
+                disabledReason={
+                    canConfigurePlugins ? undefined : 'You do not have permission to enable/disable destinations.'
+                }
+                fullWidth
+            >
+                {destination.enabled ? 'Pause' : 'Unpause'} destination
+            </LemonButton>
+            <LemonButton to={destination.config_url} id={`app-${destination.id}-configuration`} fullWidth>
+                {canConfigurePlugins ? 'Edit' : 'View'} destination configuration
+            </LemonButton>
+            <LemonButton to={destination.metrics_url} id={`app-${destination.id}-metrics`} fullWidth>
+                View metrics
+            </LemonButton>
+            <LemonButton to={destination.logs_url} id={`app-${destination.id}-logs`} fullWidth>
+                View logs
+            </LemonButton>
+            {destination.app_source_code_url && (
+                <LemonButton
+                    to={destination.app_source_code_url}
+                    targetBlank={true}
+                    id={`app-${destination.id}-source-code`}
+                    fullWidth
+                >
+                    View app source code
+                </LemonButton>
+            )}
+            <LemonDivider />
+            {destination.type === 'webhook' && (
+                <LemonButton // TODO: batch exports
+                    status="danger"
+                    onClick={() => {
+                        void deleteWithUndo({
+                            endpoint: `plugin_config`,
+                            object: {
+                                id: destination.id,
+                                name: destination.name,
+                            },
+                            callback: loadPluginConfigs,
+                        })
+                    }}
+                    id="app-delete"
+                    disabledReason={canConfigurePlugins ? undefined : 'You do not have permission to delete apps.'}
+                    fullWidth
+                >
+                    Delete app
+                </LemonButton>
+            )}
         </>
     )
 }
