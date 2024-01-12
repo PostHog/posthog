@@ -73,10 +73,6 @@ class ChartDisplayType(str, Enum):
 
 
 class CohortPropertyFilter(BaseModel):
-    """
-    Sync with plugin-server/src/types.ts
-    """
-
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -175,10 +171,6 @@ class EventType(BaseModel):
 
 
 class Response(BaseModel):
-    """
-    Return a limited set of data
-    """
-
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -298,10 +290,6 @@ class PersonsOnEventsMode(str, Enum):
 
 
 class HogQLQueryModifiers(BaseModel):
-    """
-    HogQL Query Options are automatically set per team. However, they can be overriden in the query.
-    """
-
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -355,16 +343,6 @@ class LifecycleToggle(str, Enum):
 
 
 class NodeKind(str, Enum):
-    """
-    PostHog Query Schema definition.
-
-    This file acts as the source of truth for:
-
-    - frontend/src/queries/schema.json   - generated from typescript via "pnpm run generate:schema:json"
-
-    - posthog/schema.py   - generated from json the above json via "pnpm run generate:schema:python"
-    """
-
     EventsNode = "EventsNode"
     ActionsNode = "ActionsNode"
     EventsQuery = "EventsQuery"
@@ -410,10 +388,6 @@ class PathType(str, Enum):
 
 
 class PathsFilter(BaseModel):
-    """
-    `PathsFilterType` minus everything inherited from `FilterType` and persons modal related params
-    """
-
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -459,10 +433,6 @@ class PropertyMathType(str, Enum):
 
 
 class PropertyOperator(str, Enum):
-    """
-    Sync with plugin-server/src/types.ts
-    """
-
     exact = "exact"
     is_not = "is_not"
     icontains = "icontains"
@@ -580,10 +550,6 @@ class StepOrderValue(str, Enum):
 
 
 class StickinessFilter(BaseModel):
-    """
-    `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params and `hidden_legend_keys` replaced by `hidden_legend_indexes`
-    """
-
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -645,10 +611,6 @@ class TimelineEntry(BaseModel):
 
 
 class TrendsFilter(BaseModel):
-    """
-    `TrendsFilterType` minus everything inherited from `FilterType` and `hidden_legend_keys` replaced by `hidden_legend_indexes`
-    """
-
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -698,10 +660,6 @@ class RETENTION(BaseModel):
 
 
 class VizSpecificOptions(BaseModel):
-    """
-    Chart specific rendering options. Use ChartRenderingMetadata for non-serializable values, e.g. onClick handlers
-    """
-
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -801,10 +759,6 @@ class ActorsQueryResponse(BaseModel):
 
 
 class AnyResponseType1(BaseModel):
-    """
-    Return a limited set of data
-    """
-
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -853,10 +807,6 @@ class ChartSettings(BaseModel):
 
 
 class ElementPropertyFilter(BaseModel):
-    """
-    Sync with plugin-server/src/types.ts
-    """
-
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -868,10 +818,6 @@ class ElementPropertyFilter(BaseModel):
 
 
 class EventPropertyFilter(BaseModel):
-    """
-    Sync with plugin-server/src/types.ts
-    """
-
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -908,10 +854,6 @@ class FeaturePropertyFilter(BaseModel):
 
 
 class FunnelsFilter(BaseModel):
-    """
-    `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params and `hidden_legend_keys` replaced by `hidden_legend_breakdowns`
-    """
-
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -989,10 +931,6 @@ class HogQLQueryResponse(BaseModel):
 
 
 class LifecycleFilter(BaseModel):
-    """
-    `LifecycleFilterType` minus everything inherited from `FilterType`
-    """
-
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1013,10 +951,6 @@ class LifecycleQueryResponse(BaseModel):
 
 
 class Node(BaseModel):
-    """
-    Node base class, everything else inherits from here
-    """
-
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1024,10 +958,6 @@ class Node(BaseModel):
 
 
 class PersonPropertyFilter(BaseModel):
-    """
-    Sync with plugin-server/src/types.ts
-    """
-
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1051,10 +981,6 @@ class QueryResponse(BaseModel):
 
 
 class RetentionFilter(BaseModel):
-    """
-    `RetentionFilterType` minus everything inherited from `FilterType`
-    """
-
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1404,10 +1330,6 @@ class EventsQuery(BaseModel):
 
 
 class HogQLFilters(BaseModel):
-    """
-    Filters object that will be converted to a HogQL {filters} placeholder
-    """
-
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -1868,10 +1790,6 @@ class FunnelsQuery(BaseModel):
 
 
 class InsightsQueryBase(BaseModel):
-    """
-    Base class for insight query nodes. Should not be used directly.
-    """
-
     model_config = ConfigDict(
         extra="forbid",
     )
