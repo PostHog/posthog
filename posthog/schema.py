@@ -642,6 +642,26 @@ class TrendsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregationAxisFormat: Optional[AggregationAxisFormat] = None
+    aggregationAxisPostfix: Optional[str] = None
+    aggregationAxisPrefix: Optional[str] = None
+    breakdownHistogramBinCount: Optional[float] = None
+    compare: Optional[bool] = None
+    decimalPlaces: Optional[float] = None
+    display: Optional[ChartDisplayType] = None
+    formula: Optional[str] = None
+    hiddenLegendIndexes: Optional[List[float]] = None
+    showLabelsOnSeries: Optional[bool] = None
+    showLegend: Optional[bool] = None
+    showPercentStackView: Optional[bool] = None
+    showValuesOnSeries: Optional[bool] = None
+    smoothingIntervals: Optional[float] = None
+
+
+class TrendsFilterLegacy(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
     aggregation_axis_format: Optional[AggregationAxisFormat] = None
     aggregation_axis_postfix: Optional[str] = None
     aggregation_axis_prefix: Optional[str] = None

@@ -503,10 +503,27 @@ export interface InsightsQueryBase extends Node {
 
 /** `TrendsFilterType` minus everything inherited from `FilterType` and
  * `hidden_legend_keys` replaced by `hidden_legend_indexes` */
-export type TrendsFilter = Omit<
+export type TrendsFilterLegacy = Omit<
     TrendsFilterType & { hidden_legend_indexes?: number[] },
     keyof FilterType | 'hidden_legend_keys' | 'shown_as'
 >
+
+export type TrendsFilter = {
+    smoothingIntervals?: TrendsFilterLegacy['smoothing_intervals']
+    compare?: TrendsFilterLegacy['compare']
+    formula?: TrendsFilterLegacy['formula']
+    display?: TrendsFilterLegacy['display']
+    breakdownHistogramBinCount?: TrendsFilterLegacy['breakdown_histogram_bin_count']
+    showLegend?: TrendsFilterLegacy['show_legend']
+    aggregationAxisFormat?: TrendsFilterLegacy['aggregation_axis_format']
+    aggregationAxisPrefix?: TrendsFilterLegacy['aggregation_axis_prefix']
+    aggregationAxisPostfix?: TrendsFilterLegacy['aggregation_axis_postfix']
+    decimalPlaces?: TrendsFilterLegacy['decimal_places']
+    showValuesOnSeries?: TrendsFilterLegacy['show_values_on_series']
+    showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
+    showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
+    hiddenLegendIndexes?: TrendsFilterLegacy['hidden_legend_indexes']
+}
 
 export interface TrendsQueryResponse extends QueryResponse {
     results: Record<string, any>[]
