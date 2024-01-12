@@ -133,9 +133,9 @@ export function Overview(): JSX.Element {
                             moreOverlay={<TransformationsMoreOverlay pluginConfig={{}} />}
                         />
                     ))}
-                    {/* <pre>{JSON.stringify(transformations, null, 2)}</pre> */}
                 </div>
             )}
+            {transformations && <pre>{JSON.stringify(transformations, null, 2)}</pre>}
 
             <h2 className="mt-4">Destinations</h2>
             {destinations && (
@@ -150,9 +150,9 @@ export function Overview(): JSX.Element {
                             moreOverlay={<DestinationMoreOverlay destination={d} />}
                         />
                     ))}
-                    {/* <pre>{JSON.stringify(destinations, null, 2)}</pre> */}
                 </div>
             )}
+            {destinations && <pre>{JSON.stringify(destinations, null, 2)}</pre>}
         </div>
     )
 }
