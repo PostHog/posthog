@@ -199,7 +199,7 @@ function DecimalPrecisionInput(): JSX.Element {
 
     const reportChange = useDebouncedCallback(() => {
         posthog.capture('decimal places changed', {
-            decimal_places: trendsFilter?.decimal_places,
+            decimal_places: trendsFilter?.decimalPlaces,
         })
     }, 500)
 
@@ -211,10 +211,10 @@ function DecimalPrecisionInput(): JSX.Element {
             min={0}
             max={9}
             defaultValue={DEFAULT_DECIMAL_PLACES}
-            value={trendsFilter?.decimal_places}
+            value={trendsFilter?.decimalPlaces}
             onChange={(value) => {
                 updateInsightFilter({
-                    decimal_places: value,
+                    decimalPlaces: value,
                 })
                 reportChange()
             }}

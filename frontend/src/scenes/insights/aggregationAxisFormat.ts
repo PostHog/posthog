@@ -15,12 +15,16 @@ export const INSIGHT_UNIT_OPTIONS: LemonSelectOptionLeaf<AggregationAxisFormat>[
     { value: 'percentage_scaled', label: 'Percent (0-1)' },
 ]
 
+// this function needs to support a trendsFilter as part of an insight query and
+// legacy trend filters, as we still return these as part of a data response
 export const formatAggregationAxisValue = (
     trendsFilter: TrendsFilter | null | undefined | Partial<TrendsFilterType>,
     value: number | string
 ): string => {
     value = Number(value)
-    let formattedValue = humanFriendlyNumber(value, trendsFilter?.decimal_places)
+    const decimalPlaces =
+        (trendsFilter as TrendsFilter)?.decimalPlaces || (trendsFilter as Partial<TrendsFilterType>)?.decimal_places
+    let formattedValue = humanFriendlyNumber(value, decimalPlaces)
     if (trendsFilter?.aggregation_axis_format) {
         switch (trendsFilter?.aggregation_axis_format) {
             case 'duration':

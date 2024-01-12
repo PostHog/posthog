@@ -1300,7 +1300,7 @@ class TestFilterToQuery(BaseTest):
                 aggregation_axis_postfix="post",
                 formula="A + B",
                 display=ChartDisplayType.ActionsAreaGraph,
-                decimal_places=5,
+                decimalPlaces=5,
             ),
         )
 

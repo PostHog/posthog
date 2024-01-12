@@ -3753,7 +3753,7 @@
                 "compare": {
                     "type": "boolean"
                 },
-                "decimal_places": {
+                "decimalPlaces": {
                     "type": "number"
                 },
                 "display": {

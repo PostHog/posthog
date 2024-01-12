@@ -59,7 +59,7 @@ describe('queryNodeToFilter', () => {
                 // aggregation_axis_format?: TrendsFilterLegacy['aggregation_axis_format']
                 // aggregation_axis_prefix?: TrendsFilterLegacy['aggregation_axis_prefix']
                 // aggregation_axis_postfix?: TrendsFilterLegacy['aggregation_axis_postfix']
-                // decimal_places?: TrendsFilterLegacy['decimal_places']
+                decimalPlaces: 5,
                 // show_values_on_series?: TrendsFilterLegacy['show_values_on_series']
                 // show_labels_on_series?: TrendsFilterLegacy['show_labels_on_series']
                 // show_percent_stack_view?: TrendsFilterLegacy['show_percent_stack_view']
@@ -78,6 +78,7 @@ describe('queryNodeToFilter', () => {
             display: ChartDisplayType.ActionsBar,
             formula: 'A + B',
             compare: true,
+            decimal_places: 5,
         }
         expect(result).toEqual(filters)
     })

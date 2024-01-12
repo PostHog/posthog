@@ -330,7 +330,7 @@ describe('filtersToQueryNode', () => {
                     aggregation_axis_format: 'numeric',
                     aggregation_axis_prefix: '£',
                     aggregation_axis_postfix: '%',
-                    decimal_places: 8,
+                    decimalPlaces: 8,
                     formula: 'A+B',
                     display: ChartDisplayType.ActionsAreaGraph,
                 },
