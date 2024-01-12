@@ -567,6 +567,26 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 ],
             )
 
+    def test_query_with_source(self):
+        query = {
+            "kind": "DataTableNode",
+            "source": {
+                "kind": "HogQLQuery",
+                "query": "SELECT event from events",
+            },
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_query_not_supported(self):
+        query = {
+            "kind": "SavedInsightNode",
+            "shortId": "123",
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Unsupported query kind: SavedInsightNode", response.content)
+
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
     def test_full_hogql_query_limit(self, MAX_SELECT_RETURNED_ROWS=15, DEFAULT_RETURNED_ROWS=10):

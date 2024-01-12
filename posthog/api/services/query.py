@@ -1,5 +1,5 @@
 import structlog
-from typing import Optional, Any
+from typing import Optional
 
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
@@ -64,7 +64,7 @@ def process_query(
 
 def process_query_model(
     team: Team,
-    query: Any,  # mypy has problems with unions and isinstance
+    query: BaseModel,  # mypy has problems with unions and isinstance
     limit_context: Optional[LimitContext] = None,
     refresh_requested: Optional[bool] = False,
 ) -> dict:
@@ -98,10 +98,10 @@ def process_query_model(
         )
         serializer.is_valid(raise_exception=True)
         result = get_session_events(serializer) or {}
-    elif query.source:
-        result = process_query(team, query.source)
+    elif hasattr(query, "source") and isinstance(query.source, BaseModel):
+        result = process_query_model(team, query.source)
     else:
-        raise ValidationError(f"Unsupported query kind: {query.kind}")
+        raise ValidationError(f"Unsupported query kind: {query.__class__.__name__}")
 
     if isinstance(result, BaseModel):
         return result.model_dump()
