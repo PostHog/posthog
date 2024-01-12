@@ -3741,22 +3741,22 @@
         "TrendsFilter": {
             "additionalProperties": false,
             "properties": {
-                "aggregationAxisFormat": {
+                "aggregation_axis_format": {
                     "$ref": "#/definitions/AggregationAxisFormat"
                 },
-                "aggregationAxisPostfix": {
+                "aggregation_axis_postfix": {
                     "type": "string"
                 },
-                "aggregationAxisPrefix": {
+                "aggregation_axis_prefix": {
                     "type": "string"
                 },
-                "breakdownHistogramBinCount": {
+                "breakdown_histogram_bin_count": {
                     "type": "number"
                 },
                 "compare": {
                     "type": "boolean"
                 },
-                "decimalPlaces": {
+                "decimal_places": {
                     "type": "number"
                 },
                 "display": {
@@ -3765,22 +3765,22 @@
                 "formula": {
                     "type": "string"
                 },
-                "hiddenLegendIndexes": {
+                "hidden_legend_indexes": {
                     "items": {
                         "type": "number"
                     },
                     "type": "array"
                 },
-                "showLabelsOnSeries": {
+                "show_labels_on_series": {
                     "type": "boolean"
                 },
-                "showLegend": {
+                "show_legend": {
                     "type": "boolean"
                 },
-                "showPercentStackView": {
+                "show_percent_stack_view": {
                     "type": "boolean"
                 },
-                "showValuesOnSeries": {
+                "show_values_on_series": {
                     "type": "boolean"
                 },
                 "smoothingIntervals": {
