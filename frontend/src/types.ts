@@ -3616,4 +3616,5 @@ export enum SidePanelTab {
     FeaturePreviews = 'feature-previews',
     Activity = 'activity',
     Discussion = 'discussion',
+    Status = 'status',
 }

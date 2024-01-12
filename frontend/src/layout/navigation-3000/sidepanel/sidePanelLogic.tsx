@@ -1,3 +1,4 @@
+import { LemonButtonProps } from '@posthog/lemon-ui'
 import { afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { activationLogic } from 'lib/components/ActivationSidebar/activationLogic'
@@ -10,6 +11,7 @@ import { SidePanelTab } from '~/types'
 
 import { sidePanelActivityLogic } from './panels/activity/sidePanelActivityLogic'
 import { sidePanelDiscussionLogic } from './panels/discussion/sidePanelDiscussionLogic'
+import { sidePanelStatusLogic } from './panels/sidePanelStatusLogic'
 import type { sidePanelLogicType } from './sidePanelLogicType'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
@@ -18,6 +20,7 @@ const ALWAYS_EXTRA_TABS = [
     SidePanelTab.FeaturePreviews,
     SidePanelTab.Activity,
     SidePanelTab.Welcome,
+    SidePanelTab.Status,
 ]
 
 export const sidePanelLogic = kea<sidePanelLogicType>([
@@ -37,6 +40,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['unreadCount'],
             sidePanelDiscussionLogic,
             ['commentCount', 'commentCountLoading'],
+            sidePanelStatusLogic,
+            ['statusIndicator'],
         ],
         actions: [sidePanelStateLogic, ['closeSidePanel', 'openSidePanel']],
     }),
@@ -95,14 +100,15 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 }
                 tabs.push(SidePanelTab.FeaturePreviews)
                 tabs.push(SidePanelTab.Welcome)
+                tabs.push(SidePanelTab.Status)
 
                 return tabs
             },
         ],
 
         visibleTabs: [
-            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.commentCount, s.unreadCount],
-            (enabledTabs, selectedTab, sidePanelOpen, commentCount, unreadCount): SidePanelTab[] => {
+            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.commentCount, s.unreadCount, s.statusIndicator],
+            (enabledTabs, selectedTab, sidePanelOpen, commentCount, unreadCount, statusIndicator): SidePanelTab[] => {
                 return enabledTabs.filter((tab) => {
                     if (tab === selectedTab && sidePanelOpen) {
                         return true
@@ -116,6 +122,10 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                         return true
                     }
 
+                    if (tab === SidePanelTab.Status && statusIndicator !== 'none') {
+                        return true
+                    }
+
                     // Hide certain tabs unless they are selected
                     if (ALWAYS_EXTRA_TABS.includes(tab)) {
                         return false
@@ -123,6 +133,16 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
                     return true
                 })
+            },
+        ],
+
+        tabsStatus: [
+            (s) => [s.enabledTabs, s.statusIndicator],
+            (enabledTabs, statusIndicator): Record<SidePanelTab, LemonButtonProps['status']> => {
+                return enabledTabs.reduce((acc, tab) => {
+                    acc[tab] = tab === SidePanelTab.Status && statusIndicator !== 'none' ? 'danger' : 'alt'
+                    return acc
+                }, {} as Record<SidePanelTab, LemonButtonProps['status']>)
             },
         ],
 

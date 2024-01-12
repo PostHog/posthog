@@ -1,6 +1,15 @@
 import './SidePanel.scss'
 
-import { IconConfetti, IconEllipsis, IconFeatures, IconGear, IconInfo, IconNotebook, IconSupport } from '@posthog/icons'
+import {
+    IconConfetti,
+    IconEllipsis,
+    IconFeatures,
+    IconGear,
+    IconInfo,
+    IconLive,
+    IconNotebook,
+    IconSupport,
+} from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -17,6 +26,7 @@ import { SidePanelActivation, SidePanelActivationIcon } from './panels/SidePanel
 import { SidePanelDocs } from './panels/SidePanelDocs'
 import { SidePanelFeaturePreviews } from './panels/SidePanelFeaturePreviews'
 import { SidePanelSettings } from './panels/SidePanelSettings'
+import { SidePanelStatus } from './panels/SidePanelStatus'
 import { SidePanelSupport } from './panels/SidePanelSupport'
 import { SidePanelWelcome } from './panels/SidePanelWelcome'
 import { sidePanelLogic } from './sidePanelLogic'
@@ -71,12 +81,17 @@ export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; C
         Icon: IconConfetti,
         Content: SidePanelWelcome,
     },
+    [SidePanelTab.Status]: {
+        label: 'Status',
+        Icon: IconLive,
+        Content: SidePanelStatus,
+    },
 }
 
 const DEFAULT_WIDTH = 512
 
 export function SidePanel(): JSX.Element | null {
-    const { visibleTabs, extraTabs } = useValues(sidePanelLogic)
+    const { visibleTabs, extraTabs, tabsStatus } = useValues(sidePanelLogic)
     const { selectedTab, sidePanelOpen } = useValues(sidePanelStateLogic)
     const { openSidePanel, closeSidePanel, setSidePanelAvailable } = useActions(sidePanelStateLogic)
 
@@ -157,7 +172,7 @@ export function SidePanel(): JSX.Element | null {
                                     data-attr={`sidepanel-tab-${tab}`}
                                     active={activeTab === tab}
                                     type="secondary"
-                                    status="alt"
+                                    status={tabsStatus[tab] ?? 'alt'}
                                 >
                                     {label}
                                 </LemonButton>
