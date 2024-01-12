@@ -314,7 +314,7 @@ def _insight_filter(filter: Dict):
     if _insight_type(filter) == "TRENDS":
         insight_filter = {
             "trendsFilter": TrendsFilter(
-                smoothing_intervals=filter.get("smoothing_intervals"),
+                smoothingIntervals=filter.get("smoothing_intervals"),
                 # show_legend=filter.get('show_legend'),
                 # hidden_legend_indexes=cleanHiddenLegendIndexes(filter.get('hidden_legend_keys')),
                 compare=filter.get("compare"),
