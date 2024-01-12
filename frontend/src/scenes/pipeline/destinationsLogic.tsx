@@ -9,8 +9,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import {
     BatchExportConfiguration,
-    PipelineAppTabs,
-    PipelineTabs,
+    PipelineAppKind,
+    PipelineAppTab,
     PluginConfigTypeNew,
     PluginConfigWithPluginInfoNew,
     PluginType,
@@ -39,14 +39,19 @@ interface DestinationTypeBase {
     updated_at: string
     frequency: 'realtime' | BatchExportConfiguration['interval']
 }
+export enum PipelineAppBackend {
+    BatchExport = 'batch_export',
+    Plugin = 'plugin',
+}
+
 export interface BatchExportDestination extends DestinationTypeBase {
-    type: 'batch_export'
+    backend: PipelineAppBackend.BatchExport
     id: string
     success_rates: BatchExportSuccessRate
     app_source_code_url?: never
 }
 export interface WebhookDestination extends DestinationTypeBase {
-    type: 'webhook'
+    backend: PipelineAppBackend.Plugin
     id: number
     plugin: PluginType
     app_source_code_url?: string
@@ -169,19 +174,19 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
             (s) => [s.pluginConfigs, s.plugins, s.batchExportConfigs],
             (pluginConfigs, plugins, batchExportConfigs): DestinationType[] => {
                 const appDests = Object.values(pluginConfigs).map<DestinationType>((pluginConfig) => ({
-                    type: 'webhook',
+                    backend: PipelineAppBackend.Plugin,
                     frequency: 'realtime',
                     id: pluginConfig.id,
                     name: pluginConfig.name,
                     description: pluginConfig.description,
                     enabled: pluginConfig.enabled,
                     config_url: urls.pipelineApp(
-                        PipelineTabs.Destinations,
+                        PipelineAppKind.Destination,
                         pluginConfig.id,
-                        PipelineAppTabs.Configuration
+                        PipelineAppTab.Configuration
                     ),
-                    metrics_url: urls.pipelineApp(PipelineTabs.Destinations, pluginConfig.id, PipelineAppTabs.Metrics),
-                    logs_url: urls.pipelineApp(PipelineTabs.Destinations, pluginConfig.id, PipelineAppTabs.Logs),
+                    metrics_url: urls.pipelineApp(PipelineAppKind.Destination, pluginConfig.id, PipelineAppTab.Metrics),
+                    logs_url: urls.pipelineApp(PipelineAppKind.Destination, pluginConfig.id, PipelineAppTab.Logs),
                     app_source_code_url: '',
                     plugin: plugins[pluginConfig.plugin],
                     success_rates: {
@@ -191,19 +196,19 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                     updated_at: pluginConfig.updated_at,
                 }))
                 const batchDests = Object.values(batchExportConfigs).map<DestinationType>((batchExport) => ({
-                    type: 'batch_export',
+                    backend: PipelineAppBackend.BatchExport,
                     frequency: batchExport.interval,
                     id: batchExport.id,
                     name: batchExport.name,
                     description: `${batchExport.destination.type} batch export`, // TODO: add to backend
                     enabled: !batchExport.paused,
                     config_url: urls.pipelineApp(
-                        PipelineTabs.Destinations,
+                        PipelineAppKind.Destination,
                         batchExport.id,
-                        PipelineAppTabs.Configuration
+                        PipelineAppTab.Configuration
                     ),
-                    metrics_url: urls.pipelineApp(PipelineTabs.Destinations, batchExport.id, PipelineAppTabs.Metrics),
-                    logs_url: urls.pipelineApp(PipelineTabs.Destinations, batchExport.id, PipelineAppTabs.Logs),
+                    metrics_url: urls.pipelineApp(PipelineAppKind.Destination, batchExport.id, PipelineAppTab.Metrics),
+                    logs_url: urls.pipelineApp(PipelineAppKind.Destination, batchExport.id, PipelineAppTab.Logs),
                     success_rates: {
                         '24h': [5, 17],
                         '7d': [12, 100043],
@@ -230,7 +235,7 @@ export const pipelineDestinationsLogic = kea<pipelineDestinationsLogicType>([
                 lemonToast.error("You don't have permission to enable or disable destinations")
                 return
             }
-            if (destination.type === 'webhook') {
+            if (destination.backend === 'plugin') {
                 actions.toggleEnabledWebhook({ destination: destination, enabled: enabled })
             } else {
                 actions.toggleEnabledBatchExport({ destination: destination, enabled: enabled })
