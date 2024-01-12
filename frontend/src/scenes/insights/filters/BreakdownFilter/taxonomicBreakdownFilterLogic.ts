@@ -23,7 +23,7 @@ export type TaxonomicBreakdownFilterLogicProps = {
     breakdownFilter: BreakdownFilter
     display?: ChartDisplayType | null
     isTrends: boolean
-    updateBreakdown: ((breakdown: BreakdownFilter) => void) | null
+    updateBreakdown: ((breakdownFilter: BreakdownFilter) => void) | null
     updateDisplay: ((display: ChartDisplayType | undefined) => void) | null
 }
 

@@ -12,7 +12,7 @@ export interface TaxonomicBreakdownFilterProps {
     breakdownFilter?: BreakdownFilter | null
     display?: ChartDisplayType | null
     isTrends: boolean
-    updateBreakdown: (breakdown: BreakdownFilter) => void
+    updateBreakdown: (breakdownFilter: BreakdownFilter) => void
     updateDisplay: (display: ChartDisplayType | undefined) => void
 }
 

@@ -97,7 +97,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateQuerySource: (querySource: QuerySourceUpdate) => ({ querySource }),
         updateInsightFilter: (insightFilter: InsightFilter) => ({ insightFilter }),
         updateDateRange: (dateRange: DateRange) => ({ dateRange }),
-        updateBreakdown: (breakdown: BreakdownFilter) => ({ breakdown }),
+        updateBreakdown: (breakdownFilter: BreakdownFilter) => ({ breakdownFilter }),
         updateDisplay: (display: ChartDisplayType | undefined) => ({ display }),
         setTimedOutQueryId: (id: string | null) => ({ id }),
     }),
@@ -319,8 +319,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateDateRange: ({ dateRange }) => {
             actions.updateQuerySource({ dateRange: { ...values.dateRange, ...dateRange } })
         },
-        updateBreakdown: ({ breakdown }) => {
-            actions.updateQuerySource({ breakdown: { ...values.breakdown, ...breakdown } } as Partial<TrendsQuery>)
+        updateBreakdown: ({ breakdownFilter }) => {
+            actions.updateQuerySource({
+                breakdownFilter: { ...values.breakdownFilter, ...breakdownFilter },
+            } as Partial<TrendsQuery>)
         },
         updateInsightFilter: ({ insightFilter }) => {
             const filterProperty = filterKeyForQuery(values.localQuerySource)
