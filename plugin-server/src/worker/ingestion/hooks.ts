@@ -354,6 +354,24 @@ export class HookCommander {
         const message = this.formatMessage(webhookUrl, action, event, team)
         end()
 
+        const body = JSON.stringify(message, undefined, 4)
+        const enqueuedInRustyHook = await this.rustyHook.enqueueIfEnabledForTeam({
+            webhook: {
+                url: webhookUrl,
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body,
+            },
+            teamId: event.teamId,
+            pluginId: -2, // -2 is hardcoded to mean webhooks
+            pluginConfigId: -2, // -2 is hardcoded to mean webhooks
+        })
+
+        if (enqueuedInRustyHook) {
+            // Rusty-Hook handles it from here, so we're done.
+            return
+        }
+
         const slowWarningTimeout = this.EXTERNAL_REQUEST_TIMEOUT * 0.7
         const timeout = setTimeout(() => {
             status.warn(
@@ -367,7 +385,7 @@ export class HookCommander {
             await instrumentWebhookStep('fetch', async () => {
                 const request = await trackedFetch(webhookUrl, {
                     method: 'POST',
-                    body: JSON.stringify(message, undefined, 4),
+                    body,
                     headers: { 'Content-Type': 'application/json' },
                     timeout: this.EXTERNAL_REQUEST_TIMEOUT,
                 })
@@ -429,6 +447,24 @@ export class HookCommander {
             data: { ...data, person: sendablePerson },
         }
 
+        const body = JSON.stringify(payload, undefined, 4)
+        const enqueuedInRustyHook = await this.rustyHook.enqueueIfEnabledForTeam({
+            webhook: {
+                url: hook.target,
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body,
+            },
+            teamId: event.teamId,
+            pluginId: -1, // -1 is hardcoded to mean resthooks
+            pluginConfigId: -1, // -1 is hardcoded to mean resthooks
+        })
+
+        if (enqueuedInRustyHook) {
+            // Rusty-Hook handles it from here, so we're done.
+            return
+        }
+
         const slowWarningTimeout = this.EXTERNAL_REQUEST_TIMEOUT * 0.7
         const timeout = setTimeout(() => {
             status.warn(
@@ -441,7 +477,7 @@ export class HookCommander {
         try {
             const request = await trackedFetch(hook.target, {
                 method: 'POST',
-                body: JSON.stringify(payload, undefined, 4),
+                body,
                 headers: { 'Content-Type': 'application/json' },
                 timeout: this.EXTERNAL_REQUEST_TIMEOUT,
             })
