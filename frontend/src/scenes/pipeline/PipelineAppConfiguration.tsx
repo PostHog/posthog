@@ -17,9 +17,9 @@ import { PluginField } from 'scenes/plugins/edit/PluginField'
 import { pipelineAppLogic } from './pipelineAppLogic'
 
 export function PipelineAppConfiguration(): JSX.Element {
-    const { appType } = useValues(pipelineAppLogic)
+    const { appBackend } = useValues(pipelineAppLogic)
 
-    if (appType === 'webhook') {
+    if (appBackend === 'plugin') {
         return (
             <LemonWidget title="Configuration">
                 <WebhookAppConfiguration />
@@ -31,7 +31,7 @@ export function PipelineAppConfiguration(): JSX.Element {
 }
 
 function WebhookAppConfiguration(): JSX.Element {
-    const { maybePlugin, maybePluginConfig, configuration } = useValues(pipelineAppLogic)
+    const { maybePlugin, maybePluginConfig, configuration, kind } = useValues(pipelineAppLogic)
     const { resetConfiguration, setConfigurationValues } = useActions(pipelineAppLogic)
 
     const [invisibleFields, setInvisibleFields] = useState<string[]>([])
@@ -62,7 +62,7 @@ function WebhookAppConfiguration(): JSX.Element {
         // This will never show up when we realize that the plugin doesn't exist, since then the whole scene is NotFound
         return (
             <div className="space-y-3 m-3">
-                {Array(3)
+                {Array(2)
                     .fill(null)
                     .map((_, index) => (
                         <div key={index} className="space-y-2">
@@ -74,7 +74,13 @@ function WebhookAppConfiguration(): JSX.Element {
         )
     }
 
-    const fields = getConfigSchemaArray(maybePlugin.config_schema).map((fieldConfig, index) => (
+    const configSchemaArray = getConfigSchemaArray(maybePlugin.config_schema)
+
+    if (configSchemaArray.length === 0) {
+        return <p className="m-3 italic">This {kind} isn't configurable.</p>
+    }
+
+    const fields = configSchemaArray.map((fieldConfig, index) => (
         <React.Fragment key={fieldConfig.key || `__key__${index}`}>
             {fieldConfig.key &&
             fieldConfig.type &&

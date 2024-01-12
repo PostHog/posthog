@@ -477,7 +477,7 @@ export const routes: Record<string, Scene> = {
     [urls.personByUUID('*', false)]: Scene.Person,
     [urls.persons()]: Scene.PersonsManagement,
     [urls.pipeline(':tab')]: Scene.Pipeline,
-    [urls.pipelineApp(':kind', ':id', ':tab')]: Scene.PipelineApp,
+    [urls.pipelineApp(':kindTab', ':id', ':appTab')]: Scene.PipelineApp,
     [urls.groups(':groupTypeIndex')]: Scene.PersonsManagement,
     [urls.group(':groupTypeIndex', ':groupKey', false)]: Scene.Group,
     [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: Scene.Group,
