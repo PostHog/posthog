@@ -175,7 +175,7 @@ export function InWrapper(): JSX.Element {
                             </div>
                         )
                     }}
-                    groupTypeLabel={'people'}
+                    groupTypeLabel="people"
                 />
             </div>
         </div>

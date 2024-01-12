@@ -88,9 +88,7 @@ const tabs: Record<
         content: (
             <ActivityLog
                 scope={ActivityScope.DATA_MANAGEMENT}
-                caption={
-                    'Only actions taken in the UI are captured in History. Automatic creation of definitions by ingestion is not shown here.'
-                }
+                caption="Only actions taken in the UI are captured in History. Automatic creation of definitions by ingestion is not shown here."
             />
         ),
     },

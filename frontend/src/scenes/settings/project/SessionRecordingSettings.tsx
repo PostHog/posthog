@@ -105,7 +105,7 @@ function NetworkCaptureSettings(): JSX.Element {
             </p>
             <FlaggedFeature flag={FEATURE_FLAGS.NETWORK_PAYLOAD_CAPTURE} match={true}>
                 <h5>Network payloads</h5>
-                <div className={'flex flex-row space-x-2'}>
+                <div className="flex flex-row space-x-2">
                     <LemonSwitch
                         data-attr="opt-in-capture-network-headers-switch"
                         onChange={(checked) => {
@@ -196,7 +196,7 @@ export function ReplayCostControl(): JSX.Element {
     return (
         <>
             {!costControlFeaturesEnabled && (
-                <LemonBanner className="mb-2" type={'warning'}>
+                <LemonBanner className="mb-2" type="warning">
                     <Link onClick={() => openSupportForm({ kind: 'support', target_area: 'session_replay' })}>
                         Contact support
                     </Link>{' '}
@@ -207,15 +207,15 @@ export function ReplayCostControl(): JSX.Element {
                 PostHog offers several tools to let you control the number of recordings you collect and which users you
                 collect recordings for.{' '}
                 <Link
-                    to={'https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record'}
-                    target={'blank'}
+                    to="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record"
+                    target="blank"
                 >
                     Learn more in our docs.
                 </Link>
             </p>
 
             <>
-                <div className={'flex flex-row justify-between'}>
+                <div className="flex flex-row justify-between">
                     <LemonLabel className="text-base">Sampling</LemonLabel>
                     <LemonSelect
                         disabledReason={!costControlFeaturesEnabled && 'Please contact support to enable this feature.'}
@@ -323,7 +323,7 @@ export function ReplayCostControl(): JSX.Element {
                 </p>
             </>
             <>
-                <div className={'flex flex-row justify-between'}>
+                <div className="flex flex-row justify-between">
                     <LemonLabel className="text-base">Minimum session duration (seconds)</LemonLabel>
                     <LemonSelect
                         disabledReason={!costControlFeaturesEnabled && 'Please contact support to enable this feature.'}
@@ -341,9 +341,9 @@ export function ReplayCostControl(): JSX.Element {
                 </p>
             </>
             <>
-                <div className={'flex flex-col space-y-2'}>
+                <div className="flex flex-col space-y-2">
                     <LemonLabel className="text-base">Enable recordings using feature flag</LemonLabel>
-                    <div className={'flex flex-row justify-start'}>
+                    <div className="flex flex-row justify-start">
                         <FlagSelector
                             value={currentTeam?.session_recording_linked_flag?.id ?? undefined}
                             onChange={(id, key) => {

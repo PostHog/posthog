@@ -65,7 +65,11 @@ export function PropertyFilters({
 
     return (
         <div className="PropertyFilters">
-            {showNestedArrow && !disablePopover && <div className="PropertyFilters__prefix">{<>&#8627;</>}</div>}
+            {showNestedArrow && !disablePopover && (
+                <div className="PropertyFilters__prefix">
+                    <>&#8627;</>
+                </div>
+            )}
             <div className="PropertyFilters__content">
                 <BindLogic logic={propertyFilterLogic} props={logicProps}>
                     {(allowNew ? filtersWithNew : filters).map((item: AnyPropertyFilter, index: number) => {
@@ -83,7 +87,7 @@ export function PropertyFilters({
                                     pageKey={pageKey}
                                     showConditionBadge={showConditionBadge}
                                     disablePopover={disablePopover || orFiltering}
-                                    label={'Add filter'}
+                                    label="Add filter"
                                     onRemove={remove}
                                     orFiltering={orFiltering}
                                     filterComponent={(onComplete) => (

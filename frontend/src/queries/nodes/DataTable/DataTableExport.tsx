@@ -201,7 +201,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                 overlay: [
                     <ExportWithConfirmation
                         key={1}
-                        placement={'topRight'}
+                        placement="topRight"
                         onConfirm={() => {
                             void startDownload(query, true)
                         }}
@@ -216,7 +216,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                             ? [
                                   <ExportWithConfirmation
                                       key={0}
-                                      placement={'topRight'}
+                                      placement="topRight"
                                       onConfirm={() => void startDownload(query, false)}
                                       actor={isPersonsNode(query.source) ? 'persons' : 'events'}
                                       limit={EXPORT_MAX_LIMIT}
@@ -233,7 +233,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                   <LemonButton
                                       key={3}
                                       fullWidth
-                                      data-attr={'copy-csv-to-clipboard'}
+                                      data-attr="copy-csv-to-clipboard"
                                       onClick={() => {
                                           if (dataTableRows) {
                                               copyTableToCsv(
@@ -249,7 +249,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                   <LemonButton
                                       key={4}
                                       fullWidth
-                                      data-attr={'copy-json-to-clipboard'}
+                                      data-attr="copy-json-to-clipboard"
                                       onClick={() => {
                                           if (dataTableRows) {
                                               copyTableToJson(

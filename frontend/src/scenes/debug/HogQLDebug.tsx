@@ -154,7 +154,7 @@ export function HogQLDebug({ query, setQuery, queryKey }: HogQLDebugProps): JSX.
                         <h2>Raw response</h2>
                         <CodeEditor
                             className="border"
-                            language={'json'}
+                            language="json"
                             value={JSON.stringify(response ?? responseErrorObject, null, 2)}
                             height={800}
                         />
