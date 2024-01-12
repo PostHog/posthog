@@ -1,6 +1,6 @@
 import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 
-import { Node, NotebookEditor } from '../Notebook/utils'
+import { Node, NotebookEditor } from '../Notebook/types'
 import { InsertionSuggestion } from './InsertionSuggestion'
 import type { insertionSuggestionsLogicType } from './insertionSuggestionsLogicType'
 import ReplayTimestampSuggestion from './ReplayTimestamp'

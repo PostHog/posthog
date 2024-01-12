@@ -19,7 +19,7 @@ import {
 } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { LemonSwitch } from '@posthog/lemon-ui'
-import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
+import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/types'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { IconComment, IconPerson } from 'lib/lemon-ui/icons'
 import { NotFound } from 'lib/components/NotFound'

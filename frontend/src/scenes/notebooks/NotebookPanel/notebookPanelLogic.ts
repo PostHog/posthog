@@ -5,7 +5,7 @@ import { HTMLProps } from 'react'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { NotebookNodeResource, SidePanelTab } from '~/types'
 
-import { EditorFocusPosition } from '../Notebook/utils'
+import { EditorFocusPosition } from '../Notebook/types'
 import type { notebookPanelLogicType } from './notebookPanelLogicType'
 
 export const notebookPanelLogic = kea<notebookPanelLogicType>([

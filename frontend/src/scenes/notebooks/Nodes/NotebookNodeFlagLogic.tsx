@@ -1,5 +1,5 @@
 import { connect, kea, key, listeners, path, props, selectors } from 'kea'
-import { JSONContent, Node } from '../Notebook/utils'
+import { JSONContent, Node } from '../Notebook/types'
 import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { buildEarlyAccessFeatureContent } from './NotebookNodeEarlyAccessFeature'
 import { NotebookNodeType } from '~/types'

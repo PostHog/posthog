@@ -4,7 +4,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { useLayoutEffect, useRef } from 'react'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
-import { JSONContent } from 'scenes/notebooks/Notebook/utils'
+import { JSONContent } from 'scenes/notebooks/Notebook/types'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 

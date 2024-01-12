@@ -6,7 +6,7 @@ import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
+import { JSONContent, NotebookNodeProps } from '../Notebook/types'
 import {
     EarlyAccessFeatureLogicProps,
     earlyAccessFeatureLogic,

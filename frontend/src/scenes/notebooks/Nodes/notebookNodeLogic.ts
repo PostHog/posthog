@@ -22,7 +22,7 @@ import {
     NotebookNodeAttributeProperties,
     NotebookNodeAttributes,
     NotebookNodeSettings,
-} from '../Notebook/utils'
+} from '../Notebook/types'
 import { NotebookNodeResource, NotebookNodeType } from '~/types'
 import posthog from 'posthog-js'
 import { NotebookNodeMessages, NotebookNodeMessagesListeners } from './messaging/notebook-node-messages'

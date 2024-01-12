@@ -2,7 +2,7 @@ import { ExtendedRegExpMatchArray, NodeViewProps, PasteRule } from '@tiptap/core
 import posthog from 'posthog-js'
 import { NodeType } from '@tiptap/pm/model'
 import { Editor as TTEditor } from '@tiptap/core'
-import { CustomNotebookNodeAttributes, NotebookNodeAttributes } from '../Notebook/utils'
+import { CustomNotebookNodeAttributes, NotebookNodeAttributes } from '../Notebook/types'
 import { useCallback, useMemo, useRef } from 'react'
 import { tryJsonParse, uuid } from 'lib/utils'
 

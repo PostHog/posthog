@@ -1,4 +1,4 @@
-import { Node, NotebookEditor } from '../Notebook/utils'
+import { Node, NotebookEditor } from '../Notebook/types'
 
 export type InsertionSuggestionViewProps = {
     previousNode: Node | null

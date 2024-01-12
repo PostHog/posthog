@@ -1,10 +1,10 @@
-import { actions, kea, reducers, path, listeners, connect } from 'kea'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { uuid } from 'lib/utils'
+import { JSONContent } from 'scenes/notebooks/Notebook/types'
+
+import { SidePanelTab } from '~/types'
 
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
-import { SidePanelTab } from '~/types'
-import { JSONContent } from 'scenes/notebooks/Notebook/utils'
-import { uuid } from 'lib/utils'
-
 import type { sidePanelCanvasLogicType } from './sidePanelCanvasLogicType'
 
 export const sidePanelCanvasLogic = kea<sidePanelCanvasLogicType>([
@@ -34,7 +34,7 @@ export const sidePanelCanvasLogic = kea<sidePanelCanvasLogicType>([
         ],
 
         canvasId: [
-            uuid() as string,
+            uuid(),
             {
                 openCanvas: () => uuid(),
             },

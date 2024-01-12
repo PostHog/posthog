@@ -1,7 +1,7 @@
 import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { NotFound } from 'lib/components/NotFound'
-import { NotebookNodeProps } from 'scenes/notebooks/Notebook/utils'
+import { NotebookNodeProps } from 'scenes/notebooks/Notebook/types'
 import { personLogic } from 'scenes/persons/personLogic'
 
 import { NotebookNodeType, PersonType } from '~/types'

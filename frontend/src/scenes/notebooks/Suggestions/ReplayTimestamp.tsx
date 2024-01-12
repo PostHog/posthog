@@ -7,7 +7,7 @@ import { NotebookNodeType } from '~/types'
 import { sessionRecordingPlayerProps } from '../Nodes/NotebookNodeRecording'
 import { buildTimestampCommentContent, formatTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
 import { firstChildOfType, hasChildOfType } from '../Notebook/Editor'
-import { Node, NotebookEditor } from '../Notebook/utils'
+import { Node, NotebookEditor } from '../Notebook/types'
 import { InsertionSuggestion, InsertionSuggestionViewProps } from './InsertionSuggestion'
 
 const insertTimestamp = ({
