@@ -17,7 +17,7 @@ from posthog.hogql_queries.insights.trends.utils import (
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
-from posthog.schema import ActionsNode, EventsNode, TrendsQuery
+from posthog.schema import ActionsNode, EventsNode, HogQLQueryModifiers, InCohortVia, TrendsQuery
 
 
 class Breakdown:
@@ -26,6 +26,7 @@ class Breakdown:
     series: EventsNode | ActionsNode
     query_date_range: QueryDateRange
     timings: HogQLTimings
+    modifiers: HogQLQueryModifiers
     events_filter: ast.Expr
 
     def __init__(
@@ -35,6 +36,7 @@ class Breakdown:
         series: EventsNode | ActionsNode,
         query_date_range: QueryDateRange,
         timings: HogQLTimings,
+        modifiers: HogQLQueryModifiers,
         events_filter: ast.Expr,
     ):
         self.team = team
@@ -42,6 +44,7 @@ class Breakdown:
         self.series = series
         self.query_date_range = query_date_range
         self.timings = timings
+        self.modifiers = modifiers
         self.events_filter = events_filter
 
     @cached_property
@@ -70,9 +73,16 @@ class Breakdown:
                 expr=parse_expr(self.query.breakdown.breakdown),
             )
         elif self.query.breakdown.breakdown_type == "cohort":
+            if self.modifiers.inCohortVia == InCohortVia.leftjoin_conjoined:
+                return ast.Alias(
+                    alias="breakdown_value",
+                    expr=ast.Field(chain=["__in_cohort", "cohort_id"]),
+                )
+
+            cohort_breakdown = 0 if self.query.breakdown.breakdown == "all" else int(self.query.breakdown.breakdown)  # type: ignore
             return ast.Alias(
                 alias="breakdown_value",
-                expr=ast.Field(chain=["__in_cohort", "cohort_id"]),
+                expr=ast.Constant(value=cohort_breakdown),
             )
 
         if self.query.breakdown.breakdown_type == "hogql":

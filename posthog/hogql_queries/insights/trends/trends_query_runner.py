@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import timedelta
 from itertools import groupby
 from math import ceil
@@ -38,6 +39,7 @@ from posthog.schema import (
     ChartDisplayType,
     EventsNode,
     HogQLQueryResponse,
+    InCohortVia,
     TrendsQuery,
     TrendsQueryResponse,
     HogQLQueryModifiers,
@@ -82,7 +84,7 @@ class TrendsQueryRunner(QueryRunner):
 
         return refresh_frequency
 
-    def to_query(self) -> List[ast.SelectQuery]:
+    def to_query(self) -> List[ast.SelectQuery | ast.SelectUnionQuery]:  # type: ignore
         queries = []
         with self.timings.measure("trends_query"):
             for series in self.series:
@@ -97,6 +99,7 @@ class TrendsQueryRunner(QueryRunner):
                     query_date_range=query_date_range,
                     series=series.series,
                     timings=self.timings,
+                    modifiers=self.modifiers,
                 )
                 queries.append(query_builder.build_query())
 
@@ -117,6 +120,7 @@ class TrendsQueryRunner(QueryRunner):
                     query_date_range=query_date_range,
                     series=series.series,
                     timings=self.timings,
+                    modifiers=self.modifiers,
                 )
                 queries.append(query_builder.build_persons_query())
 
@@ -339,6 +343,32 @@ class TrendsQueryRunner(QueryRunner):
             )
             for series in self.query.series
         ]
+
+        if (
+            self.modifiers.inCohortVia != InCohortVia.leftjoin_conjoined
+            and self.query.breakdown is not None
+            and self.query.breakdown.breakdown_type == "cohort"
+        ):
+            updated_series = []
+            if isinstance(self.query.breakdown.breakdown, List):
+                cohort_ids = self.query.breakdown.breakdown
+            else:
+                cohort_ids = [self.query.breakdown.breakdown]  # type: ignore
+
+            for cohort_id in cohort_ids:
+                for series in series_with_extras:
+                    copied_query = deepcopy(self.query)
+                    copied_query.breakdown.breakdown = cohort_id  # type: ignore
+
+                    updated_series.append(
+                        SeriesWithExtras(
+                            series=series.series,
+                            is_previous_period_series=series.is_previous_period_series,
+                            overriden_query=copied_query,
+                            aggregate_values=self._trends_display.should_aggregate_values(),
+                        )
+                    )
+            series_with_extras = updated_series
 
         if self.query.trendsFilter is not None and self.query.trendsFilter.compare:
             updated_series = []

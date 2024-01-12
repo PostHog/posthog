@@ -210,8 +210,8 @@ class InCohortResolver(TraversingVisitor):
 
             from posthog.models import Cohort
 
-            if isinstance(arg.value, int) and not isinstance(arg.value, bool):
-                cohorts = Cohort.objects.filter(id=arg.value, team_id=self.context.team_id).values_list(
+            if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
+                cohorts = Cohort.objects.filter(id=int(arg.value), team_id=self.context.team_id).values_list(
                     "id", "is_static", "name"
                 )
                 if len(cohorts) == 1:

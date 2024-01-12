@@ -41,7 +41,7 @@ from posthog.models.property import PropertyName, TableColumn
 from posthog.models.team.team import WeekStartDay
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.schema import MaterializationMode
+from posthog.schema import InCohortVia, MaterializationMode
 from posthog.utils import PersonOnEventsMode
 
 
@@ -99,12 +99,12 @@ def prepare_ast_for_printing(
     with context.timings.measure("create_hogql_database"):
         context.database = context.database or create_hogql_database(context.team_id, context.modifiers)
 
-    if context.modifiers.inCohortVia == "leftjoin_conjoined":
+    if context.modifiers.inCohortVia == InCohortVia.leftjoin_conjoined:
         with context.timings.measure("resolve_in_cohorts_conjoined"):
             resolve_in_cohorts_conjoined(node, dialect, context, stack)
     with context.timings.measure("resolve_types"):
         node = resolve_types(node, context, dialect=dialect, scopes=[node.type for node in stack] if stack else None)
-    if context.modifiers.inCohortVia == "leftjoin":
+    if context.modifiers.inCohortVia == InCohortVia.leftjoin:
         with context.timings.measure("resolve_in_cohorts"):
             resolve_in_cohorts(node, dialect, stack, context)
     if dialect == "clickhouse":

@@ -421,8 +421,6 @@ posthog/api/person.py:0: error: Argument 1 to "loads" has incompatible type "str
 posthog/api/person.py:0: error: Argument "user" to "log_activity" has incompatible type "User | AnonymousUser"; expected "User | None"  [arg-type]
 posthog/api/person.py:0: error: Argument "user" to "log_activity" has incompatible type "User | AnonymousUser"; expected "User | None"  [arg-type]
 posthog/hogql_queries/web_analytics/web_analytics_query_runner.py:0: error: Argument 1 to "append" of "list" has incompatible type "EventPropertyFilter"; expected "Expr"  [arg-type]
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Return type "list[SelectQuery]" of "to_query" incompatible with return type "SelectQuery | SelectUnionQuery" in supertype "QueryRunner"  [override]
-posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Incompatible return value type (got "list[SelectQuery | SelectUnionQuery]", expected "list[SelectQuery]")  [return-value]
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Need type annotation for "timings" (hint: "timings: List[<type>] = ...")  [var-annotated]
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Argument 1 to "extend" of "list" has incompatible type "list[QueryTiming] | None"; expected "Iterable[Any]"  [arg-type]
 posthog/hogql_queries/insights/trends/trends_query_runner.py:0: error: Statement is unreachable  [unreachable]
