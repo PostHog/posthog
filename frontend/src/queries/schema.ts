@@ -513,7 +513,6 @@ export type TrendsFilter = {
     compare?: TrendsFilterLegacy['compare']
     formula?: TrendsFilterLegacy['formula']
     display?: TrendsFilterLegacy['display']
-    breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count']
     show_legend?: TrendsFilterLegacy['show_legend']
     aggregation_axis_format?: TrendsFilterLegacy['aggregation_axis_format']
     aggregation_axis_prefix?: TrendsFilterLegacy['aggregation_axis_prefix']
