@@ -32,7 +32,7 @@ import { buildNodeEmbed } from '../Nodes/NotebookNodeEmbed'
 import { buildInsightVizQueryContent, buildNodeQueryContent } from '../Nodes/NotebookNodeQuery'
 import NotebookIconHeading from './NotebookIconHeading'
 import { notebookLogic } from './notebookLogic'
-import { EditorCommands, EditorRange } from './utils'
+import { EditorCommands, EditorRange } from './types'
 
 type SlashCommandConditionalProps =
     | {

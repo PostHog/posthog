@@ -30,7 +30,7 @@ import { migrate, NOTEBOOKS_VERSION } from './migrations/migrate'
 import type { notebookLogicType } from './notebookLogicType'
 // NOTE: Annoyingly, if we import this then kea logic type-gen generates
 // two imports and fails so, we reimport it from a utils file
-import { EditorRange, JSONContent, NotebookEditor } from './utils'
+import { EditorRange, JSONContent, NotebookEditor } from './types'
 
 const SYNC_DELAY = 1000
 const NOTEBOOK_REFRESH_MS = window.location.origin === 'http://localhost:8000' ? 5000 : 30000

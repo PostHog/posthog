@@ -41,7 +41,8 @@ import { InlineMenu } from './InlineMenu'
 import { MentionsExtension } from './MentionsExtension'
 import { notebookLogic } from './notebookLogic'
 import { SlashCommandsExtension } from './SlashCommands'
-import { EditorFocusPosition, EditorRange, JSONContent, Node, textContent } from './utils'
+import { EditorFocusPosition, EditorRange, JSONContent, Node } from './types'
+import { textContent } from './utils'
 
 const CustomDocument = ExtensionDocument.extend({
     content: 'heading block*',

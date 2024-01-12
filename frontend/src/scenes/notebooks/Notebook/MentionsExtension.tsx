@@ -12,7 +12,7 @@ import { membersLogic } from 'scenes/organization/membersLogic'
 import { NotebookNodeType, OrganizationMemberType } from '~/types'
 
 import { notebookLogic } from './notebookLogic'
-import { EditorRange } from './utils'
+import { EditorRange } from './types'
 
 type MentionsProps = {
     range: EditorRange
