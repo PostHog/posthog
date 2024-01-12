@@ -2060,7 +2060,7 @@ class InsightActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    day: Optional[str] = None
+    day: Optional[Union[str, int]] = None
     interval: Optional[int] = Field(
         default=None, description="An interval selected out of available intervals in source query"
     )

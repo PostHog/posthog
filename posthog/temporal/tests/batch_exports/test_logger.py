@@ -399,9 +399,9 @@ async def test_batch_exports_logger_produces_to_kafka(activity_environment, prod
         if iterations > 10:
             raise TimeoutError("Timedout waiting for logs")
 
-    assert len(results) == 1  # type: ignore
+    assert len(results) == 1
 
-    row = results[0]  # type: ignore
+    row = results[0]
     assert row[0] == activity_environment.info.workflow_run_id
     assert row[1] == "info"
     assert row[2] == expected_log_source

@@ -17,6 +17,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
@@ -29,9 +30,23 @@ from posthog.schema import (
 )
 
 
+class SeriesWithExtras:
+    series: EventsNode | ActionsNode
+    is_previous_period_series: Optional[bool]
+
+    def __init__(
+        self,
+        series: EventsNode | ActionsNode,
+        is_previous_period_series: Optional[bool],
+    ):
+        self.series = series
+        self.is_previous_period_series = is_previous_period_series
+
+
 class StickinessQueryRunner(QueryRunner):
     query: StickinessQuery
     query_type = StickinessQuery
+    series: List[SeriesWithExtras]
 
     def __init__(
         self,
@@ -42,6 +57,7 @@ class StickinessQueryRunner(QueryRunner):
         limit_context: Optional[LimitContext] = None,
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+        self.series = self.setup_series()
 
     def _is_stale(self, cached_result_package):
         date_to = self.query_date_range.date_to()
@@ -65,15 +81,41 @@ class StickinessQueryRunner(QueryRunner):
 
         return refresh_frequency
 
-    def to_query(self) -> List[ast.SelectQuery]:  # type: ignore
-        interval_subtract = ast.Call(
-            name=f"toInterval{self.query_date_range.interval_name.capitalize()}",
-            args=[ast.Constant(value=2)],
+    def _events_query(self, series_with_extra: SeriesWithExtras) -> ast.SelectQuery:
+        select_query = parse_select(
+            """
+                SELECT count(DISTINCT aggregation_target) as aggregation_target, num_intervals
+                FROM (
+                    SELECT e.person_id as aggregation_target, count(DISTINCT toStartOfDay(e.timestamp)) as num_intervals
+                    FROM events e
+                    SAMPLE {sample}
+                    WHERE {where_clause}
+                    GROUP BY aggregation_target
+                )
+                WHERE num_intervals <= {num_intervals}
+                GROUP BY num_intervals
+                ORDER BY num_intervals
+            """,
+            placeholders={
+                "where_clause": self.where_clause(series_with_extra),
+                "num_intervals": ast.Constant(value=self.intervals_num()),
+                "sample": self._sample_value(),
+            },
         )
 
+        return cast(ast.SelectQuery, select_query)
+
+    def to_query(self) -> List[ast.SelectQuery]:  # type: ignore
         queries = []
 
-        for series in self.query.series:
+        for series in self.series:
+            date_range = self.date_range(series)
+
+            interval_subtract = ast.Call(
+                name=f"toInterval{date_range.interval_name.capitalize()}",
+                args=[ast.Constant(value=2)],
+            )
+
             select_query = parse_select(
                 """
                     SELECT groupArray(aggregation_target), groupArray(num_intervals)
@@ -83,28 +125,16 @@ class StickinessQueryRunner(QueryRunner):
                             SELECT 0 as aggregation_target, (number + 1) as num_intervals
                             FROM numbers(dateDiff({interval}, {date_from} - {interval_subtract}, {date_to}))
                             UNION ALL
-                            SELECT count(DISTINCT aggregation_target) as aggregation_target, num_intervals
-                            FROM (
-                                SELECT e.person_id as aggregation_target, count(DISTINCT toStartOfDay(e.timestamp)) as num_intervals
-                                FROM events e
-                                SAMPLE {sample}
-                                WHERE {where_clause}
-                                GROUP BY aggregation_target
-                            )
-                            WHERE num_intervals <= {num_intervals}
-                            GROUP BY num_intervals
-                            ORDER BY num_intervals
+                            {events_query}
                         )
                         GROUP BY num_intervals
                         ORDER BY num_intervals
                     )
                 """,
                 placeholders={
-                    **self.query_date_range.to_placeholders(),
-                    "where_clause": self.where_clause(series),
-                    "num_intervals": ast.Constant(value=self.intervals_num()),
+                    **date_range.to_placeholders(),
                     "interval_subtract": interval_subtract,
-                    "sample": self._sample_value(),
+                    "events_query": self._events_query(series),
                 },
             )
 
@@ -112,8 +142,26 @@ class StickinessQueryRunner(QueryRunner):
 
         return queries
 
-    def to_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
-        return ast.SelectUnionQuery(select_queries=[])
+    def to_actors_query(self, interval_num: Optional[int] = None) -> ast.SelectQuery | ast.SelectUnionQuery:
+        queries: List[ast.SelectQuery] = []
+
+        for series in self.series:
+            events_query = self._events_query(series)
+            events_query.select = [ast.Alias(alias="person_id", expr=ast.Field(chain=["aggregation_target"]))]
+            events_query.group_by = None
+            events_query.order_by = None
+
+            # Scope down to the individual day
+            if interval_num is not None:
+                events_query.where = ast.CompareOperation(
+                    left=ast.Field(chain=["num_intervals"]),
+                    op=ast.CompareOperationOp.Eq,
+                    right=ast.Constant(value=interval_num),
+                )
+
+            queries.append(events_query)
+
+        return ast.SelectUnionQuery(select_queries=queries)
 
     def calculate(self):
         queries = self.to_query()
@@ -134,8 +182,10 @@ class StickinessQueryRunner(QueryRunner):
                 timings.extend(response.timings)
 
             for val in response.results or []:
+                series_with_extra = self.series[index]
+
                 try:
-                    series_label = self.series_event(self.query.series[index])
+                    series_label = self.series_event(series_with_extra.series)
                 except Action.DoesNotExist:
                     # Dont append the series if the action doesnt exist
                     continue
@@ -152,11 +202,20 @@ class StickinessQueryRunner(QueryRunner):
                     ],
                 }
 
+                # Modifications for when comparing to previous period
+                if self.query.stickinessFilter is not None and self.query.stickinessFilter.compare:
+                    series_object["compare"] = True
+                    series_object["compare_label"] = (
+                        "previous" if series_with_extra.is_previous_period_series else "current"
+                    )
+
                 res.append(series_object)
 
         return StickinessQueryResponse(results=res, timings=timings)
 
-    def where_clause(self, series: EventsNode | ActionsNode) -> ast.Expr:
+    def where_clause(self, series_with_extra: SeriesWithExtras) -> ast.Expr:
+        date_range = self.date_range(series_with_extra)
+        series = series_with_extra.series
         filters: List[ast.Expr] = []
 
         # Dates
@@ -164,11 +223,11 @@ class StickinessQueryRunner(QueryRunner):
             [
                 parse_expr(
                     "timestamp >= {date_from_with_adjusted_start_of_interval}",
-                    placeholders=self.query_date_range.to_placeholders(),
+                    placeholders=date_range.to_placeholders(),
                 ),
                 parse_expr(
                     "timestamp <= {date_to}",
-                    placeholders=self.query_date_range.to_placeholders(),
+                    placeholders=date_range.to_placeholders(),
                 ),
             ]
         )
@@ -233,9 +292,52 @@ class StickinessQueryRunner(QueryRunner):
         delta = self.query_date_range.date_to() - self.query_date_range.date_from()
         return delta.days + 2
 
+    def setup_series(self) -> List[SeriesWithExtras]:
+        series_with_extras = [
+            SeriesWithExtras(
+                series,
+                None,
+            )
+            for series in self.query.series
+        ]
+
+        if self.query.stickinessFilter is not None and self.query.stickinessFilter.compare:
+            updated_series = []
+            for series in series_with_extras:
+                updated_series.append(
+                    SeriesWithExtras(
+                        series=series.series,
+                        is_previous_period_series=False,
+                    )
+                )
+                updated_series.append(
+                    SeriesWithExtras(
+                        series=series.series,
+                        is_previous_period_series=True,
+                    )
+                )
+            series_with_extras = updated_series
+
+        return series_with_extras
+
+    def date_range(self, series: SeriesWithExtras):
+        if series.is_previous_period_series:
+            return self.query_previous_date_range
+
+        return self.query_date_range
+
     @cached_property
     def query_date_range(self):
         return QueryDateRange(
+            date_range=self.query.dateRange,
+            team=self.team,
+            interval=self.query.interval,
+            now=datetime.now(),
+        )
+
+    @cached_property
+    def query_previous_date_range(self):
+        return QueryPreviousPeriodDateRange(
             date_range=self.query.dateRange,
             team=self.team,
             interval=self.query.interval,

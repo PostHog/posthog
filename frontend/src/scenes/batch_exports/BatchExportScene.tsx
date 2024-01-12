@@ -23,10 +23,11 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter, identifierToHuman } from 'lib/utils'
 import { pluralize } from 'lib/utils'
 import { useEffect, useState } from 'react'
+import { PipelineAppLogLevel } from 'scenes/pipeline/pipelineAppLogsLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { BatchExportLogEntry, BatchExportLogEntryLevel } from '~/types'
+import { BatchExportLogEntry } from '~/types'
 
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { batchExportLogic, BatchExportLogicProps, BatchExportTab } from './batchExportLogic'
@@ -252,22 +253,22 @@ export function RunsTab(): JSX.Element {
     )
 }
 
-function BatchExportLogEntryLevelDisplay(type: BatchExportLogEntryLevel): JSX.Element {
+function BatchExportLogEntryLevelDisplay(type: PipelineAppLogLevel): JSX.Element {
     let color: string | undefined
     switch (type) {
-        case BatchExportLogEntryLevel.Debug:
+        case PipelineAppLogLevel.Debug:
             color = 'var(--muted)'
             break
-        case BatchExportLogEntryLevel.Log:
+        case PipelineAppLogLevel.Log:
             color = 'var(--default)'
             break
-        case BatchExportLogEntryLevel.Info:
+        case PipelineAppLogLevel.Info:
             color = 'var(--blue)'
             break
-        case BatchExportLogEntryLevel.Warning:
+        case PipelineAppLogLevel.Warning:
             color = 'var(--warning)'
             break
-        case BatchExportLogEntryLevel.Error:
+        case PipelineAppLogLevel.Error:
             color = 'var(--danger)'
             break
         default:
@@ -335,7 +336,7 @@ export function LogsTab({ batchExportId }: BatchExportLogsProps): JSX.Element {
             />
             <div className="flex items-center gap-4">
                 <span>Show logs of type:&nbsp;</span>
-                {Object.values(BatchExportLogEntryLevel).map((type) => {
+                {Object.values(PipelineAppLogLevel).map((type) => {
                     return (
                         <LemonCheckbox
                             key={type}
@@ -404,11 +405,6 @@ export function BatchExportScene(): JSX.Element {
     return (
         <>
             <PageHeader
-                title={
-                    <span className="flex items-center gap-2">
-                        {batchExportConfig?.name ?? (batchExportConfigLoading ? 'Loading...' : 'Missing')}
-                    </span>
-                }
                 buttons={
                     batchExportConfig ? (
                         <>

@@ -1,10 +1,11 @@
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { PipelineAppLogLevel } from 'scenes/pipeline/pipelineAppLogsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import api from '~/lib/api'
-import { BatchExportLogEntry, BatchExportLogEntryLevel } from '~/types'
+import { BatchExportLogEntry } from '~/types'
 
 import type { batchExportLogsLogicType } from './batchExportLogsLogicType'
 
@@ -88,10 +89,9 @@ export const batchExportLogsLogic = kea<batchExportLogsLogicType>([
     })),
     reducers({
         batchExportLogsTypes: [
-            Object.values(BatchExportLogEntryLevel).filter((type) => type !== 'DEBUG'),
+            Object.values(PipelineAppLogLevel).filter((type) => type !== 'DEBUG'),
             {
-                setBatchExportLogsTypes: (_, { typeFilters }) =>
-                    typeFilters.map((tf) => tf as BatchExportLogEntryLevel),
+                setBatchExportLogsTypes: (_, { typeFilters }) => typeFilters.map((tf) => tf as PipelineAppLogLevel),
             },
         ],
         batchExportLogsBackground: [
@@ -107,7 +107,7 @@ export const batchExportLogsLogic = kea<batchExportLogsLogicType>([
             },
         ],
         typeFilters: [
-            Object.values(BatchExportLogEntryLevel).filter((type) => type !== 'DEBUG') as CheckboxValueType[],
+            Object.values(PipelineAppLogLevel).filter((type) => type !== 'DEBUG') as CheckboxValueType[],
             {
                 setBatchExportLogsTypes: (_, { typeFilters }) => typeFilters || [],
             },
