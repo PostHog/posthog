@@ -1,12 +1,13 @@
-import { useActions, useValues } from 'kea'
-import { sidePanelCanvasLogic } from './sidePanelCanvasLogic'
-import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
+import { IconNotebook } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { sidePanelStateLogic } from '../sidePanelStateLogic'
-import { IconNotebook } from 'lib/lemon-ui/icons'
+import { useActions, useValues } from 'kea'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
 
-export const SidePanelCanvas = (): JSX.Element => {
+import { sidePanelStateLogic } from '../sidePanelStateLogic'
+import { sidePanelCanvasLogic } from './sidePanelCanvasLogic'
+
+export const SidePanelCanvas = (): JSX.Element | null => {
     const { canvas, canvasId, title } = useValues(sidePanelCanvasLogic)
     const { closeSidePanel } = useActions(sidePanelStateLogic)
 
@@ -40,7 +41,7 @@ export const SidePanelCanvas = (): JSX.Element => {
                     mode="canvas"
                     initialContent={{
                         type: 'doc',
-                        content: canvas,
+                        content: canvas ? [canvas] : [],
                     }}
                 />
             </div>

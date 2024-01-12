@@ -5,7 +5,9 @@ import { SidePanelTab } from '~/types'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { uuid } from 'lib/utils'
 
-export const sidePanelCanvasLogic = kea([
+import type { sidePanelCanvasLogicType } from './sidePanelCanvasLogicType'
+
+export const sidePanelCanvasLogic = kea<sidePanelCanvasLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelCanvasLogic']),
     connect({
         actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],

@@ -63,6 +63,7 @@ export const sessionPlayerModalLogic = kea<sessionPlayerModalLogicType>([
                         attrs: {
                             id: sessionRecording.id,
                             autoPlay: true,
+                            initialTimestamp, // TODO: Does this work?
                         },
                     },
                 ])
