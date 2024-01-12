@@ -454,6 +454,34 @@ class PropertyOperator(str, Enum):
     max = "max"
 
 
+class QueryResponseAlternative1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    next: Optional[str] = None
+    results: List[EventType]
+
+
+class QueryResponseAlternative2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    results: List[Dict[str, Any]]
+
+
+class QueryResponseAlternative7(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    errors: List[HogQLNotice]
+    inputExpr: Optional[str] = None
+    inputSelect: Optional[str] = None
+    isValid: Optional[bool] = None
+    isValidView: Optional[bool] = None
+    notices: List[HogQLNotice]
+    warnings: List[HogQLNotice]
+
+
 class QueryStatus(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -980,6 +1008,105 @@ class QueryResponse(BaseModel):
     timings: Optional[List[QueryTiming]] = None
 
 
+class QueryResponseAlternative3(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: List
+    hasMore: Optional[bool] = None
+    hogql: str
+    limit: Optional[int] = None
+    offset: Optional[int] = None
+    results: List[List]
+    timings: Optional[List[QueryTiming]] = None
+    types: List[str]
+
+
+class QueryResponseAlternative4(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: List
+    hasMore: Optional[bool] = None
+    hogql: str
+    limit: int
+    missing_actors_count: Optional[int] = None
+    offset: int
+    results: List[List]
+    timings: Optional[List[QueryTiming]] = None
+    types: List[str]
+
+
+class QueryResponseAlternative5(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = None
+    results: List[TimelineEntry]
+    timings: Optional[List[QueryTiming]] = None
+
+
+class QueryResponseAlternative6(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    clickhouse: Optional[str] = Field(default=None, description="Executed ClickHouse query")
+    columns: Optional[List] = Field(default=None, description="Returned columns")
+    error: Optional[str] = Field(
+        default=None, description="Query error. Returned only if 'explain' is true. Throws an error otherwise."
+    )
+    explain: Optional[List[str]] = Field(default=None, description="Query explanation output")
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query: Optional[str] = Field(default=None, description="Input query string")
+    results: Optional[List] = Field(default=None, description="Query results")
+    timings: Optional[List[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[List] = Field(default=None, description="Types of returned columns")
+
+
+class QueryResponseAlternative8(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List[WebOverviewItem]
+    timings: Optional[List[QueryTiming]] = None
+
+
+class QueryResponseAlternative9(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[List] = None
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List
+    timings: Optional[List[QueryTiming]] = None
+    types: Optional[List] = None
+
+
+class QueryResponseAlternative11(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List[Dict[str, Any]]
+    timings: Optional[List[QueryTiming]] = None
+
+
 class RetentionFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1445,47 +1572,52 @@ class PropertyGroupFilterValue(BaseModel):
     ]
 
 
-class QueryCombinedResponse(BaseModel):
+class QueryResponseAlternative12(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    clickhouse: Optional[Union[Any, str, List[DatabaseSchemaQueryResponseField]]] = None
-    columns: Optional[Union[Any, List, List[DatabaseSchemaQueryResponseField]]] = None
-    error: Optional[Union[Any, str, List[DatabaseSchemaQueryResponseField]]] = None
-    errors: Optional[Union[Any, List[HogQLNotice], List[DatabaseSchemaQueryResponseField]]] = None
-    explain: Optional[Union[Any, List[str], List[DatabaseSchemaQueryResponseField]]] = None
-    hasMore: Optional[Union[Any, bool, List[DatabaseSchemaQueryResponseField]]] = None
-    hogql: Optional[Union[Any, str, List[DatabaseSchemaQueryResponseField]]] = None
-    inputExpr: Optional[Union[Any, str, List[DatabaseSchemaQueryResponseField]]] = None
-    inputSelect: Optional[Union[Any, str, List[DatabaseSchemaQueryResponseField]]] = None
-    isValid: Optional[Union[Any, bool, List[DatabaseSchemaQueryResponseField]]] = None
-    isValidView: Optional[Union[Any, bool, List[DatabaseSchemaQueryResponseField]]] = None
-    is_cached: Optional[Union[Any, bool, List[DatabaseSchemaQueryResponseField]]] = None
-    last_refresh: Optional[Union[Any, str, List[DatabaseSchemaQueryResponseField]]] = None
-    limit: Optional[Union[Any, int, List[DatabaseSchemaQueryResponseField]]] = None
-    missing_actors_count: Optional[Union[Any, int, List[DatabaseSchemaQueryResponseField]]] = None
-    modifiers: Optional[Union[Any, HogQLQueryModifiers, List[DatabaseSchemaQueryResponseField]]] = None
-    next: Optional[Union[str, Any, List[DatabaseSchemaQueryResponseField]]] = None
-    next_allowed_client_refresh: Optional[Union[Any, str, List[DatabaseSchemaQueryResponseField]]] = None
-    notices: Optional[Union[Any, List[HogQLNotice], List[DatabaseSchemaQueryResponseField]]] = None
-    offset: Optional[Union[Any, int, List[DatabaseSchemaQueryResponseField]]] = None
-    query: Optional[Union[Any, str, List[DatabaseSchemaQueryResponseField]]] = None
-    results: Optional[
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List[RetentionResult]
+    timings: Optional[List[QueryTiming]] = None
+
+
+class QueryResponseAlternative(
+    RootModel[
         Union[
-            List[EventType],
-            Any,
-            List[Dict[str, Any]],
-            List[List],
-            List[TimelineEntry],
-            List,
-            List[WebOverviewItem],
-            List[RetentionResult],
-            List[DatabaseSchemaQueryResponseField],
+            QueryResponseAlternative1,
+            Dict[str, Any],
+            QueryResponseAlternative2,
+            QueryResponseAlternative3,
+            QueryResponseAlternative4,
+            QueryResponseAlternative5,
+            QueryResponseAlternative6,
+            QueryResponseAlternative7,
+            QueryResponseAlternative8,
+            QueryResponseAlternative9,
+            QueryResponseAlternative11,
+            QueryResponseAlternative12,
+            Dict[str, List[DatabaseSchemaQueryResponseField]],
         ]
-    ] = None
-    timings: Optional[Union[Any, List[QueryTiming], List[DatabaseSchemaQueryResponseField]]] = None
-    types: Optional[Union[Any, List[str], List, List[DatabaseSchemaQueryResponseField]]] = None
-    warnings: Optional[Union[Any, List[HogQLNotice], List[DatabaseSchemaQueryResponseField]]] = None
+    ]
+):
+    root: Union[
+        QueryResponseAlternative1,
+        Dict[str, Any],
+        QueryResponseAlternative2,
+        QueryResponseAlternative3,
+        QueryResponseAlternative4,
+        QueryResponseAlternative5,
+        QueryResponseAlternative6,
+        QueryResponseAlternative7,
+        QueryResponseAlternative8,
+        QueryResponseAlternative9,
+        QueryResponseAlternative11,
+        QueryResponseAlternative12,
+        Dict[str, List[DatabaseSchemaQueryResponseField]],
+    ]
 
 
 class RetentionQueryResponse(BaseModel):

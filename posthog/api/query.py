@@ -35,7 +35,7 @@ from posthog.rate_limit import (
     AISustainedRateThrottle,
     TeamRateThrottle,
 )
-from posthog.schema import QueryRequest, QueryCombinedResponse
+from posthog.schema import QueryRequest, QueryResponseAlternative
 
 
 class QueryThrottle(TeamRateThrottle):
@@ -59,7 +59,7 @@ class QueryViewSet(PydanticModelMixin, StructuredViewSetMixin, viewsets.ViewSet)
     @extend_schema(
         request=QueryRequest,
         responses={
-            200: QueryCombinedResponse,
+            200: QueryResponseAlternative,
         },
     )
     def create(self, request, *args, **kwargs) -> Response:
