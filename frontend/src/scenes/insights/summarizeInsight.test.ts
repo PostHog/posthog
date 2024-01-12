@@ -616,7 +616,7 @@ describe('summarizing insights', () => {
                         math: BaseMathType.UniqueUsers,
                     },
                 ],
-                breakdown: {
+                breakdownFilter: {
                     breakdown_type: 'cohort',
                     breakdown: ['all', 1],
                 },
@@ -709,7 +709,7 @@ describe('summarizing insights', () => {
                     },
                 ],
                 aggregation_group_type_index: 0,
-                breakdown: {
+                breakdownFilter: {
                     breakdown_type: 'person',
                     breakdown: 'some_prop',
                 },

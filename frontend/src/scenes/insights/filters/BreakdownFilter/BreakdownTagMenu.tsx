@@ -25,7 +25,7 @@ export const BreakdownTagMenu = (): JSX.Element => {
         <>
             {isNormalizeable && (
                 <LemonSwitch
-                    checked={!!breakdownFilter.breakdown_normalize_url} // TODO move global values/actions to taxonomicBreakdownFilterLogic
+                    checked={!!breakdownFilter?.breakdown_normalize_url} // TODO move global values/actions to taxonomicBreakdownFilterLogic
                     fullWidth={true}
                     onChange={(checked) => setNormalizeBreakdownURL(checked)}
                     className="min-h-10 px-2"
