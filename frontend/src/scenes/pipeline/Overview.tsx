@@ -1,4 +1,5 @@
 import { LemonCard, LemonSegmentedButton, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -8,6 +9,28 @@ import { urls } from 'scenes/urls'
 import { PipelineAppTabs, PipelineTabs } from '~/types'
 
 import { pipelineOverviewLogic } from './overviewLogic'
+
+type StatusIndicatorProps = {
+    status: 'enabled' | 'disabled'
+}
+
+const StatusIndicator = ({ status }: StatusIndicatorProps): JSX.Element => (
+    <Tooltip title="xx events processed in the last 7 days" placement="right">
+        <div className="relative flex h-3 w-3">
+            <span
+                className={clsx('absolute inline-flex h-full w-full rounded-full opacity-75', {
+                    'bg-success animate-ping': status === 'enabled',
+                    'bg-border': status === 'disabled',
+                })}
+            />
+            <span
+                className={clsx('relative inline-flex rounded-full h-3 w-3', {
+                    'bg-success': status === 'enabled',
+                })}
+            />
+        </div>
+    </Tooltip>
+)
 
 type PipelineStepProps = {
     order?: number
@@ -36,14 +59,11 @@ const PipelineStep = ({ name, description, order, enabled, to }: PipelineStepPro
         <div className="flex items-center justify-between mb-3">
             <div className="flex items-center">
                 <h3 className="mb-0 mr-2">
-                    <Link to={to}>{name}</Link>
+                    <Link to={to} subtle>
+                        {name}
+                    </Link>
                 </h3>
-                <Tooltip title="xx events processed in the last 7 days" placement="right">
-                    <span className="relative flex h-3 w-3">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
-                        <span className="relative inline-flex rounded-full h-3 w-3 bg-primary" />
-                    </span>
-                </Tooltip>
+                <StatusIndicator status={enabled ? 'enabled' : 'disabled'} />
             </div>
             <div>
                 <More overlay={<></>} />
@@ -55,10 +75,10 @@ const PipelineStep = ({ name, description, order, enabled, to }: PipelineStepPro
                 {description}
             </LemonMarkdown>
         ) : (
-            <p className="italic">No description.</p>
+            <span className="italic">No description.</span>
         )}
 
-        <div>
+        <div className="mt-3 flex flex-end">
             {enabled !== undefined && (
                 <>
                     {enabled ? (
