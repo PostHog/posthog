@@ -2,7 +2,7 @@ import { Hub } from '../../../types'
 import { PluginGen } from './common'
 
 export const replaceImports: PluginGen =
-    (server: Hub, imports: Record<string, any> = {}) =>
+    (_: Hub, imports: Record<string, any> = {}, usedImports: Set<string>) =>
     ({ types: t }) => ({
         visitor: {
             ImportDeclaration: {
@@ -16,6 +16,8 @@ export const replaceImports: PluginGen =
                             `Cannot import '${importSource}'! This package is not provided by PostHog in plugins.`
                         )
                     }
+
+                    usedImports.add(importSource)
 
                     for (const specifier of node.specifiers) {
                         if (t.isImportSpecifier(specifier)) {
@@ -62,6 +64,8 @@ export const replaceImports: PluginGen =
                                 `Cannot import '${importSource}'! This package is not provided by PostHog in plugins.`
                             )
                         }
+
+                        usedImports.add(importSource)
 
                         path.replaceWith(
                             t.memberExpression(t.identifier('__pluginHostImports'), t.stringLiteral(importSource), true)

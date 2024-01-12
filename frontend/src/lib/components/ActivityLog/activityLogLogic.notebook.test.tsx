@@ -1,8 +1,10 @@
-import { ActivityLogItem, ActivityScope, humanize } from 'lib/components/ActivityLog/humanizeActivity'
 import '@testing-library/jest-dom'
-import { InsightShortId } from '~/types'
-import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
+
 import { render } from '@testing-library/react'
+import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
+import { ActivityLogItem, humanize } from 'lib/components/ActivityLog/humanizeActivity'
+
+import { ActivityScope, InsightShortId } from '~/types'
 
 describe('the activity log logic', () => {
     describe('humanizing notebooks', () => {
@@ -23,7 +25,7 @@ describe('the activity log logic', () => {
                     type: undefined,
                     changes: [
                         {
-                            type: 'Notebook',
+                            type: ActivityScope.NOTEBOOK,
                             after: {
                                 type: 'doc',
                                 content: [
@@ -80,7 +82,7 @@ describe('the activity log logic', () => {
                             },
                         },
                         {
-                            type: 'Notebook',
+                            type: ActivityScope.NOTEBOOK,
                             after: 12,
                             field: 'version',
                             action: 'changed',

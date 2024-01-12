@@ -1,30 +1,20 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { SettingsMap } from './SettingsMap'
-
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { SettingSection, Setting, SettingSectionId, SettingLevelId, SettingId } from './types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import type { settingsLogicType } from './settingsLogicType'
-import { urls } from 'scenes/urls'
-import { copyToClipboard } from 'lib/utils'
-
-export type SettingsLogicProps = {
-    logicKey?: string
-    // Optional - if given, renders only the given level
-    settingLevelId?: SettingLevelId
-    // Optional - if given, renders only the given section
-    sectionId?: SettingSectionId
-    // Optional - if given, renders only the given setting
-    settingId?: SettingId
-}
+import { SettingsMap } from './SettingsMap'
+import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId, SettingsLogicProps } from './types'
 
 export const settingsLogic = kea<settingsLogicType>([
     props({} as SettingsLogicProps),
     key((props) => props.logicKey ?? 'global'),
     path((key) => ['scenes', 'settings', 'settingsLogic', key]),
     connect({
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], userLogic, ['hasAvailableFeature']],
     }),
 
     actions({
@@ -76,8 +66,8 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
         settings: [
-            (s) => [s.selectedLevel, s.selectedSectionId, s.sections, s.featureFlags],
-            (selectedLevel, selectedSectionId, sections, featureFlags): Setting[] => {
+            (s) => [s.selectedLevel, s.selectedSectionId, s.sections, s.featureFlags, s.hasAvailableFeature],
+            (selectedLevel, selectedSectionId, sections, featureFlags, hasAvailableFeature): Setting[] => {
                 let settings: Setting[] = []
 
                 if (!selectedSectionId) {
@@ -88,16 +78,27 @@ export const settingsLogic = kea<settingsLogicType>([
                     settings = sections.find((x) => x.id === selectedSectionId)?.settings || []
                 }
 
-                return settings.filter((x) => (x.flag ? featureFlags[FEATURE_FLAGS[x.flag]] : true))
+                return settings.filter((x) => {
+                    if (x.flag && x.features) {
+                        return (
+                            x.features.some((feat) => hasAvailableFeature(feat)) || featureFlags[FEATURE_FLAGS[x.flag]]
+                        )
+                    } else if (x.features) {
+                        return x.features.some((feat) => hasAvailableFeature(feat))
+                    } else if (x.flag) {
+                        return featureFlags[FEATURE_FLAGS[x.flag]]
+                    }
+
+                    return true
+                })
             },
         ],
     }),
 
     listeners(({ values }) => ({
-        selectSetting({ setting }) {
+        async selectSetting({ setting }) {
             const url = urls.settings(values.selectedSectionId ?? values.selectedLevel, setting as SettingId)
-
-            copyToClipboard(window.location.origin + url)
+            await copyToClipboard(window.location.origin + url)
         },
     })),
 ])

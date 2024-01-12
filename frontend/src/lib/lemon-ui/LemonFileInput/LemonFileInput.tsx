@@ -1,14 +1,17 @@
-import { ChangeEvent, createRef, RefObject, useEffect, useState } from 'react'
+import './LemonFileInput.scss'
+
+import clsx from 'clsx'
 import { IconUploadFile } from 'lib/lemon-ui/icons'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import clsx from 'clsx'
-import './LemonFileInput.scss'
+import { ChangeEvent, createRef, RefObject, useEffect, useState } from 'react'
 
 export interface LemonFileInputProps extends Pick<HTMLInputElement, 'multiple' | 'accept'> {
     value?: File[]
     onChange?: (newValue: File[]) => void
-    // are the files currently being uploaded?
+    /**
+     * are the files currently being uploaded?
+     */
     loading?: boolean
     /** if this is not provided then this component is the drop target
      * and is styled when a file is dragged over it
@@ -17,6 +20,10 @@ export interface LemonFileInputProps extends Pick<HTMLInputElement, 'multiple' |
      * styling is applied to the alternativeDropTargetRef
      * **/
     alternativeDropTargetRef?: RefObject<HTMLElement>
+    /**
+     * the text to display to the user, a sensible default is used if not provided
+     */
+    callToAction?: string | JSX.Element
 }
 
 export const LemonFileInput = ({
@@ -27,6 +34,7 @@ export const LemonFileInput = ({
     // e.g. '.json' or 'image/*'
     accept,
     alternativeDropTargetRef,
+    callToAction,
 }: LemonFileInputProps): JSX.Element => {
     const [files, setFiles] = useState(value || value || ([] as File[]))
 
@@ -133,8 +141,12 @@ export const LemonFileInput = ({
                         accept={accept}
                         onChange={onInputChange}
                     />
-                    <IconUploadFile className={'text-2xl'} /> Click or drag and drop to upload
-                    {accept ? ` ${acceptToDisplayName(accept)}` : ''}
+                    {callToAction || (
+                        <>
+                            <IconUploadFile className={'text-2xl'} /> Click or drag and drop to upload
+                            {accept ? ` ${acceptToDisplayName(accept)}` : ''}
+                        </>
+                    )}
                 </label>
                 {files.length > 0 && (
                     <div className={'flex flex-row gap-2'}>

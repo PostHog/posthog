@@ -1,13 +1,17 @@
-import { LemonButton, LemonTable, LemonTag, Spinner } from '@posthog/lemon-ui'
-import { PageHeader } from 'lib/components/PageHeader'
-import { SceneExport } from 'scenes/sceneTypes'
-import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
+import { TZLabel } from '@posthog/apps-common'
+import { LemonButton, LemonDialog, LemonSwitch, LemonTable, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { PageHeader } from 'lib/components/PageHeader'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { DataTableNode, NodeKind } from '~/queries/schema'
+import { ExternalDataSourceSchema, ExternalDataStripeSource } from '~/types'
+
 import { dataWarehouseSceneLogic } from '../external/dataWarehouseSceneLogic'
 import SourceModal from '../external/SourceModal'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { More } from 'lib/lemon-ui/LemonButton/More'
+import { dataWarehouseSettingsLogic } from './dataWarehouseSettingsLogic'
 
 export const scene: SceneExport = {
     component: DataWarehouseSettingsScene,
@@ -15,9 +19,10 @@ export const scene: SceneExport = {
 }
 
 const StatusTagSetting = {
-    running: 'default',
-    succeeded: 'primary',
-    error: 'danger',
+    Running: 'primary',
+    Completed: 'success',
+    Error: 'danger',
+    Failed: 'danger',
 }
 
 export function DataWarehouseSettingsScene(): JSX.Element {
@@ -26,30 +31,31 @@ export function DataWarehouseSettingsScene(): JSX.Element {
     const { deleteSource, reloadSource } = useActions(dataWarehouseSettingsLogic)
     const { toggleSourceModal } = useActions(dataWarehouseSceneLogic)
     const { isSourceModalOpen } = useValues(dataWarehouseSceneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+
+    const renderExpandable = (source: ExternalDataStripeSource): JSX.Element => {
+        return (
+            <div className="px-4 py-3">
+                <div className="flex flex-col">
+                    <div className="mt-2">
+                        <SchemaTable schemas={source.schemas} />
+                    </div>
+                </div>
+            </div>
+        )
+    }
 
     return (
         <div>
             <PageHeader
-                title={
-                    <div className="flex items-center gap-2">
-                        Data Warehouse
-                        <LemonTag type="warning" className="uppercase">
-                            Beta
-                        </LemonTag>
-                    </div>
-                }
                 buttons={
-                    featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_EXTERNAL_LINK] ? (
-                        <LemonButton
-                            type="primary"
-                            data-attr="new-data-warehouse-easy-link"
-                            key={'new-data-warehouse-easy-link'}
-                            onClick={() => toggleSourceModal()}
-                        >
-                            Link Source
-                        </LemonButton>
-                    ) : undefined
+                    <LemonButton
+                        type="primary"
+                        data-attr="new-data-warehouse-easy-link"
+                        key={'new-data-warehouse-easy-link'}
+                        onClick={() => toggleSourceModal()}
+                    >
+                        Link Source
+                    </LemonButton>
                 }
                 caption={
                     <div>
@@ -65,18 +71,42 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                     {
                         title: 'Source Type',
                         key: 'name',
-                        width: 0,
                         render: function RenderName(_, source) {
                             return source.source_type
                         },
                     },
                     {
+                        title: 'Table Prefix',
+                        key: 'prefix',
+                        render: function RenderPrefix(_, source) {
+                            return source.prefix
+                        },
+                    },
+                    {
                         title: 'Status',
                         key: 'status',
-                        width: 0,
                         render: function RenderStatus(_, source) {
                             return (
                                 <LemonTag type={StatusTagSetting[source.status] || 'default'}>{source.status}</LemonTag>
+                            )
+                        },
+                    },
+                    {
+                        title: 'Sync Frequency',
+                        key: 'frequency',
+                        render: function RenderFrequency() {
+                            return 'Every 24 hours'
+                        },
+                    },
+                    {
+                        title: 'Last Successful Run',
+                        key: 'last_run_at',
+                        tooltip: 'Time of the last run that completed a data import',
+                        render: (_, run) => {
+                            return run.last_run_at ? (
+                                <TZLabel time={run.last_run_at} formatDate="MMM DD, YYYY" formatTime="HH:mm" />
+                            ) : (
+                                'Never'
                             )
                         },
                     },
@@ -105,12 +135,26 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                                                         >
                                                             Reload
                                                         </LemonButton>
+
                                                         <LemonButton
                                                             status="danger"
                                                             data-attr={`delete-data-warehouse-${source.source_type}`}
                                                             key={`delete-data-warehouse-${source.source_type}`}
                                                             onClick={() => {
-                                                                deleteSource(source)
+                                                                LemonDialog.open({
+                                                                    title: 'Delete data source?',
+                                                                    description:
+                                                                        'Are you sure you want to delete this data source? All related tables will be deleted.',
+
+                                                                    primaryButton: {
+                                                                        children: 'Delete',
+                                                                        status: 'danger',
+                                                                        onClick: () => deleteSource(source),
+                                                                    },
+                                                                    secondaryButton: {
+                                                                        children: 'Cancel',
+                                                                    },
+                                                                })
                                                             }}
                                                         >
                                                             Delete
@@ -125,8 +169,89 @@ export function DataWarehouseSettingsScene(): JSX.Element {
                         },
                     },
                 ]}
+                expandable={{
+                    expandedRowRender: renderExpandable,
+                    rowExpandable: () => true,
+                    noIndent: true,
+                }}
             />
-            <SourceModal isOpen={isSourceModalOpen} onClose={toggleSourceModal} />
+            <SourceModal isOpen={isSourceModalOpen} onClose={() => toggleSourceModal(false)} />
         </div>
+    )
+}
+
+interface SchemaTableProps {
+    schemas: ExternalDataSourceSchema[]
+}
+
+const SchemaTable = ({ schemas }: SchemaTableProps): JSX.Element => {
+    const { updateSchema } = useActions(dataWarehouseSettingsLogic)
+
+    return (
+        <LemonTable
+            dataSource={schemas}
+            columns={[
+                {
+                    title: 'Schema Name',
+                    key: 'name',
+                    render: function RenderName(_, schema) {
+                        return schema.name
+                    },
+                },
+                {
+                    title: 'Enabled',
+                    key: 'should_sync',
+                    render: function RenderShouldSync(_, schema) {
+                        return (
+                            <LemonSwitch
+                                checked={schema.should_sync}
+                                onChange={(active) => {
+                                    updateSchema({ ...schema, should_sync: active })
+                                }}
+                            />
+                        )
+                    },
+                },
+                {
+                    title: 'Synced Table',
+                    key: 'table',
+                    render: function RenderTable(_, schema) {
+                        if (schema.table) {
+                            const query: DataTableNode = {
+                                kind: NodeKind.DataTableNode,
+                                full: true,
+                                source: {
+                                    kind: NodeKind.HogQLQuery,
+                                    // TODO: Use `hogql` tag?
+                                    query: `SELECT ${schema.table.columns
+                                        .filter(({ table, fields, chain }) => !table && !fields && !chain)
+                                        .map(({ key }) => key)} FROM ${
+                                        schema.table.name === 'numbers' ? 'numbers(0, 10)' : schema.table.name
+                                    } LIMIT 100`,
+                                },
+                            }
+                            return (
+                                <Link to={urls.insightNew(undefined, undefined, JSON.stringify(query))}>
+                                    <code>{schema.table.name}</code>
+                                </Link>
+                            )
+                        } else {
+                            return <div>Not yet synced</div>
+                        }
+                    },
+                },
+                {
+                    title: 'Last Synced At',
+                    key: 'last_synced_at',
+                    render: function Render(_, schema) {
+                        return schema.last_synced_at ? (
+                            <>
+                                <TZLabel time={schema.last_synced_at} formatDate="MMM DD, YYYY" formatTime="HH:mm" />
+                            </>
+                        ) : null
+                    },
+                },
+            ]}
+        />
     )
 }

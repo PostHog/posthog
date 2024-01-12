@@ -1,14 +1,17 @@
 import {
     ActivityChange,
     ActivityLogItem,
-    ActivityScope,
     ChangeMapping,
+    defaultDescriber,
     Description,
     HumanizedChange,
+    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
+
+import { ActivityScope } from '~/types'
 
 const notebookActionsMapping: Record<
     string,
@@ -32,7 +35,7 @@ function nameAndLink(logItem?: ActivityLogItem): JSX.Element {
     )
 }
 
-export function notebookActivityDescriber(logItem: ActivityLogItem): HumanizedChange {
+export function notebookActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope !== ActivityScope.NOTEBOOK) {
         console.error('notebook describer received a non-Notebook activity')
         return { description: null }
@@ -68,7 +71,7 @@ export function notebookActivityDescriber(logItem: ActivityLogItem): HumanizedCh
                 description: (
                     <SentenceList
                         listParts={changes}
-                        prefix={<strong>{logItem.user.first_name}</strong>}
+                        prefix={<strong>{userNameForLogItem(logItem)}</strong>}
                         suffix={changeSuffix}
                     />
                 ),
@@ -76,25 +79,5 @@ export function notebookActivityDescriber(logItem: ActivityLogItem): HumanizedCh
         }
     }
 
-    if (logItem.activity == 'created') {
-        return {
-            description: (
-                <>
-                    <strong>{logItem.user.first_name}</strong> created {nameAndLink(logItem)}
-                </>
-            ),
-        }
-    }
-
-    if (logItem.activity == 'deleted') {
-        return {
-            description: (
-                <>
-                    <strong>{logItem.user.first_name}</strong> deleted {nameAndLink(logItem)}
-                </>
-            ),
-        }
-    }
-
-    return { description: null }
+    return defaultDescriber(logItem, asNotification, nameAndLink(logItem))
 }

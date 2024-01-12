@@ -1,10 +1,12 @@
 import { LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { RestrictedComponentProps } from 'lib/components/RestrictedArea'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { capitalizeFirstLetter } from 'lib/utils'
+
 import { AccessLevel } from '~/types'
-import { permissionsLogic, FormattedResourceLevel, ResourcePermissionMapping } from './permissionsLogic'
+
+import { FormattedResourceLevel, permissionsLogic, ResourcePermissionMapping } from './permissionsLogic'
 
 export function Permissions({ isRestricted }: RestrictedComponentProps): JSX.Element {
     const { allPermissions } = useValues(permissionsLogic)

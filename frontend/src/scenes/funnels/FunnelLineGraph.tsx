@@ -1,23 +1,25 @@
-import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
-import { ChartParams, GraphType, GraphDataset } from '~/types'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { capitalizeFirstLetter, shortTimeZone } from 'lib/utils'
-import { dayjs } from 'lib/dayjs'
-import { getFormattedDate } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
-import { buildPeopleUrl } from 'scenes/trends/persons-modal/persons-modal-utils'
 import { useValues } from 'kea'
-import { funnelDataLogic } from './funnelDataLogic'
+import { dayjs } from 'lib/dayjs'
+import { capitalizeFirstLetter, shortTimeZone } from 'lib/utils'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { getFormattedDate } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
+import { buildPeopleUrl } from 'scenes/trends/persons-modal/persons-modal-utils'
+import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
+
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { isInsightQueryNode } from '~/queries/utils'
 import { TrendsFilter } from '~/queries/schema'
+import { isInsightQueryNode } from '~/queries/utils'
+import { ChartParams, GraphDataset, GraphType } from '~/types'
+
+import { funnelDataLogic } from './funnelDataLogic'
 
 const LineGraphWrapper = ({ inCardView, children }: { inCardView?: boolean; children: JSX.Element }): JSX.Element => {
     if (inCardView) {
         return <>{children}</>
     }
 
-    return <div className="trends-insights-container">{children}</div>
+    return <div className="TrendsInsight">{children}</div>
 }
 
 export function FunnelLineGraph({
@@ -26,7 +28,7 @@ export function FunnelLineGraph({
     showPersonsModal = true,
 }: Omit<ChartParams, 'filters'>): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { steps, aggregationTargetLabel, incompletenessOffsetFromEnd, interval, querySource, insightData } =
+    const { indexedSteps, aggregationTargetLabel, incompletenessOffsetFromEnd, interval, querySource, insightData } =
         useValues(funnelDataLogic(insightProps))
 
     if (!isInsightQueryNode(querySource)) {
@@ -40,8 +42,8 @@ export function FunnelLineGraph({
             <LineGraph
                 data-attr="trend-line-graph-funnel"
                 type={GraphType.Line}
-                datasets={steps as unknown as GraphDataset[] /* TODO: better typing */}
-                labels={steps?.[0]?.labels ?? ([] as string[])}
+                datasets={indexedSteps as unknown as GraphDataset[] /* TODO: better typing */}
+                labels={indexedSteps?.[0]?.labels ?? ([] as string[])}
                 isInProgress={incompletenessOffsetFromEnd < 0}
                 inSharedMode={!!inSharedMode}
                 showPersonsModal={showPersonsModal}
@@ -49,11 +51,11 @@ export function FunnelLineGraph({
                     showHeader: false,
                     hideColorCol: true,
                     renderSeries: (_, datum) => {
-                        if (!steps?.[0]?.days) {
+                        if (!indexedSteps?.[0]?.days) {
                             return 'Trend'
                         }
                         return (
-                            getFormattedDate(steps[0].days?.[datum.dataIndex], interval ?? undefined) +
+                            getFormattedDate(indexedSteps[0].days?.[datum.dataIndex], interval ?? undefined) +
                             ' ' +
                             (insightData?.timezone ? shortTimeZone(insightData.timezone) : 'UTC')
                         )

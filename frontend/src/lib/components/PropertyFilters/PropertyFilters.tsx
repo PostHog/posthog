@@ -1,12 +1,16 @@
-import React, { useEffect } from 'react'
-import { useValues, BindLogic, useActions } from 'kea'
-import { propertyFilterLogic } from './propertyFilterLogic'
-import { FilterRow } from './components/FilterRow'
-import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import './PropertyFilters.scss'
+
+import { BindLogic, useActions, useValues } from 'kea'
+import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import React, { useEffect } from 'react'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
+
+import { AnyDataNode } from '~/queries/schema'
+import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
+
+import { FilterRow } from './components/FilterRow'
+import { propertyFilterLogic } from './propertyFilterLogic'
 
 interface PropertyFiltersProps {
     endpoint?: string | null
@@ -16,7 +20,7 @@ interface PropertyFiltersProps {
     showConditionBadge?: boolean
     disablePopover?: boolean
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
-    hogQLTable?: string
+    metadataSource?: AnyDataNode
     showNestedArrow?: boolean
     eventNames?: string[]
     logicalRowDivider?: boolean
@@ -37,7 +41,7 @@ export function PropertyFilters({
     showConditionBadge = false,
     disablePopover = false, // use bare PropertyFilter without popover
     taxonomicGroupTypes,
-    hogQLTable,
+    metadataSource,
     showNestedArrow = false,
     eventNames = [],
     orFiltering = false,
@@ -90,7 +94,7 @@ export function PropertyFilters({
                                             onComplete={onComplete}
                                             orFiltering={orFiltering}
                                             taxonomicGroupTypes={taxonomicGroupTypes}
-                                            hogQLTable={hogQLTable}
+                                            metadataSource={metadataSource}
                                             eventNames={eventNames}
                                             propertyGroupType={propertyGroupType}
                                             disablePopover={disablePopover || orFiltering}

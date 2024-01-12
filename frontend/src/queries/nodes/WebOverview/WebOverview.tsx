@@ -1,13 +1,15 @@
-import { useState } from 'react'
-import { AnyResponseType, WebOverviewItem, WebOverviewQuery, WebOverviewQueryResponse } from '~/queries/schema'
 import { useValues } from 'kea'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { dataNodeLogic } from '../DataNode/dataNodeLogic'
-import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil } from 'lib/utils'
-import { IconTrendingDown, IconTrendingFlat, IconTrendingUp } from 'lib/lemon-ui/icons'
 import { getColorVar } from 'lib/colors'
-import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
+import { IconTrendingDown, IconTrendingFlat, IconTrendingUp } from 'lib/lemon-ui/icons'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil } from 'lib/utils'
+import { useState } from 'react'
+
+import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
+import { AnyResponseType, WebOverviewItem, WebOverviewQuery, WebOverviewQueryResponse } from '~/queries/schema'
+
+import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 
 let uniqueNode = 0
 export function WebOverview(props: { query: WebOverviewQuery; cachedResults?: AnyResponseType }): JSX.Element | null {
@@ -30,7 +32,7 @@ export function WebOverview(props: { query: WebOverviewQuery; cachedResults?: An
     const results = (response as WebOverviewQueryResponse | undefined)?.results
 
     return (
-        <EvenlyDistributedRows className="w-full gap-2" minWidthRems={8}>
+        <EvenlyDistributedRows className="w-full gap-x-2 gap-y-8" minWidthRems={8}>
             {results?.map((item) => <WebOverviewItemCell key={item.key} item={item} />) || []}
         </EvenlyDistributedRows>
     )
@@ -69,7 +71,7 @@ export const WebOverviewItemCell = ({ item }: { item: WebOverviewItem }): JSX.El
 
     return (
         <Tooltip title={tooltip}>
-            <div className="min-w-30 min-h-20 flex flex-col items-center text-center justify-between">
+            <div className="min-w-[7.5rem] min-h-20 flex flex-col items-center text-center justify-between">
                 <div className="font-bold uppercase text-xs">{label}</div>
                 <div className="w-full flex-1 flex items-center justify-center">
                     <div className="text-2xl">{formatItem(item.value, item.kind)}</div>

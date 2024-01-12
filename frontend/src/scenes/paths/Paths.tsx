@@ -1,16 +1,15 @@
-import { useRef, useEffect, useState } from 'react'
+import './Paths.scss'
+
 import { useValues } from 'kea'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { pathsDataLogic } from './pathsDataLogic'
-
+import { useEffect, useRef, useState } from 'react'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
-import { PathNodeCard } from './PathNodeCard'
-import { renderPaths } from './renderPaths'
-import type { PathNodeData } from './pathUtils'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
-import './Paths.scss'
+import { PathNodeCard } from './PathNodeCard'
+import { pathsDataLogic } from './pathsDataLogic'
+import type { PathNodeData } from './pathUtils'
+import { renderPaths } from './renderPaths'
 
 const DEFAULT_PATHS_ID = 'default_paths'
 export const HIDE_PATH_CARD_HEIGHT = 30

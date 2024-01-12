@@ -1,12 +1,13 @@
-import { useMemo, useState } from 'react'
-import { Table } from 'antd'
-import { useActions, useValues } from 'kea'
-import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
-import { QuerySummary } from '~/types'
-import { ColumnsType } from 'antd/lib/table'
-import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
+import { Table } from 'antd'
+import { ColumnsType } from 'antd/lib/table'
+import { useActions, useValues } from 'kea'
 import { IconRefresh } from 'lib/lemon-ui/icons'
+import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
+import { useMemo, useState } from 'react'
+import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
+
+import { QuerySummary } from '~/types'
 
 export function InternalMetricsTab(): JSX.Element {
     const { openSections, queries, queriesLoading } = useValues(systemStatusLogic)

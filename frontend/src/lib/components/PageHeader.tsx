@@ -1,47 +1,32 @@
 import clsx from 'clsx'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { DraggableToNotebook, DraggableToNotebookProps } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+import { useValues } from 'kea'
+import { Within3000PageHeaderContext } from 'lib/lemon-ui/LemonButton/LemonButton'
+import { createPortal } from 'react-dom'
+import { DraggableToNotebookProps } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
+
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 
 interface PageHeaderProps {
-    title: string | JSX.Element
-    description?: string | JSX.Element
     caption?: string | JSX.Element | null | false
     buttons?: JSX.Element | false
-    style?: React.CSSProperties
     tabbedPage?: boolean // Whether the page has tabs for secondary navigation
     delimited?: boolean
     notebookProps?: Pick<DraggableToNotebookProps, 'href' | 'node' | 'properties'>
 }
 
-export function PageHeader({
-    title,
-    caption,
-    description,
-    buttons,
-    style,
-    tabbedPage,
-    delimited,
-    notebookProps,
-}: PageHeaderProps): JSX.Element {
+export function PageHeader({ caption, buttons, tabbedPage }: PageHeaderProps): JSX.Element | null {
+    const { actionsContainer } = useValues(breadcrumbsLogic)
+
     return (
         <>
-            {/* eslint-disable-next-line react/forbid-dom-props */}
-            <div className="page-title-row flex justify-between" style={style}>
-                <div className="min-w-0">
-                    {notebookProps ? (
-                        <DraggableToNotebook {...notebookProps}>
-                            <h1 className="page-title">{title}</h1>
-                        </DraggableToNotebook>
-                    ) : (
-                        <h1 className="page-title">{title}</h1>
-                    )}
-                    <span className="page-description">{description}</span>
-                </div>
-                <div className="page-buttons">{buttons}</div>
-            </div>
+            {buttons &&
+                actionsContainer &&
+                createPortal(
+                    <Within3000PageHeaderContext.Provider value={true}>{buttons}</Within3000PageHeaderContext.Provider>,
+                    actionsContainer
+                )}
 
             {caption && <div className={clsx('page-caption', tabbedPage && 'tabbed')}>{caption}</div>}
-            {delimited && <LemonDivider className="my-4" />}
         </>
     )
 }

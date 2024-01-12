@@ -44,9 +44,11 @@ runs:
           run: echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
         - name: Set up Python
-          uses: actions/setup-python@v4
+          uses: actions/setup-python@v5
           with:
               python-version: ${{ inputs.python-version }}
+              cache: pip
+              cache-dependency-path: '**/requirements*.txt'
               token: ${{ inputs.token }}
 
         - name: Determine if hogql-parser has changed compared to master
@@ -70,7 +72,7 @@ runs:
         - name: Set up Node.js
           uses: actions/setup-node@v3
           with:
-              node-version: 18
+              node-version: 18.12.1
               cache: pnpm
 
         - name: Install plugin-transpiler
@@ -83,10 +85,7 @@ runs:
         - uses: syphar/restore-virtualenv@v1
           id: cache-backend-tests
           with:
-              custom_cache_key_element: v1
-
-        - uses: syphar/restore-pip-download-cache@v1
-          if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+              custom_cache_key_element: v2
 
         - name: Install Python dependencies
           if: steps.cache-backend-tests.outputs.cache-hit != 'true'

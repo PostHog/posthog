@@ -1,13 +1,15 @@
 import { expectLogic } from 'kea-test-utils'
-import { initKeaTests } from '~/test/init'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
-import recordingMetaJson from '../__mocks__/recording_meta.json'
-import recordingEventsJson from '../__mocks__/recording_events_query'
-import { snapshotsAsJSONLines } from '../__mocks__/recording_snapshots'
+
 import { useMocks } from '~/mocks/jest'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { initKeaTests } from '~/test/init'
+
+import recordingEventsJson from '../__mocks__/recording_events_query'
+import recordingMetaJson from '../__mocks__/recording_meta.json'
+import { snapshotsAsJSONLines } from '../__mocks__/recording_snapshots'
 
 const playerProps = { sessionRecordingId: '1', playerKey: 'playlist' }
 

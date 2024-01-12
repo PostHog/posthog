@@ -9,9 +9,11 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { userLogic } from 'scenes/userLogic'
+
 import { AvailableFeature, OrganizationBasicType } from '~/types'
-import { navigationLogic } from './navigationLogic'
+
 import { globalModalsLogic } from '../GlobalModals'
+import { navigationLogic } from './navigationLogic'
 
 export function AccessLevelIndicator({ organization }: { organization: OrganizationBasicType }): JSX.Element {
     return (
@@ -34,7 +36,6 @@ export function OtherOrganizationButton({
         <LemonButton
             onClick={() => updateCurrentOrganization(organization.id)}
             icon={<Lettermark index={index} name={organization.name} />}
-            status="stealth"
             title={`Switch to organization ${organization.name}`}
             fullWidth
         >
@@ -85,7 +86,6 @@ export function OrganizationSwitcherOverlay(): JSX.Element {
             {currentOrganization && (
                 <LemonButton
                     icon={<Lettermark name={currentOrganization.name} />}
-                    status="stealth"
                     title={`Switch to organization ${currentOrganization.name}`}
                     fullWidth
                 >

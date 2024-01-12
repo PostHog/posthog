@@ -1,8 +1,8 @@
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
-import { ViewLinkDeleteButton } from 'scenes/data-warehouse/ViewLinkModal'
 import { DatabaseTableListRow } from 'scenes/data-warehouse/types'
+import { ViewLinkDeleteButton } from 'scenes/data-warehouse/ViewLinkModal'
 import { urls } from 'scenes/urls'
 
 interface DatabaseTableProps {

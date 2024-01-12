@@ -6,25 +6,24 @@
     transform: translate3d(0, 0, 0);
 
     .NotebookNode__box {
-        transform: translate3d(0, 0, 0);
+        overflow: hidden;
+        background-color: var(--bg-light);
         border: 1px solid var(--border-color);
         border-radius: var(--radius);
-        background-color: var(--bg-light);
         transition: border 150ms linear, margin-bottom 150ms linear;
-        overflow: hidden;
+        transform: translate3d(0, 0, 0);
 
         .NotebookNode__meta {
             display: flex;
-            justify-content: space-between;
             align-items: center;
+            justify-content: space-between;
+            height: var(--notebook-node-meta-height);
+            padding: var(--notebook-node-meta-padding);
+            overflow: hidden;
             font-size: 0.875rem;
             font-weight: 500;
             color: var(--primary-alt);
-            padding: var(--notebook-node-meta-padding);
             border-bottom: 1px solid var(--border);
-            height: var(--notebook-node-meta-height);
-            transition: height 150ms ease-out;
-            overflow: hidden;
         }
 
         .NotebookNode__settings {
@@ -32,52 +31,54 @@
         }
 
         .NotebookNode__content {
-            transition: box-shadow 150ms ease-out;
             z-index: 1;
+            transition: box-shadow 150ms ease-out;
         }
     }
 
     .NotebookNode__gap {
         display: flex;
         gap: 0.2rem;
-        overflow: hidden;
-        transition: all 150ms linear 1000ms;
-        opacity: 0;
-        height: 1.25rem;
         align-items: center;
+        height: 1.375rem;
+        overflow: hidden;
+        opacity: 0;
+        transition: all 150ms linear 1000ms;
     }
 
     &--editable:hover,
     &--selected {
         .NotebookNode__gap {
+            height: 1.875rem;
             opacity: 1;
-            height: 2rem;
             transition: all 150ms linear;
         }
     }
 
     &--selected {
-        --border-color: var(--primary-3000);
+        --border-color: var(--border-bold);
     }
 
     &--auto-hide-metadata {
         --border-color: transparent;
 
         .NotebookNode__meta {
-            height: 0;
-            padding: 0 var(--notebook-node-meta-padding);
+            position: absolute;
+            top: 0;
+            right: 0;
+            left: 0;
+            z-index: var(--z-popover);
             pointer-events: none;
             visibility: hidden;
+            background-color: var(--bg-light);
         }
 
         .Notebook--editable & {
             &:hover,
             &.NotebookNode--selected {
                 border-color: var(--border-color);
-                .NotebookNode__meta {
-                    height: var(--notebook-node-meta-height);
-                    padding: var(--notebook-node-meta-padding);
 
+                .NotebookNode__meta {
                     pointer-events: all;
                     visibility: visible;
                 }
@@ -93,8 +94,8 @@
 .NotebookNode.ph-image {
     img {
         flex: 1;
-        height: 100%;
         width: 100%;
+        height: 100%;
         object-fit: contain;
     }
 }
@@ -108,6 +109,7 @@
     &--editable {
         border-radius: var(--radius);
         transition: background-color 150ms linear;
+
         &:hover {
             background-color: var(--border);
         }

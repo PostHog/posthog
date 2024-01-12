@@ -1,22 +1,23 @@
+import { LemonInput, LemonSegmentedButton, LemonSegmentedButtonOption, lemonToast } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { SupportTicketKind, TARGET_AREA_TO_NAME, supportLogic } from './supportLogic'
 import { Form } from 'kea-forms'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { LemonSelect, LemonSelectOptions } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { Field } from 'lib/forms/Field'
-import { IconBugReport, IconFeedback, IconSupport } from 'lib/lemon-ui/icons'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
-import { useRef } from 'react'
-import { LemonButton, LemonInput, lemonToast } from '@posthog/lemon-ui'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
+import { IconBugReport, IconFeedback, IconHelpOutline } from 'lib/lemon-ui/icons'
+import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect/LemonSelect'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import { useRef } from 'react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
-const SUPPORT_TICKET_OPTIONS: LemonSelectOptions<SupportTicketKind> = [
+import { supportLogic, SupportTicketKind, TARGET_AREA_TO_NAME } from './supportLogic'
+
+const SUPPORT_TICKET_OPTIONS: LemonSegmentedButtonOption<SupportTicketKind>[] = [
     {
-        value: 'bug',
-        label: 'Bug',
-        icon: <IconBugReport />,
+        value: 'support',
+        label: 'Question',
+        icon: <IconHelpOutline />,
     },
     {
         value: 'feedback',
@@ -24,9 +25,9 @@ const SUPPORT_TICKET_OPTIONS: LemonSelectOptions<SupportTicketKind> = [
         icon: <IconFeedback />,
     },
     {
-        value: 'support',
-        label: 'Support',
-        icon: <IconSupport />,
+        value: 'bug',
+        label: 'Bug',
+        icon: <IconBugReport />,
     },
 ]
 
@@ -36,7 +37,7 @@ const SUPPORT_TICKET_KIND_TO_PROMPT: Record<SupportTicketKind, string> = {
     support: 'What can we help you with?',
 }
 
-export function SupportForm({ loggedIn = true }: { loggedIn?: boolean }): JSX.Element | null {
+export function SupportForm(): JSX.Element | null {
     const { sendSupportRequest } = useValues(supportLogic)
     const { setSendSupportRequestValue } = useActions(supportLogic)
     const { objectStorageAvailable } = useValues(preflightLogic)
@@ -57,12 +58,12 @@ export function SupportForm({ loggedIn = true }: { loggedIn?: boolean }): JSX.El
     return (
         <Form
             logic={supportLogic}
-            formKey={loggedIn ? 'sendSupportRequest' : 'sendSupportLoggedOutRequest'}
+            formKey={'sendSupportRequest'}
             id="support-modal-form"
             enableFormOnSubmit
             className="space-y-4"
         >
-            {!loggedIn && (
+            {!user && (
                 <>
                     <Field name="name" label="Name">
                         <LemonInput data-attr="name" placeholder="Jane" />
@@ -73,7 +74,7 @@ export function SupportForm({ loggedIn = true }: { loggedIn?: boolean }): JSX.El
                 </>
             )}
             <Field name="kind" label="What type of message is this?">
-                <LemonSelect fullWidth options={SUPPORT_TICKET_OPTIONS} />
+                <LemonSegmentedButton fullWidth options={SUPPORT_TICKET_OPTIONS} />
             </Field>
             <Field name="target_area" label="What area does this best relate to?">
                 <LemonSelect
@@ -109,18 +110,5 @@ export function SupportForm({ loggedIn = true }: { loggedIn?: boolean }): JSX.El
                 )}
             </Field>
         </Form>
-    )
-}
-
-export function SupportFormButtons({ onClose }: { onClose: () => void }): JSX.Element {
-    return (
-        <>
-            <LemonButton form="support-modal-form" type="secondary" onClick={onClose}>
-                Cancel
-            </LemonButton>
-            <LemonButton form="support-modal-form" htmlType="submit" type="primary" data-attr="submit">
-                Submit
-            </LemonButton>
-        </>
     )
 }

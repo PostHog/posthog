@@ -1,10 +1,11 @@
-import { Query } from '~/queries/Query/Query'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { TabsTile, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isEventPropertyOrPersonPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { NodeKind, QuerySchema } from '~/queries/schema'
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
+import { TabsTile, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsNotice } from 'scenes/web-analytics/WebAnalyticsNotice'
 import {
     webAnalyticsDataTableQueryContext,
@@ -12,13 +13,26 @@ import {
     WebStatsTrendTile,
 } from 'scenes/web-analytics/WebAnalyticsTile'
 import { WebTabs } from 'scenes/web-analytics/WebTabs'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+
+import { Query } from '~/queries/Query/Query'
+import { NodeKind, QuerySchema } from '~/queries/schema'
 
 const Filters = (): JSX.Element => {
-    const { webAnalyticsFilters, dateTo, dateFrom } = useValues(webAnalyticsLogic)
+    const {
+        webAnalyticsFilters,
+        dateFilter: { dateTo, dateFrom },
+    } = useValues(webAnalyticsLogic)
     const { setWebAnalyticsFilters, setDates } = useActions(webAnalyticsLogic)
+
     return (
-        <div className="sticky top-0 z-20 pt-2">
+        <div
+            className="sticky z-20 pt-2"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{
+                backgroundColor: 'var(--bg-3000)',
+                top: 'var(--breadcrumbs-height)',
+            }}
+        >
             <div className="flex flex-row flex-wrap gap-2">
                 <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
                 <PropertyFilters
@@ -72,18 +86,22 @@ const Tiles = (): JSX.Element => {
     const { tiles } = useValues(webAnalyticsLogic)
 
     return (
-        <div className="mt-2 grid grid-cols-1 md:grid-cols-12 gap-4">
+        <div className="mt-8 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3 gap-x-4 gap-y-10">
             {tiles.map((tile, i) => {
                 if ('query' in tile) {
                     const { query, title, layout } = tile
                     return (
                         <div
                             key={i}
-                            className={`col-span-1 row-span-1 md:col-span-${layout.colSpan ?? 6} md:row-span-${
-                                layout.rowSpan ?? 1
-                            }  flex flex-col`}
+                            className={clsx(
+                                'col-span-1 row-span-1 flex flex-col',
+                                layout.colSpanClassName ?? 'md:col-span-6',
+                                layout.rowSpanClassName ?? 'md:row-span-1',
+                                layout.orderWhenLargeClassName ?? 'xxl:order-12',
+                                layout.className
+                            )}
                         >
-                            {title && <h2 className="m-0  mb-1">{title}</h2>}
+                            {title && <h2 className="m-0 mb-3">{title}</h2>}
                             <WebQuery query={query} />
                         </div>
                     )
@@ -102,12 +120,18 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
 
     return (
         <WebTabs
-            className={`col-span-1 row-span-1 md:col-span-${layout.colSpan ?? 6} md:row-span-${layout.rowSpan ?? 1}`}
+            className={clsx(
+                'col-span-1 row-span-1',
+                layout.colSpanClassName || 'md:col-span-1',
+                layout.rowSpanClassName || 'md:row-span-1',
+                layout.orderWhenLargeClassName || 'xxl:order-12',
+                layout.className
+            )}
             activeTabId={tile.activeTabId}
             setActiveTabId={tile.setTabId}
             tabs={tile.tabs.map((tab) => ({
                 id: tab.id,
-                content: <WebQuery key={tab.id} query={tab.query} />,
+                content: <WebQuery key={tab.id} query={tab.query} showIntervalSelect={tab.showIntervalSelect} />,
                 linkText: tab.linkText,
                 title: tab.title,
             }))}
@@ -115,12 +139,12 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
     )
 }
 
-const WebQuery = ({ query }: { query: QuerySchema }): JSX.Element => {
+const WebQuery = ({ query, showIntervalSelect }: { query: QuerySchema; showIntervalSelect?: boolean }): JSX.Element => {
     if (query.kind === NodeKind.DataTableNode && query.source.kind === NodeKind.WebStatsTableQuery) {
         return <WebStatsTableTile query={query} breakdownBy={query.source.breakdownBy} />
     }
     if (query.kind === NodeKind.InsightVizNode) {
-        return <WebStatsTrendTile query={query} />
+        return <WebStatsTrendTile query={query} showIntervalTile={showIntervalSelect} />
     }
 
     return <Query query={query} readOnly={true} context={webAnalyticsDataTableQueryContext} />
@@ -128,10 +152,13 @@ const WebQuery = ({ query }: { query: QuerySchema }): JSX.Element => {
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
     return (
-        <div className="w-full flex flex-col pt-2">
+        <>
             <WebAnalyticsNotice />
-            <Filters />
-            <Tiles />
-        </div>
+            <div className="WebAnalyticsDashboard w-full flex flex-col">
+                <Filters />
+                <WebAnalyticsHealthCheck />
+                <Tiles />
+            </div>
+        </>
     )
 }

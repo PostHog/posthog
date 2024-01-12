@@ -1,17 +1,18 @@
-import { useActions, useValues } from 'kea'
-import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
-import { JSSnippet } from 'lib/components/JSSnippet'
-import { JSBookmarklet } from 'lib/components/JSBookmarklet'
-import { CodeSnippet } from 'lib/components/CodeSnippet'
-import { IconRefresh } from 'lib/lemon-ui/icons'
-import { Link } from 'lib/lemon-ui/Link'
+import { urls } from '@posthog/apps-common'
 import { LemonButton, LemonInput, LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'
-import { useState } from 'react'
-import { TimezoneConfig } from './TimezoneConfig'
-import { WeekStartConfig } from './WeekStartConfig'
+import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { urls } from '@posthog/apps-common'
+import { CodeSnippet } from 'lib/components/CodeSnippet'
+import { JSBookmarklet } from 'lib/components/JSBookmarklet'
+import { JSSnippet } from 'lib/components/JSSnippet'
+import { IconRefresh } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
+import { useState } from 'react'
+import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
+
+import { TimezoneConfig } from './TimezoneConfig'
+import { WeekStartConfig } from './WeekStartConfig'
 
 export function ProjectDisplayName(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
@@ -28,7 +29,7 @@ export function ProjectDisplayName(): JSX.Element {
     }
 
     return (
-        <div className="space-y-4" style={{ maxWidth: '40rem' }}>
+        <div className="space-y-4 max-w-160">
             <LemonInput value={name} onChange={setName} disabled={currentTeamLoading} />
             <LemonButton
                 type="primary"
@@ -54,11 +55,11 @@ export function WebSnippet(): JSX.Element {
             </p>
             <p>
                 For more guidance, including on identifying users,{' '}
-                <Link to="https://posthog.com/docs/integrations/js-integration">see PostHog Docs</Link>.
+                <Link to="https://posthog.com/docs/libraries/js">see PostHog Docs</Link>.
             </p>
             {currentTeamLoading && !currentTeam ? (
                 <div className="space-y-4">
-                    <LemonSkeleton className="w-1/2" />
+                    <LemonSkeleton className="w-1/2 h-4" />
                     <LemonSkeleton repeat={3} />
                 </div>
             ) : (
@@ -91,12 +92,12 @@ export function ProjectVariables(): JSX.Element {
     return (
         <div className="flex items-start gap-4 flex-wrap">
             <div className="flex-1">
-                <h3 id="project-api-key" className="min-w-100">
+                <h3 id="project-api-key" className="min-w-[25rem]">
                     Project API Key
                 </h3>
                 <p>
                     You can use this write-only key in any one of{' '}
-                    <Link to="https://posthog.com/docs/integrations">our libraries</Link>.
+                    <Link to="https://posthog.com/docs/libraries">our libraries</Link>.
                 </p>
                 <CodeSnippet
                     actions={
@@ -131,7 +132,7 @@ export function ProjectVariables(): JSX.Element {
                 </p>
             </div>
             <div className="flex-1">
-                <h3 id="project-id" className="min-w-100">
+                <h3 id="project-id" className="min-w-[25rem]">
                     Project ID
                 </h3>
                 <p>

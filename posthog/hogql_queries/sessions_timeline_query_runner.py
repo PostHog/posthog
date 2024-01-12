@@ -1,6 +1,6 @@
 from datetime import timedelta
 import json
-from typing import Dict, Optional, Any, cast
+from typing import Dict, cast
 from posthog.api.element import ElementSerializer
 
 
@@ -10,7 +10,6 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.models import Team
 from posthog.models.element.element import chain_to_elements
 from posthog.schema import EventType, SessionsTimelineQuery, SessionsTimelineQueryResponse, TimelineEntry
 from posthog.utils import relative_date_parse
@@ -36,18 +35,6 @@ class SessionsTimelineQueryRunner(QueryRunner):
 
     query: SessionsTimelineQuery
     query_type = SessionsTimelineQuery
-
-    def __init__(
-        self,
-        query: SessionsTimelineQuery | Dict[str, Any],
-        team: Team,
-        timings: Optional[HogQLTimings] = None,
-    ):
-        super().__init__(query, team, timings)
-        if isinstance(query, SessionsTimelineQuery):
-            self.query = query
-        else:
-            self.query = SessionsTimelineQuery.model_validate(query)
 
     def _get_events_subquery(self) -> ast.SelectQuery:
         after = relative_date_parse(self.query.after or "-24h", self.team.timezone_info)
@@ -135,7 +122,7 @@ class SessionsTimelineQueryRunner(QueryRunner):
             )
         return cast(ast.SelectQuery, select_query)
 
-    def to_persons_query(self):
+    def to_actors_query(self):
         return parse_select(
             """SELECT DISTINCT person_id FROM {events_subquery}""", {"events_subquery": self._get_events_subquery()}
         )
@@ -147,6 +134,7 @@ class SessionsTimelineQueryRunner(QueryRunner):
             workload=Workload.ONLINE,
             query_type="SessionsTimelineQuery",
             timings=self.timings,
+            modifiers=self.modifiers,
         )
         assert query_result.results is not None
         timeline_entries_map: Dict[str, TimelineEntry] = {}

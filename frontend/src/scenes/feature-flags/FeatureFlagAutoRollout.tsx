@@ -1,17 +1,18 @@
 import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
-import { IconDelete } from 'lib/lemon-ui/icons'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Field } from 'lib/forms/Field'
+import { IconDelete } from 'lib/lemon-ui/icons'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { capitalizeFirstLetter, genericOperatorMap, humanFriendlyNumber } from 'lib/utils'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+
 import { RolloutConditionType } from '~/types'
+
 import { featureFlagLogic } from './featureFlagLogic'
 
 interface FeatureFlagAutoRollbackProps {
@@ -101,7 +102,6 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                     </div>
                                     <LemonButton
                                         icon={<IconDelete />}
-                                        status="muted"
                                         noPadding
                                         onClick={() => {
                                             removeRollbackCondition(index)
@@ -168,8 +168,8 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                         <div className="flex items-center">
                                             {sentryErrorCount ? (
                                                 <span>
-                                                    <b>{humanFriendlyNumber(sentryErrorCount as number)} </b> sentry
-                                                    errors in the past 24 hours.{' '}
+                                                    <b>{humanFriendlyNumber(sentryErrorCount)} </b> Sentry errors in the
+                                                    past 24 hours.{' '}
                                                 </span>
                                             ) : (
                                                 <Spinner />
@@ -204,7 +204,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                                     <b>
                                                         {humanFriendlyNumber(
                                                             Math.round(
-                                                                (sentryErrorCount as number) *
+                                                                sentryErrorCount *
                                                                     (1 +
                                                                         (featureFlag.rollback_conditions[index]
                                                                             .threshold || 0) /
@@ -238,12 +238,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                     </>
                 ))}
             {!readOnly && (
-                <LemonButton
-                    type="secondary"
-                    onClick={() => {
-                        addRollbackCondition()
-                    }}
-                >
+                <LemonButton type="secondary" onClick={addRollbackCondition}>
                     Add condition
                 </LemonButton>
             )}

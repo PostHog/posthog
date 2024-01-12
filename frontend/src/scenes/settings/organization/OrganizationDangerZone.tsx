@@ -1,10 +1,10 @@
-import { useActions, useValues } from 'kea'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { useRestrictedArea } from 'lib/components/RestrictedArea'
-import { Dispatch, SetStateAction, useState } from 'react'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
-import { IconDelete } from 'lib/lemon-ui/icons'
+import { useActions, useValues } from 'kea'
+import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { IconDelete } from 'lib/lemon-ui/icons'
+import { Dispatch, SetStateAction, useState } from 'react'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 export function DeleteOrganizationModal({
     isOpen,
@@ -29,11 +29,11 @@ export function DeleteOrganizationModal({
                         Cancel
                     </LemonButton>
                     <LemonButton
-                        type="primary"
+                        type="secondary"
+                        status="danger"
                         disabled={!isDeletionConfirmed}
                         loading={isDeletionInProgress}
                         data-attr="delete-organization-ok"
-                        status="danger"
                         onClick={currentOrganization ? () => deleteOrganization(currentOrganization) : undefined}
                     >{`Delete ${
                         currentOrganization ? currentOrganization.name : 'the current organization'
@@ -82,7 +82,7 @@ export function OrganizationDangerZone(): JSX.Element {
                     onClick={() => setIsModalVisible(true)}
                     data-attr="delete-organization-button"
                     icon={<IconDelete />}
-                    disabled={isRestricted}
+                    disabledReason={isRestricted && 'Restricted action'}
                 >
                     Delete {currentOrganization?.name || 'the current organization'}
                 </LemonButton>

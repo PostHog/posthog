@@ -1,6 +1,8 @@
 import { Meta } from '@storybook/react'
-import { ProductIntroduction } from './ProductIntroduction'
+
 import { ProductKey } from '~/types'
+
+import { ProductIntroduction } from './ProductIntroduction'
 
 const meta: Meta<typeof ProductIntroduction> = {
     title: 'Components/Product Empty State',

@@ -1,7 +1,8 @@
+import clsx from 'clsx'
+import { dayjs } from 'lib/dayjs'
 import { LemonCalendar } from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
 import { useEffect, useState } from 'react'
-import { dayjs } from 'lib/dayjs'
-import clsx from 'clsx'
+
 import { LemonCalendarRangeProps } from './LemonCalendarRange'
 
 /** Used to calculate how many calendars fit on the screen */
@@ -101,11 +102,14 @@ export function LemonCalendarRangeInline({
                         className:
                             date.isSame(rangeStart, 'd') && date.isSame(rangeEnd, 'd')
                                 ? props.className
-                                : clsx(props.className, {
-                                      'rounded-r-none': date.isSame(rangeStart, 'd') && dayIndex < 6,
-                                      'rounded-l-none': date.isSame(rangeEnd, 'd') && dayIndex > 0,
-                                  }),
-                        status: 'primary',
+                                : clsx(
+                                      props.className,
+                                      {
+                                          'rounded-r-none': date.isSame(rangeStart, 'd') && dayIndex < 6,
+                                          'rounded-l-none': date.isSame(rangeEnd, 'd') && dayIndex > 0,
+                                      },
+                                      'LemonCalendar__range--boundary'
+                                  ),
                         type: 'primary',
                     }
                 } else if (rangeStart && rangeEnd && date > rangeStart && date < rangeEnd) {

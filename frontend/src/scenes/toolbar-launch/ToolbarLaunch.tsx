@@ -1,12 +1,13 @@
-import { PageHeader } from 'lib/components/PageHeader'
-import { SceneExport } from 'scenes/sceneTypes'
 import './ToolbarLaunch.scss'
-import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
-import { IconFlag, IconGroupedEvents, IconHeatmap, IconMagnifier } from 'lib/lemon-ui/icons'
+
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { PageHeader } from 'lib/components/PageHeader'
+import { IconFlag, IconGroupedEvents, IconHeatmap, IconMagnifier } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { Link } from 'lib/lemon-ui/Link'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 export const scene: SceneExport = {
     component: ToolbarLaunch,
@@ -38,7 +39,7 @@ function ToolbarLaunch(): JSX.Element {
 
     return (
         <div className="toolbar-launch-page">
-            <PageHeader title="Toolbar" caption="The toolbar launches PostHog right in your app or website." />
+            <PageHeader caption="The toolbar launches PostHog right in your app or website." />
             <LemonDivider />
 
             <h2 className="subtitle" id="urls">

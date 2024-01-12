@@ -12,13 +12,13 @@ def test_properties_chain_person():
 
 def test_properties_chain_session():
     p1 = get_properties_chain(breakdown_type="session", breakdown_field="anything", group_type_index=None)
-    assert p1 == ["session", "session_duration"]
+    assert p1 == ["session", "duration"]
 
     p2 = get_properties_chain(breakdown_type="session", breakdown_field="", group_type_index=None)
-    assert p2 == ["session", "session_duration"]
+    assert p2 == ["session", "duration"]
 
     p3 = get_properties_chain(breakdown_type="session", breakdown_field="", group_type_index=1)
-    assert p3 == ["session", "session_duration"]
+    assert p3 == ["session", "duration"]
 
 
 def test_properties_chain_groups():

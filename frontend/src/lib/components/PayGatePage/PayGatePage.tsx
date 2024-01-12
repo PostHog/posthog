@@ -1,10 +1,12 @@
-import { useValues } from 'kea'
-import { identifierToHuman } from 'lib/utils'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import './PayGatePage.scss'
-import { AvailableFeature } from '~/types'
+
+import { IconOpenSidebar } from '@posthog/icons'
+import { useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { identifierToHuman } from 'lib/utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
+
+import { AvailableFeature } from '~/types'
 
 interface PayGatePageInterface {
     header: string | JSX.Element
@@ -44,7 +46,7 @@ export function PayGatePage({
                         center
                         data-attr={`${featureKey}-learn-more`}
                     >
-                        Learn more about {featureName} <IconOpenInNew style={{ marginLeft: 8 }} />
+                        Learn more {<IconOpenSidebar className="ml-2" />}
                     </LemonButton>
                 )}
             </div>

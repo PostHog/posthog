@@ -1,38 +1,37 @@
+# serializer version: 1
 # name: TestInsight.test_insight_funnels_hogql_breakdown
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
-  SELECT groupArray(value)
-  FROM
-    (SELECT array(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, 'fish'), ''), 'null'), '^"|"$', '')) AS value,
-            count(*) as count
-     FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 2
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     INNER JOIN
-       (SELECT id,
-               argMax(properties, version) as person_props
-        FROM person
-        WHERE team_id = 2
-        GROUP BY id
-        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
+  SELECT array(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, 'fish'), ''), 'null'), '^"|"$', '')) AS value,
+         count(*) as count
+  FROM events e
+  INNER JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
      WHERE team_id = 2
-       AND event IN ['user did things', 'user signed up']
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-08 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-       AND (and(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 1))
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+  INNER JOIN
+    (SELECT id,
+            argMax(properties, version) as person_props
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
+  WHERE team_id = 2
+    AND event IN ['user did things', 'user signed up']
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-08 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+    AND (and(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 1))
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestInsight.test_insight_funnels_hogql_breakdown.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -110,10 +109,10 @@
               prop
      HAVING steps = max_steps)
   GROUP BY prop
-  '
----
+  '''
+# ---
 # name: TestInsight.test_insight_funnels_hogql_global_filters
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -170,17 +169,17 @@
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-08 00:00:00', 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
                    AND ((and(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 1))
-                        AND (like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%')))
+                        AND (ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%'), 0)))
                    AND (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
      HAVING steps = max_steps)
-  '
----
+  '''
+# ---
 # name: TestInsight.test_insight_funnels_hogql_local_filters
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
@@ -215,11 +214,11 @@
                         person.person_props as person_props ,
                         if(event = 'user signed up'
                            AND (and(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 1)
-                                AND like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%')), 1, 0) as step_0,
+                                AND ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%'), 0)), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'user did things'
                            AND (and(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 1)
-                                AND like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%')), 1, 0) as step_1,
+                                AND ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%'), 0)), 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
                  FROM events e
                  INNER JOIN
@@ -246,28 +245,26 @@
      GROUP BY aggregation_target,
               steps
      HAVING steps = max_steps)
-  '
----
+  '''
+# ---
 # name: TestInsight.test_insight_trend_hogql_breakdown
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
-  SELECT groupArray(value)
-  FROM
-    (SELECT if(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 'le%ss', 'more') AS value,
-            count(*) as count
-     FROM events e
-     WHERE team_id = 2
-       AND event = '$pageview'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-08 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+  SELECT if(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 'le%ss', 'more') AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event = '$pageview'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-08 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestInsight.test_insight_trend_hogql_breakdown.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -295,13 +292,12 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            if(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 'le%ss', 'more') as breakdown_value
+                            transform(ifNull(nullIf(if(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 'le%ss', 'more'), ''), '$$_posthog_breakdown_null_$$'), (['more', 'le%ss']), (['more', 'le%ss']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-             AND if(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 'le%ss', 'more') in (['more', 'le%ss'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -310,28 +306,26 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestInsight.test_insight_trend_hogql_breakdown_materialized
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
-  SELECT groupArray(value)
-  FROM
-    (SELECT if(ifNull(less(toInt64OrNull(nullIf(nullIf(events.mat_int_value, ''), 'null')), 10), 0), 'le%ss', 'more') AS value,
-            count(*) as count
-     FROM events e
-     WHERE team_id = 2
-       AND event = '$pageview'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-08 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+  SELECT if(ifNull(less(toInt64OrNull(nullIf(nullIf(events.mat_int_value, ''), 'null')), 10), 0), 'le%ss', 'more') AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event = '$pageview'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-08 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestInsight.test_insight_trend_hogql_breakdown_materialized.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -359,13 +353,12 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            if(ifNull(less(toInt64OrNull(nullIf(nullIf(events.mat_int_value, ''), 'null')), 10), 0), 'le%ss', 'more') as breakdown_value
+                            transform(ifNull(nullIf(if(ifNull(less(toInt64OrNull(nullIf(nullIf(events.mat_int_value, ''), 'null')), 10), 0), 'le%ss', 'more'), ''), '$$_posthog_breakdown_null_$$'), (['more', 'le%ss']), (['more', 'le%ss']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-             AND if(ifNull(less(toInt64OrNull(nullIf(nullIf(events.mat_int_value, ''), 'null')), 10), 0), 'le%ss', 'more') in (['more', 'le%ss'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -374,10 +367,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestInsight.test_insight_trend_hogql_global_filters
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -400,10 +393,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestInsight.test_insight_trend_hogql_global_filters.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -438,14 +431,14 @@
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
           AND ((and(ifNull(greater(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 1))
-               AND (like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%')))
+               AND (ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%'), 0)))
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestInsight.test_insight_trend_hogql_global_filters_materialized
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -468,10 +461,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestInsight.test_insight_trend_hogql_global_filters_materialized.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -506,14 +499,14 @@
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
           AND ((and(ifNull(greater(toInt64OrNull(nullIf(nullIf(events.mat_int_value, ''), 'null')), 10), 0), 1))
-               AND (like(nullIf(nullIf(mat_pp_fish, ''), 'null'), '%fish%')))
+               AND (ifNull(like(nullIf(nullIf(mat_pp_fish, ''), 'null'), '%fish%'), 0)))
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestInsight.test_insight_trend_hogql_local_filters
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -548,14 +541,14 @@
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
           AND (and(ifNull(less(toInt64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, 'int_value'), ''), 'null'), '^"|"$', '')), 10), 0), 1)
-               AND like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%'))
+               AND ifNull(like(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, 'fish'), ''), 'null'), '^"|"$', ''), '%fish%'), 0))
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestInsight.test_insight_trend_hogql_local_filters_materialized
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -590,14 +583,14 @@
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
           AND (and(ifNull(less(toInt64OrNull(nullIf(nullIf(events.mat_int_value, ''), 'null')), 10), 0), 1)
-               AND like(nullIf(nullIf(mat_pp_fish, ''), 'null'), '%fish%'))
+               AND ifNull(like(nullIf(nullIf(mat_pp_fish, ''), 'null'), '%fish%'), 0))
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1
-  '
+  '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -615,7 +608,9 @@
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
+         "posthog_user"."strapi_id",
          "posthog_user"."email_opt_in",
+         "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
@@ -623,10 +618,10 @@
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21 /**/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.1
-  '
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -647,6 +642,7 @@
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -668,14 +664,15 @@
          "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.10
-  '
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -696,6 +693,7 @@
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -717,14 +715,15 @@
          "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.11
-  '
+  '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
@@ -739,10 +738,10 @@
   FROM "posthog_dashboardtile"
   WHERE "posthog_dashboardtile"."id" = 2
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.12
-  '
+  '''
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -774,10 +773,10 @@
   FROM "posthog_dashboarditem"
   WHERE "posthog_dashboarditem"."id" = 2
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.13
-  '
+  '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -797,10 +796,10 @@
   FROM "posthog_dashboard"
   WHERE "posthog_dashboard"."id" = 2
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.14
-  '
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -821,6 +820,7 @@
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -849,14 +849,15 @@
          "posthog_team"."event_properties",
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.15
-  '
+  '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -877,10 +878,10 @@
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.16
-  '
+  '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -901,10 +902,10 @@
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboard"."id" = "posthog_dashboardtile"."dashboard_id")
   WHERE (NOT ("posthog_dashboard"."deleted")
          AND "posthog_dashboardtile"."insight_id" = 2) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.17
-  '
+  '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
@@ -922,10 +923,10 @@
               AND "posthog_dashboardtile"."deleted" IS NOT NULL)
          AND NOT ("posthog_dashboard"."deleted")
          AND "posthog_dashboardtile"."insight_id" = 2) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.18
-  '
+  '''
   SELECT "posthog_dashboardtile"."dashboard_id"
   FROM "posthog_dashboardtile"
   INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
@@ -933,10 +934,10 @@
               AND "posthog_dashboardtile"."deleted" IS NOT NULL)
          AND NOT ("posthog_dashboard"."deleted")
          AND "posthog_dashboardtile"."insight_id" = 2) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.19
-  '
+  '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -960,10 +961,10 @@
                                           3,
                                           4,
                                           5 /* ... */)) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.2
-  '
+  '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
          "posthog_organizationmembership"."user_id",
@@ -990,17 +991,17 @@
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 2 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.20
-  '
+  '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
   WHERE NOT ("posthog_dashboarditem"."deleted")
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.21
-  '
+  '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -1018,7 +1019,9 @@
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."has_seen_product_intro_for",
+         "posthog_user"."strapi_id",
          "posthog_user"."email_opt_in",
+         "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
@@ -1026,10 +1029,10 @@
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21 /**/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.22
-  '
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -1050,6 +1053,7 @@
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -1071,14 +1075,15 @@
          "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.23
-  '
+  '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
          "posthog_organizationmembership"."user_id",
@@ -1105,10 +1110,10 @@
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE "posthog_organizationmembership"."user_id" = 2 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.24
-  '
+  '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -1129,20 +1134,20 @@
   FROM "posthog_organization"
   WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.25
-  '
+  '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
   WHERE (NOT ("posthog_dashboarditem"."deleted")
          AND "posthog_dashboarditem"."team_id" = 2
          AND NOT ("posthog_dashboarditem"."filters" = '{}'
                   AND "posthog_dashboarditem"."query" IS NOT NULL)) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.26
-  '
+  '''
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -1191,6 +1196,7 @@
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -1220,6 +1226,7 @@
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -1238,7 +1245,9 @@
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_password_reset_at",
          "posthog_user"."has_seen_product_intro_for",
+         "posthog_user"."strapi_id",
          "posthog_user"."email_opt_in",
+         "posthog_user"."theme_mode",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
@@ -1261,7 +1270,9 @@
          T4."is_email_verified",
          T4."requested_password_reset_at",
          T4."has_seen_product_intro_for",
+         T4."strapi_id",
          T4."email_opt_in",
+         T4."theme_mode",
          T4."partial_notification_settings",
          T4."anonymize_data",
          T4."toolbar_mode",
@@ -1276,10 +1287,10 @@
                   AND "posthog_dashboarditem"."query" IS NOT NULL))
   ORDER BY "posthog_dashboarditem"."order" ASC
   LIMIT 100 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.27
-  '
+  '''
   SELECT ("posthog_dashboardtile"."insight_id") AS "_prefetch_related_val_insight_id",
          "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -1317,6 +1328,7 @@
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -1346,6 +1358,7 @@
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -1373,10 +1386,10 @@
                                                       3,
                                                       4,
                                                       5 /* ... */)) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.28
-  '
+  '''
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
          "posthog_dashboardtile"."insight_id",
@@ -1424,6 +1437,7 @@
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -1453,6 +1467,7 @@
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -1482,10 +1497,10 @@
                                                       3,
                                                       4,
                                                       5 /* ... */)) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.29
-  '
+  '''
   SELECT "posthog_taggeditem"."id",
          "posthog_taggeditem"."tag_id",
          "posthog_taggeditem"."dashboard_id",
@@ -1500,10 +1515,10 @@
                                               3,
                                               4,
                                               5 /* ... */) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.3
-  '
+  '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -1524,10 +1539,10 @@
   WHERE (NOT ("posthog_dashboard"."deleted")
          AND "posthog_dashboard"."id" = 2)
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.30
-  '
+  '''
   SELECT "posthog_taggeditem"."id",
          "posthog_taggeditem"."tag_id",
          "posthog_taggeditem"."dashboard_id",
@@ -1542,10 +1557,10 @@
                                               3,
                                               4,
                                               5 /* ... */) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.4
-  '
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -1566,6 +1581,7 @@
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -1587,14 +1603,15 @@
          "posthog_team"."extra_settings",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.5
-  '
+  '''
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
          "posthog_dashboarditem"."derived_name",
@@ -1626,10 +1643,10 @@
   FROM "posthog_dashboarditem"
   WHERE "posthog_dashboarditem"."id" = 2
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.6
-  '
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -1650,6 +1667,7 @@
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -1678,14 +1696,15 @@
          "posthog_team"."event_properties",
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.7
-  '
+  '''
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -1709,10 +1728,10 @@
                                           3,
                                           4,
                                           5 /* ... */)) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.8
-  '
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -1733,6 +1752,7 @@
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -1761,14 +1781,15 @@
          "posthog_team"."event_properties",
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
+  '''
+# ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.9
-  '
+  '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
          "posthog_team"."organization_id",
@@ -1789,6 +1810,7 @@
          "posthog_team"."session_recording_sample_rate",
          "posthog_team"."session_recording_minimum_duration_milliseconds",
          "posthog_team"."session_recording_linked_flag",
+         "posthog_team"."session_recording_network_payload_capture_config",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
          "posthog_team"."surveys_opt_in",
@@ -1817,9 +1839,10 @@
          "posthog_team"."event_properties",
          "posthog_team"."event_properties_with_usage",
          "posthog_team"."event_properties_numerical",
-         "posthog_team"."external_data_workspace_id"
+         "posthog_team"."external_data_workspace_id",
+         "posthog_team"."external_data_workspace_last_synced_at"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
+  '''
+# ---

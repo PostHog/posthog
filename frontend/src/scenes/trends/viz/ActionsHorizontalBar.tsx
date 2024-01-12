@@ -1,21 +1,23 @@
-import { useState, useEffect } from 'react'
-import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
-import { getSeriesColor } from 'lib/colors'
 import { useValues } from 'kea'
-import { InsightEmptyState } from '../../insights/EmptyStates'
-import { ChartParams, GraphType } from '~/types'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { openPersonsModal } from '../persons-modal/PersonsModal'
+import { getSeriesColor } from 'lib/colors'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
+import { useEffect, useState } from 'react'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
+
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { ChartParams, GraphType } from '~/types'
+
+import { InsightEmptyState } from '../../insights/EmptyStates'
+import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
+import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
+import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
 
 type DataSet = any
 
-export function ActionsHorizontalBar({ inCardView, showPersonsModal = true }: ChartParams): JSX.Element | null {
+export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<DataSet[] | null>(null)
     const [total, setTotal] = useState(0)
 
@@ -80,7 +82,6 @@ export function ActionsHorizontalBar({ inCardView, showPersonsModal = true }: Ch
             trendsFilter={trendsFilter}
             formula={formula}
             showValueOnSeries={showValueOnSeries}
-            inCardView={inCardView}
             onClick={
                 !showPersonsModal || trendsFilter?.formula
                     ? undefined
@@ -89,7 +90,7 @@ export function ActionsHorizontalBar({ inCardView, showPersonsModal = true }: Ch
 
                           const dataset = points.referencePoint.dataset
                           const label = dataset.labels?.[point.index]
-                          const urls = urlsForDatasets(crossDataset, index)
+                          const urls = urlsForDatasets(crossDataset, index, cohorts, formatPropertyValueForDisplay)
                           const selectedUrl = urls[index]?.value
 
                           if (selectedUrl) {

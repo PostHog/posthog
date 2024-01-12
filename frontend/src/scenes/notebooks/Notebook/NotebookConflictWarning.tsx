@@ -1,5 +1,6 @@
 import { useActions } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+
 import { notebookLogic } from './notebookLogic'
 
 export function NotebookConflictWarning(): JSX.Element {

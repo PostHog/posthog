@@ -1,19 +1,21 @@
 // Helpers for Kea issue with double importing
 import { LemonButtonProps } from '@posthog/lemon-ui'
 import {
+    Attribute,
     ChainedCommands as EditorCommands,
     Editor as TTEditor,
+    ExtendedRegExpMatchArray,
     FocusPosition as EditorFocusPosition,
     getText,
     JSONContent as TTJSONContent,
     Range as EditorRange,
     TextSerializer,
-    ExtendedRegExpMatchArray,
-    Attribute,
 } from '@tiptap/core'
 import { Node as PMNode } from '@tiptap/pm/model'
+
 import { NotebookNodeResource, NotebookNodeType } from '~/types'
-import { NotebookNodeLogicProps } from '../Nodes/notebookNodeLogic'
+
+import type { NotebookNodeLogicProps } from '../Nodes/notebookNodeLogic'
 
 // TODO: fix the typing of string to NotebookNodeType
 export const KNOWN_NODES: Record<string, CreatePostHogWidgetNodeOptions<any>> = {}
@@ -24,7 +26,7 @@ export type CreatePostHogWidgetNodeOptions<T extends CustomNotebookNodeAttribute
 > & {
     Component: (props: NotebookNodeProps<T>) => JSX.Element | null
     pasteOptions?: {
-        find: string
+        find: string | RegExp
         getAttributes: (match: ExtendedRegExpMatchArray) => Promise<T | null | undefined> | T | null | undefined
     }
     attributes: Record<keyof T, Partial<Attribute>>
@@ -45,15 +47,16 @@ export type NodeWrapperProps<T extends CustomNotebookNodeAttributes> = Omit<Note
         autoHideMetadata?: boolean
         /** Expand the node if the component is clicked */
         expandOnClick?: boolean
+        settingsIcon?: JSX.Element | 'filter' | 'gear'
     }
 
 export interface Node extends PMNode {}
 export interface JSONContent extends TTJSONContent {}
 
-export {
+export type {
     ChainedCommands as EditorCommands,
-    Range as EditorRange,
     FocusPosition as EditorFocusPosition,
+    Range as EditorRange,
 } from '@tiptap/core'
 
 export type CustomNotebookNodeAttributes = Record<string, any>
@@ -103,6 +106,9 @@ export interface NotebookEditor {
     focus: (position?: EditorFocusPosition) => void
     chain: () => EditorCommands
     destroy: () => void
+    findCommentPosition: (markId: string) => number | null
+    getMarks: (type: string) => { id: string; pos: number }[]
+    removeComment: (pos: number) => void
     deleteRange: (range: EditorRange) => EditorCommands
     insertContent: (content: JSONContent) => void
     insertContentAfterNode: (position: number, content: JSONContent) => void
@@ -165,6 +171,7 @@ export const textContent = (node: any): string => {
         'ph-properties': customOrTitleSerializer,
         'ph-map': customOrTitleSerializer,
         'ph-mention': customOrTitleSerializer,
+        'ph-embed': customOrTitleSerializer,
     }
 
     return getText(node, {

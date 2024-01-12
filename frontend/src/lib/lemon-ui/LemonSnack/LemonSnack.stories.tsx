@@ -1,6 +1,7 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { LemonSnack, LemonSnackProps } from './LemonSnack'
+
 import { ProfilePicture } from '../ProfilePicture'
+import { LemonSnack, LemonSnackProps } from './LemonSnack'
 
 type Story = StoryObj<typeof LemonSnack>
 const meta: Meta<typeof LemonSnack> = {
@@ -43,7 +44,7 @@ export const ComplexContent: Story = BasicTemplate.bind({})
 ComplexContent.args = {
     children: (
         <span className="flex gap-2 items-center">
-            <ProfilePicture email="ben@posthog.com" size="sm" />
+            <ProfilePicture name="ben" size="sm" />
             <span>
                 Look at me I'm <b>bold!</b>
             </span>

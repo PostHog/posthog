@@ -228,7 +228,13 @@ def _entities(filter: Dict):
 
 
 def _sampling_factor(filter: Dict):
-    return {"samplingFactor": filter.get("sampling_factor")}
+    if isinstance(filter.get("sampling_factor"), str):
+        try:
+            return float(filter.get("sampling_factor"))
+        except (ValueError, TypeError):
+            return {}
+    else:
+        return {"samplingFactor": filter.get("sampling_factor")}
 
 
 def _filter_test_accounts(filter: Dict):
@@ -269,6 +275,7 @@ def _breakdown_filter(_filter: Dict):
         "breakdown": _filter.get("breakdown"),
         "breakdown_normalize_url": _filter.get("breakdown_normalize_url"),
         "breakdown_group_type_index": _filter.get("breakdown_group_type_index"),
+        "breakdown_hide_other_aggregation": _filter.get("breakdown_hide_other_aggregation"),
         "breakdown_histogram_bin_count": _filter.get("breakdown_histogram_bin_count")
         if _insight_type(_filter) == "TRENDS"
         else None,
@@ -298,7 +305,7 @@ def _breakdown_filter(_filter: Dict):
 
 
 def _group_aggregation_filter(filter: Dict):
-    if _insight_type(filter) == "STICKINESS":
+    if _insight_type(filter) == "STICKINESS" or _insight_type(filter) == "LIFECYCLE":
         return {}
     return {"aggregation_group_type_index": filter.get("aggregation_group_type_index")}
 
@@ -314,6 +321,7 @@ def _insight_filter(filter: Dict):
                 aggregation_axis_format=filter.get("aggregation_axis_format"),
                 aggregation_axis_prefix=filter.get("aggregation_axis_prefix"),
                 aggregation_axis_postfix=filter.get("aggregation_axis_postfix"),
+                decimal_places=filter.get("decimal_places"),
                 formula=filter.get("formula"),
                 display=clean_display(filter.get("display")),
                 show_values_on_series=filter.get("show_values_on_series"),

@@ -455,6 +455,7 @@
             "price_description": null,
             "usage_key": "events",
             "image_url": "https://posthog.com/images/product/product-icons/product-analytics.svg",
+            "icon_key": "IconGraph",
             "docs_url": "https://posthog.com/docs/product-analytics",
             "subscribed": true,
             "plans": [
@@ -736,10 +737,10 @@
             "unit_amount_usd": null,
             "current_amount_usd_before_addons": "0.00",
             "current_amount_usd": "0.00",
-            "current_usage": 1003478,
+            "current_usage": 1603478,
             "usage_limit": 3624548,
             "has_exceeded_limit": false,
-            "percentage_usage": 0.2768560383253305,
+            "percentage_usage": 0.4423939206,
             "projected_usage": 5469181,
             "projected_amount_usd": "1230.57",
             "unit": "event",
@@ -749,6 +750,7 @@
                     "description": "Understand how groups of users behave.",
                     "price_description": null,
                     "image_url": "https://posthog.com/images/product/product-icons/group-analytics.svg",
+                    "icon_key": "IconPeople",
                     "docs_url": "https://posthog.com/docs/product-analytics/group-analytics",
                     "type": "group_analytics",
                     "tiers": [

@@ -33,6 +33,7 @@ from posthog.permissions import (
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
+from loginas.utils import is_impersonated_session
 
 
 def shared_url_as_png(url: str = "") -> str:
@@ -181,6 +182,7 @@ class SharingConfigurationViewSet(StructuredViewSetMixin, mixins.ListModelMixin,
                 organization_id=None,
                 team_id=self.team_id,
                 user=cast(User, self.request.user),
+                was_impersonated=is_impersonated_session(self.request),
                 item_id=instance.insight.pk,
                 scope="Insight",
                 activity="sharing " + ("enabled" if serializer.data.get("enabled") else "disabled"),
@@ -213,8 +215,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
     4. Export downloading - used to download the actual content of an export if requested with the correct extension
     """
 
-    authentication_classes = []  # type: ignore
-    permission_classes = []  # type: ignore
+    authentication_classes = []
+    permission_classes = []
     include_in_docs = False
 
     def get_object(self) -> Optional[SharingConfiguration | ExportedAsset]:

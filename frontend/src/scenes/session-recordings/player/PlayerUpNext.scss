@@ -1,9 +1,9 @@
 .PlayerUpNext {
-    transition: 250ms transform ease-out;
     position: absolute;
     right: 1rem;
     bottom: 1rem;
     z-index: 11;
+    transition: 250ms transform ease-out;
 
     &--enter {
         transform: translateY(200%);
@@ -27,47 +27,47 @@
     position: relative;
     display: flex;
     align-items: center;
-    line-height: 1.5rem;
     min-height: 2.5rem;
     padding: 0.25rem 0.75rem;
-
+    overflow: hidden;
+    font-weight: 600;
+    line-height: 1.5rem;
+    cursor: pointer;
+    background-color: rgb(255 255 255 / 75%);
+    backdrop-filter: blur(5px);
+    border: 1px solid rgb(0 0 0 / 50%);
     border-radius: var(--radius);
     box-shadow: var(--shadow-elevation);
-    background-color: rgba(255, 255, 255, 0.75);
-    backdrop-filter: blur(5px);
-    font-weight: 600;
-    cursor: pointer;
-    overflow: hidden;
-    border: 1px solid rgba(0, 0, 0, 0.5);
 
     .PlayerUpNextButtonBackground {
         position: absolute;
-        left: 0px;
-        top: 0px;
-        bottom: 0px;
+        top: 0;
+        bottom: 0;
+        left: 0;
         width: 0;
-        background-color: var(--bg-light);
         color: var(--primary-alt);
+        background-color: var(--bg-light);
     }
 
     &.PlayerUpNextButton--animating {
         .PlayerUpNextButtonBackground {
-            animation: PlayerUpNextButtonBackgroundAnimation 3s linear forwards;
+            animation: PlayerUpNextButtonBackground__expand 3s linear forwards;
         }
     }
 
     &:hover {
         .PlayerUpNextButtonBackground {
-            animation: none;
             width: 100%;
+            animation: none;
         }
     }
 }
 
-@keyframes PlayerUpNextButtonBackgroundAnimation {
+@keyframes PlayerUpNextButtonBackground__expand {
     0% {
         width: 0;
     }
+
     100% {
         width: 100%;
     }

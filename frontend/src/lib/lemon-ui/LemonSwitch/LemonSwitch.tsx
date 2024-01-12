@@ -1,7 +1,8 @@
-import clsx from 'clsx'
-import { useMemo, useState } from 'react'
 import './LemonSwitch.scss'
+
+import clsx from 'clsx'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useMemo, useState } from 'react'
 
 export interface LemonSwitchProps {
     className?: string
@@ -57,6 +58,7 @@ export function LemonSwitch({
         <button
             id={id}
             className="LemonSwitch__button"
+            type="button"
             role="switch"
             onClick={() => {
                 if (onChange) {
@@ -78,7 +80,7 @@ export function LemonSwitch({
         buttonComponent = (
             <Tooltip title={tooltipContent}>
                 {/* wrap it in a div so that the tooltip works even when disabled */}
-                <div>{buttonComponent}</div>
+                <div className="flex items-center">{buttonComponent}</div>
             </Tooltip>
         )
     }

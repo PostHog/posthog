@@ -1,7 +1,8 @@
-import { useState } from 'react'
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { LemonLabel, LemonLabelProps } from './LemonLabel'
 import { LemonModal } from '@posthog/lemon-ui'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { useState } from 'react'
+
+import { LemonLabel, LemonLabelProps } from './LemonLabel'
 
 type Story = StoryObj<typeof LemonLabel>
 const meta: Meta<typeof LemonLabel> = {
@@ -38,7 +39,7 @@ Basic.args = {
 function ExplanationModal({ setOpen, open }: { setOpen: (open: boolean) => void; open: boolean }): JSX.Element {
     return (
         <LemonModal title="Let me explain you the label" isOpen={open} onClose={() => setOpen(false)}>
-            <div className="bg-bg-light w-full max-w-lg h-full ml-auto relative z-10 overflow-auto">
+            <div className="bg-bg-light w-full max-w-248 h-full ml-auto relative z-10 overflow-auto">
                 <h3 className="text-lg text-semibold opacity-50 m-0">Labels are awesome.</h3>
                 <p>They truly are.</p>
             </div>

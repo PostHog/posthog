@@ -13,7 +13,6 @@ import {
     selectors,
 } from 'kea'
 import type { notebookNodeLogicType } from './notebookNodeLogicType'
-import { createContext, useContext } from 'react'
 import { notebookLogicType } from '../Notebook/notebookLogicType'
 import {
     CustomNotebookNodeAttributes,
@@ -59,19 +58,30 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         setNextNode: (node: Node | null) => ({ node }),
         deleteNode: true,
         selectNode: true,
-        toggleEditing: true,
+        toggleEditing: (visible?: boolean) => ({ visible }),
         scrollIntoView: true,
         initializeNode: true,
         setMessageListeners: (listeners: NotebookNodeMessagesListeners) => ({ listeners }),
         setTitlePlaceholder: (titlePlaceholder: string) => ({ titlePlaceholder }),
+        setRef: (ref: HTMLElement | null) => ({ ref }),
+        toggleEditingTitle: (editing?: boolean) => ({ editing }),
+        copyToClipboard: true,
+        convertToBacklink: (href: string) => ({ href }),
     }),
 
     connect((props: NotebookNodeLogicProps) => ({
         actions: [props.notebookLogic, ['onUpdateEditor', 'setTextSelection']],
-        values: [props.notebookLogic, ['editor', 'isEditable']],
+        values: [props.notebookLogic, ['editor', 'isEditable', 'comments']],
     })),
 
     reducers(({ props }) => ({
+        ref: [
+            null as HTMLElement | null,
+            {
+                setRef: (_, { ref }) => ref,
+                unregisterNodeLogic: () => null,
+            },
+        ],
         expanded: [
             props.startExpanded ?? true,
             {
@@ -114,6 +124,12 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 setTitlePlaceholder: (_, { titlePlaceholder }) => titlePlaceholder,
             },
         ],
+        isEditingTitle: [
+            false,
+            {
+                toggleEditingTitle: (state, { editing }) => (typeof editing === 'boolean' ? editing : !state),
+            },
+        ],
     })),
 
     selectors({
@@ -144,6 +160,15 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                     return true
                 }
             },
+        ],
+
+        sourceComment: [
+            (s) => [s.comments, s.nodeId],
+            (comments, nodeId) =>
+                comments &&
+                comments.find(
+                    (comment) => comment.item_context?.type === 'node' && comment.item_context?.id === nodeId
+                ),
         ],
     }),
 
@@ -246,10 +271,11 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         updateAttributes: ({ attributes }) => {
             props.updateAttributes(attributes)
         },
-        toggleEditing: () => {
-            props.notebookLogic.actions.setEditingNodeId(
-                props.notebookLogic.values.editingNodeId === values.nodeId ? null : values.nodeId
-            )
+        toggleEditing: ({ visible }) => {
+            const shouldShowThis =
+                typeof visible === 'boolean' ? visible : values.notebookLogic.values.editingNodeId !== values.nodeId
+
+            props.notebookLogic.actions.setEditingNodeId(shouldShowThis ? values.nodeId : null)
         },
         initializeNode: () => {
             const { __init } = values.nodeAttributes
@@ -259,16 +285,61 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                     actions.setExpanded(true)
                 }
                 if (__init.showSettings) {
-                    actions.toggleEditing()
+                    actions.toggleEditing(true)
                 }
                 props.updateAttributes({ __init: null })
             }
         },
+
+        copyToClipboard: async () => {
+            const { nodeAttributes } = values
+
+            const htmlAttributesString = Object.entries(nodeAttributes)
+                .map(([key, value]) => {
+                    if (key === 'nodeId' || key.startsWith('__')) {
+                        return ''
+                    }
+
+                    if (value === null || value === undefined) {
+                        return ''
+                    }
+
+                    return `${key}='${JSON.stringify(value)}'`
+                })
+                .filter((x) => !!x)
+                .join(' ')
+
+            const html = `<${props.nodeType} ${htmlAttributesString} data-pm-slice="0 0 []"></${props.nodeType}>`
+
+            const type = 'text/html'
+            const blob = new Blob([html], { type })
+            const data = [new ClipboardItem({ [type]: blob })]
+
+            await window.navigator.clipboard.write(data)
+        },
+        convertToBacklink: ({ href }) => {
+            const editor = values.notebookLogic.values.editor
+            if (!props.getPos || !editor) {
+                return
+            }
+
+            editor.insertContentAfterNode(props.getPos(), {
+                type: NotebookNodeType.Backlink,
+                attrs: {
+                    href,
+                },
+            })
+            actions.deleteNode()
+        },
     })),
 
-    afterMount(async (logic) => {
+    afterMount((logic) => {
         const { props, actions, values } = logic
-        props.notebookLogic.actions.registerNodeLogic(values.nodeId, logic as any)
+
+        // The node logic is mounted after the editor is mounted, so we need to wait a tick before we can register it
+        queueMicrotask(() => {
+            props.notebookLogic.actions.registerNodeLogic(values.nodeId, logic as any)
+        })
 
         const isResizeable =
             typeof props.resizeable === 'function' ? props.resizeable(props.attributes) : props.resizeable ?? true
@@ -282,10 +353,3 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
         props.notebookLogic.actions.unregisterNodeLogic(values.nodeId)
     }),
 ])
-
-export const NotebookNodeContext = createContext<BuiltLogic<notebookNodeLogicType> | undefined>(undefined)
-
-// Currently there is no way to optionally get bound logics so this context allows us to maybe get a logic if it is "bound" via the provider
-export const useNotebookNode = (): BuiltLogic<notebookNodeLogicType> | undefined => {
-    return useContext(NotebookNodeContext)
-}

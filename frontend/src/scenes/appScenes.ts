@@ -1,5 +1,5 @@
-import { Scene } from 'scenes/sceneTypes'
 import { preloadedScenes } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 
 export const appScenes: Record<Scene, () => any> = {
     [Scene.Error404]: () => ({ default: preloadedScenes[Scene.Error404].component }),
@@ -23,6 +23,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.PersonsManagement]: () => import('./persons-management/PersonsManagementScene'),
     [Scene.Person]: () => import('./persons/PersonScene'),
     [Scene.Pipeline]: () => import('./pipeline/Pipeline'),
+    [Scene.PipelineApp]: () => import('./pipeline/PipelineApp'),
     [Scene.Group]: () => import('./groups/Group'),
     [Scene.Action]: () => import('./actions/Action'),
     [Scene.Experiments]: () => import('./experiments/Experiments'),
@@ -36,10 +37,9 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.SurveyTemplates]: () => import('./surveys/SurveyTemplates'),
     [Scene.DataWarehouse]: () => import('./data-warehouse/external/DataWarehouseExternalScene'),
     [Scene.DataWarehouseTable]: () => import('./data-warehouse/new_table/DataWarehouseTableScene'),
-    [Scene.DataWarehousePosthog]: () => import('./data-warehouse/posthog/DataWarehousePosthogScene'),
     [Scene.DataWarehouseExternal]: () => import('./data-warehouse/external/DataWarehouseExternalScene'),
-    [Scene.DataWarehouseSavedQueries]: () => import('./data-warehouse/saved_queries/DataWarehouseSavedQueriesScene'),
     [Scene.DataWarehouseSettings]: () => import('./data-warehouse/settings/DataWarehouseSettingsScene'),
+    [Scene.DataWarehouseRedirect]: () => import('./data-warehouse/redirect/DataWarehouseRedirectScene'),
     [Scene.OrganizationCreateFirst]: () => import('./organization/Create'),
     [Scene.OrganizationCreationConfirm]: () => import('./organization/ConfirmOrganization/ConfirmOrganization'),
     [Scene.ProjectHomepage]: () => import('./project-homepage/ProjectHomepage'),
@@ -52,7 +52,6 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.PreflightCheck]: () => import('./PreflightCheck/PreflightCheck'),
     [Scene.Signup]: () => import('./authentication/signup/SignupContainer'),
     [Scene.InviteSignup]: () => import('./authentication/InviteSignup'),
-    [Scene.Ingestion]: () => import('./ingestion/IngestionWizard'),
     [Scene.Billing]: () => import('./billing/Billing'),
     [Scene.Apps]: () => import('./plugins/AppsScene'),
     [Scene.FrontendAppScene]: () => import('./apps/FrontendAppScene'),
@@ -66,7 +65,6 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.IntegrationsRedirect]: () => import('./IntegrationsRedirect/IntegrationsRedirect'),
     [Scene.DebugQuery]: () => import('./debug/DebugScene'),
     [Scene.VerifyEmail]: () => import('./authentication/signup/verify-email/VerifyEmail'),
-    [Scene.Feedback]: () => import('./feedback/Feedback'),
     [Scene.Notebooks]: () => import('./notebooks/NotebooksScene'),
     [Scene.Notebook]: () => import('./notebooks/NotebookScene'),
     [Scene.Canvas]: () => import('./notebooks/NotebookCanvasScene'),

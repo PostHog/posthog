@@ -1,7 +1,10 @@
+import './LEGACY_InsightTooltip.scss'
+
+import clsx from 'clsx'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { IconHandClick } from 'lib/lemon-ui/icons'
+
 import { IntervalType } from '~/types'
-import './LEGACY_InsightTooltip.scss'
 
 interface BodyLine {
     id?: string | number
@@ -30,7 +33,7 @@ export function LEGACY_InsightTooltip({
     hideHeader,
 }: InsightTooltipProps): JSX.Element {
     return (
-        <div className={`inner-tooltip${bodyLines.length > 1 ? ' multiple' : ''}`} style={{ maxWidth: 300 }}>
+        <div className={clsx('max-w-80', `inner-tooltip${bodyLines.length > 1 ? ' multiple' : ''}`)}>
             {!hideHeader && (
                 <header>
                     {referenceDate && interval && !preferAltTitle ? (

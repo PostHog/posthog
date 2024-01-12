@@ -1,5 +1,7 @@
 import { Meta } from '@storybook/react'
+
 import { ElementType } from '~/types'
+
 import { HTMLElementsDisplay } from './HTMLElementsDisplay'
 
 const meta: Meta<typeof HTMLElementsDisplay> = {

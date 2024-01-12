@@ -1,5 +1,6 @@
-import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { InsightShortId } from '~/types'
+import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+
+import { ActivityScope, InsightShortId } from '~/types'
 
 export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
     {
@@ -13,7 +14,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         detail: {
             changes: [
                 {
-                    type: 'FeatureFlag',
+                    type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
                     field: 'name',
                     before: 'starting',
@@ -35,7 +36,9 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         detail: {
             merge: null,
             trigger: null,
-            changes: [{ type: 'FeatureFlag', action: 'changed', field: 'active', before: false, after: true }],
+            changes: [
+                { type: ActivityScope.FEATURE_FLAG, action: 'changed', field: 'active', before: false, after: true },
+            ],
             name: 'cloud-announcement',
         },
         created_at: '2022-03-20T15:26:58.006900Z',
@@ -48,7 +51,9 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         detail: {
             merge: null,
             trigger: null,
-            changes: [{ type: 'FeatureFlag', action: 'changed', field: 'active', before: true, after: false }],
+            changes: [
+                { type: ActivityScope.FEATURE_FLAG, action: 'changed', field: 'active', before: true, after: false },
+            ],
             name: 'cloud-announcement',
         },
         created_at: '2022-03-20T15:26:58.006900Z',
@@ -63,7 +68,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
             trigger: null,
             changes: [
                 {
-                    type: 'FeatureFlag',
+                    type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
                     field: 'filters',
                     before: {
@@ -79,7 +84,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
                                 properties: [
                                     {
                                         key: 'email',
-                                        type: 'person',
+                                        type: ActivityScope.PERSON,
                                         value: ['paul.dambra@gmail.com'],
                                         operator: 'exact',
                                     },
@@ -90,7 +95,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
                                 properties: [
                                     {
                                         key: 'email',
-                                        type: 'person',
+                                        type: ActivityScope.PERSON,
                                         value: ['christopher@imusician.pro'],
                                         operator: 'exact',
                                     },
@@ -117,7 +122,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
                                 properties: [
                                     {
                                         key: 'email',
-                                        type: 'person',
+                                        type: ActivityScope.PERSON,
                                         value: ['paul.dambra@gmail.com'],
                                         operator: 'exact',
                                     },
@@ -128,7 +133,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
                                 properties: [
                                     {
                                         key: 'email',
-                                        type: 'person',
+                                        type: ActivityScope.PERSON,
                                         value: ['christopher@imusician.pro'],
                                         operator: 'exact',
                                     },
@@ -158,13 +163,15 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
             trigger: null,
             changes: [
                 {
-                    type: 'FeatureFlag',
+                    type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
                     field: 'filters',
                     before: {
                         groups: [
                             {
-                                properties: [{ key: 'realm', type: 'person', value: ['cloud'], operator: 'exact' }],
+                                properties: [
+                                    { key: 'realm', type: ActivityScope.PERSON, value: ['cloud'], operator: 'exact' },
+                                ],
                                 rollout_percentage: null,
                             },
                         ],
@@ -181,7 +188,9 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
                     after: {
                         groups: [
                             {
-                                properties: [{ key: 'realm', type: 'person', value: ['cloud'], operator: 'exact' }],
+                                properties: [
+                                    { key: 'realm', type: ActivityScope.PERSON, value: ['cloud'], operator: 'exact' },
+                                ],
                                 rollout_percentage: null,
                             },
                         ],
@@ -211,7 +220,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
             trigger: null,
             changes: [
                 {
-                    type: 'FeatureFlag',
+                    type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
                     field: 'filters',
                     before: {
@@ -252,7 +261,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
             trigger: null,
             changes: [
                 {
-                    type: 'FeatureFlag',
+                    type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
                     field: 'filters',
                     before: {
@@ -305,7 +314,9 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         detail: {
             merge: null,
             trigger: null,
-            changes: [{ type: 'FeatureFlag', action: 'changed', field: 'deleted', before: false, after: true }],
+            changes: [
+                { type: ActivityScope.FEATURE_FLAG, action: 'changed', field: 'deleted', before: false, after: true },
+            ],
             name: 'test-ff',
         },
         created_at: '2022-03-21T15:50:25.894422Z',
@@ -318,7 +329,9 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
         detail: {
             merge: null,
             trigger: null,
-            changes: [{ type: 'FeatureFlag', action: 'changed', field: 'deleted', before: true, after: false }],
+            changes: [
+                { type: ActivityScope.FEATURE_FLAG, action: 'changed', field: 'deleted', before: true, after: false },
+            ],
             name: 'test-ff',
         },
         created_at: '2022-03-21T15:50:25.894422Z',
@@ -333,7 +346,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
             trigger: null,
             changes: [
                 {
-                    type: 'FeatureFlag',
+                    type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
                     field: 'key',
                     before: 'the-original-key',
@@ -354,7 +367,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
             trigger: null,
             changes: [
                 {
-                    type: 'FeatureFlag',
+                    type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
                     field: 'ensure_experience_continuity',
                     before: false,
@@ -375,7 +388,7 @@ export const featureFlagsActivityResponseJson: ActivityLogItem[] = [
             trigger: null,
             changes: [
                 {
-                    type: 'FeatureFlag',
+                    type: ActivityScope.FEATURE_FLAG,
                     action: 'changed',
                     field: 'ensure_experience_continuity',
                     before: true,
@@ -408,7 +421,15 @@ export const personActivityResponseJson: ActivityLogItem[] = [
         scope: ActivityScope.PERSON,
         item_id: '502792727',
         detail: {
-            changes: [{ type: 'Person', action: 'changed', field: 'properties', before: undefined, after: undefined }],
+            changes: [
+                {
+                    type: ActivityScope.PERSON,
+                    action: 'changed',
+                    field: 'properties',
+                    before: undefined,
+                    after: undefined,
+                },
+            ],
             merge: null,
             trigger: null,
             name: null,
@@ -424,7 +445,7 @@ export const personActivityResponseJson: ActivityLogItem[] = [
         detail: {
             changes: null,
             merge: {
-                type: 'Person',
+                type: ActivityScope.PERSON,
                 source: [
                     {
                         id: '01819231-75a0-0000-467e-a4be57b44a37',
@@ -594,7 +615,7 @@ export const personActivityResponseJson: ActivityLogItem[] = [
         detail: {
             changes: [
                 {
-                    type: 'Person',
+                    type: ActivityScope.PERSON,
                     action: 'split',
                     field: undefined,
                     before: undefined,
@@ -631,14 +652,14 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
             merge: null,
             changes: [
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     action: 'changed',
                     field: 'derived_name',
                     before: "Pageview count by event's $feature/auto-redirect",
                     after: "Pageview count by event's Browser Version",
                 },
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     action: 'changed',
                     field: 'filters',
                     before: {
@@ -700,14 +721,14 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
             merge: null,
             changes: [
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     action: 'changed',
                     field: 'derived_name',
                     before: 'from HogQL into a data table.',
                     after: "Pageview unique sessions by person's $email",
                 },
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     action: 'changed',
                     field: 'filters',
                     before: {},
@@ -728,12 +749,12 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
                         breakdown: '$email',
                         new_entity: [],
                         properties: [],
-                        breakdown_type: 'person',
+                        breakdown_type: ActivityScope.PERSON,
                         filter_test_accounts: false,
                     },
                 },
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     action: 'deleted',
                     field: 'query',
                     before: {
@@ -759,7 +780,7 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
         scope: ActivityScope.INSIGHT,
         item_id: '738061',
         detail: {
-            changes: [{ type: 'Insight', action: 'changed', field: 'deleted', before: false, after: true }],
+            changes: [{ type: ActivityScope.INSIGHT, action: 'changed', field: 'deleted', before: false, after: true }],
             merge: null,
             trigger: null,
             name: 'Pageview count',
@@ -770,8 +791,7 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
     {
         user: {
             first_name: 'System',
-            email: null,
-            is_system: true,
+            email: 'system@x.com',
         },
         activity: 'exported for opengraph image',
         scope: ActivityScope.INSIGHT,
@@ -779,7 +799,7 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
         detail: {
             changes: [
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     action: 'exported',
                     field: 'export_format',
                     before: null,
@@ -801,7 +821,13 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
         item_id: '738061',
         detail: {
             changes: [
-                { type: 'Insight', action: 'changed', field: 'name', before: 'original name', after: 'cool insight' },
+                {
+                    type: ActivityScope.INSIGHT,
+                    action: 'changed',
+                    field: 'name',
+                    before: 'original name',
+                    after: 'cool insight',
+                },
             ],
             merge: null,
             trigger: null,
@@ -816,7 +842,15 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
         scope: ActivityScope.INSIGHT,
         item_id: '738061',
         detail: {
-            changes: [{ type: 'Insight', action: 'changed', field: 'short_id', before: 'wr34th', after: 'iVXqSrre' }],
+            changes: [
+                {
+                    type: ActivityScope.INSIGHT,
+                    action: 'changed',
+                    field: 'short_id',
+                    before: 'wr34th',
+                    after: 'iVXqSrre',
+                },
+            ],
             merge: null,
             trigger: null,
             name: 'Pageview count',
@@ -832,7 +866,7 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
         detail: {
             changes: [
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     action: 'changed',
                     field: 'description',
                     before: 'something',
@@ -854,7 +888,7 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
         detail: {
             changes: [
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     action: 'changed',
                     field: 'favorited',
                     before: false,
@@ -876,7 +910,7 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
         detail: {
             changes: [
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     action: 'changed',
                     field: 'favorited',
                     before: 'TRUe',
@@ -901,7 +935,7 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
         detail: {
             changes: [
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     action: 'exported',
                     field: 'tags',
                     before: ['one', 'two', 'wrong', 'three'],
@@ -926,7 +960,7 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
         detail: {
             changes: [
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     action: 'exported',
                     field: 'export_format',
                     before: undefined,
@@ -951,7 +985,7 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
             trigger: null,
             changes: [
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     after: {
                         events: [],
                         actions: [
@@ -1042,7 +1076,7 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
                         funnel_window_days: 14,
                     },
                 },
-                { type: 'Insight', action: 'changed', field: 'name', before: 'cool insight', after: 'DAU' },
+                { type: ActivityScope.INSIGHT, action: 'changed', field: 'name', before: 'cool insight', after: 'DAU' },
             ],
             short_id: 'eRY9-Frr' as InsightShortId,
         },
@@ -1059,7 +1093,7 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
         detail: {
             changes: [
                 {
-                    type: 'Insight',
+                    type: ActivityScope.INSIGHT,
                     action: 'exported',
                     field: 'dashboards',
                     before: [

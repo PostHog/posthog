@@ -96,12 +96,12 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeEarlyAccessAttr
                                     </div>
                                 </div>
                                 <div className="mb-2">
-                                    <b>Documentation Url</b>
+                                    <b>Documentation URL</b>
                                     <div>
                                         {earlyAccessFeature.documentation_url ? (
                                             earlyAccessFeature.documentation_url
                                         ) : (
-                                            <span className="text-muted">No documentation url</span>
+                                            <span className="text-muted">No documentation URL</span>
                                         )}
                                     </div>
                                 </div>
@@ -131,7 +131,7 @@ export const NotebookNodeEarlyAccessFeature = createPostHogWidgetNode<NotebookNo
     pasteOptions: {
         find: urls.earlyAccessFeature('') + '(.+)',
         getAttributes: async (match) => {
-            return { id: match[1] as EarlyAccessFeatureLogicProps['id'] }
+            return { id: match[1] }
         },
     },
 })

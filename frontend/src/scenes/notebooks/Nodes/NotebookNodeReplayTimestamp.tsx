@@ -44,8 +44,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
             <LemonButton
                 size="small"
                 noPadding
-                type="secondary"
-                status="primary-alt"
+                active
                 onClick={
                     relatedNodeInNotebook ? handlePlayInNotebook : () => openNotebook(shortId, NotebookTarget.Popover)
                 }

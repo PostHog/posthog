@@ -1,11 +1,11 @@
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useValues } from 'kea'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
 
 function IOSInstallSnippet(): JSX.Element {
     return (
         <CodeSnippet language={Language.Ruby}>
-            {'pod "PostHog", "~> 1.1" # Cocoapods \n# OR \ngithub "posthog/posthog-ios" # Carthage'}
+            {'pod "PostHog", "~> 2.0.0" # Cocoapods \n# OR \ngithub "posthog/posthog-ios" # Carthage'}
         </CodeSnippet>
     )
 }

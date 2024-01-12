@@ -1,7 +1,8 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { LemonTable, LemonTableProps } from './LemonTable'
-import { LemonButton } from '../LemonButton'
 import { useEffect } from 'react'
+
+import { LemonButton } from '../LemonButton'
+import { LemonTable, LemonTableProps } from './LemonTable'
 
 type Story = StoryObj<typeof LemonTable>
 const meta: Meta<typeof LemonTable> = {
@@ -181,8 +182,8 @@ XSmall.args = { size: 'xs' }
 export const Embedded: Story = BasicTemplate.bind({})
 Embedded.args = { embedded: true }
 
-export const BorderlessRows: Story = BasicTemplate.bind({})
-BorderlessRows.args = { borderedRows: false }
+export const Stealth: Story = BasicTemplate.bind({})
+Stealth.args = { stealth: true }
 
 export const Loading: Story = BasicTemplate.bind({})
 Loading.args = { loading: true }

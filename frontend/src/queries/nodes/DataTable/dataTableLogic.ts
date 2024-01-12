@@ -1,5 +1,12 @@
+import equal from 'fast-deep-equal'
 import { actions, connect, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
-import type { dataTableLogicType } from './dataTableLogicType'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { objectsEqual, sortedKeys } from 'lib/utils'
+
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { getQueryFeatures, QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import {
     AnyDataNode,
     DataTableNode,
@@ -9,21 +16,18 @@ import {
     TimeToSeeDataSessionsQuery,
 } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
-import { getColumnsForQuery, removeExpressionComment } from './utils'
-import { objectsEqual, sortedKeys } from 'lib/utils'
 import { isDataTableNode, isEventsQuery } from '~/queries/utils'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { dayjs } from 'lib/dayjs'
-import equal from 'fast-deep-equal'
-import { getQueryFeatures, QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
+
+import type { dataTableLogicType } from './dataTableLogicType'
+import { getColumnsForQuery, removeExpressionComment } from './utils'
 
 export interface DataTableLogicProps {
     vizKey: string
     dataKey: string
     query: DataTableNode
     context?: QueryContext
+    // Override the data logic node key if needed
+    dataNodeLogicKey?: string
 }
 
 export interface DataTableRow {
@@ -56,7 +60,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
         values: [
             featureFlagLogic,
             ['featureFlags'],
-            dataNodeLogic({ key: props.dataKey, query: props.query.source }),
+            dataNodeLogic({ key: props.dataNodeLogicKey ?? props.dataKey, query: props.query.source }),
             ['response', 'responseLoading', 'responseError'],
         ],
     })),
@@ -110,7 +114,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
 
                         // Add a label between results if the day changed
                         if (orderKey === 'timestamp' && orderKeyIndex !== -1) {
-                            let lastResult: any | null = null
+                            let lastResult: any = null
                             const newResults: DataTableRow[] = []
                             for (const result of results) {
                                 if (

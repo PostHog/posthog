@@ -1,12 +1,12 @@
 import { useActions, useValues } from 'kea'
-
-import { groupsModel } from '~/models/groupsModel'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
-
-import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { insightLogic } from 'scenes/insights/insightLogic'
+
+import { groupsModel } from '~/models/groupsModel'
+
+import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
 type TaxonomicBreakdownPopoverProps = {
     open: boolean

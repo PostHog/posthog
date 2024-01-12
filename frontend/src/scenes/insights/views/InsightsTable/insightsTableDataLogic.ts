@@ -1,11 +1,10 @@
-import { kea, props, key, path, connect, actions, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { ChartDisplayType, InsightLogicProps } from '~/types'
 
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-
 import type { insightsTableDataLogicType } from './insightsTableDataLogicType'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 export enum AggregationType {
     Total = 'total',

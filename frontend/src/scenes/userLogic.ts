@@ -1,14 +1,16 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import api from 'lib/api'
-import type { userLogicType } from './userLogicType'
-import { AvailableFeature, OrganizationBasicType, ProductKey, UserType } from '~/types'
-import posthog from 'posthog-js'
-import { getAppContext } from 'lib/utils/getAppContext'
-import { preflightLogic } from './PreflightCheck/preflightLogic'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { loaders } from 'kea-loaders'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
+import api from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { getAppContext } from 'lib/utils/getAppContext'
+import posthog from 'posthog-js'
+
+import { AvailableFeature, OrganizationBasicType, ProductKey, UserTheme, UserType } from '~/types'
+
+import type { userLogicType } from './userLogicType'
 
 export interface UserDetailsFormType {
     first_name: string
@@ -17,9 +19,6 @@ export interface UserDetailsFormType {
 
 export const userLogic = kea<userLogicType>([
     path(['scenes', 'userLogic']),
-    connect({
-        values: [preflightLogic, ['preflight']],
-    }),
     actions(() => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         updateCurrentTeam: (teamId: number, destination?: string) => ({ teamId, destination }),
@@ -233,6 +232,13 @@ export const userLogic = kea<userLogicType>([
                           ) || []
                     : [],
         ],
+
+        themeMode: [
+            (s) => [s.user],
+            (user): UserTheme => {
+                return user?.theme_mode || 'light'
+            },
+        ],
     }),
     afterMount(({ actions }) => {
         const preloadedUser = getAppContext()?.current_user
@@ -244,4 +250,14 @@ export const userLogic = kea<userLogicType>([
             actions.loadUser()
         }
     }),
+    urlToAction(({ values }) => ({
+        '/year_in_posthog/2023': () => {
+            if (window.POSTHOG_APP_CONTEXT?.year_in_hog_url) {
+                window.location.href = `${window.location.origin}${window.POSTHOG_APP_CONTEXT.year_in_hog_url}`
+            }
+            if (values.user?.uuid) {
+                window.location.href = `${window.location.origin}/year_in_posthog/2023/${values.user?.uuid}`
+            }
+        },
+    })),
 ])

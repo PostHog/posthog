@@ -1,9 +1,11 @@
 import { Meta } from '@storybook/react'
 import { useActions } from 'kea'
+import BlankDashboardHog from 'public/blank-dashboard-hog.png'
+
 import { PromptFlag, PromptPayload } from '~/types'
+
 import { ModalPrompt, PopupPrompt, Prompt } from './Prompt'
 import { promptLogic } from './promptLogic'
-import BlankDashboardHog from 'public/blank-dashboard-hog.png'
 
 const meta: Meta = {
     title: 'Components/Prompts',

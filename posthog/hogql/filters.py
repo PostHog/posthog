@@ -63,6 +63,7 @@ class ReplaceFilters(CloningVisitor):
                     parse_expr(
                         "timestamp < {timestamp}",
                         {"timestamp": ast.Constant(value=parsed_date)},
+                        start=None,  # do not add location information for "timestamp" to the metadata
                     )
                 )
 
@@ -77,6 +78,7 @@ class ReplaceFilters(CloningVisitor):
                     parse_expr(
                         "timestamp >= {timestamp}",
                         {"timestamp": ast.Constant(value=parsed_date)},
+                        start=None,  # do not add location information for "timestamp" to the metadata
                     )
                 )
 

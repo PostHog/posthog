@@ -1,35 +1,36 @@
+# serializer version: 1
 # name: TestTrends.test_action_filtering_with_cohort
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = NULL
-  '
----
+  '''
+# ---
 # name: TestTrends.test_action_filtering_with_cohort.1
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 2
-  '
----
+  '''
+# ---
 # name: TestTrends.test_action_filtering_with_cohort.2
-  '
+  '''
   /* celery:posthog.tasks.calculate_cohort.clear_stale_cohort */
   SELECT count()
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version < 2
-  '
----
+  '''
+# ---
 # name: TestTrends.test_action_filtering_with_cohort.3
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -77,40 +78,40 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = NULL
-  '
----
+  '''
+# ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2.1
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 2
-  '
----
+  '''
+# ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2.2
-  '
+  '''
   /* celery:posthog.tasks.calculate_cohort.clear_stale_cohort */
   SELECT count()
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version < 2
-  '
----
+  '''
+# ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2.3
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -147,36 +148,34 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
-            count(*) as count
-     FROM events e
-     LEFT JOIN
-       (SELECT group_key,
-               argMax(group_properties, _timestamp) AS group_properties_0
-        FROM groups
-        WHERE team_id = 2
-          AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+  SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e
+  LEFT JOIN
+    (SELECT group_key,
+            argMax(group_properties, _timestamp) AS group_properties_0
+     FROM groups
      WHERE team_id = 2
-       AND event = 'sign up'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-       AND notEmpty(e.person_id)
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+       AND group_type_index = 0
+     GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+  WHERE team_id = 2
+    AND event = 'sign up'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+    AND notEmpty(e.person_id)
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -204,7 +203,7 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') as breakdown_value
+                            transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['finance', 'technology']), (['finance', 'technology']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            LEFT JOIN
              (SELECT group_key,
@@ -218,7 +217,6 @@
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND notEmpty(e.person_id)
-             AND replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') in (['finance', 'technology'])
              AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
@@ -228,10 +226,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events.2
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
@@ -259,37 +257,35 @@
            actor_id DESC
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_by_group_props_with_person_filter_person_on_events
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
-            count(*) as count
-     FROM events e
-     LEFT JOIN
-       (SELECT group_key,
-               argMax(group_properties, _timestamp) AS group_properties_0
-        FROM groups
-        WHERE team_id = 2
-          AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+  SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e
+  LEFT JOIN
+    (SELECT group_key,
+            argMax(group_properties, _timestamp) AS group_properties_0
+     FROM groups
      WHERE team_id = 2
-       AND event = 'sign up'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-       AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', '')))
-       AND notEmpty(e.person_id)
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+       AND group_type_index = 0
+     GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+  WHERE team_id = 2
+    AND event = 'sign up'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+    AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', '')))
+    AND notEmpty(e.person_id)
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_breakdown_by_group_props_with_person_filter_person_on_events.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -317,7 +313,7 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') as breakdown_value
+                            transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['finance']), (['finance']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            LEFT JOIN
              (SELECT group_key,
@@ -332,7 +328,6 @@
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND notEmpty(e.person_id)
-             AND replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') in (['finance'])
              AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
@@ -342,31 +337,29 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') AS value,
-            count(*) as count
-     FROM events e
-     WHERE team_id = 2
-       AND event = 'sign up'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
-       AND (((has(['Firefox'], replaceRegexpAll(JSONExtractRaw(e.properties, '$browser'), '^"|"$', '')))
-             OR (has(['Windows'], replaceRegexpAll(JSONExtractRaw(e.properties, '$os'), '^"|"$', ''))))
-            AND (has(['Mac'], replaceRegexpAll(JSONExtractRaw(e.properties, '$os'), '^"|"$', ''))))
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event = 'sign up'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+    AND (((has(['Firefox'], replaceRegexpAll(JSONExtractRaw(e.properties, '$browser'), '^"|"$', '')))
+          OR (has(['Windows'], replaceRegexpAll(JSONExtractRaw(e.properties, '$os'), '^"|"$', ''))))
+         AND (has(['Mac'], replaceRegexpAll(JSONExtractRaw(e.properties, '$os'), '^"|"$', ''))))
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -394,7 +387,7 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') as breakdown_value
+                            transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['second url']), (['second url']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = 'sign up'
@@ -403,7 +396,6 @@
                   AND (has(['Mac'], replaceRegexpAll(JSONExtractRaw(e.properties, '$os'), '^"|"$', ''))))
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-22 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
-             AND replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') in (['second url'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -412,67 +404,63 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.2
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') AS value,
-            count(*) as count
-     FROM events e
-     WHERE team_id = 2
-       AND event = 'sign up'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
-       AND (((has(['Firefox'], replaceRegexpAll(JSONExtractRaw(e.properties, '$browser'), '^"|"$', '')))
-             AND (has(['Windows'], replaceRegexpAll(JSONExtractRaw(e.properties, '$os'), '^"|"$', ''))))
-            AND (has(['Mac'], replaceRegexpAll(JSONExtractRaw(e.properties, '$os'), '^"|"$', ''))))
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event = 'sign up'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+    AND (((has(['Firefox'], replaceRegexpAll(JSONExtractRaw(e.properties, '$browser'), '^"|"$', '')))
+          AND (has(['Windows'], replaceRegexpAll(JSONExtractRaw(e.properties, '$os'), '^"|"$', ''))))
+         AND (has(['Mac'], replaceRegexpAll(JSONExtractRaw(e.properties, '$os'), '^"|"$', ''))))
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.3
-  '
+  '''
   SELECT [now()] AS date,
          [0] AS total,
          '' AS breakdown_value
   LIMIT 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
-            count(DISTINCT pdi.person_id) as count
-     FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 2
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
+         count(DISTINCT pdi.person_id) as count
+  FROM events e
+  INNER JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
      WHERE team_id = 2
-       AND event = '$pageview'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-11 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-11 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+  WHERE team_id = 2
+    AND event = '$pageview'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-11 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-11 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated.1
-  '
+  '''
   
   SELECT count(DISTINCT pdi.person_id) AS total,
-         replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
+         transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['val', 'bor']), (['val', 'bor']), '$$_posthog_breakdown_other_$$') as breakdown_value
   FROM events AS e
   INNER JOIN
     (SELECT distinct_id,
@@ -489,38 +477,36 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-11 23:59:59', 'UTC')
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated_materialized
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT "mat_key" AS value,
-            count(DISTINCT pdi.person_id) as count
-     FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 2
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+  SELECT "mat_key" AS value,
+         count(DISTINCT pdi.person_id) as count
+  FROM events e
+  INNER JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
      WHERE team_id = 2
-       AND event = '$pageview'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-11 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-11 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+  WHERE team_id = 2
+    AND event = '$pageview'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-11 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-11 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated_materialized.1
-  '
+  '''
   
   SELECT count(DISTINCT pdi.person_id) AS total,
-         "mat_key" as breakdown_value
+         transform(ifNull(nullIf("mat_key", ''), '$$_posthog_breakdown_null_$$'), (['val', 'bor']), (['val', 'bor']), '$$_posthog_breakdown_other_$$') as breakdown_value
   FROM events AS e
   INNER JOIN
     (SELECT distinct_id,
@@ -537,55 +523,53 @@
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-11 23:59:59', 'UTC')
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_weekly_active_users_daily_based_on_action
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
-            count(DISTINCT pdi.person_id) as count
-     FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 2
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     INNER JOIN
-       (SELECT id,
-               argMax(properties, version) as person_props
-        FROM person
-        WHERE team_id = 2
-        GROUP BY id
-        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
+         count(DISTINCT pdi.person_id) as count
+  FROM events e
+  INNER JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
      WHERE team_id = 2
-       AND ((event = '$pageview'
-             AND (has(['p1', 'p2', 'p3'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))
-                  AND pdi.person_id IN
-                    (SELECT id
-                     FROM person
-                     WHERE team_id = 2
-                       AND id IN
-                         (SELECT id
-                          FROM person
-                          WHERE team_id = 2
-                            AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))) )
-                     GROUP BY id
-                     HAVING max(is_deleted) = 0
-                     AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1))))
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+  INNER JOIN
+    (SELECT id,
+            argMax(properties, version) as person_props
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
+  WHERE team_id = 2
+    AND ((event = '$pageview'
+          AND (has(['p1', 'p2', 'p3'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))
+               AND pdi.person_id IN
+                 (SELECT id
+                  FROM person
+                  WHERE team_id = 2
+                    AND id IN
+                      (SELECT id
+                       FROM person
+                       WHERE team_id = 2
+                         AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(properties, 'name'), '^"|"$', '')))) )
+                  GROUP BY id
+                  HAVING max(is_deleted) = 0
+                  AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1))))
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_breakdown_weekly_active_users_daily_based_on_action.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -628,7 +612,7 @@
               CROSS JOIN
                 (SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS timestamp,
                         pdi.person_id AS person_id,
-                        replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS breakdown_value
+                        transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['val']), (['val']), '$$_posthog_breakdown_other_$$') AS breakdown_value
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
@@ -677,36 +661,34 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
-            count(*) as count
-     FROM events e
-     LEFT JOIN
-       (SELECT group_key,
-               argMax(group_properties, _timestamp) AS group_properties_0
-        FROM groups
-        WHERE team_id = 2
-          AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e
+  LEFT JOIN
+    (SELECT group_key,
+            argMax(group_properties, _timestamp) AS group_properties_0
+     FROM groups
      WHERE team_id = 2
-       AND event = 'sign up'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-       AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+       AND group_type_index = 0
+     GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+  WHERE team_id = 2
+    AND event = 'sign up'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+    AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -734,7 +716,7 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
+                            transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['uh', 'oh']), (['uh', 'oh']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            LEFT JOIN
              (SELECT group_key,
@@ -748,7 +730,6 @@
              AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['uh', 'oh'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -757,10 +738,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events_v2
-  '
+  '''
   
   SELECT distinct_id,
          person_id
@@ -771,43 +752,41 @@
   GROUP BY distinct_id,
            person_id
   ORDER BY if(distinct_id = 'test_breakdown_d1', -1, 0)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events_v2.1
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
-            count(*) as count
-     FROM events e
-     LEFT OUTER JOIN
-       (SELECT argMax(override_person_id, version) as person_id,
-               old_person_id
-        FROM person_overrides
-        WHERE team_id = 2
-        GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
-     LEFT JOIN
-       (SELECT group_key,
-               argMax(group_properties, _timestamp) AS group_properties_0
-        FROM groups
-        WHERE team_id = 2
-          AND group_type_index = 0
-        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e
+  LEFT OUTER JOIN
+    (SELECT argMax(override_person_id, version) as person_id,
+            old_person_id
+     FROM person_overrides
      WHERE team_id = 2
-       AND event = 'sign up'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-       AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
-       AND notEmpty(e.person_id)
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+     GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+  LEFT JOIN
+    (SELECT group_key,
+            argMax(group_properties, _timestamp) AS group_properties_0
+     FROM groups
+     WHERE team_id = 2
+       AND group_type_index = 0
+     GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+  WHERE team_id = 2
+    AND event = 'sign up'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+    AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
+    AND notEmpty(e.person_id)
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events_v2.2
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -835,7 +814,7 @@
                     day_start
            UNION ALL SELECT count(DISTINCT if(notEmpty(overrides.person_id), overrides.person_id, e.person_id)) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
+                            transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['uh', 'oh']), (['uh', 'oh']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            LEFT OUTER JOIN
              (SELECT argMax(override_person_id, version) as person_id,
@@ -856,7 +835,6 @@
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND notEmpty(e.person_id)
-             AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['uh', 'oh'])
              AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
@@ -866,28 +844,26 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
-            count(*) as count
-     FROM events e SAMPLE 1.0
-     WHERE team_id = 2
-       AND ((event = 'sign up'))
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e SAMPLE 1.0
+  WHERE team_id = 2
+    AND ((event = 'sign up'))
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -909,13 +885,13 @@
            CROSS JOIN
              (SELECT breakdown_value
               FROM
-                (SELECT ['other_value', '', 'value'] as breakdown_value) ARRAY
+                (SELECT ['other_value', '$$_posthog_breakdown_null_$$', 'value'] as breakdown_value) ARRAY
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
+                            transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['other_value', '$$_posthog_breakdown_null_$$', 'value']), (['other_value', '$$_posthog_breakdown_null_$$', 'value']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e SAMPLE 1.0
            INNER JOIN
              (SELECT distinct_id,
@@ -927,7 +903,6 @@
            WHERE e.team_id = 2
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-             AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['other_value', '', 'value'])
              AND ((event = 'sign up'))
            GROUP BY day_start,
                     breakdown_value))
@@ -937,28 +912,26 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.2
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
-            count(*) as count
-     FROM events e SAMPLE 1.0
-     WHERE team_id = 2
-       AND event = 'sign up'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e SAMPLE 1.0
+  WHERE team_id = 2
+    AND event = 'sign up'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.3
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -980,13 +953,13 @@
            CROSS JOIN
              (SELECT breakdown_value
               FROM
-                (SELECT ['other_value', '', 'value'] as breakdown_value) ARRAY
+                (SELECT ['other_value', '$$_posthog_breakdown_null_$$', 'value'] as breakdown_value) ARRAY
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
+                            transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['other_value', '$$_posthog_breakdown_null_$$', 'value']), (['other_value', '$$_posthog_breakdown_null_$$', 'value']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e SAMPLE 1.0
            INNER JOIN
              (SELECT distinct_id,
@@ -999,7 +972,6 @@
              AND event = 'sign up'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-             AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['other_value', '', 'value'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -1008,30 +980,30 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = NULL
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort.1
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort.2
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -1073,30 +1045,30 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = NULL
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2.1
-  '
+  '''
   
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
     AND version = 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2.2
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -1121,10 +1093,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filtering_by_multiple_groups_person_on_events
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -1164,10 +1136,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filtering_by_multiple_groups_person_on_events.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
@@ -1203,10 +1175,10 @@
            actor_id DESC
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_filtering_with_group_props_person_on_events
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -1239,48 +1211,46 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') AS value,
-            count(DISTINCT pdi.person_id) as count
-     FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 2
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     INNER JOIN
-       (SELECT id,
-               argMax(properties, version) as person_props
-        FROM person
-        WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2
-               AND (has(['filter_val'], replaceRegexpAll(JSONExtractRaw(properties, 'filter_prop'), '^"|"$', ''))) )
-        GROUP BY id
-        HAVING max(is_deleted) = 0
-        AND (has(['filter_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'filter_prop'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
+  SELECT replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') AS value,
+         count(DISTINCT pdi.person_id) as count
+  FROM events e
+  INNER JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
      WHERE team_id = 2
-       AND event = 'sign up'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+  INNER JOIN
+    (SELECT id,
+            argMax(properties, version) as person_props
+     FROM person
+     WHERE team_id = 2
+       AND id IN
+         (SELECT id
+          FROM person
+          WHERE team_id = 2
+            AND (has(['filter_val'], replaceRegexpAll(JSONExtractRaw(properties, 'filter_prop'), '^"|"$', ''))) )
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND (has(['filter_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'filter_prop'), '^"|"$', ''))) SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
+  WHERE team_id = 2
+    AND event = 'sign up'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -1323,7 +1293,7 @@
               CROSS JOIN
                 (SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS timestamp,
                         pdi.person_id AS person_id,
-                        replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') AS breakdown_value
+                        transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['some_val2', 'some_val']), (['some_val2', 'some_val']), '$$_posthog_breakdown_other_$$') AS breakdown_value
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
@@ -1365,36 +1335,34 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter_poe_v2
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(person_properties, '$some_prop'), '^"|"$', '') AS value,
-            count(DISTINCT if(notEmpty(overrides.person_id), overrides.person_id, e.person_id)) as count
-     FROM events e
-     LEFT OUTER JOIN
-       (SELECT argMax(override_person_id, version) as person_id,
-               old_person_id
-        FROM person_overrides
-        WHERE team_id = 2
-        GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+  SELECT replaceRegexpAll(JSONExtractRaw(person_properties, '$some_prop'), '^"|"$', '') AS value,
+         count(DISTINCT if(notEmpty(overrides.person_id), overrides.person_id, e.person_id)) as count
+  FROM events e
+  LEFT OUTER JOIN
+    (SELECT argMax(override_person_id, version) as person_id,
+            old_person_id
+     FROM person_overrides
      WHERE team_id = 2
-       AND event = 'sign up'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-       AND (has(['filter_val'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'filter_prop'), '^"|"$', '')))
-       AND notEmpty(e.person_id)
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+     GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+  WHERE team_id = 2
+    AND event = 'sign up'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+    AND (has(['filter_val'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'filter_prop'), '^"|"$', '')))
+    AND notEmpty(e.person_id)
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter_poe_v2.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -1437,7 +1405,7 @@
               CROSS JOIN
                 (SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS timestamp,
                         if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) AS person_id,
-                        replaceRegexpAll(JSONExtractRaw(person_properties, '$some_prop'), '^"|"$', '') AS breakdown_value
+                        transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(person_properties, '$some_prop'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['some_val2', 'some_val']), (['some_val2', 'some_val']), '$$_posthog_breakdown_other_$$') AS breakdown_value
                  FROM events e
                  LEFT OUTER JOIN
                    (SELECT argMax(override_person_id, version) as person_id,
@@ -1468,10 +1436,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_non_deterministic_timezones
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -1494,47 +1462,45 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
-            count(*) as count
-     FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 2
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e
+  INNER JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
      WHERE team_id = 2
-       AND ((event = 'sign up'
-             AND (pdi.person_id IN
-                    (SELECT id
-                     FROM person
-                     WHERE team_id = 2
-                       AND id IN
-                         (SELECT id
-                          FROM person
-                          WHERE team_id = 2
-                            AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))) )
-                     GROUP BY id
-                     HAVING max(is_deleted) = 0
-                     AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1))))
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+  WHERE team_id = 2
+    AND ((event = 'sign up'
+          AND (pdi.person_id IN
+                 (SELECT id
+                  FROM person
+                  WHERE team_id = 2
+                    AND id IN
+                      (SELECT id
+                       FROM person
+                       WHERE team_id = 2
+                         AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))) )
+                  GROUP BY id
+                  HAVING max(is_deleted) = 0
+                  AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1))))
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -1556,13 +1522,13 @@
            CROSS JOIN
              (SELECT breakdown_value
               FROM
-                (SELECT ['', 'value', 'other_value'] as breakdown_value) ARRAY
+                (SELECT ['$$_posthog_breakdown_null_$$', 'value', 'other_value'] as breakdown_value) ARRAY
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
+                            transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'value', 'other_value']), (['$$_posthog_breakdown_null_$$', 'value', 'other_value']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            INNER JOIN
              (SELECT distinct_id,
@@ -1574,7 +1540,6 @@
            WHERE e.team_id = 2
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-             AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['', 'value', 'other_value'])
              AND ((event = 'sign up'
                    AND (pdi.person_id IN
                           (SELECT id
@@ -1596,47 +1561,45 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action_poe_v2
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
-            count(*) as count
-     FROM events e
-     LEFT OUTER JOIN
-       (SELECT argMax(override_person_id, version) as person_id,
-               old_person_id
-        FROM person_overrides
-        WHERE team_id = 2
-        GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e
+  LEFT OUTER JOIN
+    (SELECT argMax(override_person_id, version) as person_id,
+            old_person_id
+     FROM person_overrides
      WHERE team_id = 2
-       AND ((event = 'sign up'
-             AND (if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) IN
-                    (SELECT id
-                     FROM person
-                     WHERE team_id = 2
-                       AND id IN
-                         (SELECT id
-                          FROM person
-                          WHERE team_id = 2
-                            AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))) )
-                     GROUP BY id
-                     HAVING max(is_deleted) = 0
-                     AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1))))
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-       AND notEmpty(e.person_id)
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+     GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+  WHERE team_id = 2
+    AND ((event = 'sign up'
+          AND (if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) IN
+                 (SELECT id
+                  FROM person
+                  WHERE team_id = 2
+                    AND id IN
+                      (SELECT id
+                       FROM person
+                       WHERE team_id = 2
+                         AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '')))) )
+                  GROUP BY id
+                  HAVING max(is_deleted) = 0
+                  AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))) SETTINGS optimize_aggregation_in_order = 1))))
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+    AND notEmpty(e.person_id)
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action_poe_v2.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -1658,13 +1621,13 @@
            CROSS JOIN
              (SELECT breakdown_value
               FROM
-                (SELECT ['', 'value', 'other_value'] as breakdown_value) ARRAY
+                (SELECT ['$$_posthog_breakdown_null_$$', 'value', 'other_value'] as breakdown_value) ARRAY
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
+                            transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'value', 'other_value']), (['$$_posthog_breakdown_null_$$', 'value', 'other_value']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            LEFT OUTER JOIN
              (SELECT argMax(override_person_id, version) as person_id,
@@ -1676,7 +1639,6 @@
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
              AND notEmpty(e.person_id)
-             AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['', 'value', 'other_value'])
              AND ((event = 'sign up'
                    AND (if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) IN
                           (SELECT id
@@ -1699,10 +1661,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_property_filtering
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -1744,10 +1706,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -1789,10 +1751,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -1816,10 +1778,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property_materialized
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -1861,10 +1823,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property_materialized.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -1888,10 +1850,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_person_property_filtering_materialized
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -1933,10 +1895,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_same_day_with_person_on_events_v2
-  '
+  '''
   
   SELECT distinct_id,
          person_id
@@ -1947,10 +1909,10 @@
   GROUP BY distinct_id,
            person_id
   ORDER BY if(distinct_id = 'distinctid1', -1, 0)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_same_day_with_person_on_events_v2.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -1974,10 +1936,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_same_day_with_person_on_events_v2.2
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2007,10 +1969,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override
-  '
+  '''
   
   SELECT distinct_id,
          person_id
@@ -2021,10 +1983,10 @@
   GROUP BY distinct_id,
            person_id
   ORDER BY if(distinct_id = 'distinctid1', -1, 0)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2054,10 +2016,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.2
-  '
+  '''
   
   SELECT distinct_id,
          person_id
@@ -2068,10 +2030,10 @@
   GROUP BY distinct_id,
            person_id
   ORDER BY if(distinct_id = 'distinctid1', -1, 0)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.3
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2101,10 +2063,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.4
-  '
+  '''
   
   SELECT distinct_id,
          person_id
@@ -2115,10 +2077,10 @@
   GROUP BY distinct_id,
            person_id
   ORDER BY if(distinct_id = 'distinctid1', -1, 0)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.5
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2148,10 +2110,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2174,10 +2136,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2207,10 +2169,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily.2
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2256,10 +2218,10 @@
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily.3
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2282,28 +2244,26 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily.4
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') AS value,
-            count(*) as count
-     FROM events e
-     WHERE team_id = 2
-       AND event = 'sign up'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-29 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event = 'sign up'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-29 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_timezones_daily.5
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -2331,7 +2291,7 @@
                     day_start
            UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') as breakdown_value
+                            transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['Mac']), (['Mac']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            INNER JOIN
              (SELECT distinct_id,
@@ -2344,7 +2304,6 @@
              AND event = 'sign up'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
-             AND replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') in (['Mac'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -2353,10 +2312,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_minus_utc
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2379,10 +2338,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_minus_utc.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2412,10 +2371,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_minus_utc.2
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2461,10 +2420,10 @@
           AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_minus_utc.3
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2487,28 +2446,26 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_minus_utc.4
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') AS value,
-            count(*) as count
-     FROM events e
-     WHERE team_id = 2
-       AND event = 'sign up'
-       AND toTimeZone(timestamp, 'America/Phoenix') >= toDateTime('2019-12-29 00:00:00', 'America/Phoenix')
-       AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event = 'sign up'
+    AND toTimeZone(timestamp, 'America/Phoenix') >= toDateTime('2019-12-29 00:00:00', 'America/Phoenix')
+    AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_minus_utc.5
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -2536,7 +2493,7 @@
                     day_start
            UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') as breakdown_value
+                            transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['Mac']), (['Mac']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            INNER JOIN
              (SELECT distinct_id,
@@ -2549,7 +2506,6 @@
              AND event = 'sign up'
              AND toTimeZone(timestamp, 'America/Phoenix') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'America/Phoenix')), 'America/Phoenix')
              AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix')
-             AND replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') in (['Mac'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -2558,10 +2514,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_plus_utc
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2584,10 +2540,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_plus_utc.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2617,10 +2573,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_plus_utc.2
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2666,10 +2622,10 @@
           AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_plus_utc.3
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2692,28 +2648,26 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_plus_utc.4
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') AS value,
-            count(*) as count
-     FROM events e
-     WHERE team_id = 2
-       AND event = 'sign up'
-       AND toTimeZone(timestamp, 'Asia/Tokyo') >= toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')
-       AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event = 'sign up'
+    AND toTimeZone(timestamp, 'Asia/Tokyo') >= toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')
+    AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_timezones_daily_plus_utc.5
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -2741,7 +2695,7 @@
                     day_start
            UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') as breakdown_value
+                            transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['Mac']), (['Mac']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            INNER JOIN
              (SELECT distinct_id,
@@ -2754,7 +2708,6 @@
              AND event = 'sign up'
              AND toTimeZone(timestamp, 'Asia/Tokyo') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')), 'Asia/Tokyo')
              AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')
-             AND replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') in (['Mac'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -2763,10 +2716,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_hourly_relative_from
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2796,10 +2749,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_hourly_relative_from.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
@@ -2825,10 +2778,10 @@
            actor_id DESC
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_hourly_relative_from.2
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2851,10 +2804,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_hourly_relative_from_minus_utc
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2884,10 +2837,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_hourly_relative_from_minus_utc.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
@@ -2913,10 +2866,10 @@
            actor_id DESC
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_hourly_relative_from_minus_utc.2
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2939,10 +2892,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_hourly_relative_from_plus_utc
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -2972,10 +2925,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_hourly_relative_from_plus_utc.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
@@ -3001,10 +2954,10 @@
            actor_id DESC
   LIMIT 100
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_hourly_relative_from_plus_utc.2
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -3027,10 +2980,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_weekly
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -3053,10 +3006,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_weekly.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -3079,10 +3032,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_weekly_minus_utc
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -3105,10 +3058,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_weekly_minus_utc.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -3131,10 +3084,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_weekly_plus_utc
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -3157,10 +3110,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_timezones_weekly_plus_utc.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -3183,10 +3136,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trend_actors_person_on_events_pagination_with_alias_inconsistencies
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -3217,10 +3170,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trend_actors_person_on_events_pagination_with_alias_inconsistencies.1
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
@@ -3247,10 +3200,10 @@
            actor_id DESC
   LIMIT 5
   OFFSET 0
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trend_actors_person_on_events_pagination_with_alias_inconsistencies.2
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
@@ -3277,10 +3230,10 @@
            actor_id DESC
   LIMIT 5
   OFFSET 5
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trend_actors_person_on_events_pagination_with_alias_inconsistencies.3
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT person_id AS actor_id,
          count() AS actor_value
@@ -3307,52 +3260,50 @@
            actor_id DESC
   LIMIT 5
   OFFSET 10
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') AS value,
-            count(*) as count
-     FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 2
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     INNER JOIN
-       (SELECT id,
-               argMax(properties, version) as person_props
-        FROM person
-        WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2
-               AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '')))
-                     OR (has(['safari'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))) )
-        GROUP BY id
-        HAVING max(is_deleted) = 0
-        AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$os'), '^"|"$', '')))
-              OR (has(['safari'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', ''))))) SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
+  SELECT replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e
+  INNER JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
      WHERE team_id = 2
-       AND event = 'sign up'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC')
-       AND (((NOT (replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') ILIKE '%@posthog.com%'))
-             OR (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', '')))))
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+  INNER JOIN
+    (SELECT id,
+            argMax(properties, version) as person_props
+     FROM person
+     WHERE team_id = 2
+       AND id IN
+         (SELECT id
+          FROM person
+          WHERE team_id = 2
+            AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '')))
+                  OR (has(['safari'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''))))) )
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND (((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$os'), '^"|"$', '')))
+           OR (has(['safari'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', ''))))) SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
+  WHERE team_id = 2
+    AND event = 'sign up'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC')
+    AND (((NOT (replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') ILIKE '%@posthog.com%'))
+          OR (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', '')))))
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -3380,7 +3331,7 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') as breakdown_value
+                            transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['test2@posthog.com', 'test@gmail.com', 'test5@posthog.com', 'test4@posthog.com', 'test3@posthog.com']), (['test2@posthog.com', 'test@gmail.com', 'test5@posthog.com', 'test4@posthog.com', 'test3@posthog.com']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            INNER JOIN
              (SELECT distinct_id,
@@ -3410,7 +3361,6 @@
                    OR (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', '')))))
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC')
-             AND replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') in (['test2@posthog.com', 'test@gmail.com', 'test5@posthog.com', 'test4@posthog.com', 'test3@posthog.com'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -3419,53 +3369,51 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.2
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') AS value,
-            count(*) as count
-     FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 2
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     INNER JOIN
-       (SELECT id,
-               argMax(properties, version) as person_props
-        FROM person
-        WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2
-               AND ((((has(['android'], replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '')))
-                      AND (has(['chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))))
-                    AND (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%@posthog.com%')) )
-        GROUP BY id
-        HAVING max(is_deleted) = 0
-        AND ((((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$os'), '^"|"$', '')))
-               AND (has(['chrome'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '')))))
-             AND (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%@posthog.com%')) SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
+  SELECT replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e
+  INNER JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
      WHERE team_id = 2
-       AND event = 'sign up'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC')
-       AND ((has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+  INNER JOIN
+    (SELECT id,
+            argMax(properties, version) as person_props
+     FROM person
+     WHERE team_id = 2
+       AND id IN
+         (SELECT id
+          FROM person
+          WHERE team_id = 2
+            AND ((((has(['android'], replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '')))
+                   AND (has(['chrome'], replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', '')))))
+                 AND (replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '') ILIKE '%@posthog.com%')) )
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND ((((has(['android'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$os'), '^"|"$', '')))
+            AND (has(['chrome'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '')))))
+          AND (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%@posthog.com%')) SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
+  WHERE team_id = 2
+    AND event = 'sign up'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC')
+    AND ((has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.3
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -3493,7 +3441,7 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') as breakdown_value
+                            transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['test2@posthog.com']), (['test2@posthog.com']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            INNER JOIN
              (SELECT distinct_id,
@@ -3524,7 +3472,6 @@
              AND ((has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC')
-             AND replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') in (['test2@posthog.com'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -3533,10 +3480,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -3559,10 +3506,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -3604,42 +3551,40 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.2
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') AS value,
-            count(*) as count
-     FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 2
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     INNER JOIN
-       (SELECT id,
-               argMax(properties, version) as person_props
-        FROM person
-        WHERE team_id = 2
-        GROUP BY id
-        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
+  SELECT replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e
+  INNER JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
      WHERE team_id = 2
-       AND event = 'sign up'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-24 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+  INNER JOIN
+    (SELECT id,
+            argMax(properties, version) as person_props
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
+  WHERE team_id = 2
+    AND event = 'sign up'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-24 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.3
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -3661,13 +3606,13 @@
            CROSS JOIN
              (SELECT breakdown_value
               FROM
-                (SELECT ['some_val', ''] as breakdown_value) ARRAY
+                (SELECT ['some_val', '$$_posthog_breakdown_null_$$'] as breakdown_value) ARRAY
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(DISTINCT e.distinct_id) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') as breakdown_value
+                            transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['some_val', '$$_posthog_breakdown_null_$$']), (['some_val', '$$_posthog_breakdown_null_$$']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            INNER JOIN
              (SELECT distinct_id,
@@ -3687,7 +3632,6 @@
              AND event = 'sign up'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
-             AND replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') in (['some_val', ''])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -3696,10 +3640,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.4
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -3738,10 +3682,10 @@
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.5
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -3780,28 +3724,26 @@
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.6
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '') AS value,
-            count(*) as count
-     FROM events e
-     WHERE team_id = 2
-       AND event = 'sign up'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-24 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event = 'sign up'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-24 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.7
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -3823,19 +3765,18 @@
            CROSS JOIN
              (SELECT breakdown_value
               FROM
-                (SELECT [''] as breakdown_value) ARRAY
+                (SELECT ['$$_posthog_breakdown_null_$$'] as breakdown_value) ARRAY
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(DISTINCT e.distinct_id) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '') as breakdown_value
+                            transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$']), (['$$_posthog_breakdown_null_$$']), '$$_posthog_breakdown_other_$$') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = 'sign up'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
-             AND replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '') in ([''])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -3844,10 +3785,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_any_event_total_count
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -3870,10 +3811,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_any_event_total_count.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -3896,28 +3837,26 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_breakdown_cumulative
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
-            count(*) as count
-     FROM events e
-     WHERE team_id = 2
-       AND event = 'sign up'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e
+  WHERE team_id = 2
+    AND event = 'sign up'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_trends_breakdown_cumulative.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -3939,7 +3878,7 @@
            CROSS JOIN
              (SELECT breakdown_value
               FROM
-                (SELECT ['', 'value', 'other_value'] as breakdown_value) ARRAY
+                (SELECT ['$$_posthog_breakdown_null_$$', 'value', 'other_value'] as breakdown_value) ARRAY
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
@@ -3951,7 +3890,7 @@
                      min(timestamp) as timestamp,
                      breakdown_value
               FROM
-                (SELECT pdi.person_id as person_id, timestamp, replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
+                (SELECT pdi.person_id as person_id, timestamp, transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'value', 'other_value']), (['$$_posthog_breakdown_null_$$', 'value', 'other_value']), '$$_posthog_breakdown_other_$$') as breakdown_value
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
@@ -3963,8 +3902,7 @@
                  WHERE e.team_id = 2
                    AND event = 'sign up'
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-                   AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['', 'value', 'other_value']) )
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
               GROUP BY person_id,
                        breakdown_value) AS pdi
            GROUP BY day_start,
@@ -3975,35 +3913,33 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_breakdown_cumulative_poe_v2
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
-            count(*) as count
-     FROM events e
-     LEFT OUTER JOIN
-       (SELECT argMax(override_person_id, version) as person_id,
-               old_person_id
-        FROM person_overrides
-        WHERE team_id = 2
-        GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e
+  LEFT OUTER JOIN
+    (SELECT argMax(override_person_id, version) as person_id,
+            old_person_id
+     FROM person_overrides
      WHERE team_id = 2
-       AND event = 'sign up'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-       AND notEmpty(e.person_id)
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+     GROUP BY old_person_id) AS overrides ON e.person_id = overrides.old_person_id
+  WHERE team_id = 2
+    AND event = 'sign up'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+    AND notEmpty(e.person_id)
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_trends_breakdown_cumulative_poe_v2.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -4025,7 +3961,7 @@
            CROSS JOIN
              (SELECT breakdown_value
               FROM
-                (SELECT ['', 'value', 'other_value'] as breakdown_value) ARRAY
+                (SELECT ['$$_posthog_breakdown_null_$$', 'value', 'other_value'] as breakdown_value) ARRAY
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
@@ -4037,7 +3973,7 @@
                      min(timestamp) as timestamp,
                      breakdown_value
               FROM
-                (SELECT if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as person_id, timestamp, replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
+                (SELECT if(notEmpty(overrides.person_id), overrides.person_id, e.person_id) as person_id, timestamp, transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['$$_posthog_breakdown_null_$$', 'value', 'other_value']), (['$$_posthog_breakdown_null_$$', 'value', 'other_value']), '$$_posthog_breakdown_other_$$') as breakdown_value
                  FROM events e
                  LEFT OUTER JOIN
                    (SELECT argMax(override_person_id, version) as person_id,
@@ -4050,7 +3986,6 @@
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
                    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
                    AND notEmpty(e.person_id)
-                   AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['', 'value', 'other_value'])
                    AND notEmpty(e.person_id) )
               GROUP BY person_id,
                        breakdown_value) AS pdi
@@ -4062,37 +3997,35 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
-            quantile(0.50)(session_duration) as count
-     FROM events e
-     INNER JOIN
-       (SELECT "$session_id",
-               dateDiff('second', min(timestamp), max(timestamp)) as session_duration
-        FROM events
-        WHERE "$session_id" != ''
-          AND team_id = 2
-          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
-        GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
-     WHERE team_id = 2
-       AND event = 'sign up'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
+         quantile(0.50)(session_duration) as count
+  FROM events e
+  INNER JOIN
+    (SELECT "$session_id",
+            dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+     FROM events
+     WHERE "$session_id" != ''
+       AND team_id = 2
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+     GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
+  WHERE team_id = 2
+    AND event = 'sign up'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.1
-  '
+  '''
   
   SELECT quantile(0.50)(session_duration) AS total,
          breakdown_value
@@ -4102,7 +4035,7 @@
      FROM
        (SELECT sessions.$session_id,
                         session_duration,
-                        replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS breakdown_value
+                        transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['value2', 'value1', '$$_posthog_breakdown_null_$$']), (['value2', 'value1', '$$_posthog_breakdown_null_$$']), '$$_posthog_breakdown_other_$$') AS breakdown_value
         FROM events e
         INNER JOIN
           (SELECT "$session_id",
@@ -4116,43 +4049,40 @@
         WHERE e.team_id = 2
           AND event = 'sign up'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-          AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1', '']) )
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
      GROUP BY sessions.$session_id,
                        breakdown_value)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.2
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
-            quantile(0.50)(session_duration) as count
-     FROM events e
-     INNER JOIN
-       (SELECT "$session_id",
-               dateDiff('second', min(timestamp), max(timestamp)) as session_duration
-        FROM events
-        WHERE "$session_id" != ''
-          AND team_id = 2
-          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
-        GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
-     WHERE team_id = 2
-       AND event = 'sign up'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
+         quantile(0.50)(session_duration) as count
+  FROM events e
+  INNER JOIN
+    (SELECT "$session_id",
+            dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+     FROM events
+     WHERE "$session_id" != ''
+       AND team_id = 2
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+     GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
+  WHERE team_id = 2
+    AND event = 'sign up'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.3
-  '
+  '''
   
   SELECT quantile(0.50)(session_duration) AS total,
          breakdown_value
@@ -4162,7 +4092,7 @@
      FROM
        (SELECT sessions.$session_id,
                         session_duration,
-                        replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS breakdown_value
+                        transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['value2', 'value1', '$$_posthog_breakdown_null_$$']), (['value2', 'value1', '$$_posthog_breakdown_null_$$']), '$$_posthog_breakdown_other_$$') AS breakdown_value
         FROM events e
         INNER JOIN
           (SELECT "$session_id",
@@ -4176,16 +4106,15 @@
         WHERE e.team_id = 2
           AND event = 'sign up'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-          AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1', '']) )
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
      GROUP BY sessions.$session_id,
                        breakdown_value)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_compare_day_interval_relative_range
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -4208,10 +4137,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_compare_day_interval_relative_range.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -4234,10 +4163,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_compare_day_interval_relative_range.2
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -4260,10 +4189,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_count_per_group_average_aggregated
-  '
+  '''
   
   SELECT avg(intermediate_count) AS total
   FROM
@@ -4275,10 +4204,10 @@
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
        AND "$group_0" != ''
      GROUP BY "$group_0") events
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_count_per_group_average_daily
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -4305,10 +4234,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated
-  '
+  '''
   
   SELECT avg(intermediate_count) AS total
   FROM
@@ -4332,10 +4261,10 @@
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
      GROUP BY pdi.person_id) events
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated_poe_v2
-  '
+  '''
   
   SELECT avg(intermediate_count) AS total
   FROM
@@ -4353,48 +4282,46 @@
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
        AND notEmpty(e.person_id)
      GROUP BY if(notEmpty(overrides.person_id), overrides.person_id, e.person_id)) events
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated_with_event_property_breakdown_with_sampling
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'color'), '^"|"$', '') AS value,
-            count(*) as count
-     FROM events e SAMPLE 1.0
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 2
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     INNER JOIN
-       (SELECT id
-        FROM person
-        WHERE team_id = 2
-        GROUP BY id
-        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, 'color'), '^"|"$', '') AS value,
+         count(*) as count
+  FROM events e SAMPLE 1.0
+  INNER JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
      WHERE team_id = 2
-       AND event = 'viewed video'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+  INNER JOIN
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
+  WHERE team_id = 2
+    AND event = 'viewed video'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated_with_event_property_breakdown_with_sampling.1
-  '
+  '''
   
   SELECT avg(intermediate_count) AS total,
          breakdown_value
   FROM
     (SELECT COUNT(*) AS intermediate_count,
             pdi.person_id,
-            replaceRegexpAll(JSONExtractRaw(properties, 'color'), '^"|"$', '') AS breakdown_value
+            transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, 'color'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['red', 'blue', '$$_posthog_breakdown_null_$$']), (['red', 'blue', '$$_posthog_breakdown_null_$$']), '$$_posthog_breakdown_other_$$') AS breakdown_value
      FROM events AS e SAMPLE 1.0
      INNER JOIN
        (SELECT distinct_id,
@@ -4413,15 +4340,14 @@
        AND event = 'viewed video'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
-       AND replaceRegexpAll(JSONExtractRaw(properties, 'color'), '^"|"$', '') in (['red', 'blue', ''])
      GROUP BY pdi.person_id,
               breakdown_value)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_count_per_user_average_daily
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -4460,10 +4386,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_count_per_user_average_daily_poe_v2
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -4496,10 +4422,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_groups_per_day_cumulative
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -4528,10 +4454,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_per_day_cumulative
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -4554,51 +4480,49 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') AS value,
-            quantile(0.50)(session_duration) as count
-     FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 2
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     INNER JOIN
-       (SELECT id,
-               argMax(properties, version) as person_props
-        FROM person
-        WHERE team_id = 2
-        GROUP BY id
-        HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
-     INNER JOIN
-       (SELECT "$session_id",
-               dateDiff('second', min(timestamp), max(timestamp)) as session_duration
-        FROM events
-        WHERE "$session_id" != ''
-          AND team_id = 2
-          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
-        GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
+  SELECT replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') AS value,
+         quantile(0.50)(session_duration) as count
+  FROM events e
+  INNER JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
      WHERE team_id = 2
-       AND event = 'sign up'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+  INNER JOIN
+    (SELECT id,
+            argMax(properties, version) as person_props
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1) person ON pdi.person_id = person.id
+  INNER JOIN
+    (SELECT "$session_id",
+            dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+     FROM events
+     WHERE "$session_id" != ''
+       AND team_id = 2
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+     GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
+  WHERE team_id = 2
+    AND event = 'sign up'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown.1
-  '
+  '''
   
   SELECT quantile(0.50)(session_duration) AS total,
          breakdown_value
@@ -4608,7 +4532,7 @@
      FROM
        (SELECT sessions.$session_id,
                         session_duration,
-                        replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') AS breakdown_value
+                        transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['some_val', 'another_val']), (['some_val', 'another_val']), '$$_posthog_breakdown_other_$$') AS breakdown_value
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -4636,16 +4560,15 @@
         WHERE e.team_id = 2
           AND event = 'sign up'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), 'UTC')
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-          AND replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') in (['some_val', 'another_val']) )
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
      GROUP BY sessions.$session_id,
                        breakdown_value)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_with_hogql_math
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -4668,10 +4591,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_with_session_property_single_aggregate_math
-  '
+  '''
   
   SELECT quantile(0.50)(session_duration) AS total
   FROM
@@ -4691,10 +4614,10 @@
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
      GROUP BY e."$session_id")
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_with_session_property_single_aggregate_math.1
-  '
+  '''
   
   SELECT quantile(0.50)(session_duration) AS total
   FROM
@@ -4714,10 +4637,10 @@
        AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
        AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
      GROUP BY e."$session_id")
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -4752,10 +4675,10 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -4790,37 +4713,35 @@
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
-            quantile(0.50)(session_duration) as count
-     FROM events e
-     INNER JOIN
-       (SELECT "$session_id",
-               dateDiff('second', min(timestamp), max(timestamp)) as session_duration
-        FROM events
-        WHERE "$session_id" != ''
-          AND team_id = 2
-          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
-        GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
-     WHERE team_id = 2
-       AND event = 'sign up'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
+         quantile(0.50)(session_duration) as count
+  FROM events e
+  INNER JOIN
+    (SELECT "$session_id",
+            dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+     FROM events
+     WHERE "$session_id" != ''
+       AND team_id = 2
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+     GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
+  WHERE team_id = 2
+    AND event = 'sign up'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.1
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -4857,7 +4778,7 @@
                 (SELECT sessions.$session_id,
                                  session_duration,
                                  toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0) as day_start,
-                                 replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
+                                 transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['value2', 'value1']), (['value2', 'value1']), '$$_posthog_breakdown_other_$$') as breakdown_value
                  FROM events AS e
                  INNER JOIN
                    (SELECT "$session_id",
@@ -4871,8 +4792,7 @@
                  WHERE e.team_id = 2
                    AND event = 'sign up'
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), 'UTC')
-                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-                   AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1']) )
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
               GROUP BY sessions.$session_id,
                                 day_start,
                                 breakdown_value)
@@ -4884,37 +4804,35 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.2
-  '
+  '''
   
-  SELECT groupArray(value)
-  FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
-            quantile(0.50)(session_duration) as count
-     FROM events e
-     INNER JOIN
-       (SELECT "$session_id",
-               dateDiff('second', min(timestamp), max(timestamp)) as session_duration
-        FROM events
-        WHERE "$session_id" != ''
-          AND team_id = 2
-          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
-          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
-        GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
-     WHERE team_id = 2
-       AND event = 'sign up'
-       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-     GROUP BY value
-     ORDER BY count DESC, value DESC
-     LIMIT 25
-     OFFSET 0)
-  '
----
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
+         quantile(0.50)(session_duration) as count
+  FROM events e
+  INNER JOIN
+    (SELECT "$session_id",
+            dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+     FROM events
+     WHERE "$session_id" != ''
+       AND team_id = 2
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+     GROUP BY "$session_id") AS sessions ON sessions."$session_id" = e."$session_id"
+  WHERE team_id = 2
+    AND event = 'sign up'
+    AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+  GROUP BY value
+  ORDER BY count DESC, value DESC
+  LIMIT 26
+  OFFSET 0
+  '''
+# ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.3
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total,
@@ -4951,7 +4869,7 @@
                 (SELECT sessions.$session_id,
                                  session_duration,
                                  toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                                 replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
+                                 transform(ifNull(nullIf(replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', ''), ''), '$$_posthog_breakdown_null_$$'), (['value2', 'value1']), (['value2', 'value1']), '$$_posthog_breakdown_other_$$') as breakdown_value
                  FROM events AS e
                  INNER JOIN
                    (SELECT "$session_id",
@@ -4965,8 +4883,7 @@
                  WHERE e.team_id = 2
                    AND event = 'sign up'
                    AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-                   AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1']) )
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
               GROUP BY sessions.$session_id,
                                 day_start,
                                 breakdown_value)
@@ -4978,10 +4895,10 @@
               day_start)
   GROUP BY breakdown_value
   ORDER BY breakdown_value
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_aggregated_range_narrower_than_week
-  '
+  '''
   
   SELECT count(DISTINCT pdi.person_id) AS total
   FROM events e
@@ -4996,10 +4913,10 @@
     AND event = '$pageview'
     AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-05 23:59:59', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_aggregated_range_wider_than_week
-  '
+  '''
   
   SELECT count(DISTINCT pdi.person_id) AS total
   FROM events e
@@ -5014,10 +4931,10 @@
     AND event = '$pageview'
     AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 23:59:59', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_aggregated_range_wider_than_week_with_sampling
-  '
+  '''
   
   SELECT count(DISTINCT pdi.person_id) AS total
   FROM events e SAMPLE 1.0
@@ -5032,10 +4949,10 @@
     AND event = '$pageview'
     AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 23:59:59', 'UTC')
     AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_daily
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -5081,10 +4998,10 @@
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-19 23:59:59', 'UTC') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_daily_minus_utc
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -5130,10 +5047,10 @@
           AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-19 23:59:59', 'America/Phoenix') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_daily_plus_utc
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -5179,10 +5096,10 @@
           AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-19 23:59:59', 'Asia/Tokyo') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_filtering
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -5240,10 +5157,10 @@
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_filtering_materialized
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -5301,10 +5218,10 @@
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_hourly
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -5350,10 +5267,10 @@
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-09 17:00:00', 'UTC') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_monthly
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -5399,10 +5316,10 @@
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-29 23:59:59', 'UTC') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_monthly_minus_utc
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -5448,10 +5365,10 @@
           AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-02-29 23:59:59', 'America/Phoenix') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_monthly_plus_utc
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -5497,10 +5414,10 @@
           AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-02-29 23:59:59', 'Asia/Tokyo') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_weekly
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -5546,10 +5463,10 @@
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'UTC') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_weekly_minus_utc
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -5595,10 +5512,10 @@
           AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-18 23:59:59', 'America/Phoenix') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---
 # name: TestTrends.test_weekly_active_users_weekly_plus_utc
-  '
+  '''
   
   SELECT groupArray(day_start) as date,
          groupArray(count) AS total
@@ -5644,5 +5561,5 @@
           AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-18 23:59:59', 'Asia/Tokyo') )
      GROUP BY day_start
      ORDER BY day_start)
-  '
----
+  '''
+# ---

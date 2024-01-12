@@ -9,8 +9,8 @@ from django.conf import settings
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team
-from posthog.temporal.client import connect
-from posthog.temporal.workflows.clickhouse import ClickHouseClient
+from posthog.temporal.batch_exports.clickhouse import ClickHouseClient
+from posthog.temporal.common.client import connect
 
 
 @pytest.fixture
@@ -63,7 +63,7 @@ def activity_environment():
     return ActivityEnvironment()
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def clickhouse_client():
     """Provide a ClickHouseClient to use in tests."""
     client = ClickHouseClient(
@@ -76,14 +76,7 @@ def clickhouse_client():
     yield client
 
 
-@pytest.fixture(scope="module")
-def event_loop():
-    loop = asyncio.get_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest_asyncio.fixture(scope="module")
+@pytest_asyncio.fixture
 async def temporal_client():
     """Provide a temporalio.client.Client to use in tests."""
     client = await connect(
@@ -108,7 +101,7 @@ async def workflows(request):
     try:
         return request.param
     except AttributeError:
-        from posthog.temporal.workflows import WORKFLOWS
+        from posthog.temporal.batch_exports import WORKFLOWS
 
         return WORKFLOWS
 
@@ -123,7 +116,7 @@ async def activities(request):
     try:
         return request.param
     except AttributeError:
-        from posthog.temporal.workflows import ACTIVITIES
+        from posthog.temporal.batch_exports import ACTIVITIES
 
         return ACTIVITIES
 

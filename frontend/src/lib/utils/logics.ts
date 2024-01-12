@@ -1,4 +1,5 @@
 import { organizationLogic } from 'scenes/organizationLogic'
+
 import { teamLogic } from '../../scenes/teamLogic'
 import { OrganizationType, TeamType } from '../../types'
 import { getAppContext } from './getAppContext'

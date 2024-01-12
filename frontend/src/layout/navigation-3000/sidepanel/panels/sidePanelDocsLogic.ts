@@ -1,45 +1,96 @@
-import { actions, kea, reducers, path, listeners, connect } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
+import { sceneLogic } from 'scenes/sceneLogic'
 
-import type { sidePanelDocsLogicType } from './sidePanelDocsLogicType'
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
-import { SidePanelTab } from '~/types'
+import type { sidePanelDocsLogicType } from './sidePanelDocsLogicType'
 
-const POSTHOG_COM_DOMAIN = 'https://posthog.com'
+export const POSTHOG_WEBSITE_ORIGIN = 'https://posthog.com'
+
+const sanitizePath = (path: string): string => {
+    return path[0] === '/' ? path : `/${path}`
+}
+
+export const getPathFromUrl = (urlOrPath: string): string => {
+    // NOTE: This is not a perfect function - it is mostly meant for the specific use cases of these docs
+    try {
+        const url = new URL(urlOrPath)
+        return url.pathname + url.search + url.hash
+    } catch (e) {
+        return urlOrPath
+    }
+}
 
 export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelDocsLogic']),
     connect({
         actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
+        values: [sceneLogic, ['sceneConfig']],
     }),
 
     actions({
-        openDocsPage: (urlOrPath: string) => ({ urlOrPath }),
+        updatePath: (path: string) => ({ path }),
+        setInitialPath: (path: string) => ({ path }),
+        unmountIframe: true,
+        handleExternalUrl: (urlOrPath: string) => ({ urlOrPath }),
     }),
 
     reducers(() => ({
-        path: [
-            '/docs' as string,
+        currentPath: [
+            null as string | null,
             {
-                openDocsPage: (_, { urlOrPath }) => {
-                    let path = urlOrPath
-                    try {
-                        const url = new URL(urlOrPath)
-                        if (url.origin === POSTHOG_COM_DOMAIN) {
-                            path = url.pathname + url.search
-                        }
-                    } catch (e) {
-                        // not a valid URL, continue
-                    }
-
-                    return path[0] === '/' ? path : `/${path}`
-                },
+                updatePath: (_, { path }) => sanitizePath(path),
+            },
+        ],
+        initialPath: [
+            '/docs' as string,
+            { persist: true },
+            {
+                setInitialPath: (_, { path }) => sanitizePath(path),
             },
         ],
     })),
 
-    listeners(({ actions }) => ({
-        openDocsPage: () => {
-            actions.openSidePanel(SidePanelTab.Docs)
+    selectors({
+        iframeSrc: [
+            (s) => [s.initialPath],
+            (initialPath) => {
+                return `${POSTHOG_WEBSITE_ORIGIN}${initialPath ?? ''}`
+            },
+        ],
+        currentUrl: [
+            (s) => [s.currentPath],
+            (currentPath) => {
+                return `${POSTHOG_WEBSITE_ORIGIN}${currentPath ?? ''}`
+            },
+        ],
+    }),
+
+    listeners(({ actions, values }) => ({
+        openSidePanel: ({ options }) => {
+            if (options) {
+                const initialPath = getPathFromUrl(options)
+                actions.setInitialPath(initialPath)
+            }
+        },
+
+        unmountIframe: () => {
+            // Update the initialPath so that next time we load it is the same as last time
+            actions.setInitialPath(values.currentPath ?? '/docs')
+        },
+
+        handleExternalUrl: ({ urlOrPath }) => {
+            router.actions.push(getPathFromUrl(urlOrPath))
         },
     })),
+
+    afterMount(({ actions, values }) => {
+        if (values.sceneConfig?.defaultDocsPath) {
+            actions.setInitialPath(values.sceneConfig?.defaultDocsPath)
+        }
+    }),
+
+    beforeUnmount(({ actions, values }) => {
+        actions.setInitialPath(values.currentPath ?? '/docs')
+    }),
 ])

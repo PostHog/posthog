@@ -1,17 +1,18 @@
-import { LemonInput, LemonSelect, LemonCheckbox, LemonDivider, LemonButton } from '@posthog/lemon-ui'
-import { useValues, useActions } from 'kea'
+import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { Field } from 'lib/forms/Field'
+import { IconInfo } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
-import { IconInfo } from 'lib/lemon-ui/icons'
-import { BatchExportsEditLogicProps, batchExportsEditLogic } from './batchExportEditLogic'
-import { Field } from 'lib/forms/Field'
+import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+
+import { batchExportsEditLogic, BatchExportsEditLogicProps } from './batchExportEditLogic'
 
 export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Element {
     const logic = batchExportsEditLogic(props)
@@ -455,6 +456,27 @@ export function BatchExportsEditForm(props: BatchExportsEditLogicProps): JSX.Ele
                                     <Field name="dataset_id" label="Dataset ID">
                                         <LemonInput placeholder="dataset" />
                                     </Field>
+
+                                    {isNew ? (
+                                        <Field name="use_json_type" label="Structured fields data type">
+                                            <LemonCheckbox
+                                                bordered
+                                                label={
+                                                    <span className="flex items-center gap-2">
+                                                        Export 'properties', 'set', and 'set_once' fields as BigQuery
+                                                        JSON type
+                                                        <Tooltip
+                                                            title={
+                                                                'If left unchecked, these fields will be sent as STRING type. This setting cannot be changed after batch export is created.'
+                                                            }
+                                                        >
+                                                            <IconInfo className=" text-lg text-muted-alt" />
+                                                        </Tooltip>
+                                                    </span>
+                                                }
+                                            />
+                                        </Field>
+                                    ) : null}
 
                                     <Field name="exclude_events" label="Events to exclude" className="flex-1">
                                         <LemonSelectMultiple

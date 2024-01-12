@@ -1,10 +1,10 @@
-import { useValues } from 'kea'
-import { userLogic } from 'scenes/userLogic'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { Field } from 'lib/forms/Field'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { Form } from 'kea-forms'
 import { LemonTag } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
+import { Form } from 'kea-forms'
+import { Field } from 'lib/forms/Field'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { userLogic } from 'scenes/userLogic'
 
 export function UserDetails(): JSX.Element {
     const { userLoading, isUserDetailsSubmitting, userDetailsChanged, user } = useValues(userLogic)

@@ -1,7 +1,9 @@
-import { useState } from 'react'
 import './JSONEditorInput.scss'
-import { JsonType } from '~/types'
+
 import { CodeEditor } from 'lib/components/CodeEditors'
+import { useState } from 'react'
+
+import { JsonType } from '~/types'
 
 interface EditorProps {
     onChange?: (val: string | undefined) => void

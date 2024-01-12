@@ -1,8 +1,9 @@
-import { InsightModel } from '~/types'
-import { dashboardsModel } from '~/models/dashboardsModel'
 import { useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconGauge, IconWithCount } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { InsightModel } from '~/types'
 
 interface SaveToDashboardProps {
     insight: Partial<InsightModel>

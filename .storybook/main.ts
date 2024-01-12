@@ -44,6 +44,8 @@ const config: StorybookConfig = {
     docs: {
         autodocs: 'tag',
     },
+
+    typescript: { reactDocgen: 'react-docgen' }, // Shouldn't be needed in Storybook 8
 }
 
 export default config

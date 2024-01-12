@@ -1,38 +1,44 @@
-import { Row, Col, InputNumber, Select } from 'antd'
-import { useActions, useValues } from 'kea'
-import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { featureFlagLogic } from './featureFlagLogic'
 import './FeatureFlag.scss'
-import { IconCopy, IconDelete, IconPlus, IconSubArrowRight, IconErrorOutline } from 'lib/lemon-ui/icons'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { groupsModel } from '~/models/groupsModel'
-import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
-import { AnyPropertyFilter, FeatureFlagGroupType } from '~/types'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { urls } from 'scenes/urls'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+
+import { LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
+import { Select } from 'antd'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
-import { cohortsModel } from '~/models/cohortsModel'
-import { LemonSelect, Link } from '@posthog/lemon-ui'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
-import clsx from 'clsx'
+import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
+import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
+import { IconCopy, IconDelete, IconErrorOutline, IconOpenInNew, IconPlus, IconSubArrowRight } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
+import { urls } from 'scenes/urls'
+
+import { cohortsModel } from '~/models/cohortsModel'
+import { groupsModel } from '~/models/groupsModel'
+import { AnyPropertyFilter, FeatureFlagGroupType } from '~/types'
+
+import { featureFlagLogic } from './featureFlagLogic'
 
 interface FeatureFlagReadOnlyProps {
     readOnly?: boolean
     isSuper?: boolean
     excludeTitle?: boolean
+    usageContext?: string
 }
 
 export function FeatureFlagReleaseConditions({
     readOnly,
     isSuper,
     excludeTitle,
+    usageContext,
 }: FeatureFlagReadOnlyProps): JSX.Element {
+    const logic = usageContext === 'schedule' ? featureFlagLogic({ id: 'schedule' }) : featureFlagLogic
+
     const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
     const {
         aggregationTargetName,
@@ -44,14 +50,14 @@ export function FeatureFlagReleaseConditions({
         computeBlastRadiusPercentage,
         affectedUsers,
         totalUsers,
-    } = useValues(featureFlagLogic)
+    } = useValues(logic)
     const {
         setAggregationGroupTypeIndex,
         updateConditionSet,
         duplicateConditionSet,
         removeConditionSet,
         addConditionSet,
-    } = useActions(featureFlagLogic)
+    } = useActions(logic)
     const { cohortsById } = useValues(cohortsModel)
 
     const filterGroups: FeatureFlagGroupType[] = isSuper
@@ -75,9 +81,9 @@ export function FeatureFlagReleaseConditions({
 
     const renderReleaseConditionGroup = (group: FeatureFlagGroupType, index: number): JSX.Element => {
         return (
-            <Col span={24} md={24} key={`${index}-${filterGroups.length}`}>
+            <div className="w-full" key={`${index}-${filterGroups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
-                <div className={clsx('mb-4', 'border', 'rounded', 'p-4')}>
+                <div className="mb-4 border rounded p-4 bg-bg-light">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center">
                             <span className="simple-tag tag-light-blue font-medium mr-2">Set {index + 1}</span>
@@ -105,14 +111,12 @@ export function FeatureFlagReleaseConditions({
                             <div className="flex">
                                 <LemonButton
                                     icon={<IconCopy />}
-                                    status="muted"
                                     noPadding
                                     onClick={() => duplicateConditionSet(index)}
                                 />
                                 {!isEarlyAccessFeatureCondition(group) && filterGroups.length > 1 && (
                                     <LemonButton
                                         icon={<IconDelete />}
-                                        status="muted"
                                         noPadding
                                         onClick={() => removeConditionSet(index)}
                                     />
@@ -141,15 +145,10 @@ export function FeatureFlagReleaseConditions({
                                         {idx === 0 ? (
                                             <LemonButton
                                                 icon={<IconSubArrowRight className="arrow-right" />}
-                                                status="muted"
                                                 size="small"
                                             />
                                         ) : (
-                                            <LemonButton
-                                                icon={<span className="text-sm">&</span>}
-                                                status="muted"
-                                                size="small"
-                                            />
+                                            <LemonButton icon={<span className="text-sm">&</span>} size="small" />
                                         )}
                                         <span className="simple-tag tag-light-blue text-primary-alt">
                                             {property.type === 'cohort' ? 'Cohort' : property.key}{' '}
@@ -159,14 +158,16 @@ export function FeatureFlagReleaseConditions({
                                         ) : null}
 
                                         {property.type === 'cohort' ? (
-                                            <Link
+                                            <LemonButton
+                                                type="secondary"
+                                                size="xsmall"
                                                 to={urls.cohort(property.value)}
-                                                target="_blank"
-                                                className="simple-tag tag-light-blue text-primary-alt display-value"
+                                                sideIcon={<IconOpenInNew />}
+                                                targetBlank
                                             >
                                                 {(property.value && cohortsById[property.value]?.name) ||
                                                     `ID ${property.value}`}
-                                            </Link>
+                                            </LemonButton>
                                         ) : (
                                             [
                                                 ...(Array.isArray(property.value) ? property.value : [property.value]),
@@ -241,15 +242,17 @@ export function FeatureFlagReleaseConditions({
                         <div className="feature-flag-form-row gap-2">
                             <div className="flex items-center gap-1">
                                 Roll out to{' '}
-                                <InputNumber
-                                    style={{ width: 100, marginLeft: 8, marginRight: 8 }}
+                                <LemonInput
+                                    data-attr="rollout-percentage"
+                                    type="number"
+                                    className="mx-2"
                                     onChange={(value): void => {
-                                        updateConditionSet(index, value as number)
+                                        updateConditionSet(index, value || 100)
                                     }}
                                     value={group.rollout_percentage != null ? group.rollout_percentage : 100}
                                     min={0}
                                     max={100}
-                                    addonAfter="%"
+                                    suffix={<span>%</span>}
                                 />{' '}
                                 of <b>{aggregationTargetName}</b> in this set.{' '}
                             </div>
@@ -314,7 +317,7 @@ export function FeatureFlagReleaseConditions({
                         </>
                     )}
                 </div>
-            </Col>
+            </div>
         )
     }
 
@@ -327,9 +330,9 @@ export function FeatureFlagReleaseConditions({
         const hasMatchingEarlyAccessFeature = featureFlag.features?.find((f: any) => f.flagKey === featureFlag.key)
 
         return (
-            <Col span={24} md={24} key={`${index}-${filterGroups.length}`}>
+            <div className="w-full" key={`${index}-${filterGroups.length}`}>
                 {index > 0 && <div className="condition-set-separator">OR</div>}
-                <div className={clsx('mb-4', 'border', 'rounded', 'p-4', 'FeatureConditionCard--border--highlight')}>
+                <div className="mb-4 rounded p-4 bg-bg-light">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center">
                             <div>
@@ -353,11 +356,7 @@ export function FeatureFlagReleaseConditions({
                     {(group.properties?.length || 0) > 0 && (
                         <>
                             <div className="feature-flag-property-display">
-                                <LemonButton
-                                    icon={<IconSubArrowRight className="arrow-right" />}
-                                    status="muted"
-                                    size="small"
-                                />
+                                <LemonButton icon={<IconSubArrowRight className="arrow-right" />} size="small" />
                                 <span>
                                     If null, default to <b>Release conditions</b>
                                 </span>
@@ -374,7 +373,6 @@ export function FeatureFlagReleaseConditions({
                             }
                             aria-label="more"
                             data-attr={'feature-flag-feature-list-button'}
-                            status="primary"
                             size="small"
                             onClick={() =>
                                 featureFlag.features &&
@@ -386,7 +384,7 @@ export function FeatureFlagReleaseConditions({
                         </LemonButton>
                     </div>
                 </div>
-            </Col>
+            </div>
         )
     }
 
@@ -422,7 +420,7 @@ export function FeatureFlagReleaseConditions({
                             </LemonBanner>
                         )}
                 </div>
-                {!readOnly && showGroupsOptions && (
+                {!readOnly && showGroupsOptions && usageContext !== 'schedule' && (
                     <div className="centered">
                         Match by
                         <Select
@@ -456,11 +454,11 @@ export function FeatureFlagReleaseConditions({
                     </div>
                 )}
             </div>
-            <Row className="FeatureConditionCard" gutter={16}>
+            <div className="FeatureConditionCard">
                 {filterGroups.map((group, index) =>
                     isSuper ? renderSuperReleaseConditionGroup(group, index) : renderReleaseConditionGroup(group, index)
                 )}
-            </Row>
+            </div>
             {!readOnly && (
                 <LemonButton type="secondary" className="mt-0 w-max" onClick={addConditionSet} icon={<IconPlus />}>
                     Add condition set

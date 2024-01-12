@@ -40,6 +40,7 @@ from posthog.rate_limit import (
 )
 from posthog.session_recordings.session_recording_api import list_recordings_response
 from posthog.utils import relative_date_parse
+from loginas.utils import is_impersonated_session
 
 logger = structlog.get_logger(__name__)
 
@@ -52,6 +53,7 @@ def log_playlist_activity(
     organization_id: UUIDT,
     team_id: int,
     user: User,
+    was_impersonated: bool,
     changes: Optional[List[Change]] = None,
 ) -> None:
     """
@@ -66,6 +68,7 @@ def log_playlist_activity(
             organization_id=organization_id,
             team_id=team_id,
             user=user,
+            was_impersonated=was_impersonated,
             item_id=playlist_id,
             scope="SessionRecordingPlaylist",
             activity=activity,
@@ -125,6 +128,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
             organization_id=self.context["request"].user.current_organization_id,
             team_id=team.id,
             user=self.context["request"].user,
+            was_impersonated=is_impersonated_session(self.context["request"]),
         )
 
         return playlist
@@ -150,6 +154,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
             organization_id=self.context["request"].user.current_organization_id,
             team_id=self.context["team_id"],
             user=self.context["request"].user,
+            was_impersonated=is_impersonated_session(self.context["request"]),
             changes=changes,
         )
 

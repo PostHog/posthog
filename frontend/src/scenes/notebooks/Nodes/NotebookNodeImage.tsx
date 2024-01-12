@@ -59,7 +59,11 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
     }
 
     if (error) {
-        return <LemonBanner type="error">{error}</LemonBanner>
+        return (
+            <div className="flex flex-1 items-center justify-center">
+                <LemonBanner type="error">{error}</LemonBanner>
+            </div>
+        )
     }
 
     return (

@@ -1,29 +1,31 @@
+// eslint-disable-next-line no-restricted-imports
+import { PieChartFilled } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
-import { capitalizeFirstLetter } from 'lib/utils'
-import React from 'react'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { urls } from 'scenes/urls'
-import { dashboardsModel } from '~/models/dashboardsModel'
-import { ExporterFormat, InsightColor } from '~/types'
-import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
+import { CardMeta } from 'lib/components/Cards/CardMeta'
+import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
+import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { DashboardPrivilegeLevel } from 'lib/constants'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Link } from 'lib/lemon-ui/Link'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { InsightDetails } from './InsightDetails'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { groupsModel } from '~/models/groupsModel'
-import { cohortsModel } from '~/models/cohortsModel'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
-import { ExportButton } from 'lib/components/ExportButton/ExportButton'
-import { CardMeta } from 'lib/components/Cards/CardMeta'
-import { DashboardPrivilegeLevel } from 'lib/constants'
-// eslint-disable-next-line no-restricted-imports
-import { PieChartFilled } from '@ant-design/icons'
+import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import React from 'react'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { summarizeInsight } from 'scenes/insights/summarizeInsight'
+import { mathsLogic } from 'scenes/trends/mathsLogic'
+import { urls } from 'scenes/urls'
+
+import { cohortsModel } from '~/models/cohortsModel'
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { groupsModel } from '~/models/groupsModel'
+import { ExporterFormat, InsightColor } from '~/types'
+
 import { InsightCardProps } from './InsightCard'
+import { InsightDetails } from './InsightDetails'
 
 interface InsightMetaProps
     extends Pick<
@@ -42,11 +44,6 @@ interface InsightMetaProps
         | 'showDetailsControls'
         | 'moreButtons'
     > {
-    /**
-     * Optional callback to update height of the primary InsightMeta div. Allow for coordinating InsightViz height
-     * with InsightMeta in a way that makes it possible for meta to overlay viz in expanded (InsightDetails) state.
-     */
-    setPrimaryHeight?: (primaryHeight: number | undefined) => void
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
 }
@@ -62,7 +59,6 @@ export function InsightMeta({
     rename,
     duplicate,
     moveToDashboard,
-    setPrimaryHeight,
     areDetailsShown,
     setAreDetailsShown,
     showEditingControls = true,
@@ -91,13 +87,11 @@ export function InsightMeta({
 
     return (
         <CardMeta
-            setPrimaryHeight={setPrimaryHeight}
             ribbonColor={ribbonColor}
             showEditingControls={showEditingControls}
             showDetailsControls={showDetailsControls}
             setAreDetailsShown={setAreDetailsShown}
             areDetailsShown={areDetailsShown}
-            className={'border-b'}
             topHeading={<TopHeading insight={insight} />}
             meta={
                 <>
@@ -115,7 +109,7 @@ export function InsightMeta({
             samplingNotice={
                 insight.filters.sampling_factor && insight.filters.sampling_factor < 1 ? (
                     <Tooltip title={`Results calculated from ${100 * insight.filters.sampling_factor}% of users`}>
-                        <PieChartFilled className="mr-2" style={{ color: 'var(--primary-light)' }} />
+                        <PieChartFilled className="mr-2" style={{ color: 'var(--primary-3000-hover)' }} />
                     </Tooltip>
                 ) : null
             }
@@ -123,12 +117,11 @@ export function InsightMeta({
                 <>
                     {allInteractionsAllowed && (
                         <>
-                            <LemonButton status="stealth" to={urls.insightView(short_id)} fullWidth>
+                            <LemonButton to={urls.insightView(short_id)} fullWidth>
                                 View
                             </LemonButton>
                             {refresh && (
                                 <LemonButton
-                                    status="stealth"
                                     onClick={() => {
                                         refresh()
                                         reportDashboardItemRefreshed(insight)
@@ -142,13 +135,11 @@ export function InsightMeta({
                     )}
                     {editable && updateColor && (
                         <LemonButtonWithDropdown
-                            status="stealth"
                             dropdown={{
                                 overlay: Object.values(InsightColor).map((availableColor) => (
                                     <LemonButton
                                         key={availableColor}
                                         active={availableColor === (ribbonColor || InsightColor.White)}
-                                        status="stealth"
                                         onClick={() => updateColor(availableColor)}
                                         icon={
                                             availableColor !== InsightColor.White ? (
@@ -174,12 +165,10 @@ export function InsightMeta({
                     )}
                     {editable && moveToDashboard && otherDashboards.length > 0 && (
                         <LemonButtonWithDropdown
-                            status="stealth"
                             dropdown={{
                                 overlay: otherDashboards.map((otherDashboard) => (
                                     <LemonButton
                                         key={otherDashboard.id}
-                                        status="stealth"
                                         onClick={() => {
                                             moveToDashboard(otherDashboard)
                                         }}
@@ -200,17 +189,16 @@ export function InsightMeta({
                     )}
                     <LemonDivider />
                     {editable && allInteractionsAllowed && (
-                        <LemonButton status="stealth" to={urls.insightEdit(short_id)} fullWidth>
+                        <LemonButton to={urls.insightEdit(short_id)} fullWidth>
                             Edit
                         </LemonButton>
                     )}
                     {editable && (
-                        <LemonButton status="stealth" onClick={rename} fullWidth>
+                        <LemonButton onClick={rename} fullWidth>
                             Rename
                         </LemonButton>
                     )}
                     <LemonButton
-                        status="stealth"
                         onClick={duplicate}
                         fullWidth
                         data-attr={

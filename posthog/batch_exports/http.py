@@ -2,6 +2,7 @@ import datetime as dt
 from typing import Any
 
 import posthoganalytics
+import structlog
 from django.db import transaction
 from django.utils.timezone import now
 from rest_framework import mixins, request, response, serializers, viewsets
@@ -27,9 +28,10 @@ from posthog.batch_exports.service import (
     BatchExportIdError,
     BatchExportServiceError,
     BatchExportServiceRPCError,
+    BatchExportServiceScheduleNotFound,
     backfill_export,
     cancel_running_batch_export_backfill,
-    delete_schedule,
+    batch_export_delete_schedule,
     pause_batch_export,
     sync_batch_export,
     unpause_batch_export,
@@ -43,11 +45,14 @@ from posthog.models import (
     User,
 )
 from posthog.permissions import (
+    OrganizationMemberPermissions,
     ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
-from posthog.temporal.client import sync_connect
+from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse
+
+logger = structlog.get_logger(__name__)
 
 
 def validate_date_input(date_input: Any) -> dt.datetime:
@@ -67,7 +72,7 @@ def validate_date_input(date_input: Any) -> dt.datetime:
         # As far as I'm concerned, if you give me something that quacks like an isoformatted str, you are golden.
         # Read more here: https://github.com/python/mypy/issues/2420.
         # Once PostHog is 3.11, try/except is zero cost if nothing is raised: https://bugs.python.org/issue40222.
-        parsed = dt.datetime.fromisoformat(date_input.replace("Z", "+00:00"))  # type: ignore
+        parsed = dt.datetime.fromisoformat(date_input.replace("Z", "+00:00"))
     except (TypeError, ValueError):
         raise ValidationError(f"Input {date_input} is not a valid ISO formatted datetime.")
     return parsed
@@ -159,6 +164,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
         model = BatchExport
         fields = [
             "id",
+            "team_id",
             "name",
             "destination",
             "interval",
@@ -170,7 +176,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "end_at",
             "latest_runs",
         ]
-        read_only_fields = ["id", "created_at", "last_updated_at", "latest_runs"]
+        read_only_fields = ["id", "team_id", "created_at", "last_updated_at", "latest_runs"]
 
     def create(self, validated_data: dict) -> BatchExport:
         """Create a BatchExport."""
@@ -234,15 +240,10 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     serializer_class = BatchExportSerializer
 
     def get_queryset(self):
-        if not isinstance(self.request.user, User) or self.request.user.current_team is None:
+        if not isinstance(self.request.user, User):
             raise NotAuthenticated()
 
-        return (
-            self.queryset.filter(team_id=self.team_id)
-            .exclude(deleted=True)
-            .order_by("-created_at")
-            .prefetch_related("destination")
-        )
+        return super().get_queryset().exclude(deleted=True).order_by("-created_at").prefetch_related("destination")
 
     @action(methods=["POST"], detail=True)
     def backfill(self, request: request.Request, *args, **kwargs) -> response.Response:
@@ -273,14 +274,14 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["POST"], detail=True)
     def pause(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Pause a BatchExport."""
-        if not isinstance(request.user, User) or request.user.current_team is None:
+        if not isinstance(request.user, User):
             raise NotAuthenticated()
 
+        batch_export = self.get_object()
         user_id = request.user.distinct_id
-        team_id = request.user.current_team.id
+        team_id = batch_export.team_id
         note = f"Pause requested by user {user_id} from team {team_id}"
 
-        batch_export = self.get_object()
         temporal = sync_connect()
 
         try:
@@ -320,15 +321,32 @@ class BatchExportViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         return response.Response({"paused": False})
 
     def perform_destroy(self, instance: BatchExport):
-        """Perform a BatchExport destroy by clearing Temporal and Django state."""
-        instance.deleted = True
+        """Perform a BatchExport destroy by clearing Temporal and Django state.
+
+        If the underlying Temporal Schedule doesn't exist, we ignore the error and proceed with the delete anyways.
+        The Schedule could have been manually deleted causing Django and Temporal to go out of sync. For whatever reason,
+        since we are deleting, we assume that we can recover from this state by finishing the delete operation by calling
+        instance.save().
+        """
         temporal = sync_connect()
-        delete_schedule(temporal, str(instance.pk))
+
+        instance.deleted = True
+
+        try:
+            batch_export_delete_schedule(temporal, str(instance.pk))
+        except BatchExportServiceScheduleNotFound as e:
+            logger.warning("The Schedule %s could not be deleted as it was not found", e.schedule_id)
+
         instance.save()
 
         for backfill in BatchExportBackfill.objects.filter(batch_export=instance):
             if backfill.status == BatchExportBackfill.Status.RUNNING:
                 cancel_running_batch_export_backfill(temporal, backfill.workflow_id)
+
+
+class BatchExportOrganizationViewSet(BatchExportViewSet):
+    permission_classes = [IsAuthenticated, OrganizationMemberPermissions]
+    filter_rewrite_rules = {"organization_id": "team__organization_id"}
 
 
 class BatchExportLogEntrySerializer(DataclassSerializer):
@@ -365,7 +383,7 @@ class BatchExportLogViewSet(StructuredViewSetMixin, mixins.ListModelMixin, views
         if before_raw is not None:
             before = dt.datetime.fromisoformat(before_raw.replace("Z", "+00:00"))
 
-        level_filter = [BatchExportLogEntryLevel[t] for t in (self.request.GET.getlist("level_filter", []))]
+        level_filter = [BatchExportLogEntryLevel[t.upper()] for t in (self.request.GET.getlist("level_filter", []))]
         return fetch_batch_export_log_entries(
             team_id=self.parents_query_dict["team_id"],
             batch_export_id=self.parents_query_dict["batch_export_id"],

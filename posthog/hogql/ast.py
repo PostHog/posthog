@@ -20,6 +20,7 @@ from posthog.hogql.database.models import (
     FieldOrTable,
     DatabaseField,
     StringArrayDatabaseField,
+    ExpressionField,
 )
 from posthog.hogql.errors import HogQLException, NotImplementedException
 
@@ -37,6 +38,14 @@ class FieldAliasType(Type):
 
     def has_child(self, name: str) -> bool:
         return self.type.has_child(name)
+
+    def resolve_constant_type(self):
+        return self.type.resolve_constant_type()
+
+    def resolve_database_field(self):
+        if isinstance(self.type, FieldType):
+            return self.type.resolve_database_field()
+        raise NotImplementedException("FieldAliasType.resolve_database_field not implemented")
 
 
 @dataclass(kw_only=True)
@@ -60,6 +69,8 @@ class BaseTableType(Type):
                 return FieldTraverserType(table_type=self, chain=field.chain)
             if isinstance(field, VirtualTable):
                 return VirtualTableType(table_type=self, field=name, virtual_table=field)
+            if isinstance(field, ExpressionField):
+                return ExpressionFieldType(table_type=self, name=name, expr=field.expr)
             return FieldType(name=name, table_type=self)
         raise HogQLException(f"Field not found: {name}")
 
@@ -275,6 +286,13 @@ class FieldTraverserType(Type):
 
 
 @dataclass(kw_only=True)
+class ExpressionFieldType(Type):
+    name: str
+    expr: Expr
+    table_type: TableOrSelectType
+
+
+@dataclass(kw_only=True)
 class FieldType(Type):
     name: str
     table_type: TableOrSelectType
@@ -346,6 +364,12 @@ class LambdaArgumentType(Type):
 class Alias(Expr):
     alias: str
     expr: Expr
+    """
+    Aliases are "hidden" if they're automatically created by HogQL when abstracting fields.
+    E.g. "events.timestamp" gets turned into a "toTimeZone(events.timestamp, 'UTC') AS timestamp".
+    Hidden aliases are printed only when printing the columns of a SELECT query in the ClickHouse dialect.
+    """
+    hidden: bool = False
 
 
 class ArithmeticOperationOp(str, Enum):
@@ -365,14 +389,14 @@ class ArithmeticOperation(Expr):
 
 @dataclass(kw_only=True)
 class And(Expr):
-    type: Optional[ConstantType]
+    type: Optional[ConstantType] = None
     exprs: List[Expr]
 
 
 @dataclass(kw_only=True)
 class Or(Expr):
-    type: Optional[ConstantType]
     exprs: List[Expr]
+    type: Optional[ConstantType] = None
 
 
 class CompareOperationOp(str, Enum):
@@ -482,7 +506,7 @@ class JoinConstraint(Expr):
 @dataclass(kw_only=True)
 class JoinExpr(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
-    type: Optional[TableOrSelectType]
+    type: Optional[TableOrSelectType] = None
 
     join_type: Optional[str] = None
     table: Optional[Union["SelectQuery", "SelectUnionQuery", Field]] = None
@@ -542,7 +566,7 @@ class SelectQuery(Expr):
 
 @dataclass(kw_only=True)
 class SelectUnionQuery(Expr):
-    type: Optional[SelectUnionQueryType]
+    type: Optional[SelectUnionQueryType] = None
     select_queries: List[SelectQuery]
 
 

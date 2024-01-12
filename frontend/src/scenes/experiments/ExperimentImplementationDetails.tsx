@@ -1,6 +1,9 @@
+import { LemonSelect, Link } from '@posthog/lemon-ui'
 import { IconGolang, IconJavascript, IconNodeJS, IconPHP, IconPython, IconRuby } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
+
 import { Experiment, MultivariateFlagVariant } from '~/types'
+
 import {
     GolangSnippet,
     JSSnippet,
@@ -10,7 +13,6 @@ import {
     RNSnippet,
     RubySnippet,
 } from './ExperimentCodeSnippets'
-import { LemonSelect, Link } from '@posthog/lemon-ui'
 
 interface ExperimentImplementationDetailsProps {
     experiment: Partial<Experiment> | null
@@ -75,7 +77,7 @@ export function CodeLanguageSelect({
     return (
         <LemonSelect
             size="small"
-            className="min-w-30"
+            className="min-w-[7.5rem]"
             onSelect={selectOption}
             value={selectedOptionValue}
             options={OPTIONS.map(({ value, Icon }) => ({
@@ -107,7 +109,7 @@ export function ExperimentImplementationDetails({ experiment }: ExperimentImplem
     }
 
     return (
-        <div className="border rounded">
+        <div className="border rounded bg-bg-light">
             <div className="card-secondary p-4 border-b">Feature flag usage and implementation</div>
             <div className="p-6">
                 <div className="flex mb-2 justify-between">
@@ -115,7 +117,7 @@ export function ExperimentImplementationDetails({ experiment }: ExperimentImplem
                         <span className="mr-2">Variant group</span>
                         <LemonSelect
                             size="small"
-                            className="min-w-20"
+                            className="min-w-[5rem]"
                             onSelect={setCurrentVariant}
                             value={currentVariant}
                             options={(experiment?.parameters?.feature_flag_variants || []).map(
@@ -133,7 +135,7 @@ export function ExperimentImplementationDetails({ experiment }: ExperimentImplem
                 <b>Implement your experiment in code</b>
                 <selectedOption.Snippet variant={currentVariant} flagKey={experiment?.feature_flag?.key ?? ''} />
 
-                <Link to={selectedOption.documentationLink} target="_blank">
+                <Link subtle to={selectedOption.documentationLink} target="_blank">
                     See the docs for more implementation information.
                 </Link>
             </div>

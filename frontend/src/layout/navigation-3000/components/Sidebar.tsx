@@ -2,16 +2,17 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { LogicWrapper, useActions, useValues } from 'kea'
 import { IconClose, IconMagnifier } from 'lib/lemon-ui/icons'
-import React, { useRef, useState } from 'react'
-import { navigation3000Logic } from '../navigationLogic'
-import { KeyboardShortcut } from './KeyboardShortcut'
-import { SidebarAccordion, pluralizeCategory } from './SidebarAccordion'
-import { SidebarCategory, SidebarLogic, SidebarNavbarItem } from '../types'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { useDebouncedCallback } from 'use-debounce'
-import { SidebarList } from './SidebarList'
-import { NewItemButton } from './NewItemButton'
 import { capitalizeFirstLetter } from 'lib/utils'
+import React, { useRef, useState } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
+
+import { navigation3000Logic } from '../navigationLogic'
+import { SidebarLogic, SidebarNavbarItem } from '../types'
+import { KeyboardShortcut } from './KeyboardShortcut'
+import { NewItemButton } from './NewItemButton'
+import { pluralizeCategory, SidebarAccordion } from './SidebarAccordion'
+import { SidebarList } from './SidebarList'
 
 /** A small delay that prevents us from making a search request on each key press. */
 const SEARCH_DEBOUNCE_MS = 300
@@ -177,7 +178,7 @@ function SidebarContent({
 
     return contents.length !== 1 ? (
         <>
-            {(contents as SidebarCategory[]).map((accordion) => (
+            {contents.map((accordion) => (
                 <SidebarAccordion key={accordion.key} category={accordion} />
             ))}
         </>

@@ -1,7 +1,7 @@
 describe('Toolbar', () => {
     it('Toolbar loads', () => {
-        cy.get('[data-attr="menu-item-toolbar-launch"]').click()
-        cy.get('[data-attr="sidebar-launch-toolbar"]').contains('Add toolbar URL').click()
+        cy.get('[data-attr="menu-item-toolbarlaunch"]').click()
+        cy.contains('Add authorized URL').click()
         cy.location().then((loc) => {
             cy.get('[data-attr="url-input"]').clear().type(`http://${loc.host}/demo`)
             cy.get('[data-attr="url-save"]').click()
@@ -11,13 +11,13 @@ describe('Toolbar', () => {
                 .then((href) => {
                     cy.visit(href)
                 })
-            cy.get('#__POSTHOG_TOOLBAR__').shadow().find('.floating-toolbar-button').should('exist')
+            cy.get('#__POSTHOG_TOOLBAR__').shadow().find('.Toolbar').should('exist')
         })
     })
 
     it('toolbar item in sidebar has launch options', () => {
-        cy.get('[data-attr="menu-item-toolbar-launch"]').click()
-        cy.get('[data-attr="sidebar-launch-toolbar"]').contains('Add toolbar URL').click()
+        cy.get('[data-attr="menu-item-toolbarlaunch"]').click()
+        cy.contains('Add authorized URL').click()
         cy.location('pathname').should('include', '/toolbar')
     })
 })

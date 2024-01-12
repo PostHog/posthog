@@ -4,7 +4,12 @@ import uuid
 import temporalio.client
 from asgiref.sync import sync_to_async
 
-from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun
+from posthog.batch_exports.models import (
+    BatchExport,
+    BatchExportBackfill,
+    BatchExportDestination,
+    BatchExportRun,
+)
 from posthog.batch_exports.service import sync_batch_export
 
 
@@ -30,7 +35,12 @@ async def acreate_batch_export(team_id: int, interval: str, name: str, destinati
 async def adelete_batch_export(batch_export: BatchExport, temporal_client: temporalio.client.Client) -> None:
     """Async delete a BatchExport and its underlying Schedule."""
     handle = temporal_client.get_schedule_handle(str(batch_export.id))
-    await handle.delete()
+
+    try:
+        await handle.delete()
+    except temporalio.service.RPCError:
+        # This means the schedule was already deleted, so we can continue
+        pass
 
     await sync_to_async(batch_export.delete)()  # type: ignore
 

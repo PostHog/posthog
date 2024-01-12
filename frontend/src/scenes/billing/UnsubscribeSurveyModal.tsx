@@ -1,15 +1,29 @@
 import { LemonBanner, LemonButton, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
-import { billingProductLogic } from './billingProductLogic'
 import { useActions, useValues } from 'kea'
-import { BillingProductV2Type } from '~/types'
-import { billingLogic } from './billingLogic'
 
-export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
+import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
+
+import { billingLogic } from './billingLogic'
+import { billingProductLogic } from './billingProductLogic'
+import { ExportsUnsubscribeTable, exportsUnsubscribeTableLogic } from './ExportsUnsubscribeTable'
+
+export const UnsubscribeSurveyModal = ({
+    product,
+}: {
+    product: BillingProductV2Type | BillingProductV2AddonType
+}): JSX.Element | null => {
     const { surveyID, surveyResponse } = useValues(billingProductLogic({ product }))
     const { setSurveyResponse, reportSurveySent, reportSurveyDismissed } = useActions(billingProductLogic({ product }))
     const { deactivateProduct } = useActions(billingLogic)
+    const { unsubscribeDisabledReason, itemsToDisable } = useValues(exportsUnsubscribeTableLogic)
 
-    const textAreaNotEmpty = surveyResponse['$survey_repsonse']?.length > 0
+    const textAreaNotEmpty = surveyResponse['$survey_response']?.length > 0
+    const includesPipelinesAddon =
+        product.type == 'data_pipelines' ||
+        (product.type == 'product_analytics' &&
+            (product as BillingProductV2Type)?.addons?.filter((addon) => addon.type === 'data_pipelines')[0]
+                ?.subscribed)
+
     return (
         <LemonModal
             onClose={() => {
@@ -18,7 +32,21 @@ export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2T
             width={'max(40vw)'}
         >
             <div>
-                <h3 className="mt-2 mb-4">{`Why are you unsubscribing from ${product.name}?`}</h3>
+                {includesPipelinesAddon && itemsToDisable.length > 0 ? (
+                    <div className="mb-6">
+                        <div className="mb-4">
+                            <h3 className="mt-2 mb-2 mr-8">{`Important: Disable remaining export apps`}</h3>
+                            <p>
+                                To avoid unexpected impact on your data, you must explicitly disable the following apps
+                                and exports before unsubscribing:
+                            </p>
+                        </div>
+                        <ExportsUnsubscribeTable />
+                    </div>
+                ) : (
+                    <></>
+                )}
+                <h3 className="mt-2 mb-4 mr-8">{`Why are you unsubscribing from ${product.name}?`}</h3>
                 <div className="flex flex-col gap-3.5">
                     <LemonTextArea
                         data-attr="unsubscribe-reason-survey-textarea"
@@ -71,7 +99,6 @@ export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2T
                     <div className="flex justify-end gap-4">
                         <LemonButton
                             type="tertiary"
-                            status="muted"
                             onClick={() => {
                                 reportSurveyDismissed(surveyID)
                             }}
@@ -80,7 +107,7 @@ export const UnsubscribeSurveyModal = ({ product }: { product: BillingProductV2T
                         </LemonButton>
                         <LemonButton
                             type={textAreaNotEmpty ? 'primary' : 'tertiary'}
-                            status={textAreaNotEmpty ? 'primary' : 'muted'}
+                            disabledReason={includesPipelinesAddon && unsubscribeDisabledReason}
                             onClick={() => {
                                 textAreaNotEmpty
                                     ? reportSurveySent(surveyID, surveyResponse)

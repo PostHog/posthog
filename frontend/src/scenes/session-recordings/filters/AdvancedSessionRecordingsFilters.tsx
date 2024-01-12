@@ -1,18 +1,17 @@
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { EntityTypes, FilterableLogLevel, FilterType, RecordingDurationFilter, RecordingFilters } from '~/types'
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { DurationFilter } from './DurationFilter'
-import { LemonButtonWithDropdown, LemonCheckbox, LemonInput, LemonTag, Tooltip } from '@posthog/lemon-ui'
-import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
+import { LemonButtonWithDropdown, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
+
 import { groupsModel } from '~/models/groupsModel'
+import { EntityTypes, FilterableLogLevel, FilterType, RecordingDurationFilter, RecordingFilters } from '~/types'
+
+import { DurationFilter } from './DurationFilter'
 
 export const AdvancedSessionRecordingsFilters = ({
     filters,
@@ -148,29 +147,19 @@ function ConsoleFilters({
     return (
         <>
             <LemonLabel>Filter by console logs</LemonLabel>
-            <FlaggedFeature flag={FEATURE_FLAGS.CONSOLE_RECORDING_SEARCH}>
-                <div className={'flex flex-row space-x-2'}>
-                    <LemonInput
-                        className={'grow'}
-                        placeholder={'containing text'}
-                        value={filters.console_search_query}
-                        onChange={(s: string): void => {
-                            setFilters({
-                                console_search_query: s,
-                            })
-                        }}
-                    />
-
-                    <Tooltip
-                        placement="bottom"
-                        title={<>Filter recordings by console logs. Only matches recordings since October 4th.</>}
-                    >
-                        <LemonTag type={'highlight'}>Beta</LemonTag>
-                    </Tooltip>
-                </div>
-            </FlaggedFeature>
+            <div className={'flex flex-row space-x-2'}>
+                <LemonInput
+                    className={'grow'}
+                    placeholder={'containing text'}
+                    value={filters.console_search_query}
+                    onChange={(s: string): void => {
+                        setFilters({
+                            console_search_query: s,
+                        })
+                    }}
+                />
+            </div>
             <LemonButtonWithDropdown
-                status="stealth"
                 type="secondary"
                 data-attr={'console-filters'}
                 fullWidth={true}

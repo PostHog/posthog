@@ -1,5 +1,7 @@
-import { BuiltLogic, kea, props, key, path, connect, actions, reducers, selectors, listeners } from 'kea'
-import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
+import { actions, BuiltLogic, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { combineUrl } from 'kea-router'
+import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
+import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import {
     ListStorage,
     SimpleOption,
@@ -8,41 +10,42 @@ import {
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
-import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
+import { IconCohort } from 'lib/lemon-ui/icons'
+import { KEY_MAPPING } from 'lib/taxonomy'
+import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
+import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
+import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
+import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
+import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { actionsModel } from '~/models/actionsModel'
+import { cohortsModel } from '~/models/cohortsModel'
+import { dashboardsModel } from '~/models/dashboardsModel'
+import { groupPropertiesModel } from '~/models/groupPropertiesModel'
+import { groupsModel } from '~/models/groupsModel'
+import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
+import { AnyDataNode, NodeKind } from '~/queries/schema'
 import {
     ActionType,
     CohortType,
-    EventDefinitionType,
     DashboardType,
     EventDefinition,
+    EventDefinitionType,
     Experiment,
     FeatureFlagType,
     Group,
     InsightModel,
+    NotebookType,
     PersonProperty,
     PersonType,
     PluginType,
     PropertyDefinition,
-    NotebookType,
 } from '~/types'
-import { cohortsModel } from '~/models/cohortsModel'
-import { actionsModel } from '~/models/actionsModel'
-import { teamLogic } from 'scenes/teamLogic'
-import { groupsModel } from '~/models/groupsModel'
-import { groupPropertiesModel } from '~/models/groupPropertiesModel'
-import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
-import { combineUrl } from 'kea-router'
-import { IconCohort } from 'lib/lemon-ui/icons'
-import { KEY_MAPPING } from 'lib/taxonomy'
-import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
-import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
-import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
-import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { dashboardsModel } from '~/models/dashboardsModel'
-import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
-import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
-import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
+
 import { InlineHogQLEditor } from './InlineHogQLEditor'
+import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
     getPopoverHeader: (eventDefinition: EventDefinition): string => {
@@ -132,7 +135,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,
         ],
         eventNames: [() => [(_, props) => props.eventNames], (eventNames) => eventNames ?? []],
-        hogQLTable: [() => [(_, props) => props.hogQLTable], (hogQLTable) => hogQLTable ?? 'events'],
+        metadataSource: [
+            () => [(_, props) => props.metadataSource],
+            (metadataSource): AnyDataNode =>
+                metadataSource ?? { kind: NodeKind.HogQLQuery, query: 'select event from events' },
+        ],
         excludedProperties: [
             () => [(_, props) => props.excludedProperties],
             (excludedProperties) => excludedProperties ?? {},
@@ -147,7 +154,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.groupAnalyticsTaxonomicGroups,
                 s.groupAnalyticsTaxonomicGroupNames,
                 s.eventNames,
-                s.hogQLTable,
+                s.metadataSource,
                 s.excludedProperties,
                 s.propertyAllowList,
             ],
@@ -156,7 +163,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 groupAnalyticsTaxonomicGroups,
                 groupAnalyticsTaxonomicGroupNames,
                 eventNames,
-                hogQLTable,
+                metadataSource,
                 excludedProperties,
                 propertyAllowList
             ): TaxonomicFilterGroup[] => {
@@ -445,7 +452,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.HogQLExpression,
                         render: InlineHogQLEditor,
                         getPopoverHeader: () => 'HogQL',
-                        componentProps: { hogQLTable },
+                        componentProps: { metadataSource },
                     },
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,

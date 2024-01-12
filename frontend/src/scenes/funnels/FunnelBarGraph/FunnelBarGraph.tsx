@@ -1,22 +1,25 @@
+import './FunnelBarGraph.scss'
+
 import clsx from 'clsx'
-import { humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
+import { useActions, useValues } from 'kea'
+import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
-import { IconTrendingFlatDown, IconInfinity, IconTrendingFlat } from 'lib/lemon-ui/icons'
-import './FunnelBarGraph.scss'
-import { useActions, useValues } from 'kea'
-import { getBreakdownMaxIndex, getReferenceStep } from '../funnelUtils'
-import { ChartParams, FunnelStepReference, StepOrderValue } from '~/types'
-import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { FunnelStepMore } from '../FunnelStepMore'
-import { ValueInspectorButton } from '../ValueInspectorButton'
-import { DuplicateStepIndicator } from './DuplicateStepIndicator'
-import { Bar } from './Bar'
+import { IconInfinity, IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
+import { humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
+
+import { ChartParams, FunnelStepReference, StepOrderValue } from '~/types'
+
 import { funnelDataLogic } from '../funnelDataLogic'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
+import { FunnelStepMore } from '../FunnelStepMore'
+import { getBreakdownMaxIndex, getReferenceStep } from '../funnelUtils'
+import { ValueInspectorButton } from '../ValueInspectorButton'
+import { Bar } from './Bar'
+import { DuplicateStepIndicator } from './DuplicateStepIndicator'
 
 export function FunnelBarGraph({
     inCardView,
@@ -39,11 +42,7 @@ export function FunnelBarGraph({
 
     // Everything rendered after is a funnel in top-to-bottom mode.
     return (
-        <div
-            data-attr="funnel-bar-graph"
-            className={clsx('funnel-bar-graph', 'white', inCardView && 'pt-4')}
-            ref={graphRef}
-        >
+        <div data-attr="funnel-bar-graph" className={clsx('FunnelBarGraph')} ref={graphRef}>
             {steps.map((step, stepIndex) => {
                 const basisStep = getReferenceStep(steps, stepReference, stepIndex)
                 const previousStep = getReferenceStep(steps, FunnelStepReference.previous, stepIndex)
@@ -99,7 +98,7 @@ export function FunnelBarGraph({
                             ) : null}
                         </header>
                         <div className="funnel-inner-viz">
-                            <div className={clsx('funnel-bar-wrapper', { breakdown: isBreakdown })}>
+                            <div className={clsx('funnel-bar-wrapper', { breakdown: isBreakdown })} aria-busy={!width}>
                                 {!width ? null : isBreakdown ? (
                                     <>
                                         {step?.nested_breakdown?.map((breakdown, index) => {

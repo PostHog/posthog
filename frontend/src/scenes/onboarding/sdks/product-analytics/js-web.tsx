@@ -1,6 +1,7 @@
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { SDKInstallJSWebInstructions } from '../sdk-install-instructions'
 import { LemonDivider } from '@posthog/lemon-ui'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+
+import { SDKInstallJSWebInstructions } from '../sdk-install-instructions'
 
 function JSEventSnippet(): JSX.Element {
     return (

@@ -1,14 +1,17 @@
 import './PersonDisplay.scss'
-import { Link } from 'lib/lemon-ui/Link'
-import { ProfilePicture, ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
+
 import clsx from 'clsx'
-import { Popover } from 'lib/lemon-ui/Popover'
-import { PersonPreview } from './PersonPreview'
-import { useMemo, useState } from 'react'
 import { router } from 'kea-router'
-import { asDisplay, asLink } from './person-utils'
-import { useNotebookNode } from 'scenes/notebooks/Nodes/notebookNodeLogic'
+import { Link } from 'lib/lemon-ui/Link'
+import { Popover } from 'lib/lemon-ui/Popover'
+import { ProfilePicture, ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
+import { useMemo, useState } from 'react'
+import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
+
 import { NotebookNodeType } from '~/types'
+
+import { asDisplay, asLink } from './person-utils'
+import { PersonPreview } from './PersonPreview'
 
 type PersonPropType =
     | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: never }
@@ -27,7 +30,7 @@ export interface PersonDisplayProps {
 export function PersonIcon({
     person,
     ...props
-}: Pick<PersonDisplayProps, 'person'> & Omit<ProfilePictureProps, 'name' | 'email'>): JSX.Element {
+}: Pick<PersonDisplayProps, 'person'> & Omit<ProfilePictureProps, 'user' | 'name' | 'email'>): JSX.Element {
     const display = asDisplay(person)
 
     const email: string | undefined = useMemo(() => {
@@ -38,7 +41,15 @@ export function PersonIcon({
         return typeof possibleEmail === 'string' ? possibleEmail : undefined
     }, [person?.properties?.email])
 
-    return <ProfilePicture {...props} name={display} email={email} />
+    return (
+        <ProfilePicture
+            {...props}
+            user={{
+                first_name: display,
+                email,
+            }}
+        />
+    )
 }
 
 export function PersonDisplay({
@@ -101,6 +112,7 @@ export function PersonDisplay({
                             return
                         }
                     }}
+                    subtle
                     data-attr={`goto-person-email-${person?.distinct_id || person?.distinct_ids?.[0]}`}
                 >
                     {content}

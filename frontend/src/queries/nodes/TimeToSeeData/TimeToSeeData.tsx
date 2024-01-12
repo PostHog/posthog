@@ -1,12 +1,14 @@
+import { useValues } from 'kea'
+import { CodeEditor } from 'lib/components/CodeEditors'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+
 import { AnyResponseType, NodeKind, TimeToSeeDataNode } from '~/queries/schema'
-import { useValues } from 'kea'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { Trace } from './Trace/Trace'
 import { TimeToSeeSessionNode } from './types'
-import { CodeEditor } from 'lib/components/CodeEditors'
 
 let uniqueNode = 0
 

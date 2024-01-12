@@ -1,13 +1,13 @@
-import { MutableRefObject } from 'react'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import type { seekbarLogicType } from './seekbarLogicType'
-import {
-    SessionRecordingPlayerLogicProps,
-    sessionRecordingPlayerLogic,
-} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { clamp } from 'lib/utils'
+import { MutableRefObject } from 'react'
+import {
+    sessionRecordingPlayerLogic,
+    SessionRecordingPlayerLogicProps,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { getXPos, InteractEvent, ReactInteractEvent, THUMB_OFFSET, THUMB_SIZE } from '../utils/playerUtils'
+import type { seekbarLogicType } from './seekbarLogicType'
 
 export const seekbarLogic = kea<seekbarLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'seekbarLogic', key]),

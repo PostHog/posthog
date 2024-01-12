@@ -1,14 +1,19 @@
-import { useActions, useValues } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
 import { LemonBanner, LemonButton, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
+import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { IconCancel } from 'lib/lemon-ui/icons'
 import { FlagSelector } from 'lib/components/FlagSelector'
+import { supportLogic } from 'lib/components/Support/supportLogic'
+import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
+import { IconCancel } from 'lib/lemon-ui/icons'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { AvailableFeature } from '~/types'
 
 export function ReplayGeneral(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -38,7 +43,7 @@ export function ReplayGeneral(): JSX.Element {
                     Please note your website needs to have the{' '}
                     <Link to={urls.settings('project', 'snippet')}>PostHog snippet</Link> or the latest version of{' '}
                     <Link
-                        to="https://posthog.com/docs/integrations/js-integration?utm_campaign=session-recording&utm_medium=in-product"
+                        to="https://posthog.com/docs/libraries/js?utm_campaign=session-recording&utm_medium=in-product"
                         target="_blank"
                     >
                         posthog-js
@@ -70,22 +75,90 @@ export function ReplayGeneral(): JSX.Element {
                 </p>
             </div>
             <div className="space-y-2">
-                <LemonSwitch
-                    data-attr="opt-in-capture-performance-switch"
-                    onChange={(checked) => {
-                        updateCurrentTeam({ capture_performance_opt_in: checked })
-                    }}
-                    label="Capture network performance"
-                    bordered
-                    checked={currentTeam?.session_recording_opt_in ? !!currentTeam?.capture_performance_opt_in : false}
-                    disabled={!currentTeam?.session_recording_opt_in}
-                />
-                <p>
-                    This setting controls if performance and network information will be captured alongside recordings.
-                    The network requests and timings will be shown in the recording player to help you debug any issues.
-                </p>
+                <NetworkCaptureSettings />
             </div>
         </div>
+    )
+}
+
+function NetworkCaptureSettings(): JSX.Element {
+    const { updateCurrentTeam } = useActions(teamLogic)
+
+    const { currentTeam } = useValues(teamLogic)
+
+    return (
+        <>
+            <h4>Network capture</h4>
+            <LemonSwitch
+                data-attr="opt-in-capture-performance-switch"
+                onChange={(checked) => {
+                    updateCurrentTeam({ capture_performance_opt_in: checked })
+                }}
+                label="Capture network performance"
+                bordered
+                checked={currentTeam?.session_recording_opt_in ? !!currentTeam?.capture_performance_opt_in : false}
+                disabled={!currentTeam?.session_recording_opt_in}
+            />
+            <p>
+                This setting controls if performance and network information will be captured alongside recordings. The
+                network requests and timings will be shown in the recording player to help you debug any issues.
+            </p>
+            <FlaggedFeature flag={FEATURE_FLAGS.NETWORK_PAYLOAD_CAPTURE} match={true}>
+                <h5>Network payloads</h5>
+                <div className={'flex flex-row space-x-2'}>
+                    <LemonSwitch
+                        data-attr="opt-in-capture-network-headers-switch"
+                        onChange={(checked) => {
+                            updateCurrentTeam({
+                                session_recording_network_payload_capture_config: {
+                                    ...currentTeam?.session_recording_network_payload_capture_config,
+                                    recordHeaders: checked,
+                                },
+                            })
+                        }}
+                        label="Capture headers"
+                        bordered
+                        checked={
+                            currentTeam?.session_recording_opt_in
+                                ? !!currentTeam?.session_recording_network_payload_capture_config?.recordHeaders
+                                : false
+                        }
+                        disabledReason={
+                            !currentTeam?.session_recording_opt_in || !currentTeam?.capture_performance_opt_in
+                                ? 'session and network performance capture must be enabled'
+                                : undefined
+                        }
+                    />
+                    <LemonSwitch
+                        data-attr="opt-in-capture-network-body-switch"
+                        onChange={(checked) => {
+                            updateCurrentTeam({
+                                session_recording_network_payload_capture_config: {
+                                    ...currentTeam?.session_recording_network_payload_capture_config,
+                                    recordBody: checked,
+                                },
+                            })
+                        }}
+                        label="Capture body"
+                        bordered
+                        checked={
+                            currentTeam?.session_recording_opt_in
+                                ? !!currentTeam?.session_recording_network_payload_capture_config?.recordBody
+                                : false
+                        }
+                        disabledReason={
+                            !currentTeam?.session_recording_opt_in || !currentTeam?.capture_performance_opt_in
+                                ? 'session and network performance capture must be enabled'
+                                : undefined
+                        }
+                    />
+                </div>
+                <p>
+                    When network capture is enabled, we always captured network timings. Use these switches to choose
+                    whether to capture headers and payloads of requests
+                </p>
+            </FlaggedFeature>
+        </>
     )
 }
 
@@ -108,26 +181,44 @@ export function ReplayAuthorizedDomains(): JSX.Element {
 export function ReplayCostControl(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { openSupportForm } = useActions(supportLogic)
+    const samplingControlFeatureEnabled = hasAvailableFeature(AvailableFeature.SESSION_REPLAY_SAMPLING)
+    const recordingDurationMinimumFeatureEnabled = hasAvailableFeature(AvailableFeature.RECORDING_DURATION_MINIMUM)
+    const featureFlagRecordingFeatureEnabled = hasAvailableFeature(AvailableFeature.FEATURE_FLAG_BASED_RECORDING)
+    const costControlFeaturesEnabled =
+        featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SAMPLING] ||
+        samplingControlFeatureEnabled ||
+        recordingDurationMinimumFeatureEnabled ||
+        featureFlagRecordingFeatureEnabled
 
     return (
-        <FlaggedFeature flag={FEATURE_FLAGS.SESSION_RECORDING_SAMPLING}>
-            <>
-                <p>
-                    PostHog offers several tools to let you control the number of recordings you collect and which users
-                    you collect recordings for.{' '}
-                    <Link
-                        to={'https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record'}
-                        target={'blank'}
-                    >
-                        Learn more in our docs
-                    </Link>
-                </p>
-                <LemonBanner className="mb-4" type={'info'}>
-                    Requires posthog-js version 1.88.2 or greater
+        <>
+            {!costControlFeaturesEnabled && (
+                <LemonBanner className="mb-2" type={'warning'}>
+                    <Link onClick={() => openSupportForm({ kind: 'support', target_area: 'session_replay' })}>
+                        Contact support
+                    </Link>{' '}
+                    to enable these features.
                 </LemonBanner>
+            )}
+            <p>
+                PostHog offers several tools to let you control the number of recordings you collect and which users you
+                collect recordings for.{' '}
+                <Link
+                    to={'https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record'}
+                    target={'blank'}
+                >
+                    Learn more in our docs.
+                </Link>
+            </p>
+
+            <>
                 <div className={'flex flex-row justify-between'}>
                     <LemonLabel className="text-base">Sampling</LemonLabel>
                     <LemonSelect
+                        disabledReason={!costControlFeaturesEnabled && 'Please contact support to enable this feature.'}
                         onChange={(v) => {
                             updateCurrentTeam({ session_recording_sample_rate: v })
                         }}
@@ -230,39 +321,17 @@ export function ReplayCostControl(): JSX.Element {
                     want to reduce the amount of data you collect. 100% means all sessions will be collected. 50% means
                     roughly half of sessions will be collected.
                 </p>
+            </>
+            <>
                 <div className={'flex flex-row justify-between'}>
                     <LemonLabel className="text-base">Minimum session duration (seconds)</LemonLabel>
                     <LemonSelect
+                        disabledReason={!costControlFeaturesEnabled && 'Please contact support to enable this feature.'}
                         dropdownMatchSelectWidth={false}
                         onChange={(v) => {
                             updateCurrentTeam({ session_recording_minimum_duration_milliseconds: v })
                         }}
-                        options={[
-                            {
-                                label: 'no minimum',
-                                value: null,
-                            },
-                            {
-                                label: '1',
-                                value: 1000,
-                            },
-                            {
-                                label: '2',
-                                value: 2000,
-                            },
-                            {
-                                label: '5',
-                                value: 5000,
-                            },
-                            {
-                                label: '10',
-                                value: 10000,
-                            },
-                            {
-                                label: '15',
-                                value: 15000,
-                            },
-                        ]}
+                        options={SESSION_REPLAY_MINIMUM_DURATION_OPTIONS}
                         value={currentTeam?.session_recording_minimum_duration_milliseconds}
                     />
                 </div>
@@ -270,21 +339,25 @@ export function ReplayCostControl(): JSX.Element {
                     Setting a minimum session duration will ensure that only sessions that last longer than that value
                     are collected. This helps you avoid collecting sessions that are too short to be useful.
                 </p>
+            </>
+            <>
                 <div className={'flex flex-col space-y-2'}>
                     <LemonLabel className="text-base">Enable recordings using feature flag</LemonLabel>
-                    <div className={'flex flex-row justify-start space-x-2'}>
+                    <div className={'flex flex-row justify-start'}>
                         <FlagSelector
                             value={currentTeam?.session_recording_linked_flag?.id ?? undefined}
                             onChange={(id, key) => {
                                 updateCurrentTeam({ session_recording_linked_flag: { id, key } })
                             }}
+                            readOnly={!costControlFeaturesEnabled}
+                            disabledReason="Please contact support to enable this feature."
                         />
                         {currentTeam?.session_recording_linked_flag && (
                             <LemonButton
                                 className="ml-2"
                                 icon={<IconCancel />}
                                 size="small"
-                                status="stealth"
+                                type="secondary"
                                 onClick={() => updateCurrentTeam({ session_recording_linked_flag: null })}
                                 title="Clear selected flag"
                             />
@@ -296,6 +369,6 @@ export function ReplayCostControl(): JSX.Element {
                     Only supports release toggles (boolean flags).
                 </p>
             </>
-        </FlaggedFeature>
+        </>
     )
 }

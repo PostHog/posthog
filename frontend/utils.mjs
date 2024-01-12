@@ -1,11 +1,16 @@
-import { sassPlugin } from 'esbuild-sass-plugin'
-import { lessLoader } from 'esbuild-plugin-less'
-import * as path from 'path'
-import express from 'express'
-import cors from 'cors'
-import fse from 'fs-extra'
-import { build, analyzeMetafile } from 'esbuild'
+import autoprefixer from 'autoprefixer'
 import chokidar from 'chokidar'
+import cors from 'cors'
+import cssnano from 'cssnano'
+import { analyzeMetafile, context } from 'esbuild'
+import { lessLoader } from 'esbuild-plugin-less'
+import { sassPlugin } from 'esbuild-sass-plugin'
+import express from 'express'
+import fse from 'fs-extra'
+import * as path from 'path'
+import postcss from 'postcss'
+import postcssPresetEnv from 'postcss-preset-env'
+import tailwindcss from 'tailwindcss'
 
 const defaultHost = process.argv.includes('--host') && process.argv.includes('0.0.0.0') ? '0.0.0.0' : 'localhost'
 const defaultPort = 8234
@@ -30,7 +35,7 @@ export function copyIndexHtml(
     chunks = {},
     entrypoints = []
 ) {
-    // Takes an html file, `from`, and some artifacts from esbuild, and injects
+    // Takes a html file, `from`, and some artifacts from esbuild, and injects
     // some javascript that will load these artifacts dynamically, based on an
     // expected `window.JS_URL` javascript variable.
     //
@@ -112,9 +117,9 @@ export function createHashlessEntrypoints(absWorkingDir, entrypoints) {
     }
 }
 
+/** @type {import('esbuild').BuildOptions} */
 export const commonConfig = {
     sourcemap: true,
-    incremental: isDev,
     minify: !isDev,
     resolveExtensions: ['.ts', '.tsx', '.js', '.jsx', '.scss', '.css', '.less'],
     publicPath: '/static',
@@ -122,7 +127,20 @@ export const commonConfig = {
     chunkNames: '[name]-[hash]',
     // no hashes in dev mode for faster reloads --> we save the old hash in index.html otherwise
     entryNames: isDev ? '[dir]/[name]' : '[dir]/[name]-[hash]',
-    plugins: [sassPlugin(), lessPlugin],
+    plugins: [
+        sassPlugin({
+            async transform(source, resolveDir, filePath) {
+                // Sync the plugins list with postcss.config.js
+                const plugins = [tailwindcss, autoprefixer, postcssPresetEnv({ stage: 0 })]
+                if (!isDev) {
+                    plugins.push(cssnano({ preset: 'default' }))
+                }
+                const { css } = await postcss(plugins).process(source, { from: filePath })
+                return css
+            },
+        }),
+        lessPlugin,
+    ],
     tsconfig: isDev ? 'tsconfig.dev.json' : 'tsconfig.json',
     define: {
         global: 'globalThis',
@@ -179,6 +197,10 @@ export async function buildInParallel(configs, { onBuildStart, onBuildComplete }
             })
         )
     )
+
+    if (!isDev) {
+        process.exit(0)
+    }
 }
 
 /** Get the main ".js" and ".css" files for a build */
@@ -190,7 +212,7 @@ function getBuiltEntryPoints(config, result) {
             path
                 .resolve(config.absWorkingDir, file)
                 .replace('/src/', '/dist/')
-                .replace(/\.[^\.]+$/, '.js')
+                .replace(/\.[^.]+$/, '.js')
         )
     } else if (config.outfile) {
         outfiles = [path.resolve(config.absWorkingDir, config.outfile)]
@@ -241,7 +263,6 @@ export async function buildOrWatch(config) {
         }
         buildsInProgress++
         onBuildStart?.(config)
-        reloadLiveServer()
         buildPromise = runBuild()
         const buildResponse = await buildPromise
         buildPromise = null
@@ -249,47 +270,65 @@ export async function buildOrWatch(config) {
         buildsInProgress--
         if (buildsInProgress === 0) {
             server?.resumeServer()
+            reloadLiveServer()
         }
+
         if (isDev && buildAgain) {
             void debouncedBuild()
         }
     }
 
-    let result = null
+    let esbuildContext = null
     let buildCount = 0
+    const log = (logOpts) => {
+        const icon = logOpts.success === undefined ? '🧱' : logOpts.success ? '🥇' : '🛑'
+        let timingSuffix = ''
+        if (logOpts.time) {
+            timingSuffix = ` in ${(new Date() - logOpts.time) / 1000}s`
+        }
+        const message =
+            logOpts.success === undefined
+                ? buildCount === 1
+                    ? 'Building'
+                    : 'Rebuilding'
+                : logOpts.success
+                ? buildCount === 1
+                    ? 'Built'
+                    : 'Rebuilt'
+                : buildCount === 1
+                ? 'Building failed'
+                : 'Rebuilding failed '
+
+        console.log(`${icon} ${name ? `"${name}": ` : ''}${message}${timingSuffix}`)
+    }
 
     async function runBuild() {
+        if (!esbuildContext) {
+            esbuildContext = await context({ ...commonConfig, ..._config })
+        }
+
         buildCount++
         const time = new Date()
-        if (buildCount === 1) {
-            console.log(`🧱 Building${name ? ` "${name}"` : ''}`)
-            try {
-                result = await build({ ...commonConfig, ..._config })
-                console.log(`🥇 Built${name ? ` "${name}"` : ''} in ${(new Date() - time) / 1000}s`)
-            } catch (error) {
-                console.log(`🛑 Building${name ? ` "${name}"` : ''} failed in ${(new Date() - time) / 1000}s`)
-                process.exit(1) // must exit since with result === null, result.rebuild() won't work
-            }
-        } else {
-            try {
-                result = await result.rebuild()
-                console.log(`🔄 Rebuilt${name ? ` "${name}"` : ''} in ${(new Date() - time) / 1000}s`)
-            } catch (e) {
-                console.log(`🛑 Rebuilding${name ? ` "${name}"` : ''} failed in ${(new Date() - time) / 1000}s`)
-            }
-        }
-        inputFiles = getInputFiles(result)
+        log({ name })
+        try {
+            const buildResult = await esbuildContext.rebuild()
+            inputFiles = getInputFiles(buildResult)
 
-        return {
-            entrypoints: getBuiltEntryPoints(config, result),
-            chunks: getChunks(result),
-            ...result.metafile,
+            log({ success: true, name, time })
+
+            return {
+                entrypoints: getBuiltEntryPoints(config, buildResult),
+                chunks: getChunks(buildResult),
+                ...buildResult.metafile,
+            }
+        } catch (e) {
+            log({ success: false, name, time })
         }
     }
 
     if (isDev) {
         chokidar
-            .watch(path.resolve(absWorkingDir, 'src'), {
+            .watch([path.resolve(absWorkingDir, 'src'), path.resolve(absWorkingDir, '../ee/frontend')], {
                 ignored: /.*(Type|\.test\.stories)\.[tj]sx$/,
                 ignoreInitial: true,
             })
@@ -315,7 +354,7 @@ export async function printResponse(response, { compact = true, color = true, ve
     if (compact) {
         text = text
             .split('\n')
-            .filter((l) => !l.match(/^   [^\n]+$/g) && l.trim())
+            .filter((l) => !l.match(/^ {3}[^\n]+$/g) && l.trim())
             .join('\n')
     }
     console.log(text)

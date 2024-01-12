@@ -1,10 +1,10 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
 import { notebooksModel } from '~/models/notebooksModel'
 import { NotebookListItemType } from '~/types'
+
 import { NotebookSelectPopover } from '../NotebookSelectButton/NotebookSelectButton'
-import { IconNotebook } from '../IconNotebook'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 export type NotebookListMiniProps = {
     selectedNotebookId?: string
@@ -14,8 +14,6 @@ export type NotebookListMiniProps = {
 export function NotebookListMini({ selectedNotebookId }: NotebookListMiniProps): JSX.Element {
     const { notebooks, notebookTemplates } = useValues(notebooksModel)
 
-    const is3000 = useFeatureFlag('POSTHOG_3000')
-
     const selectedTitle =
         selectedNotebookId === 'scratchpad'
             ? 'My scratchpad'
@@ -24,9 +22,9 @@ export function NotebookListMini({ selectedNotebookId }: NotebookListMiniProps):
               'Untitled'
 
     return (
-        <NotebookSelectPopover placement="right-start">
-            <LemonButton size="small" icon={!is3000 ? <IconNotebook /> : null} status="primary-alt">
-                <span className="font-semibold truncate">{selectedTitle || 'Notebooks'}</span>
+        <NotebookSelectPopover placement="bottom-start">
+            <LemonButton size="small" truncate>
+                {selectedTitle || 'Notebooks'}
             </LemonButton>
         </NotebookSelectPopover>
     )

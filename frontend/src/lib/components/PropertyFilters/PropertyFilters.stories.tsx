@@ -1,7 +1,9 @@
 import { Meta } from '@storybook/react'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { AnyPropertyFilter, PropertyOperator } from '~/types'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+
+import { useStorybookMocks } from '~/mocks/browser'
+import { AnyPropertyFilter, PropertyOperator } from '~/types'
 
 const meta: Meta<typeof PropertyFilters> = {
     title: 'Filters/PropertyFilters',
@@ -31,6 +33,11 @@ const propertyFilters = [
 ] as AnyPropertyFilter[]
 
 export function ComparingPropertyFilters(): JSX.Element {
+    useStorybookMocks({
+        get: {
+            '/api/event/values/': [],
+        },
+    })
     return (
         <>
             <h1>Pop-over enabled</h1>

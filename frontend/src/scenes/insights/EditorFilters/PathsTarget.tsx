@@ -1,12 +1,11 @@
-import { useValues, useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { combineUrl, encodeParams, router } from 'kea-router'
-
+import { PathItemSelector } from 'lib/components/PropertyFilters/components/PathItemSelector'
+import { IconClose, IconFunnelVertical } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
-import { FunnelPathType, EditorFilterProps } from '~/types'
-import { PathItemSelector } from 'lib/components/PropertyFilters/components/PathItemSelector'
-import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
-import { IconClose, IconFunnelVertical } from 'lib/lemon-ui/icons'
+import { EditorFilterProps, FunnelPathType } from '~/types'
 
 export function PathsTargetStart(props: EditorFilterProps): JSX.Element {
     return <PathsTarget position="start" {...props} />
@@ -119,8 +118,6 @@ function PathsTarget({ position, insightProps }: PathTargetProps): JSX.Element {
         },
     }[position]
 
-    const LocalButton = positionOptions.closeButtonEnabled ? LemonButtonWithSideAction : LemonButton
-
     return (
         <PathItemSelector
             pathItem={positionOptions.pathItem}
@@ -130,9 +127,8 @@ function PathsTarget({ position, insightProps }: PathTargetProps): JSX.Element {
             disabled={overrideInputs}
             wildcardOptions={path_groupings?.map((name) => ({ name }))}
         >
-            <LocalButton
+            <LemonButton
                 data-attr={'new-prop-filter-' + positionOptions.index}
-                status={positionOptions.funnelFilterLink ? 'primary' : 'stealth'}
                 fullWidth
                 className="paths-endpoint-field"
                 type="secondary"
@@ -147,17 +143,21 @@ function PathsTarget({ position, insightProps }: PathTargetProps): JSX.Element {
                           }
                         : () => {}
                 }
-                sideAction={{
-                    icon: <IconClose />,
-                    type: 'tertiary',
-                    onClick: (e) => {
-                        onReset()
-                        e.stopPropagation()
-                    },
-                }}
+                sideAction={
+                    positionOptions.closeButtonEnabled
+                        ? {
+                              icon: <IconClose />,
+                              type: 'tertiary',
+                              onClick: (e) => {
+                                  onReset()
+                                  e.stopPropagation()
+                              },
+                          }
+                        : null
+                }
             >
                 {positionOptions.getLabel()}
-            </LocalButton>
+            </LemonButton>
         </PathItemSelector>
     )
 }

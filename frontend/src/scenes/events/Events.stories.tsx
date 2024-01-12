@@ -1,11 +1,12 @@
 import { Meta } from '@storybook/react'
-
-import { useEffect } from 'react'
-import { mswDecorator } from '~/mocks/browser'
-import eventsQuery from './__mocks__/eventsQuery.json'
 import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
+import { useEffect } from 'react'
 import { App } from 'scenes/App'
+import { urls } from 'scenes/urls'
+
+import { mswDecorator } from '~/mocks/browser'
+
+import eventsQuery from './__mocks__/eventsQuery.json'
 
 const meta: Meta = {
     title: 'Scenes-App/Events',

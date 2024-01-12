@@ -1,33 +1,32 @@
-import { compactNumber, uuid } from 'lib/utils'
-import { Link } from 'lib/lemon-ui/Link'
+import { LemonTextArea } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { actionEditLogic, ActionEditLogicProps } from './actionEditLogic'
-import { ActionStep } from './ActionStep'
-import { Col, Row } from 'antd'
+import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
-import { PageHeader } from 'lib/components/PageHeader'
-import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import { ActionStepType, AvailableFeature } from '~/types'
-import { userLogic } from 'scenes/userLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { PageHeader } from 'lib/components/PageHeader'
 import { Field } from 'lib/forms/Field'
+import { IconInfo, IconPlayCircle, IconPlus, IconWarning } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { Form } from 'kea-forms'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { IconInfo, IconPlayCircle, IconPlus, IconWarning } from 'lib/lemon-ui/icons'
-import { tagsModel } from '~/models/tagsModel'
+import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { LemonTextArea } from '@posthog/lemon-ui'
+import { compactNumber, uuid } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
-export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }: ActionEditLogicProps): JSX.Element {
+import { tagsModel } from '~/models/tagsModel'
+import { ActionStepType, AvailableFeature } from '~/types'
+
+import { actionEditLogic, ActionEditLogicProps } from './actionEditLogic'
+import { ActionStep } from './ActionStep'
+
+export function ActionEdit({ action: loadedAction, id }: ActionEditLogicProps): JSX.Element {
     const logicProps: ActionEditLogicProps = {
         id: id,
         action: loadedAction,
-        onSave: (action) => onSave(action),
-        temporaryToken,
     }
     const logic = actionEditLogic(logicProps)
     const { action, actionLoading, actionCount, actionCountLoading } = useValues(logic)
@@ -68,32 +67,6 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
         <div className="action-edit-container">
             <Form logic={actionEditLogic} props={logicProps} formKey="action" enableFormOnSubmit>
                 <PageHeader
-                    title={
-                        <Field name="name">
-                            {({ value, onChange }) => (
-                                <EditableField
-                                    name="name"
-                                    value={value || ''}
-                                    placeholder={`Name this action`}
-                                    onChange={
-                                        !id
-                                            ? onChange
-                                            : undefined /* When creating a new action, change value on type */
-                                    }
-                                    onSave={(value) => {
-                                        onChange(value)
-                                        submitAction()
-                                        /* When clicking 'Save' on an `EditableField`, save the form too */
-                                    }}
-                                    mode={!id ? 'edit' : undefined /* When creating a new action, maintain edit mode */}
-                                    minLength={1}
-                                    maxLength={400} // Sync with action model
-                                    data-attr={`action-name-${id ? 'edit' : 'create'}`}
-                                    className="action-name"
-                                />
-                            )}
-                        </Field>
-                    }
                     caption={
                         <>
                             <Field name="description">
@@ -127,7 +100,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                     />
                                 )}
                             </Field>
-                            <Field name="tags">
+                            <Field name="tags" className="mt-2">
                                 {({ value, onChange }) => (
                                     <ObjectTags
                                         tags={value ?? []}
@@ -166,6 +139,15 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                 </LemonButton>
                             ) : null}
                             {id ? deleteButton() : cancelButton()}
+                            <LemonButton
+                                data-attr="save-action-button"
+                                type="primary"
+                                htmlType="submit"
+                                loading={actionLoading}
+                                onClick={submitAction}
+                            >
+                                Save
+                            </LemonButton>
                         </>
                     }
                 />
@@ -208,46 +190,44 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                     </Field>
                     <Field name="steps">
                         {({ value: stepsValue, onChange }) => (
-                            <Row gutter={[24, 24]}>
-                                <>
-                                    {stepsValue.map((step: ActionStepType, index: number) => {
-                                        const identifier = String(JSON.stringify(step))
-                                        return (
-                                            <ActionStep
-                                                key={index}
-                                                identifier={identifier}
-                                                index={index}
-                                                step={step}
-                                                actionId={action.id || 0}
-                                                isOnlyStep={!!stepsValue && stepsValue.length === 1}
-                                                onDelete={() => {
-                                                    const identifier = step.id ? 'id' : 'isNew'
-                                                    onChange(
-                                                        stepsValue?.filter(
-                                                            (s: ActionStepType) => s[identifier] !== step[identifier]
-                                                        ) ?? []
-                                                    )
-                                                }}
-                                                onChange={(newStep) => {
-                                                    onChange(
-                                                        stepsValue?.map((s: ActionStepType) =>
-                                                            (step.id && s.id == step.id) ||
-                                                            (step.isNew && s.isNew === step.isNew)
-                                                                ? {
-                                                                      id: step.id,
-                                                                      isNew: step.isNew,
-                                                                      ...newStep,
-                                                                  }
-                                                                : s
-                                                        ) ?? []
-                                                    )
-                                                }}
-                                            />
-                                        )
-                                    })}
-                                </>
+                            <div className="grid grid-cols-2 gap-3">
+                                {stepsValue.map((step: ActionStepType, index: number) => {
+                                    const identifier = String(JSON.stringify(step))
+                                    return (
+                                        <ActionStep
+                                            key={index}
+                                            identifier={identifier}
+                                            index={index}
+                                            step={step}
+                                            actionId={action.id || 0}
+                                            isOnlyStep={!!stepsValue && stepsValue.length === 1}
+                                            onDelete={() => {
+                                                const identifier = step.id ? 'id' : 'isNew'
+                                                onChange(
+                                                    stepsValue?.filter(
+                                                        (s: ActionStepType) => s[identifier] !== step[identifier]
+                                                    ) ?? []
+                                                )
+                                            }}
+                                            onChange={(newStep) => {
+                                                onChange(
+                                                    stepsValue?.map((s: ActionStepType) =>
+                                                        (step.id && s.id == step.id) ||
+                                                        (step.isNew && s.isNew === step.isNew)
+                                                            ? {
+                                                                  id: step.id,
+                                                                  isNew: step.isNew,
+                                                                  ...newStep,
+                                                              }
+                                                            : s
+                                                    ) ?? []
+                                                )
+                                            }}
+                                        />
+                                    )
+                                })}
 
-                                <Col span={24} md={12}>
+                                <div>
                                     <div
                                         className="match-group-add-skeleton"
                                         onClick={() => {
@@ -256,8 +236,8 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                     >
                                         <IconPlus style={{ fontSize: 28, color: '#666666' }} />
                                     </div>
-                                </Col>
-                            </Row>
+                                </div>
+                            </div>
                         )}
                     </Field>
                 </div>

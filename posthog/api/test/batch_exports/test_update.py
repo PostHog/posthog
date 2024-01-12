@@ -19,8 +19,8 @@ from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.batch_exports.service import sync_batch_export
 from posthog.models import BatchExport, BatchExportDestination
-from posthog.temporal.client import sync_connect
-from posthog.temporal.codec import EncryptionCodec
+from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.codec import EncryptionCodec
 
 pytestmark = [
     pytest.mark.django_db,

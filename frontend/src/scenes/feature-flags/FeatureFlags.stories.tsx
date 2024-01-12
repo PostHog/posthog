@@ -1,12 +1,14 @@
-import { useEffect } from 'react'
 import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
+import { useEffect } from 'react'
 import { App } from 'scenes/App'
+import { urls } from 'scenes/urls'
+
 import { mswDecorator } from '~/mocks/browser'
-import featureFlags from './__mocks__/feature_flags.json'
 import { useAvailableFeatures } from '~/mocks/features'
 import { AvailableFeature } from '~/types'
+
+import featureFlags from './__mocks__/feature_flags.json'
 
 const meta: Meta = {
     title: 'Scenes-App/Feature Flags',
@@ -21,6 +23,8 @@ const meta: Meta = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:team_id/integrations': {},
+
                 '/api/projects/:team_id/feature_flags': featureFlags,
                 '/api/projects/:team_id/feature_flags/1111111111111/': [
                     404,
@@ -34,6 +38,9 @@ const meta: Meta = {
                     200,
                     featureFlags.results.find((r) => r.id === Number(req.params['flagId'])),
                 ],
+            },
+            post: {
+                '/api/projects/:team_id/query': {},
             },
         }),
     ],

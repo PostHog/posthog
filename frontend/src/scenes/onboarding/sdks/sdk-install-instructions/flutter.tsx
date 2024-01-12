@@ -1,5 +1,5 @@
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useValues } from 'kea'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
 
 function FlutterInstallSnippet(): JSX.Element {
@@ -31,7 +31,7 @@ function FlutterIOSSetupSnippet(): JSX.Element {
                 currentTeam?.api_token +
                 '</string>\n\t<key>com.posthog.posthog.POSTHOG_HOST</key>\n\t<string>' +
                 url +
-                '</string>\n\t<key>com.posthog.posthog.TRACK_APPLICATION_LIFECYCLE_EVENTS</key>\n\t<false/>\n\t[...]\n</dict>'}
+                '</string>\n\t<key>com.posthog.posthog.CAPTURE_APPLICATION_LIFECYCLE_EVENTS</key>\n\t<false/>\n\t[...]\n</dict>'}
         </CodeSnippet>
     )
 }

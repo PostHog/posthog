@@ -1,10 +1,17 @@
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Any
+from posthog.constants import BREAKDOWN_VALUES_LIMIT, BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.trends.utils import get_properties_chain
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
+from posthog.schema import ChartDisplayType
+
+BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
+BREAKDOWN_OTHER_NUMERIC_LABEL = 9007199254740991  # pow(2, 53) - 1, for JS compatibility
+BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
+BREAKDOWN_NULL_NUMERIC_LABEL = 9007199254740990  # pow(2, 53) - 2, for JS compatibility
 
 
 class BreakdownValues:
@@ -13,8 +20,12 @@ class BreakdownValues:
     breakdown_field: Union[str, float]
     breakdown_type: str
     query_date_range: QueryDateRange
+    events_filter: ast.Expr
+    chart_display_type: ChartDisplayType
     histogram_bin_count: Optional[int]
     group_type_index: Optional[int]
+    hide_other_aggregation: Optional[bool]
+    breakdown_limit: Optional[float]
 
     def __init__(
         self,
@@ -23,19 +34,30 @@ class BreakdownValues:
         breakdown_field: Union[str, float],
         query_date_range: QueryDateRange,
         breakdown_type: str,
+        events_filter: ast.Expr,
+        chart_display_type: ChartDisplayType,
         histogram_bin_count: Optional[float] = None,
         group_type_index: Optional[float] = None,
+        hide_other_aggregation: Optional[bool] = False,
+        breakdown_limit: Optional[float] = None,
     ):
         self.team = team
         self.event_name = event_name
         self.breakdown_field = breakdown_field
         self.query_date_range = query_date_range
         self.breakdown_type = breakdown_type
+        self.events_filter = events_filter
+        self.chart_display_type = chart_display_type
         self.histogram_bin_count = int(histogram_bin_count) if histogram_bin_count is not None else None
         self.group_type_index = int(group_type_index) if group_type_index is not None else None
+        self.hide_other_aggregation = hide_other_aggregation
+        self.breakdown_limit = breakdown_limit
 
     def get_breakdown_values(self) -> List[str | int]:
         if self.breakdown_type == "cohort":
+            if self.breakdown_field == "all":
+                return [0]
+
             return [int(self.breakdown_field)]
 
         if self.breakdown_type == "hogql":
@@ -55,6 +77,11 @@ class BreakdownValues:
                 ),
             )
 
+        if self.chart_display_type == ChartDisplayType.WorldMap:
+            breakdown_limit = BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
+        else:
+            breakdown_limit = self.breakdown_limit or BREAKDOWN_VALUES_LIMIT
+
         inner_events_query = parse_select(
             """
                 SELECT
@@ -69,10 +96,12 @@ class BreakdownValues:
                 ORDER BY
                     count DESC,
                     value DESC
+                LIMIT {breakdown_limit}
             """,
             placeholders={
-                "events_where": self._where_filter(),
+                "events_where": self.events_filter,
                 "select_field": select_field,
+                "breakdown_limit": ast.Constant(value=breakdown_limit),
             },
         )
 
@@ -94,35 +123,30 @@ class BreakdownValues:
             team=self.team,
         )
 
-        values = response.results[0][0]
-        return values
+        values: List[Any] = response.results[0][0]
 
-    def _where_filter(self) -> ast.Expr:
-        filters: List[ast.Expr] = []
+        if len(values) == 0:
+            values.insert(0, None)
+            return values
 
-        filters.append(parse_expr("notEmpty(e.person_id)"))
-        filters.extend(
-            [
-                parse_expr(
-                    "timestamp >= {date_from}",
-                    placeholders=self.query_date_range.to_placeholders(),
-                ),
-                parse_expr(
-                    "timestamp <= {date_to}",
-                    placeholders=self.query_date_range.to_placeholders(),
-                ),
-            ]
-        )
+        # Add "other" value if "other" is not hidden and we're not bucketing numeric values
+        if self.hide_other_aggregation is not True and self.histogram_bin_count is None:
+            all_values_are_ints_or_none = all(isinstance(value, int) or value is None for value in values)
+            all_values_are_floats_or_none = all(isinstance(value, float) or value is None for value in values)
+            all_values_are_string_or_none = all(isinstance(value, str) or value is None for value in values)
 
-        if self.event_name is not None:
-            filters.append(
-                parse_expr(
-                    "event = {event}",
-                    placeholders={"event": ast.Constant(value=self.event_name)},
-                )
-            )
+            if all_values_are_ints_or_none or all_values_are_floats_or_none:
+                if all_values_are_ints_or_none:
+                    values = [BREAKDOWN_NULL_NUMERIC_LABEL if value is None else value for value in values]
+                    values.insert(0, BREAKDOWN_OTHER_NUMERIC_LABEL)
+                else:
+                    values = [float(BREAKDOWN_NULL_NUMERIC_LABEL) if value is None else value for value in values]
+                    values.insert(0, float(BREAKDOWN_OTHER_NUMERIC_LABEL))
+            elif all_values_are_string_or_none:
+                values = [BREAKDOWN_NULL_STRING_LABEL if value in (None, "") else value for value in values]
+                values.insert(0, BREAKDOWN_OTHER_STRING_LABEL)
 
-        return ast.And(exprs=filters)
+        return values[:breakdown_limit]
 
     def _to_bucketing_expression(self) -> ast.Expr:
         assert isinstance(self.histogram_bin_count, int)

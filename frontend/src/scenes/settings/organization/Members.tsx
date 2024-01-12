@@ -1,27 +1,29 @@
-import { useValues, useActions } from 'kea'
-import { OrganizationMembershipLevel } from 'lib/constants'
-import { OrganizationMemberType } from '~/types'
-import { organizationLogic } from 'scenes/organizationLogic'
-import { userLogic } from 'scenes/userLogic'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import {
-    getReasonForAccessLevelChangeProhibition,
-    organizationMembershipLevelIntegers,
-    membershipLevelToName,
-} from 'lib/utils/permissioning'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonInput, LemonModal, LemonSwitch } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { TZLabel } from 'lib/components/TZLabel'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonInput, LemonModal, LemonSwitch } from '@posthog/lemon-ui'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { fullName } from 'lib/utils'
+import {
+    getReasonForAccessLevelChangeProhibition,
+    membershipLevelToName,
+    organizationMembershipLevelIntegers,
+} from 'lib/utils/permissioning'
 import { useState } from 'react'
 import { Setup2FA } from 'scenes/authentication/Setup2FA'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { OrganizationMemberType } from '~/types'
 
 function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
@@ -57,7 +59,6 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                     ) : (
                         allowedLevels.map((listLevel) => (
                             <LemonButton
-                                status="stealth"
                                 fullWidth
                                 key={`${member.user.uuid}-level-${listLevel}`}
                                 onClick={(event) => {
@@ -67,7 +68,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                                     }
                                     if (listLevel === OrganizationMembershipLevel.Owner) {
                                         LemonDialog.open({
-                                            title: `Transfer organization ownership to ${member.user.first_name}?`,
+                                            title: `Transfer organization ownership to ${fullName(member.user)}?`,
                                             description: `You will no longer be the owner of ${user.organization?.name}. After the transfer you will become an administrator.`,
                                             primaryButton: {
                                                 status: 'danger',
@@ -108,7 +109,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                                         title: `${
                                             member.user.uuid == user.uuid
                                                 ? 'Leave'
-                                                : `Remove ${member.user.first_name} from`
+                                                : `Remove ${fullName(member.user)} from`
                                         } organization ${user.organization?.name}?`,
                                         primaryButton: {
                                             children: member.user.uuid == user.uuid ? 'Leave' : 'Remove',
@@ -149,16 +150,16 @@ export function Members(): JSX.Element | null {
         {
             key: 'user_profile_picture',
             render: function ProfilePictureRender(_, member) {
-                return <ProfilePicture name={member.user.first_name} email={member.user.email} />
+                return <ProfilePicture user={member.user} />
             },
             width: 32,
         },
         {
             title: 'Name',
-            key: 'user_first_name',
+            key: 'user_name',
             render: (_, member) =>
-                member.user.uuid == user.uuid ? `${member.user.first_name} (me)` : member.user.first_name,
-            sorter: (a, b) => a.user.first_name.localeCompare(b.user.first_name),
+                member.user.uuid == user.uuid ? `${fullName(member.user)} (me)` : fullName(member.user),
+            sorter: (a, b) => fullName(a.user).localeCompare(fullName(b.user)),
         },
         {
             title: 'Email',

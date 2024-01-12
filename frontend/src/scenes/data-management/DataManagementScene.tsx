@@ -1,30 +1,30 @@
 import { actions, connect, kea, path, reducers, selectors, useActions, useValues } from 'kea'
-import { actionToUrl, urlToAction } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconInfo } from 'lib/lemon-ui/icons'
+import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { PageHeader } from 'lib/components/PageHeader'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { IconInfo } from 'lib/lemon-ui/icons'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { capitalizeFirstLetter } from 'lib/utils'
 import React from 'react'
-import { SceneExport } from 'scenes/sceneTypes'
-import { PageHeader } from 'lib/components/PageHeader'
 import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { Annotations } from 'scenes/annotations'
-
-import type { dataManagementSceneLogicType } from './DataManagementSceneType'
 import { NewAnnotationButton } from 'scenes/annotations/AnnotationModal'
-import { EventDefinitionsTable } from './events/EventDefinitionsTable'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { ActivityScope, Breadcrumb } from '~/types'
+
 import { ActionsTable } from './actions/ActionsTable'
-import { PropertyDefinitionsTable } from './properties/PropertyDefinitionsTable'
-import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { IngestionWarningsView } from './ingestion-warnings/IngestionWarningsView'
 import { DatabaseTableList } from './database/DatabaseTableList'
-import { Breadcrumb } from '~/types'
-import { capitalizeFirstLetter } from 'lib/utils'
+import type { dataManagementSceneLogicType } from './DataManagementSceneType'
+import { EventDefinitionsTable } from './events/EventDefinitionsTable'
+import { IngestionWarningsView } from './ingestion-warnings/IngestionWarningsView'
+import { PropertyDefinitionsTable } from './properties/PropertyDefinitionsTable'
 
 export enum DataManagementTab {
     Actions = 'actions',
@@ -96,7 +96,7 @@ const tabs: Record<
     },
     [DataManagementTab.IngestionWarnings]: {
         url: urls.ingestionWarnings(),
-        label: 'Ingestion Warnings',
+        label: 'Ingestion warnings',
         content: <IngestionWarningsView />,
     },
     [DataManagementTab.Database]: {
@@ -135,10 +135,12 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
             (tab): Breadcrumb[] => {
                 return [
                     {
+                        key: Scene.DataManagement,
                         name: `Data Management`,
                         path: tabs.events.url,
                     },
                     {
+                        key: tab,
                         name: capitalizeFirstLetter(tab),
                         path: tabs[tab].url,
                     },
@@ -161,7 +163,15 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
         ],
     }),
     actionToUrl(() => ({
-        setTab: ({ tab }) => tabs[tab as DataManagementTab]?.url || tabs.events.url,
+        setTab: ({ tab }) => {
+            const tabUrl = tabs[tab as DataManagementTab]?.url || tabs.events.url
+            if (combineUrl(tabUrl).pathname === router.values.location.pathname) {
+                // don't clear the parameters if we're already on the right page
+                // otherwise we can't use a url with parameters as a landing page
+                return
+            }
+            return tabUrl
+        },
     })),
     urlToAction(({ actions, values }) => {
         return Object.fromEntries(
@@ -190,7 +200,6 @@ export function DataManagementScene(): JSX.Element {
     return (
         <>
             <PageHeader
-                title="Data Management"
                 caption="Use data management to organize events that come into PostHog. Reduce noise, clarify usage, and help collaborators get the most value from your data."
                 tabbedPage
                 buttons={<>{tabs[tab].buttons}</>}

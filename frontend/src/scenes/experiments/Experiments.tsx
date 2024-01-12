@@ -1,27 +1,30 @@
-import { PageHeader } from 'lib/components/PageHeader'
-import { SceneExport } from 'scenes/sceneTypes'
-import { experimentsLogic, getExperimentStatus } from './experimentsLogic'
-import { useActions, useValues } from 'kea'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { Experiment, ExperimentsTabs, AvailableFeature, ProgressStatus, ProductKey } from '~/types'
-import { normalizeColumnTitle } from 'lib/components/Table/utils'
-import { urls } from 'scenes/urls'
-import stringWithWBR from 'lib/utils/stringWithWBR'
-import { Link } from 'lib/lemon-ui/Link'
-import { dayjs } from 'lib/dayjs'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { userLogic } from 'scenes/userLogic'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { ExperimentsPayGate } from './ExperimentsPayGate'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ExperimentsHog } from 'lib/components/hedgehogs'
+import { MemberSelect } from 'lib/components/MemberSelect'
+import { PageHeader } from 'lib/components/PageHeader'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { normalizeColumnTitle } from 'lib/components/Table/utils'
+import { dayjs } from 'lib/dayjs'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { Link } from 'lib/lemon-ui/Link'
+import stringWithWBR from 'lib/utils/stringWithWBR'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { AvailableFeature, Experiment, ExperimentsTabs, ProductKey, ProgressStatus } from '~/types'
+
 import { StatusTag } from './Experiment'
+import { experimentsLogic, getExperimentStatus } from './experimentsLogic'
+import { ExperimentsPayGate } from './ExperimentsPayGate'
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -36,12 +39,15 @@ export function Experiments(): JSX.Element {
         searchTerm,
         shouldShowEmptyState,
         shouldShowProductIntroduction,
+        searchStatus,
+        userFilter,
     } = useValues(experimentsLogic)
-    const { setExperimentsTab, deleteExperiment, setSearchStatus, setSearchTerm } = useActions(experimentsLogic)
+    const { setExperimentsTab, deleteExperiment, archiveExperiment, setSearchStatus, setSearchTerm, setUserFilter } =
+        useActions(experimentsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
 
     const EXPERIMENTS_PRODUCT_DESCRIPTION =
-        'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.'
+        'A/B testing help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.'
 
     const getExperimentDuration = (experiment: Experiment): number | undefined => {
         return experiment.end_date
@@ -116,14 +122,20 @@ export function Experiments(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton
-                                    status="stealth"
-                                    to={urls.experiment(`${experiment.id}`)}
-                                    size="small"
-                                    fullWidth
-                                >
+                                <LemonButton to={urls.experiment(`${experiment.id}`)} size="small" fullWidth>
                                     View
                                 </LemonButton>
+                                {!experiment.archived &&
+                                    experiment?.end_date &&
+                                    dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') && (
+                                        <LemonButton
+                                            onClick={() => archiveExperiment(experiment.id as number)}
+                                            data-attr={`experiment-${experiment.id}-dropdown-archive`}
+                                            fullWidth
+                                        >
+                                            Archive experiment
+                                        </LemonButton>
+                                    )}
                                 <LemonDivider />
                                 <LemonButton
                                     status="danger"
@@ -144,7 +156,6 @@ export function Experiments(): JSX.Element {
     return (
         <div>
             <PageHeader
-                title={<div className="flex items-center">Experiments</div>}
                 buttons={
                     hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ? (
                         <LemonButton type="primary" data-attr="create-experiment" to={urls.experiment('new')}>
@@ -154,14 +165,13 @@ export function Experiments(): JSX.Element {
                 }
                 caption={
                     <>
-                        Check out our
                         <Link
                             data-attr="experiment-help"
-                            to="https://posthog.com/docs/user-guides/experimentation?utm_medium=in-product&utm_campaign=new-experiment"
+                            to="https://posthog.com/docs/experiments/installation?utm_medium=in-product&utm_campaign=new-experiment"
                             target="_blank"
                         >
                             {' '}
-                            Experimentation user guide
+                            Visit the guide
                         </Link>{' '}
                         to learn more.
                     </>
@@ -182,7 +192,7 @@ export function Experiments(): JSX.Element {
                     {(shouldShowEmptyState || shouldShowProductIntroduction) &&
                         (tab === ExperimentsTabs.Archived ? (
                             <ProductIntroduction
-                                productName="Experiments"
+                                productName="A/B testing"
                                 productKey={ProductKey.EXPERIMENTS}
                                 thingName="archived experiment"
                                 description={EXPERIMENTS_PRODUCT_DESCRIPTION}
@@ -191,7 +201,7 @@ export function Experiments(): JSX.Element {
                             />
                         ) : (
                             <ProductIntroduction
-                                productName="Experiments"
+                                productName="A/B testing"
                                 productKey={ProductKey.EXPERIMENTS}
                                 thingName="experiment"
                                 description={EXPERIMENTS_PRODUCT_DESCRIPTION}
@@ -203,10 +213,10 @@ export function Experiments(): JSX.Element {
                         ))}
                     {!shouldShowEmptyState && (
                         <>
-                            <div className="flex justify-between mb-4">
+                            <div className="flex justify-between mb-4 gap-2 flex-wrap">
                                 <LemonInput
                                     type="search"
-                                    placeholder="Search for Experiments"
+                                    placeholder="Search experiments"
                                     onChange={setSearchTerm}
                                     value={searchTerm}
                                 />
@@ -215,6 +225,7 @@ export function Experiments(): JSX.Element {
                                         <b>Status</b>
                                     </span>
                                     <LemonSelect
+                                        size="small"
                                         onChange={(status) => {
                                             if (status) {
                                                 setSearchStatus(status as ProgressStatus | 'all')
@@ -228,8 +239,17 @@ export function Experiments(): JSX.Element {
                                                 { label: 'Complete', value: ProgressStatus.Complete },
                                             ] as { label: string; value: string }[]
                                         }
-                                        value="all"
+                                        value={searchStatus ?? 'all'}
+                                        dropdownMatchSelectWidth={false}
                                         dropdownMaxContentWidth
+                                    />
+                                    <span className="ml-1">
+                                        <b>Created by</b>
+                                    </span>
+                                    <MemberSelect
+                                        defaultLabel="Any user"
+                                        value={userFilter ?? null}
+                                        onChange={(user) => setUserFilter(user?.uuid ?? null)}
                                     />
                                 </div>
                             </div>

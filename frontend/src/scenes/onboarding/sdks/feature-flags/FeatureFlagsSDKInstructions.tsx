@@ -1,17 +1,19 @@
 import { SDKInstructionsMap, SDKKey } from '~/types'
+
 import {
-    FeatureFlagsJSWebInstructions,
-    FeatureFlagsNextJSInstructions,
-    FeatureFlagsAPIInstructions,
     FeatureFlagsAndroidInstructions,
+    FeatureFlagsAPIInstructions,
+    FeatureFlagsFlutterInstructions,
     FeatureFlagsGoInstructions,
     FeatureFlagsIOSInstructions,
+    FeatureFlagsJSWebInstructions,
+    FeatureFlagsNextJSInstructions,
     FeatureFlagsNodeInstructions,
     FeatureFlagsPHPInstructions,
     FeatureFlagsPythonInstructions,
+    FeatureFlagsReactInstructions,
     FeatureFlagsRNInstructions,
     FeatureFlagsRubyInstructions,
-    FeatureFlagsReactInstructions,
 } from '.'
 
 export const FeatureFlagsSDKInstructions: SDKInstructionsMap = {
@@ -21,11 +23,12 @@ export const FeatureFlagsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.IOS]: FeatureFlagsIOSInstructions,
     [SDKKey.REACT_NATIVE]: FeatureFlagsRNInstructions,
     [SDKKey.ANDROID]: FeatureFlagsAndroidInstructions,
+    [SDKKey.FLUTTER]: FeatureFlagsFlutterInstructions,
     [SDKKey.NODE_JS]: FeatureFlagsNodeInstructions,
     [SDKKey.PYTHON]: FeatureFlagsPythonInstructions,
     [SDKKey.RUBY]: FeatureFlagsRubyInstructions,
     [SDKKey.PHP]: FeatureFlagsPHPInstructions,
     [SDKKey.GO]: FeatureFlagsGoInstructions,
     [SDKKey.API]: FeatureFlagsAPIInstructions,
-    // add flutter, rust, gatsby, nuxt, vue, svelte, and others here
+    // add rust, gatsby, nuxt, vue, svelte, and others here
 }

@@ -1,17 +1,19 @@
+import { api } from '@posthog/apps-common'
+import Fuse from 'fuse.js'
 import { connect, kea, path, selectors } from 'kea'
+import { subscriptions } from 'kea-subscriptions'
+import { dayjs } from 'lib/dayjs'
+import { pluralize } from 'lib/utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { ExtendedListItem, SidebarCategory } from '../types'
-import type { cohortsSidebarLogicType } from './cohortsType'
-import Fuse from 'fuse.js'
-import { CohortType } from '~/types'
-import { subscriptions } from 'kea-subscriptions'
+
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { cohortsModel } from '~/models/cohortsModel'
-import { pluralize } from 'lib/utils'
-import { dayjs } from 'lib/dayjs'
-import { api } from '@posthog/apps-common'
+import { CohortType } from '~/types'
+
+import { ExtendedListItem, SidebarCategory } from '../types'
+import type { cohortsSidebarLogicType } from './cohortsType'
 import { FuseSearchMatch } from './utils'
 
 const fuse = new Fuse<CohortType>([], {

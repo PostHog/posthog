@@ -1,4 +1,5 @@
 import { PluginsAccessLevel } from 'lib/constants'
+
 import { OrganizationType } from '../../types'
 
 export function canGloballyManagePlugins(organization: OrganizationType | null | undefined): boolean {
@@ -26,4 +27,11 @@ export function canViewPlugins(organization: OrganizationType | null | undefined
         return false
     }
     return organization.plugins_access_level > PluginsAccessLevel.None
+}
+
+export function canConfigurePlugins(organization: OrganizationType | null | undefined): boolean {
+    if (!organization) {
+        return false
+    }
+    return organization.plugins_access_level >= PluginsAccessLevel.Config
 }

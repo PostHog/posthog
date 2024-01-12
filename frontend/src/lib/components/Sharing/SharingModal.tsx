@@ -1,21 +1,24 @@
-import { useEffect, useState } from 'react'
-import { InsightModel, InsightShortId, InsightType } from '~/types'
-import { useActions, useValues } from 'kea'
-import { sharingLogic } from './sharingLogic'
-import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
-import { copyToClipboard } from 'lib/utils'
-import { IconGlobeLock, IconInfo, IconLink, IconLock, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { DashboardCollaboration } from 'scenes/dashboard/DashboardCollaborators'
-import { Field } from 'lib/forms/Field'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import './SharingModal.scss'
+
+import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
+import { Field } from 'lib/forms/Field'
+import { IconGlobeLock, IconInfo, IconLink, IconLock, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { useEffect, useState } from 'react'
+import { DashboardCollaboration } from 'scenes/dashboard/DashboardCollaborators'
+
+import { InsightModel, InsightShortId, InsightType } from '~/types'
+
+import { sharingLogic } from './sharingLogic'
 
 export const SHARING_MODAL_WIDTH = 600
 
@@ -110,8 +113,8 @@ export function SharingModalContent({
                                     </TitleWithIcon>
                                     <LemonButton
                                         data-attr="sharing-link-button"
-                                        size={'small'}
-                                        onClick={async () => await copyToClipboard(shareLink, 'link')}
+                                        size="small"
+                                        onClick={() => void copyToClipboard(shareLink, 'link')}
                                         icon={<IconLink />}
                                     >
                                         Copy public link
@@ -186,7 +189,6 @@ export function SharingModalContent({
                                     <div className="rounded border">
                                         <LemonButton
                                             fullWidth
-                                            status="stealth"
                                             sideIcon={showPreview ? <IconUnfoldLess /> : <IconUnfoldMore />}
                                             onClick={togglePreview}
                                         >

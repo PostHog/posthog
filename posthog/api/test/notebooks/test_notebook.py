@@ -100,7 +100,7 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
 
         self.assert_notebook_activity(
             [
-                self.created_activity(item_id=response.json()["id"], short_id=response.json()["short_id"]),
+                self.created_activity(item_id=response.json()["short_id"], short_id=response.json()["short_id"]),
             ],
         )
 
@@ -134,7 +134,7 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
 
         self.assert_notebook_activity(
             [
-                self.created_activity(item_id=response.json()["id"], short_id=response.json()["short_id"]),
+                self.created_activity(item_id=response.json()["short_id"], short_id=response.json()["short_id"]),
                 {
                     "activity": "updated",
                     "created_at": mock.ANY,
@@ -167,7 +167,7 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
                         "trigger": None,
                         "type": None,
                     },
-                    "item_id": response.json()["id"],
+                    "item_id": response.json()["short_id"],
                     "scope": "Notebook",
                     "user": {
                         "email": self.user.email,
@@ -229,3 +229,17 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             data={"content": {"something": "here"}},
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_responds_not_modified_if_versions_match(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            data={"content": {}, "text_content": ""},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/notebooks/{response.json()['short_id']}",
+            HTTP_IF_NONE_MATCH=response.json()["version"],
+        )
+
+        assert response.status_code == status.HTTP_304_NOT_MODIFIED

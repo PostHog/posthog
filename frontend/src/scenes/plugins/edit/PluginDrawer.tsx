@@ -1,25 +1,31 @@
-import React, { useEffect, useState } from 'react'
-import { useActions, useValues } from 'kea'
-import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { Form, Switch } from 'antd'
-import { userLogic } from 'scenes/userLogic'
-import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
-import { Drawer } from 'lib/components/Drawer'
-import { defaultConfigForPlugin, doFieldRequirementsMatch, getConfigSchemaArray } from 'scenes/plugins/utils'
-import { PluginSource } from '../source/PluginSource'
-import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
-import { PluginField } from 'scenes/plugins/edit/PluginField'
-import { endWithPunctation } from 'lib/utils'
-import { canGloballyManagePlugins } from '../access'
-import { capabilitiesInfo } from './CapabilitiesInfo'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { PluginJobOptions } from './interface-jobs/PluginJobOptions'
-import { MOCK_NODE_PROCESS } from 'lib/constants'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { PluginTags } from '../tabs/apps/components'
-import { IconLock } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 import { IconCode } from '@posthog/icons'
+import { LemonButton, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
+import { Form } from 'antd'
+import { useActions, useValues } from 'kea'
+import { Drawer } from 'lib/components/Drawer'
+import { MOCK_NODE_PROCESS } from 'lib/constants'
+import { IconLock } from 'lib/lemon-ui/icons'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { endWithPunctation } from 'lib/utils'
+import React, { useEffect, useState } from 'react'
+import {
+    defaultConfigForPlugin,
+    determineInvisibleFields,
+    determineRequiredFields,
+    getConfigSchemaArray,
+    isValidField,
+} from 'scenes/pipeline/configUtils'
+import { PluginField } from 'scenes/plugins/edit/PluginField'
+import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
+import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { canGloballyManagePlugins } from '../access'
+import { PluginSource } from '../source/PluginSource'
+import { PluginTags } from '../tabs/apps/components'
+import { capabilitiesInfo } from './CapabilitiesInfo'
+import { PluginJobOptions } from './interface-jobs/PluginJobOptions'
 
 window.process = MOCK_NODE_PROCESS
 
@@ -31,10 +37,10 @@ function EnabledDisabledSwitch({
     onChange?: (value: boolean) => void
 }): JSX.Element {
     return (
-        <>
-            <Switch checked={value} onChange={onChange} />
-            <strong className="pl-2.5">{value ? 'Enabled' : 'Disabled'}</strong>
-        </>
+        <div className="flex items-center gap-2">
+            <LemonSwitch checked={value || false} onChange={onChange} />
+            <strong>{value ? 'Enabled' : 'Disabled'}</strong>
+        </div>
     )
 }
 
@@ -60,6 +66,11 @@ export function PluginDrawer(): JSX.Element {
     const [invisibleFields, setInvisibleFields] = useState<string[]>([])
     const [requiredFields, setRequiredFields] = useState<string[]>([])
 
+    const updateInvisibleAndRequiredFields = (): void => {
+        setInvisibleFields(editingPlugin ? determineInvisibleFields(form.getFieldValue, editingPlugin) : [])
+        setRequiredFields(editingPlugin ? determineRequiredFields(form.getFieldValue, editingPlugin) : [])
+    }
+
     useEffect(() => {
         if (editingPlugin) {
             form.setFieldsValue({
@@ -73,59 +84,6 @@ export function PluginDrawer(): JSX.Element {
         }
         updateInvisibleAndRequiredFields()
     }, [editingPlugin?.id, editingPlugin?.config_schema])
-
-    const updateInvisibleAndRequiredFields = (): void => {
-        determineAndSetInvisibleFields()
-        determineAndSetRequiredFields()
-    }
-
-    const determineAndSetInvisibleFields = (): void => {
-        const fieldsToSetAsInvisible = []
-        for (const field of Object.values(getConfigSchemaArray(editingPlugin?.config_schema || {}))) {
-            if (!field.visible_if || !field.key) {
-                continue
-            }
-            const shouldBeVisible = field.visible_if.every(
-                ([targetFieldName, targetFieldValue]: Array<string | undefined>) =>
-                    doFieldRequirementsMatch(form, targetFieldName, targetFieldValue)
-            )
-
-            if (!shouldBeVisible) {
-                fieldsToSetAsInvisible.push(field.key)
-            }
-        }
-        setInvisibleFields(fieldsToSetAsInvisible)
-    }
-
-    const determineAndSetRequiredFields = (): void => {
-        const fieldsToSetAsRequired = []
-        for (const field of Object.values(getConfigSchemaArray(editingPlugin?.config_schema || {}))) {
-            if (!field.required_if || !Array.isArray(field.required_if) || !field.key) {
-                continue
-            }
-            const shouldBeRequired = field.required_if.every(
-                ([targetFieldName, targetFieldValue]: Array<string | undefined>) =>
-                    doFieldRequirementsMatch(form, targetFieldName, targetFieldValue)
-            )
-            if (shouldBeRequired) {
-                fieldsToSetAsRequired.push(field.key)
-            }
-        }
-
-        setRequiredFields(fieldsToSetAsRequired)
-    }
-
-    const isValidChoiceConfig = (fieldConfig: PluginConfigChoice): boolean => {
-        return (
-            Array.isArray(fieldConfig.choices) &&
-            !!fieldConfig.choices.length &&
-            !fieldConfig.choices.find((c) => typeof c !== 'string') &&
-            !fieldConfig.secret
-        )
-    }
-
-    const isValidField = (fieldConfig: PluginConfigSchema): boolean =>
-        fieldConfig.type !== 'choice' || isValidChoiceConfig(fieldConfig)
 
     return (
         <>
@@ -185,7 +143,6 @@ export function PluginDrawer(): JSX.Element {
                             {editingPlugin.plugin_type === 'source' && canGloballyManagePlugins(user?.organization) ? (
                                 <div>
                                     <LemonButton
-                                        status={editingSource ? 'muted' : 'primary'}
                                         icon={<IconCode />}
                                         onClick={() => setEditingSource(!editingSource)}
                                         data-attr="plugin-edit-source"

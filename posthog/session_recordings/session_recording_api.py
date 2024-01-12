@@ -1,5 +1,5 @@
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import json
 from typing import Any, List, Type, cast, Dict, Tuple
@@ -45,7 +45,7 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
 )
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots
+from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots, publish_subscription
 from posthog.session_recordings.snapshots.convert_legacy_snapshots import (
     convert_original_version_lts_recording,
 )
@@ -352,7 +352,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 for full_key in blob_keys:
                     # Keys are like 1619712000-1619712060
                     blob_key = full_key.replace(blob_prefix.rstrip("/") + "/", "")
-                    time_range = [datetime.fromtimestamp(int(x) / 1000) for x in blob_key.split("-")]
+                    time_range = [datetime.fromtimestamp(int(x) / 1000, tz=timezone.utc) for x in blob_key.split("-")]
 
                     sources.append(
                         {
@@ -369,7 +369,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
 
                 if might_have_realtime:
-                    might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.utcnow()
+                    might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(timezone.utc)
 
             if might_have_realtime:
                 sources.append(
@@ -379,6 +379,11 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                         "end_timestamp": None,
                     }
                 )
+                # the UI will use this to try to load realtime snapshots
+                # so, we can publish the request for Mr. Blobby to start syncing to Redis now
+                # it takes a short while for the subscription to be sync'd into redis
+                # let's use the network round trip time to get started
+                publish_subscription(team_id=str(self.team.pk), session_id=str(recording.session_id))
 
             response_data["sources"] = sources
 

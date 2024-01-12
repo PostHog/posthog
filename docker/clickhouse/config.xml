@@ -20,17 +20,20 @@
           - trace
           - test (not for production usage)
 
-            [1]: https://github.com/pocoproject/poco/blob/poco-1.9.4-release/Foundation/include/Poco/Logger.h#L105-L114
+            [1]:
+        https://github.com/pocoproject/poco/blob/poco-1.9.4-release/Foundation/include/Poco/Logger.h#L105-L114
         -->
         <level>trace</level>
         <log>/var/log/clickhouse-server/clickhouse-server.log</log>
         <errorlog>/var/log/clickhouse-server/clickhouse-server.err.log</errorlog>
         <!-- Rotation policy
-             See https://github.com/pocoproject/poco/blob/poco-1.9.4-release/Foundation/include/Poco/FileChannel.h#L54-L85
+             See
+        https://github.com/pocoproject/poco/blob/poco-1.9.4-release/Foundation/include/Poco/FileChannel.h#L54-L85
           -->
         <size>1000M</size>
         <count>10</count>
-        <!-- <console>1</console> --> <!-- Default behavior is autodetection (log to console if not daemon mode and is tty) -->
+        <!-- <console>1</console> --> <!-- Default behavior is autodetection (log to console if not daemon mode
+        and is tty) -->
 
         <!-- Per level overrides (legacy):
 
@@ -46,7 +49,8 @@
         <!-- Per level overrides:
 
         For example to suppress logging of the RBAC for default user you can use:
-        (But please note that the logger name maybe changed from version to version, even after minor upgrade)
+        (But please note that the logger name maybe changed from version to version, even after minor
+        upgrade)
         -->
         <!--
         <levels>
@@ -62,7 +66,8 @@
         -->
     </logger>
 
-    <!-- Add headers to response in options request. OPTIONS method is used in CORS preflight requests. -->
+    <!-- Add headers to response in options request. OPTIONS method is used in CORS preflight
+    requests. -->
     <!-- It is off by default. Next headers are obligate for CORS.-->
     <!-- http_options_response>
         <header>
@@ -167,12 +172,15 @@
     </interserver_http_credentials>-->
 
     <!-- Listen specified address.
-         Use :: (wildcard IPv6 address), if you want to accept connections both with IPv4 and IPv6 from everywhere.
+         Use :: (wildcard IPv6 address), if you want to accept connections both with IPv4 and IPv6 from
+    everywhere.
          Notes:
-         If you open connections from wildcard address, make sure that at least one of the following measures applied:
+         If you open connections from wildcard address, make sure that at least one of the following
+    measures applied:
          - server is protected by firewall and not accessible from untrusted networks;
          - all users are restricted to subset of network addresses (see users.xml);
-         - all users have strong passwords, only secure (TLS) interfaces are accessible, or connections are only made via TLS interfaces.
+         - all users have strong passwords, only secure (TLS) interfaces are accessible, or connections are
+    only made via TLS interfaces.
          - users without password have readonly access.
          See also: https://www.shodan.io/search?query=clickhouse
       -->
@@ -217,7 +225,8 @@
         <!-- The following file is used only if ssl_require_client_auth=1 -->
         <ssl_ca_cert_file>/path/to/ssl_ca_cert_file</ssl_ca_cert_file>
 
-        <!-- Default transport compression type (can be overridden by client, see the transport_compression_type field in QueryInfo).
+        <!-- Default transport compression type (can be overridden by client, see the
+        transport_compression_type field in QueryInfo).
              Supported algorithms: none, deflate, gzip, stream_gzip -->
         <transport_compression_type>none</transport_compression_type>
 
@@ -232,10 +241,12 @@
         <verbose_logs>false</verbose_logs>
     </grpc>
 
-    <!-- Used with https_port and tcp_port_secure. Full ssl options list: https://github.com/ClickHouse-Extras/poco/blob/master/NetSSL_OpenSSL/include/Poco/Net/SSLManager.h#L71 -->
+    <!-- Used with https_port and tcp_port_secure. Full ssl options list:
+    https://github.com/ClickHouse-Extras/poco/blob/master/NetSSL_OpenSSL/include/Poco/Net/SSLManager.h#L71 -->
     <openSSL>
         <server> <!-- Used for https server AND secure tcp port -->
-            <!-- openssl req -subj "/CN=localhost" -new -newkey rsa:2048 -days 365 -nodes -x509 -keyout /etc/clickhouse-server/server.key -out /etc/clickhouse-server/server.crt -->
+            <!-- openssl req -subj "/CN=localhost" -new -newkey rsa:2048 -days 365 -nodes -x509
+            -keyout /etc/clickhouse-server/server.key -out /etc/clickhouse-server/server.crt -->
             <certificateFile>/etc/clickhouse-server/server.crt</certificateFile>
             <privateKeyFile>/etc/clickhouse-server/server.key</privateKeyFile>
             <!-- dhparams are optional. You can delete the <dhParamsFile> element.
@@ -251,7 +262,8 @@
             <preferServerCiphers>true</preferServerCiphers>
         </server>
 
-        <client> <!-- Used for connecting to https dictionary source and secured Zookeeper communication -->
+        <client> <!-- Used for connecting to https dictionary source and secured Zookeeper
+            communication -->
             <loadDefaultCAFile>true</loadDefaultCAFile>
             <cacheSessions>true</cacheSessions>
             <disableProtocols>sslv2,sslv3</disableProtocols>
@@ -264,24 +276,30 @@
         </client>
     </openSSL>
 
-    <!-- Default root page on http[s] server. For example load UI from https://tabix.io/ when opening http://localhost:8123 -->
+    <!-- Default root page on http[s] server. For example load UI from https://tabix.io/ when
+    opening http://localhost:8123 -->
     <!--
-    <http_server_default_response><![CDATA[<html ng-app="SMI2"><head><base href="http://ui.tabix.io/"></head><body><div ui-view="" class="content-ui"></div><script src="http://loader.tabix.io/master.js"></script></body></html>]]></http_server_default_response>
+    <http_server_default_response><![CDATA[<html ng-app="SMI2"><head><base
+    href="http://ui.tabix.io/"></head><body><div ui-view="" class="content-ui"></div><script
+    src="http://loader.tabix.io/master.js"></script></body></html>]]></http_server_default_response>
     -->
 
     <!-- Maximum number of concurrent queries. -->
     <max_concurrent_queries>100</max_concurrent_queries>
 
     <!-- Maximum memory usage (resident set size) for server process.
-         Zero value or unset means default. Default is "max_server_memory_usage_to_ram_ratio" of available physical RAM.
-         If the value is larger than "max_server_memory_usage_to_ram_ratio" of available physical RAM, it will be cut down.
+         Zero value or unset means default. Default is "max_server_memory_usage_to_ram_ratio" of available
+    physical RAM.
+         If the value is larger than "max_server_memory_usage_to_ram_ratio" of available physical RAM, it
+    will be cut down.
 
          The constraint is checked on query execution time.
          If a query tries to allocate memory and the current memory usage plus allocation is greater
           than specified threshold, exception will be thrown.
 
          It is not practical to set this constraint to small values like just a few gigabytes,
-          because memory allocator will keep this amount of memory in caches and the server will deny service of queries.
+          because memory allocator will keep this amount of memory in caches and the server will deny service
+    of queries.
       -->
     <max_server_memory_usage>0</max_server_memory_usage>
 
@@ -302,21 +320,25 @@
       -->
     <max_server_memory_usage_to_ram_ratio>0.9</max_server_memory_usage_to_ram_ratio>
 
-    <!-- Simple server-wide memory profiler. Collect a stack trace at every peak allocation step (in bytes).
+    <!-- Simple server-wide memory profiler. Collect a stack trace at every peak allocation step (in
+    bytes).
          Data will be stored in system.trace_log table with query_id = empty string.
          Zero means disabled.
       -->
     <total_memory_profiler_step>4194304</total_memory_profiler_step>
 
-    <!-- Collect random allocations and deallocations and write them into system.trace_log with 'MemorySample' trace_type.
+    <!-- Collect random allocations and deallocations and write them into system.trace_log with
+    'MemorySample' trace_type.
          The probability is for every alloc/free regardless to the size of the allocation.
-         Note that sampling happens only when the amount of untracked memory exceeds the untracked memory limit,
+         Note that sampling happens only when the amount of untracked memory exceeds the untracked memory
+    limit,
           which is 4 MiB by default but can be lowered if 'total_memory_profiler_step' is lowered.
          You may want to set 'total_memory_profiler_step' to 1 for extra fine grained sampling.
       -->
     <total_memory_tracker_sample_probability>0</total_memory_tracker_sample_probability>
 
-    <!-- Set limit on number of open files (default: maximum). This setting makes sense on Mac OS X because getrlimit() fails to retrieve
+    <!-- Set limit on number of open files (default: maximum). This setting makes sense on Mac OS X
+    because getrlimit() fails to retrieve
          correct maximum value. -->
     <!-- <max_open_files>262144</max_open_files> -->
 
@@ -341,14 +363,18 @@
     <!-- If you enable the `min_bytes_to_use_mmap_io` setting,
          the data in MergeTree tables can be read with mmap to avoid copying from kernel to userspace.
          It makes sense only for large files and helps only if data reside in page cache.
-         To avoid frequent open/mmap/munmap/close calls (which are very expensive due to consequent page faults)
+         To avoid frequent open/mmap/munmap/close calls (which are very expensive due to consequent page
+    faults)
          and to reuse mappings from several threads and queries,
-         the cache of mapped files is maintained. Its size is the number of mapped regions (usually equal to the number of mapped files).
+         the cache of mapped files is maintained. Its size is the number of mapped regions (usually equal to
+    the number of mapped files).
          The amount of data in mapped files can be monitored
          in system.metrics, system.metric_log by the MMappedFiles, MMappedFileBytes metrics
          and in system.asynchronous_metrics, system.asynchronous_metrics_log by the MMapCacheCells metric,
-         and also in system.events, system.processes, system.query_log, system.query_thread_log, system.query_views_log by the
-         CreatedReadBufferMMap, CreatedReadBufferMMapFailed, MMappedFileCacheHits, MMappedFileCacheMisses events.
+         and also in system.events, system.processes, system.query_log, system.query_thread_log,
+    system.query_views_log by the
+         CreatedReadBufferMMap, CreatedReadBufferMMapFailed, MMappedFileCacheHits, MMappedFileCacheMisses
+    events.
          Note that the amount of data in mapped files does not consume memory directly and is not accounted
          in query or server memory usage - because this memory can be discarded similar to OS page cache.
          The cache is dropped (the files are closed) automatically on removal of old parts in MergeTree,
@@ -384,18 +410,25 @@
 
     <!-- LDAP server definitions. -->
     <ldap_servers>
-        <!-- List LDAP servers with their connection parameters here to later 1) use them as authenticators for dedicated local users,
-              who have 'ldap' authentication mechanism specified instead of 'password', or to 2) use them as remote user directories.
+        <!-- List LDAP servers with their connection parameters here to later 1) use them as
+        authenticators for dedicated local users,
+              who have 'ldap' authentication mechanism specified instead of 'password', or to 2) use them as
+        remote user directories.
              Parameters:
                 host - LDAP server hostname or IP, this parameter is mandatory and cannot be empty.
                 port - LDAP server port, default is 636 if enable_tls is set to true, 389 otherwise.
                 bind_dn - template used to construct the DN to bind to.
-                        The resulting DN will be constructed by replacing all '{user_name}' substrings of the template with the actual
+                        The resulting DN will be constructed by replacing all '{user_name}' substrings of the template with
+        the actual
                          user name during each authentication attempt.
-                user_dn_detection - section with LDAP search parameters for detecting the actual user DN of the bound user.
-                        This is mainly used in search filters for further role mapping when the server is Active Directory. The
-                         resulting user DN will be used when replacing '{user_dn}' substrings wherever they are allowed. By default,
-                         user DN is set equal to bind DN, but once search is performed, it will be updated with to the actual detected
+                user_dn_detection - section with LDAP search parameters for detecting the actual user DN of the
+        bound user.
+                        This is mainly used in search filters for further role mapping when the server is Active Directory.
+        The
+                         resulting user DN will be used when replacing '{user_dn}' substrings wherever they are allowed. By
+        default,
+                         user DN is set equal to bind DN, but once search is performed, it will be updated with to the
+        actual detected
                          user DN value.
                     base_dn - template used to construct the base DN for the LDAP search.
                             The resulting DN will be constructed by replacing all '{user_name}' and '{bind_dn}' substrings
@@ -403,12 +436,15 @@
                     scope - scope of the LDAP search.
                             Accepted values are: 'base', 'one_level', 'children', 'subtree' (the default).
                     search_filter - template used to construct the search filter for the LDAP search.
-                            The resulting filter will be constructed by replacing all '{user_name}', '{bind_dn}', and '{base_dn}'
+                            The resulting filter will be constructed by replacing all '{user_name}', '{bind_dn}', and
+        '{base_dn}'
                              substrings of the template with the actual user name, bind DN, and base DN during the LDAP search.
                             Note, that the special characters must be escaped properly in XML.
-                verification_cooldown - a period of time, in seconds, after a successful bind attempt, during which a user will be assumed
+                verification_cooldown - a period of time, in seconds, after a successful bind attempt, during which
+        a user will be assumed
                          to be successfully authenticated for all consecutive requests without contacting the LDAP server.
-                        Specify 0 (the default) to disable caching and force contacting the LDAP server for each authentication request.
+                        Specify 0 (the default) to disable caching and force contacting the LDAP server for each
+        authentication request.
                 enable_tls - flag to trigger use of secure connection to the LDAP server.
                         Specify 'no' for plain text (ldap://) protocol (not recommended).
                         Specify 'yes' for LDAP over SSL/TLS (ldaps://) protocol (recommended, the default).
@@ -435,7 +471,7 @@
                     <tls_key_file>/path/to/tls_key_file</tls_key_file>
                     <tls_ca_cert_file>/path/to/tls_ca_cert_file</tls_ca_cert_file>
                     <tls_ca_cert_dir>/path/to/tls_ca_cert_dir</tls_ca_cert_dir>
-                    <tls_cipher_suite>ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:AES256-GCM-SHA384</tls_cipher_suite>
+        <tls_cipher_suite>ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:AES256-GCM-SHA384</tls_cipher_suite>
                 </my_ldap_server>
              Example (typical Active Directory with configured user DN detection for further role mapping):
                 <my_ad_server>
@@ -451,13 +487,16 @@
         -->
     </ldap_servers>
 
-    <!-- To enable Kerberos authentication support for HTTP requests (GSS-SPNEGO), for those users who are explicitly configured
+    <!-- To enable Kerberos authentication support for HTTP requests (GSS-SPNEGO), for those users
+    who are explicitly configured
           to authenticate via Kerberos, define a single 'kerberos' section here.
          Parameters:
-            principal - canonical service principal name, that will be acquired and used when accepting security contexts.
+            principal - canonical service principal name, that will be acquired and used when accepting
+    security contexts.
                     This parameter is optional, if omitted, the default principal will be used.
                     This parameter cannot be specified together with 'realm' parameter.
-            realm - a realm, that will be used to restrict authentication to only those requests whose initiator's realm matches it.
+            realm - a realm, that will be used to restrict authentication to only those requests whose
+    initiator's realm matches it.
                     This parameter is optional, if omitted, no additional filtering by realm will be applied.
                     This parameter cannot be specified together with 'principal' parameter.
          Example:
@@ -483,20 +522,28 @@
             <path>/var/lib/clickhouse/access/</path>
         </local_directory>
 
-        <!-- To add an LDAP server as a remote user directory of users that are not defined locally, define a single 'ldap' section
+        <!-- To add an LDAP server as a remote user directory of users that are not defined locally,
+        define a single 'ldap' section
               with the following parameters:
                 server - one of LDAP server names defined in 'ldap_servers' config section above.
                         This parameter is mandatory and cannot be empty.
-                roles - section with a list of locally defined roles that will be assigned to each user retrieved from the LDAP server.
-                        If no roles are specified here or assigned during role mapping (below), user will not be able to perform any
+                roles - section with a list of locally defined roles that will be assigned to each user retrieved
+        from the LDAP server.
+                        If no roles are specified here or assigned during role mapping (below), user will not be able to
+        perform any
                          actions after authentication.
                 role_mapping - section with LDAP search parameters and mapping rules.
-                        When a user authenticates, while still bound to LDAP, an LDAP search is performed using search_filter and the
-                         name of the logged in user. For each entry found during that search, the value of the specified attribute is
-                         extracted. For each attribute value that has the specified prefix, the prefix is removed, and the rest of the
-                         value becomes the name of a local role defined in ClickHouse, which is expected to be created beforehand by
+                        When a user authenticates, while still bound to LDAP, an LDAP search is performed using
+        search_filter and the
+                         name of the logged in user. For each entry found during that search, the value of the specified
+        attribute is
+                         extracted. For each attribute value that has the specified prefix, the prefix is removed, and the
+        rest of the
+                         value becomes the name of a local role defined in ClickHouse, which is expected to be created
+        beforehand by
                          CREATE ROLE command.
-                        There can be multiple 'role_mapping' sections defined inside the same 'ldap' section. All of them will be
+                        There can be multiple 'role_mapping' sections defined inside the same 'ldap' section. All of them
+        will be
                          applied.
                     base_dn - template used to construct the base DN for the LDAP search.
                             The resulting DN will be constructed by replacing all '{user_name}', '{bind_dn}', and '{user_dn}'
@@ -504,13 +551,17 @@
                     scope - scope of the LDAP search.
                             Accepted values are: 'base', 'one_level', 'children', 'subtree' (the default).
                     search_filter - template used to construct the search filter for the LDAP search.
-                            The resulting filter will be constructed by replacing all '{user_name}', '{bind_dn}', '{user_dn}', and
-                             '{base_dn}' substrings of the template with the actual user name, bind DN, user DN, and base DN during
+                            The resulting filter will be constructed by replacing all '{user_name}', '{bind_dn}', '{user_dn}',
+        and
+                             '{base_dn}' substrings of the template with the actual user name, bind DN, user DN, and base DN
+        during
                              each LDAP search.
                             Note, that the special characters must be escaped properly in XML.
                     attribute - attribute name whose values will be returned by the LDAP search. 'cn', by default.
-                    prefix - prefix, that will be expected to be in front of each string in the original list of strings returned by
-                             the LDAP search. Prefix will be removed from the original strings and resulting strings will be treated
+                    prefix - prefix, that will be expected to be in front of each string in the original list of
+        strings returned by
+                             the LDAP search. Prefix will be removed from the original strings and resulting strings will be
+        treated
                              as local role names. Empty, by default.
              Example:
                 <ldap>
@@ -547,7 +598,8 @@
     <!-- Comma-separated list of prefixes for user-defined settings. -->
     <custom_settings_prefixes></custom_settings_prefixes>
 
-    <!-- System profile of settings. This settings are used by internal processes (Distributed DDL worker and so on). -->
+    <!-- System profile of settings. This settings are used by internal processes (Distributed DDL
+    worker and so on). -->
     <!-- <system_profile>default</system_profile> -->
 
     <!-- Buffer profile of settings.
@@ -574,13 +626,15 @@
     <!-- <timezone>Europe/Moscow</timezone> -->
 
     <!-- You can specify umask here (see "man umask"). Server will apply it on startup.
-         Number is always parsed as octal. Default umask is 027 (other users cannot read logs, data files, etc; group can only read).
+         Number is always parsed as octal. Default umask is 027 (other users cannot read logs, data files,
+    etc; group can only read).
     -->
     <!-- <umask>022</umask> -->
 
     <!-- Perform mlockall after startup to lower first queries latency
           and to prevent clickhouse executable from being paged out under high IO load.
-         Enabling this option is recommended but will lead to increased startup time for up to a few seconds.
+         Enabling this option is recommended but will lead to increased startup time for up to a few
+    seconds.
     -->
     <mlock_executable>true</mlock_executable>
 
@@ -644,14 +698,16 @@
             <!-- <secret></secret> -->
 
             <shard>
-                <!-- Optional. Whether to write data to just one of the replicas. Default: false (write data to all replicas). -->
+                <!-- Optional. Whether to write data to just one of the replicas. Default: false
+                (write data to all replicas). -->
                 <!-- <internal_replication>false</internal_replication> -->
                 <!-- Optional. Shard weight when writing data. Default: 1. -->
                 <!-- <weight>1</weight> -->
                 <replica>
                     <host>localhost</host>
                     <port>9000</port>
-                    <!-- Optional. Priority of the replica for load_balancing. Default: 1 (less value has more priority). -->
+                    <!-- Optional. Priority of the replica for load_balancing. Default: 1 (less
+                    value has more priority). -->
                     <!-- <priority>1</priority> -->
                 </replica>
             </shard>
@@ -666,22 +722,28 @@
             Example: "yandex.ru", "yandex.ru." and "www.yandex.ru" are different hosts.
                     If port is explicitly specified in URL, the host:port is checked as a whole.
                     If host specified here without port, any port with this host allowed.
-                    "yandex.ru" -> "yandex.ru:443", "yandex.ru:80" etc. is allowed, but "yandex.ru:80" -> only "yandex.ru:80" is allowed.
-            If the host is specified as IP address, it is checked as specified in URL. Example: "[2a02:6b8:a::a]".
-            If there are redirects and support for redirects is enabled, every redirect (the Location field) is checked.
+                    "yandex.ru" -> "yandex.ru:443", "yandex.ru:80" etc. is allowed, but "yandex.ru:80" -> only
+        "yandex.ru:80" is allowed.
+            If the host is specified as IP address, it is checked as specified in URL. Example:
+        "[2a02:6b8:a::a]".
+            If there are redirects and support for redirects is enabled, every redirect (the Location field) is
+        checked.
             Host should be specified using the host xml tag:
                     <host>yandex.ru</host>
         -->
 
         <!-- Regular expression can be specified. RE2 engine is used for regexps.
-            Regexps are not aligned: don't forget to add ^ and $. Also don't forget to escape dot (.) metacharacter
+            Regexps are not aligned: don't forget to add ^ and $. Also don't forget to escape dot (.)
+        metacharacter
             (forgetting to do so is a common source of error).
         -->
         <host_regexp>.*</host_regexp>
     </remote_url_allow_hosts>
 
-    <!-- If element has 'incl' attribute, then for it's value will be used corresponding substitution from another file.
-         By default, path to file with substitutions is /etc/metrika.xml. It could be changed in config in 'include_from' element.
+    <!-- If element has 'incl' attribute, then for it's value will be used corresponding
+    substitution from another file.
+         By default, path to file with substitutions is /etc/metrika.xml. It could be changed in config in
+    'include_from' element.
          Values for substitutions are specified in /clickhouse/name_of_substitution elements in that file.
       -->
 
@@ -701,14 +763,14 @@
     <!-- Substitutions for parameters of replicated tables.
           Optional. If you don't use replicated tables, you could omit that.
 
-         See https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication/#creating-replicated-tables
+         See
+    https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication/#creating-replicated-tables
       -->
 
     <macros>
         <shard>01</shard>
         <replica>ch1</replica>
     </macros>
-
 
 
     <!-- Reloading interval for embedded dictionaries, in seconds. Default: 3600. -->
@@ -788,7 +850,8 @@
         <database>system</database>
         <table>query_log</table>
         <!--
-            PARTITION BY expr: https://clickhouse.com/docs/en/table_engines/mergetree-family/custom_partitioning_key/
+            PARTITION BY expr:
+        https://clickhouse.com/docs/en/table_engines/mergetree-family/custom_partitioning_key/
             Example:
                 event_date
                 toMonday(event_date)
@@ -797,7 +860,8 @@
         -->
         <partition_by>toYYYYMM(event_date)</partition_by>
         <!--
-            Table TTL specification: https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree/#mergetree-table-ttl
+            Table TTL specification:
+        https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/mergetree/#mergetree-table-ttl
             Example:
                 event_date + INTERVAL 1 WEEK
                 event_date + INTERVAL 7 DAY DELETE
@@ -806,8 +870,10 @@
         <ttl>event_date + INTERVAL 30 DAY DELETE</ttl>
         -->
 
-        <!-- Instead of partition_by, you can provide full engine expression (starting with ENGINE = ) with parameters,
-             Example: <engine>ENGINE = MergeTree PARTITION BY toYYYYMM(event_date) ORDER BY (event_date, event_time) SETTINGS index_granularity = 1024</engine>
+        <!-- Instead of partition_by, you can provide full engine expression (starting with ENGINE =
+        ) with parameters,
+             Example: <engine>ENGINE = MergeTree PARTITION BY toYYYYMM(event_date) ORDER BY (event_date,
+        event_time) SETTINGS index_granularity = 1024</engine>
           -->
 
         <!-- Interval of flushing data. -->
@@ -843,7 +909,8 @@
     </query_views_log>
 
     <!-- Uncomment if use part log.
-         Part log contains information about all actions with parts in MergeTree tables (creation, deletion, merges, downloads).-->
+         Part log contains information about all actions with parts in MergeTree tables (creation, deletion,
+    merges, downloads).-->
     <part_log>
         <database>system</database>
         <table>part_log</table>
@@ -852,8 +919,10 @@
     </part_log>
 
     <!-- Uncomment to write text log into table.
-         Text log contains all information from usual server log but stores it in structured and efficient way.
-         The level of the messages that goes to the table can be limited (<level>), if not specified all messages will go to the table.
+         Text log contains all information from usual server log but stores it in structured and efficient
+    way.
+         The level of the messages that goes to the table can be limited (<level>), if not specified all
+    messages will go to the table.
     <text_log>
         <database>system</database>
         <table>text_log</table>
@@ -862,7 +931,8 @@
     </text_log>
     -->
 
-    <!-- Metric log contains rows with current values of ProfileEvents, CurrentMetrics collected with "collect_interval_milliseconds" interval. -->
+    <!-- Metric log contains rows with current values of ProfileEvents, CurrentMetrics collected
+    with "collect_interval_milliseconds" interval. -->
     <metric_log>
         <database>system</database>
         <table>metric_log</table>
@@ -933,7 +1003,8 @@
     -->
 
     <!-- Path to file with region hierarchy. -->
-    <!-- <path_to_regions_hierarchy_file>/opt/geo/regions_hierarchy.txt</path_to_regions_hierarchy_file> -->
+    <!--
+    <path_to_regions_hierarchy_file>/opt/geo/regions_hierarchy.txt</path_to_regions_hierarchy_file> -->
 
     <!-- Path to directory with files containing names of regions -->
     <!-- <path_to_regions_names_files>/opt/geo/</path_to_regions_names_files> -->
@@ -965,12 +1036,14 @@
       -->
     <!--
     <compression>
-        <!- - Set of variants. Checked in order. Last matching case wins. If nothing matches, lz4 will be used. - ->
+        <!- - Set of variants. Checked in order. Last matching case wins. If nothing matches, lz4 will be
+    used. - ->
         <case>
 
             <!- - Conditions. All must be satisfied. Some conditions may be omitted. - ->
             <min_part_size>10000000000</min_part_size>        <!- - Min part size in bytes. - ->
-            <min_part_size_ratio>0.01</min_part_size_ratio>   <!- - Min size of part relative to whole table size. - ->
+            <min_part_size_ratio>0.01</min_part_size_ratio>   <!- - Min size of part relative to whole table
+    size. - ->
 
             <!- - What compression method to use. - ->
             <method>zstd</method>
@@ -985,23 +1058,25 @@
          a Base64-encoded key to the stdout. -->
     <encryption_codecs>
         <!-- aes_128_gcm_siv -->
-            <!-- Example of getting hex key from env -->
-            <!-- the code should use this key and throw an exception if its length is not 16 bytes -->
-            <!--key_hex from_env="..."></key_hex -->
+        <!-- Example of getting hex key from env -->
+        <!-- the code should use this key and throw an exception if its length is not 16 bytes -->
+        <!--key_hex
+        from_env="..."></key_hex -->
 
-            <!-- Example of multiple hex keys. They can be imported from env or be written down in config-->
-            <!-- the code should use these keys and throw an exception if their length is not 16 bytes -->
-            <!-- key_hex id="0">...</key_hex -->
-            <!-- key_hex id="1" from_env=".."></key_hex -->
-            <!-- key_hex id="2">...</key_hex -->
-            <!-- current_key_id>2</current_key_id -->
+        <!-- Example of multiple hex keys. They can be imported from env or be written down in
+        config-->
+        <!-- the code should use these keys and throw an exception if their length is not 16 bytes -->
+        <!-- key_hex id="0">...</key_hex -->
+        <!-- key_hex id="1" from_env=".."></key_hex -->
+        <!-- key_hex id="2">...</key_hex -->
+        <!-- current_key_id>2</current_key_id -->
 
-            <!-- Example of getting hex key from config -->
-            <!-- the code should use this key and throw an exception if its length is not 16 bytes -->
-            <!-- key>...</key -->
+        <!-- Example of getting hex key from config -->
+        <!-- the code should use this key and throw an exception if its length is not 16 bytes -->
+        <!-- key>...</key -->
 
-            <!-- example of adding nonce -->
-            <!-- nonce>...</nonce -->
+        <!-- example of adding nonce -->
+        <!-- nonce>...</nonce -->
 
         <!-- /aes_128_gcm_siv -->
     </encryption_codecs>
@@ -1032,7 +1107,8 @@
         <!-- <max_tasks_in_queue>1000</max_tasks_in_queue> -->
     </distributed_ddl>
 
-    <!-- Settings to fine tune MergeTree tables. See documentation in source code, in MergeTreeSettings.h -->
+    <!-- Settings to fine tune MergeTree tables. See documentation in source code, in
+    MergeTreeSettings.h -->
     <!--
     <merge_tree>
         <max_suspicious_broken_parts>5</max_suspicious_broken_parts>
@@ -1040,8 +1116,10 @@
     -->
 
     <!-- Protection from accidental DROP.
-         If size of a MergeTree table is greater than max_table_size_to_drop (in bytes) than table could not be dropped with any DROP query.
-         If you want do delete one table and don't want to change clickhouse-server config, you could create special file <clickhouse-path>/flags/force_drop_table and make DROP once.
+         If size of a MergeTree table is greater than max_table_size_to_drop (in bytes) than table could not
+    be dropped with any DROP query.
+         If you want do delete one table and don't want to change clickhouse-server config, you could create
+    special file <clickhouse-path>/flags/force_drop_table and make DROP once.
          By default max_table_size_to_drop is 50GB; max_table_size_to_drop=0 allows to DROP any tables.
          The same for max_partition_size_to_drop.
          Uncomment to disable protection.
@@ -1085,7 +1163,8 @@
       -->
     <format_schema_path>/var/lib/clickhouse/format_schemas/</format_schema_path>
 
-    <!-- Default query masking rules, matching lines would be replaced with something else in the logs
+    <!-- Default query masking rules, matching lines would be replaced with something else in the
+    logs
         (both text logs and system.query_log).
         name - name for the rule (optional)
         regexp - RE2 compatible regular expression (mandatory)
@@ -1106,14 +1185,17 @@
         rules are checked from top to bottom, first match runs the handler
             url - to match request URL, you can use 'regex:' prefix to use regex match(optional)
             methods - to match request method, you can use commas to separate multiple method matches(optional)
-            headers - to match request headers, match each child element(child element name is header name), you can use 'regex:' prefix to use regex match(optional)
+            headers - to match request headers, match each child element(child element name is header name),
+    you can use 'regex:' prefix to use regex match(optional)
         handler is request handler
             type - supported types: static, dynamic_query_handler, predefined_query_handler
             query - use with predefined_query_handler type, executes query when the handler is called
-            query_param_name - use with dynamic_query_handler type, extracts and executes the value corresponding to the <query_param_name> value in HTTP request params
+            query_param_name - use with dynamic_query_handler type, extracts and executes the value
+    corresponding to the <query_param_name> value in HTTP request params
             status - use with static type, response status code
             content_type - use with static type, response content-type
-            response_content - use with static type, Response content sent to client, when using the prefix 'file://' or 'config://', find the content from the file or configuration send to client.
+            response_content - use with static type, Response content sent to client, when using the prefix
+    'file://' or 'config://', find the content from the file or configuration send to client.
 
     <http_handlers>
         <rule>
@@ -1151,10 +1233,12 @@
         <!-- the ClickHouse core developers team via Sentry https://sentry.io -->
         <!-- Doing so at least in pre-production environments is highly appreciated -->
         <enabled>false</enabled>
-        <!-- Change <anonymize> to true if you don't feel comfortable attaching the server hostname to the crash report -->
+        <!-- Change <anonymize> to true if you don't feel comfortable attaching the server hostname
+        to the crash report -->
         <anonymize>false</anonymize>
         <!-- Default endpoint should be changed to different Sentry DSN only if you have -->
-        <!-- some in-house engineers or hired consultants who're going to debug ClickHouse issues for you -->
+        <!-- some in-house engineers or hired consultants who're going to debug ClickHouse issues
+        for you -->
         <endpoint>https://6f33034cfe684dd7a3ab9875e57b1c8d@o388870.ingest.sentry.io/5226277</endpoint>
     </send_crash_reports>
 

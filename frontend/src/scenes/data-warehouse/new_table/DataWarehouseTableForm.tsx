@@ -1,7 +1,8 @@
-import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
-import { Form } from 'kea-forms'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
+
+import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 
 interface DataWarehouseTableFormProps {
     footer?: JSX.Element

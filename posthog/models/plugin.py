@@ -1,4 +1,5 @@
 import datetime
+import json
 import os
 from dataclasses import dataclass
 from enum import Enum
@@ -29,6 +30,7 @@ from posthog.plugins.utils import (
     load_json_file,
     parse_url,
 )
+from posthog.redis import get_client
 
 from .utils import UUIDModel, sane_repr
 
@@ -129,6 +131,10 @@ class PluginManager(models.Manager):
         plugin = Plugin.objects.create(**kwargs)
         if plugin_json:
             PluginSourceFile.objects.sync_from_plugin_archive(plugin, plugin_json)
+        get_client().publish(
+            "populate-plugin-capabilities",
+            json.dumps({"plugin_id": str(plugin.id)}),
+        )
         return plugin
 
 
@@ -228,6 +234,7 @@ class PluginConfig(models.Model):
     enabled: models.BooleanField = models.BooleanField(default=False)
     order: models.IntegerField = models.IntegerField()
     config: models.JSONField = models.JSONField(default=dict)
+    # DEPRECATED: use `plugin_log_entries` or `app_metrics` in ClickHouse instead
     # Error when running this plugin on an event (frontend: PluginErrorType)
     # - e.g: "undefined is not a function on index.js line 23"
     # - error = { message: "Exception in processEvent()", time: "iso-string", ...meta }

@@ -1,19 +1,25 @@
 import {
+    breakdownFilterToTaxonomicFilterType,
+    convertPropertiesToPropertyGroup,
+    convertPropertyGroupToProperties,
+    isValidPropertyFilter,
+    propertyFilterTypeToTaxonomicFilterType,
+} from 'lib/components/PropertyFilters/utils'
+
+import { BreakdownFilter } from '~/queries/schema'
+
+import {
     AnyPropertyFilter,
     CohortPropertyFilter,
     ElementPropertyFilter,
     EmptyPropertyFilter,
+    FilterLogicalOperator,
     PropertyFilterType,
+    PropertyGroupFilter,
     PropertyOperator,
     SessionPropertyFilter,
 } from '../../../types'
-import {
-    isValidPropertyFilter,
-    propertyFilterTypeToTaxonomicFilterType,
-    breakdownFilterToTaxonomicFilterType,
-} from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
-import { BreakdownFilter } from '~/queries/schema'
 
 describe('isValidPropertyFilter()', () => {
     it('returns values correctly', () => {
@@ -121,5 +127,69 @@ describe('breakdownFilterToTaxonomicFilterType()', () => {
         expect(breakdownFilterToTaxonomicFilterType({ ...baseFilter, breakdown_type: 'hogql' })).toEqual(
             TaxonomicFilterGroupType.HogQLExpression
         )
+    })
+})
+
+describe('convertPropertyGroupToProperties()', () => {
+    it('converts a single layer property group into an array of properties', () => {
+        const propertyGroup = {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        { key: '$browser', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
+                        { key: '$current_url', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
+                    ] as AnyPropertyFilter[],
+                },
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        { key: '$lib', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
+                    ] as AnyPropertyFilter[],
+                },
+            ],
+        }
+        expect(convertPropertyGroupToProperties(propertyGroup)).toEqual([
+            { key: '$browser', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
+            { key: '$current_url', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
+            { key: '$lib', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
+        ])
+    })
+
+    it('converts a deeply nested property group into an array of properties', () => {
+        const propertyGroup: PropertyGroupFilter = {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.And, values: [{ key: '$lib' } as any] }],
+                },
+                { type: FilterLogicalOperator.And, values: [{ key: '$browser' } as any] },
+            ],
+        }
+        expect(convertPropertyGroupToProperties(propertyGroup)).toEqual([{ key: '$lib' }, { key: '$browser' }])
+    })
+})
+
+describe('convertPropertiesToPropertyGroup', () => {
+    it('converts properties to one AND operator property group', () => {
+        const properties: any[] = [{ key: '$lib' }, { key: '$browser' }, { key: '$current_url' }]
+        expect(convertPropertiesToPropertyGroup(properties)).toEqual({
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [{ key: '$lib' }, { key: '$browser' }, { key: '$current_url' }],
+                },
+            ],
+        })
+    })
+
+    it('converts properties to one AND operator property group', () => {
+        expect(convertPropertiesToPropertyGroup(undefined)).toEqual({
+            type: FilterLogicalOperator.And,
+            values: [],
+        })
     })
 })

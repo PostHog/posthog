@@ -1,22 +1,24 @@
+import { IconInfo } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { IconCheckmark, IconDelete, IconExclamation, IconWarning, IconLock, IconOffline } from 'lib/lemon-ui/icons'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { OrganizationDomainType } from '~/types'
-import { verifiedDomainsLogic } from './verifiedDomainsLogic'
+import { IconCheckmark, IconDelete, IconExclamation, IconLock, IconOffline, IconWarning } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { AddDomainModal } from './AddDomainModal'
-import { SSOSelect } from './SSOSelect'
-import { VerifyDomainModal } from './VerifyDomainModal'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { Link } from 'lib/lemon-ui/Link'
-import { UPGRADE_LINK } from 'lib/constants'
-import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
-import { ConfigureSAMLModal } from './ConfigureSAMLModal'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { IconInfo } from '@posthog/icons'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { urls } from 'scenes/urls'
+
+import { OrganizationDomainType } from '~/types'
+
+import { AddDomainModal } from './AddDomainModal'
+import { ConfigureSAMLModal } from './ConfigureSAMLModal'
+import { SSOSelect } from './SSOSelect'
+import { verifiedDomainsLogic } from './verifiedDomainsLogic'
+import { VerifyDomainModal } from './VerifyDomainModal'
 
 const iconStyle = { marginRight: 4, fontSize: '1.15em', paddingTop: 2 }
 
@@ -140,11 +142,7 @@ function VerifiedDomainsTable(): JSX.Element {
             render: function SSOEnforcement(_, { sso_enforcement, is_verified, id, has_saml }, index) {
                 if (!isSSOEnforcementAvailable) {
                     return index === 0 ? (
-                        <Link
-                            to={UPGRADE_LINK(preflight?.cloud).url}
-                            target={UPGRADE_LINK(preflight?.cloud).target}
-                            className="flex items-center"
-                        >
+                        <Link to={urls.organizationBilling()} className="flex items-center">
                             <IconLock style={{ color: 'var(--warning)', marginLeft: 4 }} /> Upgrade to enable SSO
                             enforcement
                         </Link>
@@ -170,11 +168,7 @@ function VerifiedDomainsTable(): JSX.Element {
             render: function SAML(_, { is_verified, saml_acs_url, saml_entity_id, saml_x509_cert, has_saml }, index) {
                 if (!isSAMLAvailable) {
                     return index === 0 ? (
-                        <Link
-                            to={UPGRADE_LINK(preflight?.cloud).url}
-                            target={UPGRADE_LINK(preflight?.cloud).target}
-                            className="flex items-center"
-                        >
+                        <Link to={urls.organizationBilling()} className="flex items-center">
                             <IconLock style={{ color: 'var(--warning)', marginLeft: 4 }} /> Upgrade to enable SAML
                         </Link>
                     ) : (
@@ -212,7 +206,6 @@ function VerifiedDomainsTable(): JSX.Element {
                         overlay={
                             <>
                                 <LemonButton
-                                    status="stealth"
                                     onClick={() => setConfigureSAMLModalId(id)}
                                     fullWidth
                                     disabled={!isSAMLAvailable}

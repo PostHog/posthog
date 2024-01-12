@@ -1,6 +1,7 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { Lettermark, LettermarkColor, LettermarkProps } from './Lettermark'
 import { range } from 'lib/utils'
+
+import { Lettermark, LettermarkColor, LettermarkProps } from './Lettermark'
 
 type Story = StoryObj<typeof Lettermark>
 const meta: Meta<typeof Lettermark> = {

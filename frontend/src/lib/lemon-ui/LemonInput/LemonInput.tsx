@@ -1,8 +1,9 @@
 import './LemonInput.scss'
-import React, { useRef, useState } from 'react'
+
 import clsx from 'clsx'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconClose, IconEyeHidden, IconEyeVisible, IconMagnifier } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import React, { useRef, useState } from 'react'
 
 interface LemonInputPropsBase
     extends Pick<
@@ -108,7 +109,6 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                 size="small"
                 noPadding
                 icon={passwordVisible ? <IconEyeHidden /> : <IconEyeVisible />}
-                status="primary-alt"
                 tooltip={passwordVisible ? 'Hide password' : 'Show password'}
                 onClick={(e) => {
                     e.stopPropagation()
@@ -125,7 +125,6 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                 size="small"
                 noPadding
                 icon={<IconClose />}
-                status="primary-alt"
                 tooltip="Clear input"
                 onClick={(e) => {
                     e.stopPropagation()

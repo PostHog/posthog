@@ -11,8 +11,8 @@ import { retryOnDependencyUnavailableError } from '../../../../kafka/error-handl
 import { createKafkaProducer, disconnectProducer, flushProducer, produce } from '../../../../kafka/producer'
 import { PluginsServerConfig } from '../../../../types'
 import { status } from '../../../../utils/status'
-import { createSessionReplayEvent } from '../../../../worker/ingestion/process-event'
 import { eventDroppedCounter } from '../../metrics'
+import { createSessionReplayEvent } from '../process-event'
 import { IncomingRecordingMessage } from '../types'
 import { OffsetHighWaterMarker } from './offset-high-water-marker'
 
@@ -80,25 +80,13 @@ export class ReplayEventsIngester {
     }
 
     public async consume(event: IncomingRecordingMessage): Promise<Promise<number | null | undefined>[] | void> {
-        const logDebug = (text: string, labels: Record<string, any> = {}) =>
-            status.debug('⚠️', `[replay-events] ${text}`, {
-                offset: event.metadata.offset,
-                partition: event.metadata.partition,
-                ...labels,
-            })
-
-        const drop = (reason: string, labels: Record<string, any> = {}) => {
+        const drop = (reason: string) => {
             eventDroppedCounter
                 .labels({
                     event_type: 'session_recordings_replay_events',
                     drop_cause: reason,
                 })
                 .inc()
-
-            logDebug(reason, {
-                reason,
-                ...labels,
-            })
         }
 
         if (!this.producer) {
@@ -121,7 +109,8 @@ export class ReplayEventsIngester {
                 event.team_id,
                 event.distinct_id,
                 event.session_id,
-                event.events
+                event.events,
+                event.snapshot_source
             )
 
             try {

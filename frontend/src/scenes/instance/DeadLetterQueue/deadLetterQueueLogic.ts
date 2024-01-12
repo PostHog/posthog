@@ -1,10 +1,10 @@
-import { SystemStatusRow } from './../../../types'
-import api from 'lib/api'
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
 
+import { SystemStatusRow } from './../../../types'
 import type { deadLetterQueueLogicType } from './deadLetterQueueLogicType'
-import { loaders } from 'kea-loaders'
 export type TabName = 'overview' | 'internal_metrics'
 
 export enum DeadLetterQueueTab {

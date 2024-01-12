@@ -1,12 +1,12 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { NotebookNodeType, SessionRecordingId, SessionRecordingType } from '~/types'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { sidePanelCanvasLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelCanvasLogic'
+import { NotebookNodeType, SessionRecordingId, SessionRecordingType } from '~/types'
 
 import type { sessionPlayerModalLogicType } from './sessionPlayerModalLogicType'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { sidePanelCanvasLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelCanvasLogic'
-import { list } from 'postcss'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 interface HashParams {
     sessionRecordingId?: SessionRecordingId
@@ -51,10 +51,7 @@ export const sessionPlayerModalLogic = kea<sessionPlayerModalLogicType>([
     }),
 
     selectors({
-        isSidepanelEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags) => featureFlags[FEATURE_FLAGS.POSTHOG_3000] && featureFlags[FEATURE_FLAGS.NOTEBOOKS],
-        ],
+        isSidepanelEnabled: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.SIDEPANEL_CANVAS]],
     }),
 
     listeners(({ actions, values }) => ({

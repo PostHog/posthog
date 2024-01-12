@@ -11,6 +11,7 @@ from django.contrib.auth.tokens import (
     PasswordResetTokenGenerator as DefaultPasswordResetTokenGenerator,
 )
 from django.core.exceptions import ValidationError
+from django.core.signing import BadSignature
 from django.db import transaction
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
@@ -104,10 +105,15 @@ class LoginSerializer(serializers.Serializer):
         # If user has a valid 2FA cookie, use that instead of showing them the 2FA screen
         for key, value in self.context["request"].COOKIES.items():
             if key.startswith(REMEMBER_COOKIE_PREFIX) and value:
-                if validate_remember_device_cookie(value, user=user, otp_device_id=device.persistent_id):
-                    user.otp_device = device  # type: ignore
-                    device.throttle_reset()
-                    return False
+                try:
+                    if validate_remember_device_cookie(value, user=user, otp_device_id=device.persistent_id):
+                        user.otp_device = device  # type: ignore
+                        device.throttle_reset()
+                        return False
+                except BadSignature:
+                    # Workaround for signature mismatches due to Django upgrades.
+                    # See https://github.com/PostHog/posthog/issues/19350
+                    pass
         return True
 
     def create(self, validated_data: Dict[str, str]) -> Any:

@@ -1,12 +1,14 @@
 import { Meta, Story } from '@storybook/react'
-import { App } from 'scenes/App'
-import { useEffect } from 'react'
 import { router } from 'kea-router'
-import { mswDecorator } from '~/mocks/browser'
-import { AppMetricsResponse } from './appMetricsSceneLogic'
+import { useEffect } from 'react'
+import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
-import { AvailableFeature } from '~/types'
+
+import { mswDecorator } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
+import { AvailableFeature } from '~/types'
+
+import { AppMetricsResponse } from './appMetricsSceneLogic'
 
 const meta: Meta = {
     title: 'Scenes-App/Apps/App Metrics',

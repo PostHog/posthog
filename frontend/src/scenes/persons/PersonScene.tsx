@@ -1,41 +1,42 @@
-import { Dropdown, Menu } from 'antd'
+import './PersonScene.scss'
+
 // eslint-disable-next-line no-restricted-imports
 import { DownOutlined } from '@ant-design/icons'
+import { LemonButton, LemonDivider, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
+import { Dropdown, Menu } from 'antd'
 import { useActions, useValues } from 'kea'
-import { personsLogic } from './personsLogic'
-import { PersonDisplay } from './PersonDisplay'
-import './PersonScene.scss'
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { MergeSplitPerson } from './MergeSplitPerson'
-import { PersonCohorts } from './PersonCohorts'
+import { NotFound } from 'lib/components/NotFound'
+import { PageHeader } from 'lib/components/PageHeader'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { NotebookNodeType, PersonsTabType, PersonType, PropertyDefinitionType } from '~/types'
-import { PageHeader } from 'lib/components/PageHeader'
-import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
-import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
-import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { LemonButton, LemonDivider, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
-import { teamLogic } from 'scenes/teamLogic'
+import { IconInfo } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { NotFound } from 'lib/components/NotFound'
-import { RelatedFeatureFlags } from './RelatedFeatureFlags'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { RelatedGroups } from 'scenes/groups/RelatedGroups'
+import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
+import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
-import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { IconInfo } from 'lib/lemon-ui/icons'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { ActivityScope, NotebookNodeType, PersonsTabType, PersonType, PropertyDefinitionType } from '~/types'
+
+import { MergeSplitPerson } from './MergeSplitPerson'
+import { PersonCohorts } from './PersonCohorts'
 import { PersonDashboard } from './PersonDashboard'
-import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
-import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import PersonFeedCanvas from './PersonFeedCanvas'
+import { personsLogic } from './personsLogic'
+import { RelatedFeatureFlags } from './RelatedFeatureFlags'
 
 export const scene: SceneExport = {
     component: PersonScene,
@@ -135,7 +136,6 @@ export function PersonScene(): JSX.Element | null {
     return (
         <>
             <PageHeader
-                title={<PersonDisplay person={person} noLink withIcon={'lg'} noPopover />}
                 caption={<PersonCaption person={person} />}
                 notebookProps={
                     url

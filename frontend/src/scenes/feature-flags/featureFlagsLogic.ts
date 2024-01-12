@@ -1,13 +1,15 @@
-import { loaders } from 'kea-loaders'
-import { kea, props, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
-import api from 'lib/api'
 import Fuse from 'fuse.js'
-import type { featureFlagsLogicType } from './featureFlagsLogicType'
-import { Breadcrumb, FeatureFlagType } from '~/types'
-import { teamLogic } from '../teamLogic'
+import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
+import api from 'lib/api'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { router, actionToUrl, urlToAction } from 'kea-router'
-import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
+
+import { Breadcrumb, FeatureFlagType } from '~/types'
+
+import { teamLogic } from '../teamLogic'
+import type { featureFlagsLogicType } from './featureFlagsLogicType'
 
 export enum FeatureFlagsTab {
     OVERVIEW = 'overview',
@@ -17,16 +19,13 @@ export enum FeatureFlagsTab {
     USAGE = 'usage',
     PERMISSIONS = 'permissions',
     PROJECTS = 'projects',
+    SCHEDULE = 'schedule',
 }
 
 export interface FeatureFlagsFilters {
     active: string
-    created_by: string
+    created_by: number
     type: string
-}
-
-interface FeatureFlagCreators {
-    [id: string]: string
 }
 
 export interface FlagLogicProps {
@@ -133,7 +132,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     searchedFlags = searchedFlags.filter((flag) => (active === 'true' ? flag.active : !flag.active))
                 }
                 if (created_by) {
-                    searchedFlags = searchedFlags.filter((flag) => flag.created_by?.id === parseInt(created_by))
+                    searchedFlags = searchedFlags.filter((flag) => flag.created_by?.id === created_by)
                 }
                 if (type === 'boolean') {
                     searchedFlags = searchedFlags.filter(
@@ -154,28 +153,11 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             () => [],
             (): Breadcrumb[] => [
                 {
-                    name: 'Feature Flags',
+                    key: Scene.FeatureFlags,
+                    name: 'Feature flags',
                     path: urls.featureFlags(),
                 },
             ],
-        ],
-        uniqueCreators: [
-            (selectors) => [selectors.featureFlags],
-            (featureFlags) => {
-                const creators: FeatureFlagCreators = {}
-                for (const flag of featureFlags) {
-                    if (flag.created_by) {
-                        if (!creators[flag.created_by.id]) {
-                            creators[flag.created_by.id] = flag.created_by.first_name
-                        }
-                    }
-                }
-                const response: LemonSelectOption<string>[] = [
-                    { label: 'Any user', value: 'any' },
-                    ...Object.entries(creators).map(([id, first_name]) => ({ label: first_name, value: id })),
-                ]
-                return response
-            },
         ],
         shouldShowEmptyState: [
             (s) => [s.featureFlagsLoading, s.featureFlags],

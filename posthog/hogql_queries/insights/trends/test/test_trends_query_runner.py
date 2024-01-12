@@ -24,6 +24,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    also_test_with_materialized_columns,
 )
 
 
@@ -159,6 +160,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         series: Optional[List[EventsNode | ActionsNode]],
         trends_filters: Optional[TrendsFilter],
         breakdown: Optional[BreakdownFilter],
+        filter_test_accounts: Optional[bool],
     ) -> TrendsQueryRunner:
         query_series: List[EventsNode | ActionsNode] = [EventsNode(event="$pageview")] if series is None else series
         query = TrendsQuery(
@@ -167,6 +169,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             series=query_series,
             trendsFilter=trends_filters,
             breakdown=breakdown,
+            filterTestAccounts=filter_test_accounts,
         )
         return TrendsQueryRunner(team=self.team, query=query)
 
@@ -178,8 +181,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         series: Optional[List[EventsNode | ActionsNode]],
         trends_filters: Optional[TrendsFilter] = None,
         breakdown: Optional[BreakdownFilter] = None,
+        filter_test_accounts: Optional[bool] = None,
     ):
-        return self._create_query_runner(date_from, date_to, interval, series, trends_filters, breakdown).calculate()
+        return self._create_query_runner(
+            date_from, date_to, interval, series, trends_filters, breakdown, filter_test_accounts
+        ).calculate()
 
     def test_trends_query_label(self):
         self._create_test_events()
@@ -418,16 +424,18 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         breakdown_labels = [result["breakdown_value"] for result in response.results]
 
-        assert len(response.results) == 4
-        assert breakdown_labels == ["Chrome", "Edge", "Firefox", "Safari"]
-        assert response.results[0]["label"] == f"$pageview - Chrome"
-        assert response.results[1]["label"] == f"$pageview - Edge"
-        assert response.results[2]["label"] == f"$pageview - Firefox"
-        assert response.results[3]["label"] == f"$pageview - Safari"
+        assert len(response.results) == 5
+        assert breakdown_labels == ["Chrome", "Firefox", "Edge", "Safari", "$$_posthog_breakdown_other_$$"]
+        assert response.results[0]["label"] == "Chrome"
+        assert response.results[1]["label"] == "Firefox"
+        assert response.results[2]["label"] == "Edge"
+        assert response.results[3]["label"] == "Safari"
+        assert response.results[4]["label"] == "$$_posthog_breakdown_other_$$"
         assert response.results[0]["count"] == 6
-        assert response.results[1]["count"] == 1
-        assert response.results[2]["count"] == 2
+        assert response.results[1]["count"] == 2
+        assert response.results[2]["count"] == 1
         assert response.results[3]["count"] == 1
+        assert response.results[4]["count"] == 0
 
     def test_trends_breakdowns_boolean(self):
         self._create_test_events()
@@ -443,14 +451,16 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         breakdown_labels = [result["breakdown_value"] for result in response.results]
 
-        assert len(response.results) == 2
-        assert breakdown_labels == ["false", "true"]
+        assert len(response.results) == 3
+        assert breakdown_labels == ["true", "false", "$$_posthog_breakdown_other_$$"]
 
-        assert response.results[0]["label"] == f"$pageview - false"
-        assert response.results[1]["label"] == f"$pageview - true"
+        assert response.results[0]["label"] == f"$pageview - true"
+        assert response.results[1]["label"] == f"$pageview - false"
+        assert response.results[2]["label"] == f"$pageview - Other"
 
-        assert response.results[0]["count"] == 3
-        assert response.results[1]["count"] == 7
+        assert response.results[0]["count"] == 7
+        assert response.results[1]["count"] == 3
+        assert response.results[2]["count"] == 0
 
     def test_trends_breakdowns_histogram(self):
         self._create_test_events()
@@ -471,25 +481,19 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         breakdown_labels = [result["breakdown_value"] for result in response.results]
 
         assert len(response.results) == 5
-        assert breakdown_labels == [
-            '["",""]',
-            "[10.0,17.5]",
-            "[17.5,25.0]",
-            "[25.0,32.5]",
-            "[32.5,40.01]",
-        ]
+        assert breakdown_labels == ["[10.0,17.5]", "[17.5,25.0]", "[25.0,32.5]", "[32.5,40.01]", '["",""]']
 
-        assert response.results[0]["label"] == '$pageview - ["",""]'
-        assert response.results[1]["label"] == "$pageview - [10.0,17.5]"
-        assert response.results[2]["label"] == "$pageview - [17.5,25.0]"
-        assert response.results[3]["label"] == "$pageview - [25.0,32.5]"
-        assert response.results[4]["label"] == "$pageview - [32.5,40.01]"
+        assert response.results[0]["label"] == "[10.0,17.5]"
+        assert response.results[1]["label"] == "[17.5,25.0]"
+        assert response.results[2]["label"] == "[25.0,32.5]"
+        assert response.results[3]["label"] == "[32.5,40.01]"
+        assert response.results[4]["label"] == '["",""]'
 
-        assert response.results[0]["data"] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-        assert response.results[1]["data"] == [0, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0]
-        assert response.results[2]["data"] == [1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]
-        assert response.results[3]["data"] == [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]
-        assert response.results[4]["data"] == [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]
+        assert response.results[0]["data"] == [0, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0]
+        assert response.results[1]["data"] == [1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]
+        assert response.results[2]["data"] == [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]
+        assert response.results[3]["data"] == [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]
+        assert response.results[4]["data"] == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 
     def test_trends_breakdowns_cohort(self):
         self._create_test_events()
@@ -552,16 +556,66 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         breakdown_labels = [result["breakdown_value"] for result in response.results]
 
-        assert len(response.results) == 4
-        assert breakdown_labels == ["Chrome", "Edge", "Firefox", "Safari"]
-        assert response.results[0]["label"] == f"$pageview - Chrome"
-        assert response.results[1]["label"] == f"$pageview - Edge"
-        assert response.results[2]["label"] == f"$pageview - Firefox"
-        assert response.results[3]["label"] == f"$pageview - Safari"
+        assert len(response.results) == 5
+        assert breakdown_labels == ["Chrome", "Firefox", "Edge", "Safari", "$$_posthog_breakdown_other_$$"]
+        assert response.results[0]["label"] == "Chrome"
+        assert response.results[1]["label"] == "Firefox"
+        assert response.results[2]["label"] == "Edge"
+        assert response.results[3]["label"] == "Safari"
+        assert response.results[4]["label"] == "$$_posthog_breakdown_other_$$"
         assert response.results[0]["count"] == 6
-        assert response.results[1]["count"] == 1
-        assert response.results[2]["count"] == 2
+        assert response.results[1]["count"] == 2
+        assert response.results[2]["count"] == 1
         assert response.results[3]["count"] == 1
+        assert response.results[4]["count"] == 0
+
+    def test_trends_breakdowns_multiple_hogql(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            None,
+            BreakdownFilter(breakdown_type=BreakdownType.hogql, breakdown="properties.$browser"),
+        )
+
+        breakdown_labels = [result["breakdown_value"] for result in response.results]
+
+        assert len(response.results) == 10
+        assert breakdown_labels == [
+            "Chrome",
+            "Firefox",
+            "Edge",
+            "Safari",
+            "$$_posthog_breakdown_other_$$",
+            "Chrome",
+            "Edge",
+            "Firefox",
+            "Safari",
+            "$$_posthog_breakdown_other_$$",
+        ]
+        assert response.results[0]["label"] == f"$pageview - Chrome"
+        assert response.results[1]["label"] == f"$pageview - Firefox"
+        assert response.results[2]["label"] == f"$pageview - Edge"
+        assert response.results[3]["label"] == f"$pageview - Safari"
+        assert response.results[4]["label"] == f"$pageview - $$_posthog_breakdown_other_$$"
+        assert response.results[5]["label"] == f"$pageleave - Chrome"
+        assert response.results[6]["label"] == f"$pageleave - Edge"
+        assert response.results[7]["label"] == f"$pageleave - Firefox"
+        assert response.results[8]["label"] == f"$pageleave - Safari"
+        assert response.results[9]["label"] == f"$pageleave - $$_posthog_breakdown_other_$$"
+        assert response.results[0]["count"] == 6
+        assert response.results[1]["count"] == 2
+        assert response.results[2]["count"] == 1
+        assert response.results[3]["count"] == 1
+        assert response.results[4]["count"] == 0
+        assert response.results[5]["count"] == 3
+        assert response.results[6]["count"] == 1
+        assert response.results[7]["count"] == 1
+        assert response.results[8]["count"] == 1
+        assert response.results[9]["count"] == 0
 
     def test_trends_breakdowns_and_compare(self):
         self._create_test_events()
@@ -577,38 +631,48 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         breakdown_labels = [result["breakdown_value"] for result in response.results]
 
-        assert len(response.results) == 5
+        assert len(response.results) == 7
         assert breakdown_labels == [
             "Chrome",
             "Safari",
+            "$$_posthog_breakdown_other_$$",
             "Chrome",
-            "Edge",
             "Firefox",
+            "Edge",
+            "$$_posthog_breakdown_other_$$",
         ]
 
         assert response.results[0]["label"] == f"$pageview - Chrome"
         assert response.results[1]["label"] == f"$pageview - Safari"
-        assert response.results[2]["label"] == f"$pageview - Chrome"
-        assert response.results[3]["label"] == f"$pageview - Edge"
+        assert response.results[2]["label"] == f"$pageview - $$_posthog_breakdown_other_$$"
+        assert response.results[3]["label"] == f"$pageview - Chrome"
         assert response.results[4]["label"] == f"$pageview - Firefox"
+        assert response.results[5]["label"] == f"$pageview - Edge"
+        assert response.results[6]["label"] == f"$pageview - $$_posthog_breakdown_other_$$"
 
         assert response.results[0]["count"] == 3
         assert response.results[1]["count"] == 1
-        assert response.results[2]["count"] == 3
-        assert response.results[3]["count"] == 1
+        assert response.results[2]["count"] == 0
+        assert response.results[3]["count"] == 3
         assert response.results[4]["count"] == 2
+        assert response.results[5]["count"] == 1
+        assert response.results[6]["count"] == 0
 
         assert response.results[0]["compare_label"] == "current"
         assert response.results[1]["compare_label"] == "current"
-        assert response.results[2]["compare_label"] == "previous"
+        assert response.results[2]["compare_label"] == "current"
         assert response.results[3]["compare_label"] == "previous"
         assert response.results[4]["compare_label"] == "previous"
+        assert response.results[5]["compare_label"] == "previous"
+        assert response.results[6]["compare_label"] == "previous"
 
         assert response.results[0]["compare"] is True
         assert response.results[1]["compare"] is True
         assert response.results[2]["compare"] is True
         assert response.results[3]["compare"] is True
         assert response.results[4]["compare"] is True
+        assert response.results[5]["compare"] is True
+        assert response.results[6]["compare"] is True
 
     def test_trends_breakdown_and_aggregation_query_orchestration(self):
         self._create_test_events()
@@ -624,12 +688,13 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         breakdown_labels = [result["breakdown_value"] for result in response.results]
 
-        assert len(response.results) == 4
-        assert breakdown_labels == ["Chrome", "Edge", "Firefox", "Safari"]
-        assert response.results[0]["label"] == f"$pageview - Chrome"
-        assert response.results[1]["label"] == f"$pageview - Edge"
-        assert response.results[2]["label"] == f"$pageview - Firefox"
-        assert response.results[3]["label"] == f"$pageview - Safari"
+        assert len(response.results) == 5
+        assert breakdown_labels == ["Chrome", "Firefox", "Safari", "Edge", "$$_posthog_breakdown_other_$$"]
+        assert response.results[0]["label"] == "Chrome"
+        assert response.results[1]["label"] == "Firefox"
+        assert response.results[2]["label"] == "Safari"
+        assert response.results[3]["label"] == "Edge"
+        assert response.results[4]["label"] == "$$_posthog_breakdown_other_$$"
 
         assert response.results[0]["data"] == [
             0,
@@ -646,6 +711,34 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             0,
         ]
         assert response.results[1]["data"] == [
+            20,
+            0,
+            0,
+            20,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+        ]
+        assert response.results[2]["data"] == [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            40,
+            0,
+            0,
+            0,
+            0,
+            0,
+        ]
+        assert response.results[3]["data"] == [
             0,
             0,
             0,
@@ -659,11 +752,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             0,
             0,
         ]
-        assert response.results[2]["data"] == [
-            20,
-            0,
-            0,
-            20,
+        assert response.results[4]["data"] == [
             0,
             0,
             0,
@@ -671,16 +760,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             0,
             0,
             0,
-            0,
-        ]
-        assert response.results[3]["data"] == [
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            40,
             0,
             0,
             0,
@@ -889,7 +968,20 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         assert len(response.results) == 1
         assert response.results[0]["data"] == []
-        assert response.results[0]["days"] == []
+        assert response.results[0]["days"] == [
+            "2020-01-09",
+            "2020-01-10",
+            "2020-01-11",
+            "2020-01-12",
+            "2020-01-13",
+            "2020-01-14",
+            "2020-01-15",
+            "2020-01-16",
+            "2020-01-17",
+            "2020-01-18",
+            "2020-01-19",
+            "2020-01-20",
+        ]
         assert response.results[0]["count"] == 0
         assert response.results[0]["aggregated_value"] == 10
 
@@ -906,6 +998,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert len(response.results) == 1
+        assert response.results[0]["count"] == 10
         assert response.results[0]["data"] == [
             1,
             1,
@@ -920,3 +1013,148 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             10,
             10,
         ]
+
+    def test_breakdown_values_limit(self):
+        PropertyDefinition.objects.create(team=self.team, name="breakdown_value", property_type="String")
+
+        for value in list(range(30)):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"person_{value}",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"breakdown_value": f"{value}"},
+            )
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.ActionsLineGraph),
+            BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.event),
+        )
+
+        assert len(response.results) == 25
+
+    def test_breakdown_values_world_map_limit(self):
+        PropertyDefinition.objects.create(team=self.team, name="breakdown_value", property_type="String")
+
+        for value in list(range(30)):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"person_{value}",
+                timestamp="2020-01-11T12:00:00Z",
+                properties={"breakdown_value": f"{value}"},
+            )
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.WorldMap),
+            BreakdownFilter(breakdown="breakdown_value", breakdown_type=BreakdownType.event),
+        )
+
+        assert len(response.results) == 30
+
+    def test_previous_period_with_number_display(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.BoldNumber, compare=True),
+            None,
+        )
+
+        assert len(response.results) == 2
+
+    def test_trends_query_formula_rounding(self):
+        _create_event(
+            team=self.team,
+            event="$pageleave",
+            distinct_id="person_1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="person_2",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="person_3",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="person_4",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={},
+        )
+
+        response = self._run_trends_query(
+            "2020-01-11T00:00:00Z",
+            "2020-01-11T23:59:59Z",
+            IntervalType.day,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            TrendsFilter(formula="B/A"),
+        )
+
+        self.assertEqual(1, len(response.results))
+        self.assertEqual([1 / 3], response.results[0]["data"])
+
+    @also_test_with_materialized_columns(["$some_property"])
+    def test_properties_filtering_with_materialized_columns_and_empty_string_as_property(self):
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="person_1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"$some_property": ""},
+        )
+
+        self.team.test_account_filters = [
+            {
+                "key": "$some_property",
+                "value": ["other_value", "yet_another_value"],
+                "operator": "is_not",
+                "type": "event",
+            },
+        ]
+        self.team.save()
+
+        response = self._run_trends_query(
+            date_from="2020-01-11T00:00:00Z",
+            date_to="2020-01-11T23:59:59Z",
+            interval=IntervalType.day,
+            series=[EventsNode(event="$pageview")],
+            filter_test_accounts=True,
+        )
+
+        assert response.results[0]["data"] == [1]
+
+    def test_smoothing(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.day,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(smoothing_intervals=7),
+            None,
+        )
+
+        assert response.results[0]["data"] == [1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0]

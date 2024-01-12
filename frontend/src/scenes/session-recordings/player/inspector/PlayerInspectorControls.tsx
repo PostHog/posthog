@@ -1,22 +1,24 @@
-import { LemonButton, LemonInput, LemonSelect, LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
-import { useValues, useActions } from 'kea'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import {
-    IconInfo,
-    IconSchedule,
-    IconPlayCircle,
     IconGauge,
+    IconInfo,
+    IconPause,
+    IconPlayCircle,
+    IconSchedule,
     IconTerminal,
     IconUnverifiedEvent,
-    IconPause,
 } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { SessionRecordingPlayerTab } from '~/types'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
+
+import { SessionRecordingPlayerTab } from '~/types'
+
 import { playerSettingsLogic } from '../playerSettingsLogic'
-import { SessionRecordingPlayerMode, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
-import { playerInspectorLogic } from './playerInspectorLogic'
+import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from '../sessionRecordingPlayerLogic'
 import { InspectorSearchInfo } from './components/InspectorSearchInfo'
+import { playerInspectorLogic } from './playerInspectorLogic'
 
 const TabToIcon = {
     [SessionRecordingPlayerTab.ALL]: undefined,
@@ -69,7 +71,6 @@ export function PlayerInspectorControls(): JSX.Element {
                                         )
                                     ) : undefined
                                 }
-                                status={tab === tabId ? 'primary' : 'primary-alt'}
                                 active={tab === tabId}
                                 onClick={() => setTab(tabId)}
                             >
@@ -81,7 +82,7 @@ export function PlayerInspectorControls(): JSX.Element {
 
                 <div className="flex items-center gap-2 flex-1">
                     <LemonInput
-                        className="min-w-40"
+                        className="min-w-[10rem]"
                         size="small"
                         onChange={(e) => setSearchQuery(e)}
                         placeholder="Search..."
@@ -135,7 +136,6 @@ export function PlayerInspectorControls(): JSX.Element {
                             key={filter.key}
                             size="small"
                             noPadding
-                            status="primary-alt"
                             active={filter.enabled}
                             onClick={() => {
                                 // "alone" should always be a select-to-true action
@@ -152,7 +152,6 @@ export function PlayerInspectorControls(): JSX.Element {
                     <LemonButton
                         size="small"
                         noPadding
-                        status="primary-alt"
                         onClick={() => setTimestampMode(timestampMode === 'absolute' ? 'relative' : 'absolute')}
                         tooltipPlacement="left"
                         tooltip={
@@ -170,8 +169,7 @@ export function PlayerInspectorControls(): JSX.Element {
                     <LemonButton
                         size="small"
                         noPadding
-                        status="primary-alt"
-                        type={syncScroll ? 'primary' : 'tertiary'}
+                        active={syncScroll}
                         onClick={() => {
                             // If the user has syncScrolling on but it is paused due to interacting with the Inspector, we want to resume it
                             if (syncScroll && syncScrollingPaused) {

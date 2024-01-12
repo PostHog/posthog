@@ -1,14 +1,17 @@
-import { SceneExport } from 'scenes/sceneTypes'
-import { SurveyAppearance } from './SurveyAppearance'
-import { defaultSurveyTemplates, defaultSurveyAppearance } from './constants'
-import { SurveyQuestion } from '~/types'
 import './SurveyTemplates.scss'
+
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonButton } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
-import { surveyLogic } from './surveyLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { SurveyQuestion } from '~/types'
+
+import { defaultSurveyAppearance, defaultSurveyTemplates } from './constants'
+import { SurveyAppearance } from './SurveyAppearance'
+import { surveyLogic } from './surveyLogic'
 
 export const scene: SceneExport = {
     component: SurveyTemplates,
@@ -21,14 +24,13 @@ export function SurveyTemplates(): JSX.Element {
     return (
         <>
             <PageHeader
-                title={'New survey'}
                 buttons={
                     <LemonButton type="primary" to={urls.survey('new')} data-attr="new-blank-survey">
                         Create blank survey
                     </LemonButton>
                 }
             />
-            <div className="flex flex-row flex-wrap gap-8 justify-center mt-8">
+            <div className="flex flex-row flex-wrap gap-8 mt-8">
                 {defaultSurveyTemplates.map((template, idx) => {
                     return (
                         <div
@@ -37,15 +39,15 @@ export function SurveyTemplates(): JSX.Element {
                             key={idx}
                             onClick={() => {
                                 setSurveyTemplateValues({
-                                    name: template.type,
+                                    name: template.templateType,
                                     questions: template.questions,
                                     appearance: { ...defaultSurveyAppearance, ...template.appearance },
                                 })
-                                reportSurveyTemplateClicked(template.type)
+                                reportSurveyTemplateClicked(template.templateType)
                             }}
                         >
                             <span className="text-md">
-                                <b>{template.type}</b>
+                                <b>{template.templateType}</b>
                             </span>
                             <span className="flex flex-wrap text-xs text-muted max-w-80 font-medium mb-3">
                                 {template.description}
@@ -54,8 +56,7 @@ export function SurveyTemplates(): JSX.Element {
                                 <div className="SurveyTemplate">
                                     <SurveyAppearance
                                         key={idx}
-                                        type={template.questions[0].type}
-                                        question={template.questions[0].question}
+                                        surveyType={template.type}
                                         appearance={{
                                             ...defaultSurveyAppearance,
                                             whiteLabel: true,

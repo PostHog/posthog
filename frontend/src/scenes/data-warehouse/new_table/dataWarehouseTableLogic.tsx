@@ -1,18 +1,21 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { kea, path, props, listeners, reducers, actions, selectors, connect } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import api from 'lib/api'
-import { urls } from 'scenes/urls'
-import { AnyPropertyFilter, Breadcrumb, DataWarehouseTable } from '~/types'
-import { DataTableNode } from '~/queries/schema'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import type { dataWarehouseTableLogicType } from './dataWarehouseTableLogicType'
+import { urls } from 'scenes/urls'
+
+import { DataTableNode } from '~/queries/schema'
+import { AnyPropertyFilter, Breadcrumb, DataWarehouseTable } from '~/types'
+
 import { dataWarehouseSceneLogic } from '../external/dataWarehouseSceneLogic'
+import type { dataWarehouseTableLogicType } from './dataWarehouseTableLogicType'
 
 export interface TableLogicProps {
-    id: string | 'new'
+    /** A UUID or 'new'. */
+    id: string
 }
 
 const NEW_WAREHOUSE_TABLE: DataWarehouseTable = {
@@ -99,10 +102,7 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
             () => [],
             (): Breadcrumb[] => [
                 {
-                    name: `Data Warehouse`,
-                    path: urls.dataWarehouseExternal(),
-                },
-                {
+                    key: 'new',
                     name: 'New',
                 },
             ],

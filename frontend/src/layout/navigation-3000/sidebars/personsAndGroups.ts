@@ -1,19 +1,21 @@
+import { urls } from '@posthog/apps-common'
 import { afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { combineUrl } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
+import { groupsListLogic, GroupsPaginatedResponse } from 'scenes/groups/groupsListLogic'
+import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
+import { asDisplay, asLink } from 'scenes/persons/person-utils'
+import { personsLogic } from 'scenes/persons/personsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
-import type { personsAndGroupsSidebarLogicType } from './personsAndGroupsType'
-import { personsLogic } from 'scenes/persons/personsLogic'
-import { subscriptions } from 'kea-subscriptions'
-import { navigation3000Logic } from '../navigationLogic'
-import { SidebarCategory, BasicListItem } from '../types'
-import { urls } from '@posthog/apps-common'
-import { findSearchTermInItemName } from './utils'
+
 import { groupsModel } from '~/models/groupsModel'
-import { GroupsPaginatedResponse, groupsListLogic } from 'scenes/groups/groupsListLogic'
-import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
-import { combineUrl } from 'kea-router'
 import { PersonType } from '~/types'
-import { asDisplay, asLink } from 'scenes/persons/person-utils'
+
+import { navigation3000Logic } from '../navigationLogic'
+import { BasicListItem, SidebarCategory } from '../types'
+import type { personsAndGroupsSidebarLogicType } from './personsAndGroupsType'
+import { findSearchTermInItemName } from './utils'
 
 export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType>([
     path(['layout', 'navigation-3000', 'sidebars', 'personsAndGroupsSidebarLogic']),
@@ -98,16 +100,17 @@ export const personsAndGroupsSidebarLogic = kea<personsAndGroupsSidebarLogicType
                                     groupType.name_singular || `${groupType.group_type} group`,
                                     groupType.name_plural || `${groupType.group_type} groups`,
                                 ],
-                                items: groups[groupType.group_type_index].results.map((group) => {
-                                    const { searchTerm } = values
-                                    const displayId = groupDisplayId(group.group_key, group.group_properties)
-                                    return {
-                                        key: group.group_key,
-                                        name: displayId,
-                                        url: urls.group(groupType.group_type_index, group.group_key),
-                                        searchMatch: findSearchTermInItemName(displayId, searchTerm),
-                                    } as BasicListItem
-                                }),
+                                items:
+                                    groups[groupType.group_type_index]?.results.map((group) => {
+                                        const { searchTerm } = values
+                                        const displayId = groupDisplayId(group.group_key, group.group_properties)
+                                        return {
+                                            key: group.group_key,
+                                            name: displayId,
+                                            url: urls.group(groupType.group_type_index, group.group_key),
+                                            searchMatch: findSearchTermInItemName(displayId, searchTerm),
+                                        } as BasicListItem
+                                    }) || [],
                                 loading: groupsLoading[groupType.group_type_index],
                                 // FIXME: Add remote
                             } as SidebarCategory)

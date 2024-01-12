@@ -1,11 +1,12 @@
-import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import { LemonButton, Link } from '@posthog/lemon-ui'
-import { SceneExport } from 'scenes/sceneTypes'
-import { PageHeader } from 'lib/components/PageHeader'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { PageHeader } from 'lib/components/PageHeader'
+import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+
 import { DatawarehouseTableForm } from './DataWarehouseTableForm'
+import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 
 export const scene: SceneExport = {
     component: DataWarehouseTable,
@@ -17,7 +18,6 @@ export function DataWarehouseTable(): JSX.Element {
     return (
         <>
             <PageHeader
-                title={'New table'}
                 buttons={
                     <div className="flex items-center gap-2">
                         <LemonButton

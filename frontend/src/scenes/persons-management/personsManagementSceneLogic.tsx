@@ -1,18 +1,19 @@
+import { LemonButton } from '@posthog/lemon-ui'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { LemonTab } from 'lib/lemon-ui/LemonTabs'
-import { Breadcrumb } from '~/types'
-import { capitalizeFirstLetter } from 'lib/utils'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
+import { LemonTab } from 'lib/lemon-ui/LemonTabs'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { Cohorts } from 'scenes/cohorts/Cohorts'
+import { Groups } from 'scenes/groups/Groups'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
-import { Persons } from './tabs/Persons'
-import { Cohorts } from 'scenes/cohorts/Cohorts'
-import { LemonButton } from '@posthog/lemon-ui'
+import { Breadcrumb } from '~/types'
 
 import type { personsManagementSceneLogicType } from './personsManagementSceneLogicType'
-import { Groups } from 'scenes/groups/Groups'
+import { Persons } from './tabs/Persons'
 
 export type PersonsManagementTab = {
     key: string
@@ -51,7 +52,7 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
                     {
                         key: 'persons',
                         url: urls.persons(),
-                        label: 'Persons',
+                        label: 'People',
                         content: <Persons />,
                     },
                     {
@@ -65,7 +66,7 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
                                 data-attr="new-cohort"
                                 onClick={() => router.actions.push(urls.cohort('new'))}
                             >
-                                New Cohort
+                                New cohort
                             </LemonButton>
                         ),
                     },
@@ -94,7 +95,7 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
                     ...(showGroupsIntroductionPage
                         ? [
                               {
-                                  key: 'groups-intro',
+                                  key: 'groups-0',
                                   label: 'Groups',
                                   url: urls.groups(0),
                                   content: <Groups groupTypeIndex={0} />,
@@ -116,15 +117,18 @@ export const personsManagementSceneLogic = kea<personsManagementSceneLogicType>(
             (tabs, activeTab): Breadcrumb[] => {
                 return [
                     {
+                        key: Scene.PersonsManagement,
                         name: `People`,
                         path: tabs[0].url,
                     },
                     activeTab
                         ? {
+                              key: activeTab.key,
                               name: activeTab.label,
                               path: activeTab.url,
                           }
                         : {
+                              key: 'loading',
                               name: 'Loading...',
                           },
                 ]

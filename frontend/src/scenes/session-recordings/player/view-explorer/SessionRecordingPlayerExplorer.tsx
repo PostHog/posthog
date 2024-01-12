@@ -1,8 +1,9 @@
+import './SessionRecordingPlayerExplorer.scss'
+
 import { LemonButton } from '@posthog/lemon-ui'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { useState } from 'react'
-import './SessionRecordingPlayerExplorer.scss'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { useState } from 'react'
 
 export type SessionRecordingPlayerExplorerProps = {
     html: string

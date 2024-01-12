@@ -1,43 +1,54 @@
-import { Card, Col, Popconfirm, Progress, Row, Skeleton, Tooltip } from 'antd'
+import './Experiment.scss'
+
+import {
+    LemonDivider,
+    LemonInput,
+    LemonSelect,
+    LemonSkeleton,
+    LemonTag,
+    LemonTagType,
+    LemonTextArea,
+    Tooltip,
+} from '@posthog/lemon-ui'
+import { Popconfirm, Progress } from 'antd'
+import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { Form, Group } from 'kea-forms'
+import { router } from 'kea-router'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { EditableField } from 'lib/components/EditableField/EditableField'
+import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
+import { dayjs } from 'lib/dayjs'
+import { Field } from 'lib/forms/Field'
+import { IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
+import { Link } from 'lib/lemon-ui/Link'
+import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { useEffect, useState } from 'react'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { AvailableFeature, Experiment as ExperimentType, FunnelStep, InsightType } from '~/types'
-import './Experiment.scss'
-import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
-import { IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
-// eslint-disable-next-line no-restricted-imports
-import { CloseOutlined } from '@ant-design/icons'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { dayjs } from 'lib/dayjs'
-import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
-import { SecondaryMetrics } from './SecondaryMetrics'
-import { EditableField } from 'lib/components/EditableField/EditableField'
-import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
-import { ExperimentPreview } from './ExperimentPreview'
-import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { router } from 'kea-router'
-import { LemonDivider, LemonInput, LemonSelect, LemonTag, LemonTagType, LemonTextArea } from '@posthog/lemon-ui'
-import { NotFound } from 'lib/components/NotFound'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { Form, Group } from 'kea-forms'
-import { Field } from 'lib/forms/Field'
-import { userLogic } from 'scenes/userLogic'
-import { ExperimentsPayGate } from './ExperimentsPayGate'
-import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
-import { EXPERIMENT_INSIGHT_ID } from './constants'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { Query } from '~/queries/Query/Query'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
-import { ExperimentInsightCreator } from './MetricSelector'
-import { More } from 'lib/lemon-ui/LemonButton/More'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { Query } from '~/queries/Query/Query'
+import { AvailableFeature, Experiment as ExperimentType, FunnelStep, InsightType } from '~/types'
+
+import { EXPERIMENT_INSIGHT_ID } from './constants'
+import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
+import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
+import { ExperimentPreview } from './ExperimentPreview'
 import { ExperimentResult } from './ExperimentResult'
 import { getExperimentStatus, getExperimentStatusColor } from './experimentsLogic'
+import { ExperimentsPayGate } from './ExperimentsPayGate'
+import { ExperimentInsightCreator } from './MetricSelector'
+import { SecondaryMetrics } from './SecondaryMetrics'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -139,14 +150,14 @@ export function Experiment(): JSX.Element {
     if (!hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
         return (
             <>
-                <PageHeader title="Experiments" />
+                <PageHeader />
                 <ExperimentsPayGate />
             </>
         )
     }
 
     if (experimentLoading) {
-        return <Skeleton active />
+        return <LoadingState />
     }
 
     if (experimentMissing) {
@@ -158,15 +169,14 @@ export function Experiment(): JSX.Element {
             {experimentId === 'new' || editingExistingExperiment ? (
                 <>
                     <Form
+                        id="experiment"
                         logic={experimentLogic}
                         formKey="experiment"
                         props={props}
-                        id="experiment-form"
                         enableFormOnSubmit
                         className="space-y-4 experiment-form"
                     >
                         <PageHeader
-                            title={editingExistingExperiment ? 'Edit experiment' : 'New experiment'}
                             buttons={
                                 <div className="flex items-center gap-2">
                                     <LemonButton
@@ -189,7 +199,7 @@ export function Experiment(): JSX.Element {
                                         data-attr="save-experiment"
                                         htmlType="submit"
                                         loading={experimentLoading}
-                                        disabled={experimentLoading}
+                                        form="experiment"
                                     >
                                         {editingExistingExperiment ? 'Save' : 'Save as draft'}
                                     </LemonButton>
@@ -200,8 +210,7 @@ export function Experiment(): JSX.Element {
 
                         <BindLogic logic={insightLogic} props={insightProps}>
                             <>
-                                {/* eslint-disable-next-line react/forbid-dom-props */}
-                                <div className="flex flex-col gap-2" style={{ maxWidth: '50%' }}>
+                                <div className="flex flex-col gap-2 max-w-1/2">
                                     <Field name="name" label="Name">
                                         <LemonInput data-attr="experiment-name" />
                                     </Field>
@@ -226,7 +235,7 @@ export function Experiment(): JSX.Element {
                                         />
                                     </Field>
                                     {experiment.parameters.feature_flag_variants && (
-                                        <Col>
+                                        <div>
                                             <label>
                                                 <b>Experiment variants</b>
                                             </label>
@@ -236,21 +245,22 @@ export function Experiment(): JSX.Element {
                                                 may have at most 9 test groups. Variant names can only contain letters,
                                                 numbers, hyphens, and underscores.
                                             </div>
-                                            <Col className="variants">
-                                                {experiment.parameters.feature_flag_variants?.map((variant, index) => (
+                                            <div className="variants">
+                                                {experiment.parameters.feature_flag_variants?.map((_, index) => (
                                                     <Group
                                                         key={index}
                                                         name={['parameters', 'feature_flag_variants', index]}
                                                     >
-                                                        <Row
-                                                            key={`${variant}-${index}`}
-                                                            className={`feature-flag-variant ${
+                                                        <div
+                                                            key={`variant-${index}`}
+                                                            className={clsx(
+                                                                'feature-flag-variant',
                                                                 index === 0
                                                                     ? 'border-t'
                                                                     : index >= maxVariants
                                                                     ? 'border-b'
                                                                     : ''
-                                                            }`}
+                                                            )}
                                                         >
                                                             <div
                                                                 className="variant-label"
@@ -288,7 +298,6 @@ export function Experiment(): JSX.Element {
                                                                             placement="bottomLeft"
                                                                         >
                                                                             <LemonButton
-                                                                                status="primary-alt"
                                                                                 size="small"
                                                                                 icon={<IconDelete />}
                                                                                 onClick={() =>
@@ -298,7 +307,7 @@ export function Experiment(): JSX.Element {
                                                                         </Tooltip>
                                                                     )}
                                                             </div>
-                                                        </Row>
+                                                        </div>
                                                     </Group>
                                                 ))}
 
@@ -314,12 +323,12 @@ export function Experiment(): JSX.Element {
                                                             </LemonButton>
                                                         </div>
                                                     )}
-                                            </Col>
-                                        </Col>
+                                            </div>
+                                        </div>
                                     )}
                                 </div>
-                                <Row className="person-selection">
-                                    <Col span={12}>
+                                <div className="person-selection">
+                                    <div className="max-w-1/2">
                                         <div>
                                             <strong>Select participants</strong>
                                         </div>
@@ -384,11 +393,11 @@ export function Experiment(): JSX.Element {
                                                 />
                                             </>
                                         )}
-                                    </Col>
-                                </Row>
+                                    </div>
+                                </div>
 
-                                <Row className="metrics-selection">
-                                    <Col span={12}>
+                                <div className="flex metrics-selection gap-4">
+                                    <div className="flex-1">
                                         <div className="mb-2" data-attr="experiment-goal-type">
                                             <b>Goal type</b>
                                             <div className="text-muted">
@@ -438,19 +447,19 @@ export function Experiment(): JSX.Element {
                                         )}
 
                                         <ExperimentInsightCreator insightProps={insightProps} />
-                                    </Col>
-                                    <Col span={12} className="pl-4">
+                                    </div>
+                                    <div className="flex-1">
                                         <div className="card-secondary mb-4" data-attr="experiment-preview">
                                             Goal preview
                                         </div>
                                         <BindLogic logic={insightLogic} props={insightProps}>
                                             <Query query={query} context={{ insightProps }} readOnly />
                                         </BindLogic>
-                                    </Col>
-                                </Row>
+                                    </div>
+                                </div>
                                 <Field name="secondary_metrics">
                                     {({ value, onChange }) => (
-                                        <Row className="secondary-metrics">
+                                        <div className="secondary-metrics">
                                             <div className="flex flex-col">
                                                 <div>
                                                     <b>Secondary metrics</b>
@@ -469,10 +478,10 @@ export function Experiment(): JSX.Element {
                                                     }
                                                 />
                                             </div>
-                                        </Row>
+                                        </div>
                                     )}
                                 </Field>
-                                <Card className="experiment-preview">
+                                <div className="bg-bg-light border rounded experiment-preview p-4">
                                     <ExperimentPreview
                                         experimentId={experiment.id}
                                         trendCount={trendCount}
@@ -481,8 +490,7 @@ export function Experiment(): JSX.Element {
                                         funnelEntrants={entrants}
                                         funnelConversionRate={conversionRate}
                                     />
-                                </Card>
-                                <Row />
+                                </div>
                             </>
                         </BindLogic>
                         <div className="flex items-center gap-2 justify-end">
@@ -506,7 +514,7 @@ export function Experiment(): JSX.Element {
                                 data-attr="save-experiment"
                                 htmlType="submit"
                                 loading={experimentLoading}
-                                disabled={experimentLoading}
+                                form="experiment"
                             >
                                 {editingExistingExperiment ? 'Save' : 'Save as draft'}
                             </LemonButton>
@@ -515,107 +523,109 @@ export function Experiment(): JSX.Element {
                 </>
             ) : experiment ? (
                 <div className="view-experiment">
-                    <Row className="draft-header">
-                        <Row justify="space-between" align="middle" className="w-full" wrap={false}>
-                            <Col>
-                                <PageHeader
-                                    style={{ paddingRight: 8 }}
-                                    title={`${experiment?.name}`}
-                                    buttons={
-                                        <>
-                                            <CopyToClipboardInline
-                                                explicitValue={experiment.feature_flag?.key}
-                                                iconStyle={{ color: 'var(--muted-alt)' }}
-                                            >
-                                                <span className="text-muted">{experiment.feature_flag?.key}</span>
-                                            </CopyToClipboardInline>
-                                            <StatusTag experiment={experiment} />
-                                            <ResultsTag />
-                                        </>
-                                    }
-                                />
-                            </Col>
-                            <Col className="page-title-row">
-                                {experiment && !isExperimentRunning && (
-                                    <div className="flex items-center">
-                                        <LemonButton
-                                            type="secondary"
-                                            className="mr-2"
-                                            onClick={() => setEditExperiment(true)}
-                                        >
-                                            Edit
-                                        </LemonButton>
-                                        <LemonButton type="primary" onClick={() => launchExperiment()}>
-                                            Launch
-                                        </LemonButton>
-                                    </div>
-                                )}
-                                {experiment && isExperimentRunning && (
-                                    <div className="flex flex-row gap-2">
-                                        <>
-                                            <More
-                                                overlay={
-                                                    <>
-                                                        <LemonButton
-                                                            status="stealth"
-                                                            onClick={() => loadExperimentResults(true)}
-                                                            fullWidth
-                                                            data-attr="refresh-experiment"
-                                                        >
-                                                            Refresh experiment results
-                                                        </LemonButton>
-                                                    </>
-                                                }
-                                            />
-                                            <LemonDivider vertical />
-                                        </>
-                                        <Popconfirm
-                                            placement="bottomLeft"
-                                            title={
-                                                <div>
-                                                    Reset this experiment and go back to draft mode?
-                                                    <div className="text-sm text-muted">
-                                                        All collected data so far will be discarded.
-                                                    </div>
-                                                    {experiment.archived && (
-                                                        <div className="text-sm text-muted">
-                                                            Resetting will also unarchive the experiment.
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            }
-                                            onConfirm={() => resetRunningExperiment()}
-                                        >
-                                            <LemonButton type="secondary" status="primary">
-                                                Reset
-                                            </LemonButton>
-                                        </Popconfirm>
-                                        {!experiment.end_date && (
+                    <div className="draft-header">
+                        <PageHeader
+                            buttons={
+                                <>
+                                    {experiment && !isExperimentRunning && (
+                                        <div className="flex items-center">
                                             <LemonButton
                                                 type="secondary"
-                                                status="danger"
-                                                onClick={() => endExperiment()}
+                                                className="mr-2"
+                                                onClick={() => setEditExperiment(true)}
                                             >
-                                                Stop
+                                                Edit
                                             </LemonButton>
-                                        )}
-                                        {experiment?.end_date &&
-                                            dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
-                                            !experiment.archived && (
+                                            <LemonButton type="primary" onClick={() => launchExperiment()}>
+                                                Launch
+                                            </LemonButton>
+                                        </div>
+                                    )}
+                                    {experiment && isExperimentRunning && (
+                                        <div className="flex flex-row gap-2">
+                                            <>
+                                                <More
+                                                    overlay={
+                                                        <>
+                                                            <LemonButton
+                                                                onClick={() => loadExperimentResults(true)}
+                                                                fullWidth
+                                                                data-attr="refresh-experiment"
+                                                            >
+                                                                Refresh experiment results
+                                                            </LemonButton>
+                                                        </>
+                                                    }
+                                                />
+                                                <LemonDivider vertical />
+                                            </>
+                                            <Popconfirm
+                                                placement="bottomLeft"
+                                                title={
+                                                    <div>
+                                                        Reset this experiment and go back to draft mode?
+                                                        <div className="text-sm text-muted">
+                                                            All collected data so far will be discarded.
+                                                        </div>
+                                                        {experiment.archived && (
+                                                            <div className="text-sm text-muted">
+                                                                Resetting will also unarchive the experiment.
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                }
+                                                onConfirm={() => resetRunningExperiment()}
+                                            >
+                                                <LemonButton type="secondary">Reset</LemonButton>
+                                            </Popconfirm>
+                                            {!experiment.end_date && (
                                                 <LemonButton
                                                     type="secondary"
                                                     status="danger"
-                                                    onClick={() => archiveExperiment()}
+                                                    onClick={() => endExperiment()}
                                                 >
-                                                    <b>Archive</b>
+                                                    Stop
                                                 </LemonButton>
                                             )}
+                                            {experiment?.end_date &&
+                                                dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
+                                                !experiment.archived && (
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        status="danger"
+                                                        onClick={() => archiveExperiment()}
+                                                    >
+                                                        <b>Archive</b>
+                                                    </LemonButton>
+                                                )}
+                                        </div>
+                                    )}
+                                </>
+                            }
+                        />
+                        <div className="w-full pb-4">
+                            <div className="inline-flex">
+                                <div className="block">
+                                    <div className="exp-flag-copy-label">Status</div>
+                                    <StatusTag experiment={experiment} />
+                                    <span className="ml-2">
+                                        <ResultsTag />
+                                    </span>
+                                </div>
+                                {experiment.feature_flag && (
+                                    <div className="block ml-10">
+                                        <div className="exp-flag-copy-label">Feature flag</div>
+                                        <CopyToClipboardInline
+                                            iconStyle={{ color: 'var(--lemon-button-icon-opacity)' }}
+                                            className="font-normal text-sm"
+                                            description="feature flag key"
+                                        >
+                                            {experiment.feature_flag.key}
+                                        </CopyToClipboardInline>
                                     </div>
                                 )}
-                            </Col>
-                        </Row>
-                        <Row className="w-full pb-4">
-                            <span className="exp-description">
+                            </div>
+                            <div className="mt-6 exp-description">
                                 {isExperimentRunning ? (
                                     <EditableField
                                         multiline
@@ -631,72 +641,63 @@ export function Experiment(): JSX.Element {
                                 ) : (
                                     <>{experiment.description || 'There is no description for this experiment.'}</>
                                 )}
-                            </span>
-                        </Row>
-                    </Row>
-                    <Row>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="mb-4">
                         {showWarning && experimentResults && areResultsSignificant && !experiment.end_date && (
-                            <Row align="middle" className="significant-results">
-                                <Col span={20} style={{ fontWeight: 500, color: '#497342' }}>
-                                    <div>
-                                        Experiment results are significant.{' '}
-                                        {experiment.end_date
-                                            ? ''
-                                            : 'You can end your experiment now or let it run until complete.'}
-                                    </div>
-                                </Col>
-                                <Col span={4}>
-                                    {experiment.end_date ? (
-                                        <CloseOutlined className="close-button" onClick={() => setShowWarning(false)} />
-                                    ) : (
-                                        <LemonButton type="primary" onClick={() => endExperiment()}>
-                                            End experiment
-                                        </LemonButton>
-                                    )}
-                                </Col>
-                            </Row>
+                            <LemonBanner
+                                className="w-full"
+                                type="success"
+                                onClose={experiment.end_date ? () => setShowWarning(false) : undefined}
+                                action={
+                                    !experiment.end_date
+                                        ? {
+                                              onClick: () => endExperiment(),
+                                              type: 'primary',
+                                              children: 'End experiment',
+                                          }
+                                        : undefined
+                                }
+                            >
+                                <div>
+                                    Experiment results are significant.{' '}
+                                    {experiment.end_date
+                                        ? ''
+                                        : 'You can end your experiment now or let it run until complete.'}
+                                </div>
+                            </LemonBanner>
                         )}
                         {showWarning && experimentResults && !areResultsSignificant && !experiment.end_date && (
-                            <Row align="top" className="not-significant-results">
-                                <Col span={23} style={{ fontWeight: 500, color: 'var(--bg-charcoal)' }}>
-                                    <strong>Your results are not statistically significant</strong>.{' '}
-                                    {significanceBannerDetails}{' '}
-                                    {experiment?.end_date ? '' : "We don't recommend ending this experiment yet."} See
-                                    our{' '}
-                                    <Link to="https://posthog.com/docs/user-guides/experimentation#funnel-experiment-calculations">
-                                        {' '}
-                                        experimentation guide{' '}
-                                    </Link>
-                                    for more information.{' '}
-                                </Col>
-                                <Col span={1}>
-                                    <CloseOutlined className="close-button" onClick={() => setShowWarning(false)} />
-                                </Col>
-                            </Row>
+                            <LemonBanner type="warning" onClose={() => setShowWarning(false)}>
+                                <strong>Your results are not statistically significant</strong>.{' '}
+                                {significanceBannerDetails}{' '}
+                                {experiment?.end_date ? '' : "We don't recommend ending this experiment yet."} See our{' '}
+                                <Link to="https://posthog.com/docs/user-guides/experimentation#funnel-experiment-calculations">
+                                    {' '}
+                                    experimentation guide{' '}
+                                </Link>
+                                for more information.{' '}
+                            </LemonBanner>
                         )}
                         {showWarning && experiment.end_date && (
-                            <Row align="top" className="feature-flag-mods">
-                                <Col span={23} style={{ fontWeight: 500 }}>
-                                    <strong>Your experiment is complete, but the feature flag is still enabled.</strong>{' '}
-                                    We recommend removing the feature flag from your code completely, instead of relying
-                                    on this distribution.{' '}
-                                    <Link
-                                        to={
-                                            experiment.feature_flag
-                                                ? urls.featureFlag(experiment.feature_flag.id)
-                                                : undefined
-                                        }
-                                    >
-                                        <b>Adjust feature flag distribution</b>
-                                    </Link>
-                                </Col>
-                                <Col span={1}>
-                                    <CloseOutlined className="close-button" onClick={() => setShowWarning(false)} />
-                                </Col>
-                            </Row>
+                            <LemonBanner type="info" onClose={() => setShowWarning(false)}>
+                                <strong>Your experiment is complete, but the feature flag is still enabled.</strong> We
+                                recommend removing the feature flag from your code completely, instead of relying on
+                                this distribution.{' '}
+                                <Link
+                                    to={
+                                        experiment.feature_flag
+                                            ? urls.featureFlag(experiment.feature_flag.id)
+                                            : undefined
+                                    }
+                                >
+                                    <b>Adjust feature flag distribution</b>
+                                </Link>
+                            </LemonBanner>
                         )}
-                    </Row>
-                    <Row>
+                    </div>
+                    <div>
                         <LemonCollapse
                             className="w-full"
                             defaultActiveKey="experiment-details"
@@ -705,8 +706,8 @@ export function Experiment(): JSX.Element {
                                     key: 'experiment-details',
                                     header: 'Experiment details',
                                     content: (
-                                        <Row>
-                                            <Col span={isExperimentRunning ? 12 : 24}>
+                                        <div>
+                                            <div className={isExperimentRunning ? 'w-1/2' : 'w-full'}>
                                                 <ExperimentPreview
                                                     experimentId={experiment.id}
                                                     trendCount={trendCount}
@@ -717,14 +718,14 @@ export function Experiment(): JSX.Element {
                                                         isExperimentRunning ? funnelResultsPersonsTotal : entrants
                                                     }
                                                 />
-                                            </Col>
+                                            </div>
                                             {!experimentResultsLoading && !experimentResults && isExperimentRunning && (
-                                                <Col span={12}>
+                                                <div className="w-1/2">
                                                     <ExperimentImplementationDetails experiment={experiment} />
-                                                </Col>
+                                                </div>
                                             )}
                                             {experimentResults && (
-                                                <Col span={12} className="mt-4">
+                                                <div className="w-1/2 mt-4">
                                                     <div className="mb-2">
                                                         <b>Experiment progress</b>
                                                     </div>
@@ -736,7 +737,7 @@ export function Experiment(): JSX.Element {
                                                     />
                                                     {experimentInsightType === InsightType.TRENDS &&
                                                         experiment.start_date && (
-                                                            <Row justify="space-between" className="mt-2">
+                                                            <div className="flex justify-between mt-2">
                                                                 {experiment.end_date ? (
                                                                     <div>
                                                                         Ran for{' '}
@@ -764,10 +765,10 @@ export function Experiment(): JSX.Element {
                                                                     </b>{' '}
                                                                     days
                                                                 </div>
-                                                            </Row>
+                                                            </div>
                                                         )}
                                                     {experimentInsightType === InsightType.FUNNELS && (
-                                                        <Row justify="space-between" className="mt-2">
+                                                        <div className="flex justify-between mt-2">
                                                             {experiment.end_date ? (
                                                                 <div>
                                                                     Saw{' '}
@@ -794,11 +795,11 @@ export function Experiment(): JSX.Element {
                                                                 </b>{' '}
                                                                 participants
                                                             </div>
-                                                        </Row>
+                                                        </div>
                                                     )}
-                                                </Col>
+                                                </div>
                                             )}
-                                            <Col>
+                                            <div>
                                                 <SecondaryMetrics
                                                     experimentId={experiment.id}
                                                     onMetricsChange={(metrics) =>
@@ -809,22 +810,22 @@ export function Experiment(): JSX.Element {
                                                         experiment.parameters?.aggregation_group_type_index
                                                     }
                                                 />
-                                            </Col>
-                                        </Row>
+                                            </div>
+                                        </div>
                                     ),
                                 },
                             ]}
                         />
-                        {!experiment?.start_date && (
+                        {experiment && !experiment.start_date && (
                             <div className="mt-4 w-full">
                                 <ExperimentImplementationDetails experiment={experiment} />
                             </div>
                         )}
-                    </Row>
+                    </div>
                     <ExperimentResult />
                 </div>
             ) : (
-                <Skeleton active />
+                <LoadingState />
             )}
         </>
     )
@@ -854,4 +855,15 @@ export function ResultsTag(): JSX.Element {
     }
 
     return <></>
+}
+
+export function LoadingState(): JSX.Element {
+    return (
+        <div className="space-y-4">
+            <LemonSkeleton className="w-1/3 h-4" />
+            <LemonSkeleton />
+            <LemonSkeleton />
+            <LemonSkeleton className="w-2/3 h-4" />
+        </div>
+    )
 }

@@ -1,4 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
 import { SentenceList, SentenceListProps } from './SentenceList'
 
 type Story = StoryObj<typeof SentenceList>

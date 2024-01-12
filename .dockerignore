@@ -14,6 +14,7 @@
 !webpack.config.js
 !postcss.config.js
 !playwright.config.ts
+!tailwind.config.js
 !.kearc
 !.storybook
 !tsconfig.json
@@ -36,3 +37,5 @@
 !unit.json
 !plugin-transpiler/src
 !plugin-transpiler/*.*
+!test-runner-jest.config.js
+!test-runner-jest-environment.js

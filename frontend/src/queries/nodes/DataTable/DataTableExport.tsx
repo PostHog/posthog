@@ -1,26 +1,29 @@
-import Papa from 'papaparse'
-import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
-import { IconExport } from 'lib/lemon-ui/icons'
+import { LemonDivider, lemonToast } from '@posthog/lemon-ui'
+import { useValues } from 'kea'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
-import { ExporterFormat } from '~/types'
-import { DataNode, DataTableNode, NodeKind } from '~/queries/schema'
+import { IconExport } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import Papa from 'papaparse'
+import { asDisplay } from 'scenes/persons/person-utils'
+import { urls } from 'scenes/urls'
+
+import { ExportWithConfirmation } from '~/queries/nodes/DataTable/ExportWithConfirmation'
 import {
     defaultDataTableColumns,
     extractExpressionComment,
     removeExpressionComment,
 } from '~/queries/nodes/DataTable/utils'
-import { isEventsQuery, isHogQLQuery, isPersonsNode } from '~/queries/utils'
 import { getPersonsEndpoint } from '~/queries/query'
-import { ExportWithConfirmation } from '~/queries/nodes/DataTable/ExportWithConfirmation'
-import { DataTableRow, dataTableLogic } from './dataTableLogic'
-import { useValues } from 'kea'
-import { LemonDivider, lemonToast } from '@posthog/lemon-ui'
-import { asDisplay } from 'scenes/persons/person-utils'
-import { urls } from 'scenes/urls'
+import { DataNode, DataTableNode, NodeKind } from '~/queries/schema'
+import { isActorsQuery, isEventsQuery, isHogQLQuery, isPersonsNode } from '~/queries/utils'
+import { ExporterFormat } from '~/types'
 
-const EXPORT_MAX_LIMIT = 10000
+import { dataTableLogic, DataTableRow } from './dataTableLogic'
 
-function startDownload(query: DataTableNode, onlySelectedColumns: boolean): void {
+export const EXPORT_MAX_LIMIT = 10000
+
+export async function startDownload(query: DataTableNode, onlySelectedColumns: boolean): Promise<void> {
     const exportContext = isPersonsNode(query.source)
         ? { path: getPersonsEndpoint(query.source) }
         : { source: query.source }
@@ -30,7 +33,7 @@ function startDownload(query: DataTableNode, onlySelectedColumns: boolean): void
 
     if (onlySelectedColumns) {
         exportContext['columns'] = (
-            (isEventsQuery(query.source) ? query.source.select : null) ??
+            (isEventsQuery(query.source) || isActorsQuery(query.source) ? query.source.select : null) ??
             query.columns ??
             defaultDataTableColumns(query.source.kind)
         )?.filter((c) => c !== 'person.$delete')
@@ -41,11 +44,11 @@ function startDownload(query: DataTableNode, onlySelectedColumns: boolean): void
             )
         } else if (isPersonsNode(query.source)) {
             exportContext['columns'] = exportContext['columns'].map((c: string) =>
-                removeExpressionComment(c) === 'person' ? 'properties.email' : c
+                removeExpressionComment(c) === 'person' ? 'email' : c
             )
         }
     }
-    triggerExport({
+    await triggerExport({
         export_format: ExporterFormat.CSV,
         export_context: exportContext,
     })
@@ -156,9 +159,7 @@ function copyTableToCsv(dataTableRows: DataTableRow[], columns: string[], query:
 
         const csv = Papa.unparse(tableData)
 
-        navigator.clipboard.writeText(csv).then(() => {
-            lemonToast.success('Table copied to clipboard!')
-        })
+        void copyToClipboard(csv, 'table')
     } catch {
         lemonToast.error('Copy failed!')
     }
@@ -170,9 +171,7 @@ function copyTableToJson(dataTableRows: DataTableRow[], columns: string[], query
 
         const json = JSON.stringify(tableData, null, 4)
 
-        navigator.clipboard.writeText(json).then(() => {
-            lemonToast.success('Table copied to clipboard!')
-        })
+        void copyToClipboard(json, 'table')
     } catch {
         lemonToast.error('Copy failed!')
     }
@@ -204,14 +203,12 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                         key={1}
                         placement={'topRight'}
                         onConfirm={() => {
-                            startDownload(query, true)
+                            void startDownload(query, true)
                         }}
                         actor={isPersonsNode(query.source) ? 'persons' : 'events'}
                         limit={EXPORT_MAX_LIMIT}
                     >
-                        <LemonButton fullWidth status="stealth">
-                            Export current columns
-                        </LemonButton>
+                        <LemonButton fullWidth>Export current columns</LemonButton>
                     </ExportWithConfirmation>,
                 ]
                     .concat(
@@ -220,13 +217,11 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                   <ExportWithConfirmation
                                       key={0}
                                       placement={'topRight'}
-                                      onConfirm={() => startDownload(query, false)}
+                                      onConfirm={() => void startDownload(query, false)}
                                       actor={isPersonsNode(query.source) ? 'persons' : 'events'}
                                       limit={EXPORT_MAX_LIMIT}
                                   >
-                                      <LemonButton fullWidth status="stealth">
-                                          Export all columns
-                                      </LemonButton>
+                                      <LemonButton fullWidth>Export all columns</LemonButton>
                                   </ExportWithConfirmation>,
                               ]
                             : []
@@ -238,7 +233,6 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                   <LemonButton
                                       key={3}
                                       fullWidth
-                                      status="stealth"
                                       data-attr={'copy-csv-to-clipboard'}
                                       onClick={() => {
                                           if (dataTableRows) {
@@ -255,7 +249,6 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                   <LemonButton
                                       key={4}
                                       fullWidth
-                                      status="stealth"
                                       data-attr={'copy-json-to-clipboard'}
                                       onClick={() => {
                                           if (dataTableRows) {
@@ -279,8 +272,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                   <LemonButton
                                       key={6}
                                       fullWidth
-                                      status="stealth"
-                                      data-attr={'open-json-editor-button'}
+                                      data-attr="open-json-editor-button"
                                       to={
                                           query
                                               ? urls.insightNew(undefined, undefined, JSON.stringify(query))
@@ -299,8 +291,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                   <LemonButton
                                       key={8}
                                       fullWidth
-                                      status="stealth"
-                                      data-attr={'open-sql-editor-button'}
+                                      data-attr="open-sql-editor-button"
                                       to={urls.insightNew(
                                           undefined,
                                           undefined,

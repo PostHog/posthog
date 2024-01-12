@@ -2,17 +2,20 @@ import {
     ActivityChange,
     ActivityLogItem,
     ChangeMapping,
+    defaultDescriber,
     Description,
     detectBoolean,
     HumanizedChange,
+    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
-import { AnyPropertyFilter, FeatureFlagFilters, FeatureFlagGroupType, FeatureFlagType } from '~/types'
-import { pluralize } from 'lib/utils'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
-import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
+import { Link } from 'lib/lemon-ui/Link'
+import { pluralize } from 'lib/utils'
+import { urls } from 'scenes/urls'
+
+import { AnyPropertyFilter, FeatureFlagFilters, FeatureFlagGroupType, FeatureFlagType } from '~/types'
 
 const nameOrLinkToFlag = (id: string | undefined, name: string | null | undefined): string | JSX.Element => {
     // detail.name
@@ -259,21 +262,6 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
         return { description: null }
     }
 
-    if (logItem.activity == 'created') {
-        return {
-            description: <> created {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>,
-        }
-    }
-    if (logItem.activity == 'deleted') {
-        return {
-            description: (
-                <>
-                    deleted {asNotification && ' the flag '}
-                    {logItem.detail.name}
-                </>
-            ),
-        }
-    }
     if (logItem.activity == 'updated') {
         let changes: Description[] = []
         let changeSuffix: Description = (
@@ -307,7 +295,7 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
                         listParts={changes}
                         prefix={
                             <>
-                                <strong>{logItem.user.first_name}</strong>
+                                <strong>{userNameForLogItem(logItem)}</strong>
                             </>
                         }
                         suffix={changeSuffix}
@@ -317,5 +305,5 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
         }
     }
 
-    return { description: null }
+    return defaultDescriber(logItem, asNotification, nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name))
 }

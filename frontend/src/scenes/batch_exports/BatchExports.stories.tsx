@@ -1,9 +1,11 @@
 import { Meta, StoryFn } from '@storybook/react'
-import { App } from 'scenes/App'
-import { useEffect } from 'react'
 import { router } from 'kea-router'
-import { mswDecorator } from '~/mocks/browser'
+import { useEffect } from 'react'
+import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
+
+import { mswDecorator } from '~/mocks/browser'
+
 import { createExportServiceHandlers } from './__mocks__/api-mocks'
 
 export default {
@@ -23,6 +25,7 @@ export default {
             createExportServiceHandlers({
                 1: {
                     id: '1',
+                    team_id: 1,
                     name: 'My S3 Exporter',
                     destination: {
                         type: 'S3',

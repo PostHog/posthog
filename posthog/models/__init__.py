@@ -20,6 +20,7 @@ from .annotation import Annotation
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from .cohort import Cohort, CohortPeople
+from .comment import Comment
 from .dashboard import Dashboard
 from .dashboard_tile import DashboardTile, Text
 from .early_access_feature import EarlyAccessFeature
@@ -33,6 +34,7 @@ from .event_property import EventProperty
 from .experiment import Experiment
 from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
+from .scheduled_change import ScheduledChange
 from .feedback.survey import Survey
 from .filters import Filter, RetentionFilter
 from .group import Group
@@ -42,6 +44,7 @@ from .insight_caching_state import InsightCachingState
 from .instance_setting import InstanceSetting
 from .integration import Integration
 from .messaging import MessagingRecord
+from .notebook import Notebook
 from .organization import Organization, OrganizationInvite, OrganizationMembership
 from .organization_domain import OrganizationDomain
 from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapping
@@ -102,6 +105,7 @@ __all__ = [
     "InstanceSetting",
     "Integration",
     "MessagingRecord",
+    "Notebook",
     "MigrationStatus",
     "NotificationViewed",
     "Organization",
@@ -138,4 +142,5 @@ __all__ = [
     "UserManager",
     "UserPromptState",
     "DataWarehouseTable",
+    "ScheduledChange",
 ]

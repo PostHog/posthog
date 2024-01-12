@@ -143,7 +143,7 @@ type NotebookNodeRecordingAttributes = {
 
 export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordingAttributes>({
     nodeType: NotebookNodeType.Recording,
-    titlePlaceholder: 'Session replay',
+    titlePlaceholder: 'Session recording',
     Component,
     heightEstimate: HEIGHT,
     minHeight: MIN_HEIGHT,

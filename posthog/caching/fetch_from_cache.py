@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Optional, Union
+from typing import Any, List, Optional, Union
 
 from django.utils.timezone import now
 from prometheus_client import Counter
@@ -12,6 +12,7 @@ from posthog.caching.calculate_results import (
 from posthog.caching.insight_cache import update_cached_state
 from posthog.models import DashboardTile, Insight
 from posthog.models.dashboard import Dashboard
+from posthog.schema import QueryTiming
 from posthog.utils import get_safe_cache
 
 insight_cache_read_counter = Counter(
@@ -29,6 +30,7 @@ class InsightResult:
     is_cached: bool
     timezone: Optional[str]
     next_allowed_client_refresh: Optional[datetime] = None
+    timings: Optional[List[QueryTiming]] = None
 
 
 @dataclass(frozen=True)

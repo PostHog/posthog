@@ -1,9 +1,10 @@
-import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { LemonProgressCircle, LemonProgressCircleProps } from './LemonProgressCircle'
-import { useEffect, useState } from 'react'
-import { LemonButton } from '../LemonButton'
 import { IconGear } from '@posthog/icons'
+import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { useEffect, useState } from 'react'
+
+import { LemonButton } from '../LemonButton'
 import { LemonCheckbox } from '../LemonCheckbox'
+import { LemonProgressCircle, LemonProgressCircleProps } from './LemonProgressCircle'
 
 type Story = StoryObj<typeof LemonProgressCircle>
 const meta: Meta<typeof LemonProgressCircle> = {
@@ -64,7 +65,6 @@ export const Overview = (): JSX.Element => {
             <span className="flex items-center gap-2">
                 <LemonButton
                     icon={<LemonProgressCircle progress={progress} />}
-                    status="primary"
                     sideIcon={<IconGear />}
                     type="secondary"
                     size="small"
@@ -74,7 +74,6 @@ export const Overview = (): JSX.Element => {
 
                 <LemonButton
                     icon={<LemonProgressCircle progress={progress} size={20} />}
-                    status="primary"
                     sideIcon={<IconGear />}
                     type="secondary"
                 >
@@ -83,7 +82,6 @@ export const Overview = (): JSX.Element => {
 
                 <LemonButton
                     icon={<LemonProgressCircle progress={progress} size={24} />}
-                    status="primary"
                     sideIcon={<IconGear />}
                     type="secondary"
                     size="large"

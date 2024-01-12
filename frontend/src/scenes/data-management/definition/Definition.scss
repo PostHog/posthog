@@ -28,12 +28,12 @@
                 flex-direction: column;
 
                 .definition-popover-grid-card-title {
+                    margin-bottom: 4px;
                     font-size: 11px;
                     font-weight: 600;
-                    letter-spacing: 0.5px;
-                    text-transform: uppercase;
                     color: var(--muted);
-                    margin-bottom: 4px;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
                 }
 
                 .definition-popover-grid-card-content {
@@ -51,17 +51,17 @@
                 display: flex;
                 align-items: center;
                 width: fit-content;
+                max-width: 300px;
                 padding: 0.125rem 0.25rem;
-                letter-spacing: 0.25px;
-                border-radius: var(--radius);
-                border: 1px solid var(--border-light);
-                background: var(--mid);
-                color: var(--muted-alt);
                 font-size: 0.625rem;
                 font-weight: 500;
+                color: var(--muted-alt);
+                letter-spacing: 0.25px;
                 word-break: break-all;
-                max-width: 300px;
                 cursor: text;
+                background: var(--mid);
+                border: 1px solid var(--border-light);
+                border-radius: var(--radius);
             }
 
             td.definition-column-name {
@@ -70,24 +70,21 @@
                 align-items: center;
 
                 .definition-column-name-content {
+                    position: relative;
                     display: flex;
                     flex-direction: column;
-                    position: relative;
 
                     .definition-column-name-content-title {
-                        font-weight: 600;
-                        cursor: pointer;
                         position: relative;
                         overflow: visible;
+                        font-weight: 600;
+                        cursor: pointer;
 
-                        &:before {
-                            content: '';
+                        &::before {
                             position: absolute;
-                            top: -5px;
-                            bottom: -5px;
-                            left: -10px;
-                            right: -50px;
+                            inset: -5px -50px -5px -10px;
                             height: 22px;
+                            content: '';
                         }
                     }
 
@@ -110,8 +107,9 @@
             .definition-matching-events-header {
                 font-weight: 600;
             }
+
             .definition-matching-events-subtext {
-                margin: 0 0 1rem 0;
+                margin: 0 0 1rem;
             }
         }
     }
@@ -131,15 +129,15 @@
     // Shared across definition view and edit modes
     .definition-sent-as {
         display: flex;
-        align-items: center;
         flex-direction: row;
-        color: var(--muted);
+        align-items: center;
         margin: 0.5rem 0;
+        color: var(--muted);
 
         pre {
+            margin: 0 0.25rem;
             font-size: 13px;
             font-weight: 600;
-            margin: 0 0.25rem;
         }
     }
 }

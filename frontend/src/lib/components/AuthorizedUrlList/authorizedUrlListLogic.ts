@@ -1,3 +1,4 @@
+import Fuse from 'fuse.js'
 import {
     actions,
     afterMount,
@@ -11,20 +12,20 @@ import {
     selectors,
     sharedListeners,
 } from 'kea'
+import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
+import { encodeParams, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import { isDomain, isURL } from 'lib/utils'
-import { ToolbarParams } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
-import Fuse from 'fuse.js'
-import { encodeParams, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { loaders } from 'kea-loaders'
-import { forms } from 'kea-forms'
 
-import type { authorizedUrlListLogicType } from './authorizedUrlListLogicType'
-import { subscriptions } from 'kea-subscriptions'
 import { HogQLQuery, NodeKind } from '~/queries/schema'
 import { hogql } from '~/queries/utils'
+import { ToolbarParams } from '~/types'
+
+import type { authorizedUrlListLogicType } from './authorizedUrlListLogicType'
 
 export interface ProposeNewUrlFormType {
     url: string

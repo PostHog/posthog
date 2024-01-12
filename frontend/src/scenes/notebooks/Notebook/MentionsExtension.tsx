@@ -1,17 +1,18 @@
-import { Extension } from '@tiptap/core'
-import Suggestion from '@tiptap/suggestion'
-
-import { ReactRenderer } from '@tiptap/react'
 import { LemonButton, ProfilePicture } from '@posthog/lemon-ui'
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
-import { EditorRange } from './utils'
-import { Popover } from 'lib/lemon-ui/Popover'
+import { Extension } from '@tiptap/core'
+import { PluginKey } from '@tiptap/pm/state'
+import { ReactRenderer } from '@tiptap/react'
+import Suggestion from '@tiptap/suggestion'
 import Fuse from 'fuse.js'
 import { useValues } from 'kea'
-import { notebookLogic } from './notebookLogic'
+import { Popover } from 'lib/lemon-ui/Popover'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 import { membersLogic } from 'scenes/organization/membersLogic'
+
 import { NotebookNodeType, OrganizationMemberType } from '~/types'
-import { PluginKey } from '@tiptap/pm/state'
+
+import { notebookLogic } from './notebookLogic'
+import { EditorRange } from './utils'
 
 type MentionsProps = {
     range: EditorRange
@@ -119,10 +120,9 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
                 <LemonButton
                     key={member.id}
                     fullWidth
-                    status="primary-alt"
-                    icon={<ProfilePicture name={member.user.first_name} email={member.user.email} size="sm" />}
+                    icon={<ProfilePicture user={member.user} size="sm" />}
                     active={index === selectedIndex}
-                    onClick={async () => await execute(member)}
+                    onClick={() => void execute(member)}
                 >
                     {`${member.user.first_name} <${member.user.email}>`}
                 </LemonButton>

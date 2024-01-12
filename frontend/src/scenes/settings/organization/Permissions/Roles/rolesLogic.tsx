@@ -1,10 +1,12 @@
-import { actions, kea, reducers, path, connect, selectors, afterMount, listeners } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { AccessLevel, Resource, RoleMemberType, RoleType, UserBasicType } from '~/types'
-import type { rolesLogicType } from './rolesLogicType'
 import { teamMembersLogic } from 'scenes/settings/project/teamMembersLogic'
+
+import { AccessLevel, Resource, RoleMemberType, RoleType, UserBasicType } from '~/types'
+
+import type { rolesLogicType } from './rolesLogicType'
 
 export const rolesLogic = kea<rolesLogicType>([
     path(['scenes', 'organization', 'rolesLogic']),
@@ -53,7 +55,7 @@ export const rolesLogic = kea<rolesLogicType>([
             },
         ],
     }),
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, asyncActions }) => ({
         roles: {
             loadRoles: async () => {
                 const response = await api.roles.list()
@@ -62,7 +64,7 @@ export const rolesLogic = kea<rolesLogicType>([
             createRole: async (roleName: string) => {
                 const { roles, roleMembersToAdd } = values
                 const newRole = await api.roles.create(roleName)
-                await actions.addRoleMembers({ role: newRole, membersToAdd: roleMembersToAdd })
+                await asyncActions.addRoleMembers({ role: newRole, membersToAdd: roleMembersToAdd })
                 eventUsageLogic.actions.reportRoleCreated(roleName)
                 actions.setRoleMembersInFocus([])
                 actions.setRoleMembersToAdd([])

@@ -1,6 +1,7 @@
-import { MediaUploadResponse } from '~/types'
 import api from 'lib/api'
 import { useEffect, useState } from 'react'
+
+import { MediaUploadResponse } from '~/types'
 
 export const lazyImageBlobReducer = async (blob: Blob): Promise<Blob> => {
     const blobReducer = (await import('image-blob-reduce')).default()

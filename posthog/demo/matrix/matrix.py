@@ -66,7 +66,7 @@ class Cluster(ABC):
         self.datetime_provider = matrix.datetime_provider
         self.finance_provider = matrix.finance_provider
         self.file_provider = matrix.file_provider
-        self.start = matrix.start + (matrix.end - matrix.start) * self.initation_distribution()
+        self.start = matrix.start + (matrix.end - matrix.start) * self.initiation_distribution()
         self.now = matrix.now
         self.end = matrix.end
         self.radius = int(self.MIN_RADIUS + self.radius_distribution() * (self.MAX_RADIUS - self.MIN_RADIUS))
@@ -94,7 +94,7 @@ class Cluster(ABC):
         """Return a value between 0 and 1 signifying where the radius should fall between MIN_RADIUS and MAX_RADIUS."""
         return self.random.uniform(self.MIN_RADIUS, self.MAX_RADIUS)
 
-    def initation_distribution(self) -> float:
+    def initiation_distribution(self) -> float:
         """Return a value between 0 and 1 determining how far into the overall simulation should this cluster be initiated."""
         return self.random.random()
 

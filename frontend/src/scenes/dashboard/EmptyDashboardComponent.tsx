@@ -1,16 +1,18 @@
-import { dashboardLogic } from './dashboardLogic'
+import './EmptyDashboardComponent.scss'
+
 import { useValues } from 'kea'
-import { urls } from 'scenes/urls'
+import { IconPlus } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { IconPlus } from 'lib/lemon-ui/icons'
-import './EmptyDashboardComponent.scss'
 import React from 'react'
+import { urls } from 'scenes/urls'
+
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from './DashboardHeader'
+import { dashboardLogic } from './dashboardLogic'
 
 function SkeletonCard({ children, active }: { children: React.ReactNode; active: boolean }): JSX.Element {
     return (
-        <div className="border rounded p-10 h-full space-y-4 flex-1 flex flex-col justify-between">
+        <div className="border rounded-md p-10 h-full space-y-4 flex-1 flex flex-col justify-between">
             <div className="space-y-4">
                 <LemonSkeleton className="w-1/3 h-4" active={active} />
                 <LemonSkeleton className="w-1/2 h-4" active={active} />

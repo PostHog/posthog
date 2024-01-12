@@ -1,18 +1,18 @@
+import './SessionRecordingScene.scss'
+
 import { useValues } from 'kea'
-import { teamLogic } from 'scenes/teamLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
 import { SceneExport } from 'scenes/sceneTypes'
-import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import {
     sessionRecordingDetailLogic,
     SessionRecordingDetailLogicProps,
 } from 'scenes/session-recordings/detail/sessionRecordingDetailLogic'
 import { RecordingNotFound } from 'scenes/session-recordings/player/RecordingNotFound'
-
-import './SessionRecordingScene.scss'
+import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 export const scene: SceneExport = {
     logic: sessionRecordingDetailLogic,
@@ -26,7 +26,7 @@ export function SessionRecordingDetail({ id }: SessionRecordingDetailLogicProps 
     const { currentTeam } = useValues(teamLogic)
     return (
         <div className="SessionRecordingScene">
-            <PageHeader title={<div>Recording</div>} />
+            <PageHeader />
             {currentTeam && !currentTeam?.session_recording_opt_in ? (
                 <div className="mb-4">
                     <LemonBanner type="info">

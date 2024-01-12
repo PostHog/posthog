@@ -1,9 +1,11 @@
-import { useActions, useValues } from 'kea'
-import { GroupType } from '~/types'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+
+import { GroupType } from '~/types'
+
 import { groupAnalyticsConfigLogic } from './groupAnalyticsConfigLogic'
 
 export function GroupAnalyticsConfig(): JSX.Element | null {
@@ -83,10 +85,14 @@ export function GroupAnalyticsConfig(): JSX.Element | null {
             <LemonTable columns={columns} dataSource={Array.from(groupTypes.values())} loading={groupTypesLoading} />
 
             <div className="flex gap-2 mt-4">
-                <LemonButton type="primary" disabled={!hasChanges} onClick={save}>
+                <LemonButton
+                    type="primary"
+                    disabledReason={!hasChanges && 'Make some changes before saving'}
+                    onClick={save}
+                >
                     Save
                 </LemonButton>
-                <LemonButton disabled={!hasChanges} onClick={reset}>
+                <LemonButton disabledReason={!hasChanges && 'Revert any changes made'} onClick={reset}>
                     Cancel
                 </LemonButton>
             </div>

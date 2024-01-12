@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { PureField } from 'lib/forms/Field'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { PureField } from 'lib/forms/Field'
+
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 
 export function VerifyDomainModal(): JSX.Element {
@@ -42,7 +43,7 @@ export function VerifyDomainModal(): JSX.Element {
                             <PureField label="Name">
                                 <div className="flex items-center gap-2">
                                     <div className="border rounded p-2 h-10 flex-1">{challengeName}</div>
-                                    <CopyToClipboardInline explicitValue={challengeName} />
+                                    <CopyToClipboardInline explicitValue={challengeName} selectable={true} />
                                 </div>
                             </PureField>
 
@@ -51,15 +52,18 @@ export function VerifyDomainModal(): JSX.Element {
                                     <div className="border rounded p-2 h-10 flex-1">
                                         {domainBeingVerified?.verification_challenge}
                                     </div>
-                                    <CopyToClipboardInline
-                                        explicitValue={domainBeingVerified?.verification_challenge}
-                                    />
+                                    {domainBeingVerified && (
+                                        <CopyToClipboardInline
+                                            explicitValue={domainBeingVerified.verification_challenge}
+                                            selectable={true}
+                                        />
+                                    )}
                                 </div>
                             </PureField>
                             <PureField label="TTL">
                                 <div className="flex items-center gap-2">
                                     <div className="border rounded p-2 h-10 flex-1">Default or 3600</div>
-                                    <CopyToClipboardInline explicitValue="3600" />
+                                    <CopyToClipboardInline explicitValue="3600" selectable={true} />
                                 </div>
                             </PureField>
                         </div>

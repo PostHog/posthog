@@ -1,14 +1,16 @@
 import { Meta } from '@storybook/react'
 import { useActions, useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useEffect } from 'react'
 import { Scene } from 'scenes/sceneTypes'
+
 import { useStorybookMocks } from '~/mocks/browser'
-import { navigation3000Logic } from '../navigationLogic'
-import { Sidebar } from './Sidebar'
-import featureFlagsJson from '../../../scenes/feature-flags/__mocks__/feature_flags.json'
+
 import dashboardsJson from '../../../scenes/dashboard/__mocks__/dashboards.json'
+import featureFlagsJson from '../../../scenes/feature-flags/__mocks__/feature_flags.json'
+import { navigation3000Logic } from '../navigationLogic'
 import { SidebarNavbarItem } from '../types'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { Sidebar } from './Sidebar'
 
 const meta: Meta = {
     title: 'PostHog 3000/Sidebar',
@@ -16,7 +18,7 @@ const meta: Meta = {
         mockDate: '2023-02-01',
         layout: 'fullscreen',
         viewMode: 'story',
-        featureFlags: [FEATURE_FLAGS.POSTHOG_3000, FEATURE_FLAGS.POSTHOG_3000_NAV],
+        featureFlags: [FEATURE_FLAGS.POSTHOG_3000_NAV],
     },
 }
 export default meta

@@ -1,8 +1,10 @@
-import { kea, path, actions, reducers, afterMount } from 'kea'
-import type { featureFlagLogicType } from './featureFlagLogicType'
-import posthog from 'posthog-js'
+import { actions, afterMount, kea, path, reducers } from 'kea'
 import { getAppContext } from 'lib/utils/getAppContext'
+import posthog from 'posthog-js'
+
 import { AppContext } from '~/types'
+
+import type { featureFlagLogicType } from './featureFlagLogicType'
 
 export type FeatureFlagsSet = {
     [flag: string]: boolean | string
@@ -20,7 +22,13 @@ function notifyFlagIfNeeded(flag: string, flagState: string | boolean | undefine
 
 function getPersistedFeatureFlags(appContext: AppContext | undefined = getAppContext()): FeatureFlagsSet {
     const persistedFeatureFlags = appContext?.persisted_feature_flags || []
-    return Object.fromEntries(persistedFeatureFlags.map((f) => [f, true]))
+    const flags = Object.fromEntries(
+        persistedFeatureFlags.map((f) => {
+            return [f, true]
+        })
+    )
+
+    return flags
 }
 
 function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {

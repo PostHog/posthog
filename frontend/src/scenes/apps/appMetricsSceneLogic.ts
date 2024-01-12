@@ -1,41 +1,29 @@
-import { kea, key, props, path, actions, selectors, reducers, listeners } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-
-import type { appMetricsSceneLogicType } from './appMetricsSceneLogicType'
-import { urls } from 'scenes/urls'
-import { Breadcrumb, PluginConfigWithPluginInfo, UserBasicType } from '~/types'
-import api, { PaginatedResponse } from 'lib/api'
-import { teamLogic } from 'scenes/teamLogic'
 import { actionToUrl, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
+import api, { PaginatedResponse } from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { toParams } from 'lib/utils'
 import { HISTORICAL_EXPORT_JOB_NAME_V2 } from 'scenes/plugins/edit/interface-jobs/PluginJobConfiguration'
+import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { AppMetricsTab, AppMetricsUrlParams, Breadcrumb, PluginConfigWithPluginInfo, UserBasicType } from '~/types'
+
 import { interfaceJobsLogic, InterfaceJobsProps } from '../plugins/edit/interface-jobs/interfaceJobsLogic'
-import { dayjs } from 'lib/dayjs'
-import { router } from 'kea-router'
+import type { appMetricsSceneLogicType } from './appMetricsSceneLogicType'
 
 export interface AppMetricsLogicProps {
     /** Used as the logic's key */
     pluginConfigId: number
 }
 
-export interface AppMetricsUrlParams {
-    tab?: AppMetricsTab
-    from?: string
-    error?: [string, string]
-}
-
-export enum AppMetricsTab {
-    Logs = 'logs',
-    ProcessEvent = 'processEvent',
-    OnEvent = 'onEvent',
-    ExportEvents = 'exportEvents',
-    ScheduledTask = 'scheduledTask',
-    HistoricalExports = 'historical_exports',
-    History = 'history',
-}
 export const TabsWithMetrics = [
     AppMetricsTab.ProcessEvent,
     AppMetricsTab.OnEvent,
+    AppMetricsTab.ComposeWebhook,
     AppMetricsTab.ExportEvents,
     AppMetricsTab.ScheduledTask,
     AppMetricsTab.HistoricalExports,
@@ -95,6 +83,7 @@ const DEFAULT_DATE_FROM = '-30d'
 const INITIAL_TABS: Array<AppMetricsTab> = [
     AppMetricsTab.ProcessEvent,
     AppMetricsTab.OnEvent,
+    AppMetricsTab.ComposeWebhook,
     AppMetricsTab.ExportEvents,
     AppMetricsTab.ScheduledTask,
 ]
@@ -194,10 +183,12 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
             (s, p) => [s.pluginConfig, p.pluginConfigId],
             (pluginConfig, pluginConfigId: number): Breadcrumb[] => [
                 {
-                    name: 'Apps',
+                    key: Scene.Apps,
+                    name: 'Data pipeline',
                     path: urls.projectApps(),
                 },
                 {
+                    key: [Scene.AppMetrics, pluginConfigId],
                     name: pluginConfig?.plugin_info?.name,
                     path: urls.appMetrics(pluginConfigId),
                 },

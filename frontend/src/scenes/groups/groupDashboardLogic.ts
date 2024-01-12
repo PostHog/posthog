@@ -1,11 +1,11 @@
-import { connect, kea, selectors, path } from 'kea'
+import { connect, kea, path, selectors } from 'kea'
+import { DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
+import { Scene } from 'scenes/sceneTypes'
+import { userLogic } from 'scenes/userLogic'
 
 import { DashboardPlacement } from '~/types'
-import { Scene } from 'scenes/sceneTypes'
 
 import type { groupDashboardLogicType } from './groupDashboardLogicType'
-import { DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
-import { userLogic } from 'scenes/userLogic'
 
 export const groupDashboardLogic = kea<groupDashboardLogicType>([
     path(['scenes', 'groups', 'groupDashboardLogic']),

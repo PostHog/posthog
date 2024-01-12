@@ -1,24 +1,26 @@
 import { LemonTable } from '@posthog/lemon-ui'
-import {
-    surveyLogic,
-    SurveyRatingResults,
-    QuestionResultsReady,
-    SurveySingleChoiceResults,
-    SurveyMultipleChoiceResults,
-    SurveyOpenTextResults,
-    SurveyUserStats,
-} from './surveyLogic'
-import { useActions, useValues, BindLogic } from 'kea'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { BindLogic, useActions, useValues } from 'kea'
 import { IconInfo } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { GraphType } from '~/types'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useEffect } from 'react'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { insightLogic } from 'scenes/insights/insightLogic'
+
+import { GraphType } from '~/types'
 import { InsightLogicProps, SurveyQuestionType } from '~/types'
-import { useEffect } from 'react'
+
+import {
+    QuestionResultsReady,
+    surveyLogic,
+    SurveyMultipleChoiceResults,
+    SurveyOpenTextResults,
+    SurveyRatingResults,
+    SurveySingleChoiceResults,
+    SurveyUserStats,
+} from './surveyLogic'
 
 const insightProps: InsightLogicProps = {
     dashboardItemId: `new-survey`,
@@ -323,16 +325,17 @@ export function SingleChoiceQuestionPieChart({
                             </BindLogic>
                         </div>
                         <div
-                            className={`grid h-full pl-4 py-${(() => {
+                            className={`grid h-full pl-4 ${(() => {
                                 const dataLength = surveySingleChoiceResults[questionIndex].data.length
+                                // We need to return the whole class for Tailwind to see them when scanning code
                                 if (dataLength < 5) {
-                                    return 20
+                                    return 'py-20'
                                 } else if (dataLength < 7) {
-                                    return 15
+                                    return 'py-15'
                                 } else if (dataLength < 10) {
-                                    return 10
+                                    return 'py-10'
                                 } else {
-                                    return 5
+                                    return 'py-5'
                                 }
                             })()} grid-cols-${Math.ceil(surveySingleChoiceResults[questionIndex].data.length / 10)}`}
                         >
@@ -483,8 +486,10 @@ export function OpenTextViz({
 
                             return (
                                 <div key={`open-text-${questionIndex}-${i}`} className="masonry-item border rounded">
-                                    <div className="masonry-item-text text-center italic font-semibold px-5 py-4">
-                                        {event.properties[surveyResponseField]}
+                                    <div className="max-h-80 overflow-y-auto text-center italic font-semibold px-5 py-4">
+                                        {typeof event.properties[surveyResponseField] !== 'string'
+                                            ? JSON.stringify(event.properties[surveyResponseField])
+                                            : event.properties[surveyResponseField]}
                                     </div>
                                     <div className="bg-bg-light items-center px-5 py-4 border-t rounded-b truncate w-full">
                                         <PersonDisplay

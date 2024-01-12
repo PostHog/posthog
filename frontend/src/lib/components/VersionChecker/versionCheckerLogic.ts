@@ -1,7 +1,9 @@
 import { actions, afterMount, kea, listeners, path, reducers, sharedListeners } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+
 import { HogQLQuery, NodeKind } from '~/queries/schema'
+import { hogql } from '~/queries/utils'
 
 import type { versionCheckerLogicType } from './versionCheckerLogicType'
 
@@ -41,7 +43,7 @@ export const versionCheckerLogic = kea<versionCheckerLogicType>([
                 loadUsedVersions: async () => {
                     const query: HogQLQuery = {
                         kind: NodeKind.HogQLQuery,
-                        query: `SELECT properties.$lib_version AS lib_version, max(timestamp) AS latest_timestamp, count(lib_version) as count
+                        query: hogql`SELECT properties.$lib_version AS lib_version, max(timestamp) AS latest_timestamp, count(lib_version) as count
                                 FROM events
                                 WHERE timestamp >= now() - INTERVAL 1 DAY 
                                 AND timestamp <= now()

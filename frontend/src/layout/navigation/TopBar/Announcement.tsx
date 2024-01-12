@@ -1,14 +1,14 @@
+import './Announcement.scss'
+
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { MOCK_NODE_PROCESS } from 'lib/constants'
-import { announcementLogic, AnnouncementType } from '~/layout/navigation/TopBar/announcementLogic'
 import { useActions, useValues } from 'kea'
 import { NewFeatureBanner } from 'lib/introductions/NewFeatureBanner'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { LemonButton, Link } from '@posthog/lemon-ui'
 import { IconClose } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-window.process = MOCK_NODE_PROCESS
+import { announcementLogic, AnnouncementType } from '~/layout/navigation/TopBar/announcementLogic'
 
 export function Announcement(): JSX.Element | null {
     const { shownAnnouncementType, cloudAnnouncement, closable } = useValues(announcementLogic)

@@ -1,61 +1,63 @@
 import './DataTable.scss'
+
+import clsx from 'clsx'
+import { BindLogic, useValues } from 'kea'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { useCallback, useState } from 'react'
+import { EventDetails } from 'scenes/events/EventDetails'
+import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
+import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
+
+import { AutoLoad } from '~/queries/nodes/DataNode/AutoLoad'
+import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { DateRange } from '~/queries/nodes/DataNode/DateRange'
+import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
+import { LoadNext } from '~/queries/nodes/DataNode/LoadNext'
+import { Reload } from '~/queries/nodes/DataNode/Reload'
+import { BackToSource } from '~/queries/nodes/DataTable/BackToSource'
+import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
+import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
+import { dataTableLogic, DataTableLogicProps, DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
+import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
+import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
+import { renderColumn } from '~/queries/nodes/DataTable/renderColumn'
+import { renderColumnMeta } from '~/queries/nodes/DataTable/renderColumnMeta'
+import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
 import {
+    extractExpressionComment,
+    getDataNodeDefaultColumns,
+    removeExpressionComment,
+} from '~/queries/nodes/DataTable/utils'
+import { EventName } from '~/queries/nodes/EventsNode/EventName'
+import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
+import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
+import { EditHogQLButton } from '~/queries/nodes/Node/EditHogQLButton'
+import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
+import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
+import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
+import {
+    ActorsQuery,
     AnyResponseType,
     DataTableNode,
     EventsNode,
     EventsQuery,
     HogQLQuery,
     PersonsNode,
-    PersonsQuery,
 } from '~/queries/schema'
 import { QueryContext } from '~/queries/types'
-
-import { useCallback, useState } from 'react'
-import { BindLogic, useValues } from 'kea'
-import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { EventName } from '~/queries/nodes/EventsNode/EventName'
-import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
-import { EventDetails } from 'scenes/events/EventDetails'
-import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
-import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
-import { Reload } from '~/queries/nodes/DataNode/Reload'
-import { LoadNext } from '~/queries/nodes/DataNode/LoadNext'
-import { renderColumnMeta } from '~/queries/nodes/DataTable/renderColumnMeta'
-import { renderColumn } from '~/queries/nodes/DataTable/renderColumn'
-import { AutoLoad } from '~/queries/nodes/DataNode/AutoLoad'
-import { dataTableLogic, DataTableLogicProps, DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
-import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import clsx from 'clsx'
-import { OpenEditorButton } from '~/queries/nodes/Node/OpenEditorButton'
 import {
+    isActorsQuery,
     isEventsQuery,
     isHogQlAggregation,
     isHogQLQuery,
-    isPersonsQuery,
     taxonomicEventFilterToHogQL,
     taxonomicPersonFilterToHogQL,
 } from '~/queries/utils'
-import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
-import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
-import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
-import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
-import { DateRange } from '~/queries/nodes/DataNode/DateRange'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import {
-    extractExpressionComment,
-    getDataNodeDefaultColumns,
-    removeExpressionComment,
-} from '~/queries/nodes/DataTable/utils'
-import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { EventType } from '~/types'
-import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
-import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
-import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
-import { EditHogQLButton } from '~/queries/nodes/Node/EditHogQLButton'
 
 interface DataTableProps {
     uniqueKey?: string | number
@@ -66,6 +68,8 @@ interface DataTableProps {
     /* Cached Results are provided when shared or exported,
     the data node logic becomes read only implicitly */
     cachedResults?: AnyResponseType
+    // Override the data logic node key if needed
+    dataNodeLogicKey?: string
 }
 
 const eventGroupTypes = [
@@ -78,14 +82,21 @@ const personGroupTypes = [TaxonomicFilterGroupType.HogQLExpression, TaxonomicFil
 
 let uniqueNode = 0
 
-export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }: DataTableProps): JSX.Element {
-    const uniqueNodeKey = useState(() => uniqueNode++)
+export function DataTable({
+    uniqueKey,
+    query,
+    setQuery,
+    context,
+    cachedResults,
+    dataNodeLogicKey,
+}: DataTableProps): JSX.Element {
+    const [uniqueNodeKey] = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
     const [vizKey] = useState(() => `DataTable.${uniqueNodeKey}`)
 
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
-        key: dataKey,
+        key: dataNodeLogicKey ?? dataKey,
         cachedResults: cachedResults,
     }
     const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)
@@ -95,14 +106,20 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         responseLoading,
         responseError,
         queryCancelled,
-        canLoadNextData,
         canLoadNewData,
         nextDataLoading,
         newDataLoading,
         highlightedRows,
+        backToSourceQuery,
     } = useValues(builtDataNodeLogic)
 
-    const dataTableLogicProps: DataTableLogicProps = { query, vizKey: vizKey, dataKey: dataKey, context }
+    const dataTableLogicProps: DataTableLogicProps = {
+        query,
+        vizKey: vizKey,
+        dataKey: dataKey,
+        dataNodeLogicKey,
+        context,
+    }
     const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort, sourceFeatures } = useValues(
         dataTableLogic(dataTableLogicProps)
     )
@@ -135,8 +152,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         ? columnsInResponse ?? columnsInQuery
         : columnsInQuery
 
-    const groupTypes = isPersonsQuery(query.source) ? personGroupTypes : eventGroupTypes
-    const hogQLTable = isPersonsQuery(query.source) ? 'persons' : 'events'
+    const groupTypes = isActorsQuery(query.source) ? personGroupTypes : eventGroupTypes
 
     const lemonColumns: LemonTableColumn<DataTableRow, any>[] = [
         ...columnsInLemonTable.map((key, index) => ({
@@ -174,12 +190,12 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value={key}
                             groupTypes={groupTypes}
-                            hogQLTable={hogQLTable}
+                            metadataSource={query.source}
                             renderValue={() => <>Edit column</>}
                             type="tertiary"
                             fullWidth
                             onChange={(v, g) => {
-                                const hogQl = isPersonsQuery(query.source)
+                                const hogQl = isActorsQuery(query.source)
                                     ? taxonomicPersonFilterToHogQL(g, v)
                                     : taxonomicEventFilterToHogQL(g, v)
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
@@ -213,7 +229,6 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                             <>
                                 <LemonButton
                                     fullWidth
-                                    status={(query.source as EventsQuery)?.orderBy?.[0] === key ? 'primary' : 'stealth'}
                                     data-attr="datatable-sort-asc"
                                     onClick={() => {
                                         setQuery?.({
@@ -229,11 +244,6 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                 </LemonButton>
                                 <LemonButton
                                     fullWidth
-                                    status={
-                                        (query.source as EventsQuery)?.orderBy?.[0] === `${key} DESC`
-                                            ? 'primary'
-                                            : 'stealth'
-                                    }
                                     data-attr="datatable-sort-desc"
                                     onClick={() => {
                                         setQuery?.({
@@ -254,13 +264,13 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value={''}
                             groupTypes={groupTypes}
-                            hogQLTable={hogQLTable}
+                            metadataSource={query.source}
                             placeholder={<span className="not-italic">Add column left</span>}
                             data-attr="datatable-add-column-left"
                             type="tertiary"
                             fullWidth
                             onChange={(v, g) => {
-                                const hogQl = isPersonsQuery(query.source)
+                                const hogQl = isActorsQuery(query.source)
                                     ? taxonomicPersonFilterToHogQL(g, v)
                                     : taxonomicEventFilterToHogQL(g, v)
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
@@ -274,7 +284,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                             select: [...columns.slice(0, index), hogQl, ...columns.slice(index)].filter(
                                                 (c) => (isAggregation ? c !== '*' && c !== 'person.$delete' : true)
                                             ),
-                                        } as EventsQuery | PersonsQuery,
+                                        } as EventsQuery | ActorsQuery,
                                     })
                                 }
                             }}
@@ -283,13 +293,13 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value={''}
                             groupTypes={groupTypes}
-                            hogQLTable={hogQLTable}
+                            metadataSource={query.source}
                             placeholder={<span className="not-italic">Add column right</span>}
                             data-attr="datatable-add-column-right"
                             type="tertiary"
                             fullWidth
                             onChange={(v, g) => {
-                                const hogQl = isPersonsQuery(query.source)
+                                const hogQl = isActorsQuery(query.source)
                                     ? taxonomicPersonFilterToHogQL(g, v)
                                     : taxonomicEventFilterToHogQL(g, v)
                                 if (setQuery && hogQl && sourceFeatures.has(QueryFeature.selectAndOrderByColumns)) {
@@ -307,7 +317,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                             ].filter((c) =>
                                                 isAggregation ? c !== '*' && c !== 'person.$delete' : true
                                             ),
-                                        } as EventsQuery | PersonsQuery,
+                                        } as EventsQuery | ActorsQuery,
                                     })
                                 }
                             }}
@@ -367,12 +377,12 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     ].filter((column) => !query.hiddenColumns?.includes(column.dataIndex) && column.dataIndex !== '*')
 
     const setQuerySource = useCallback(
-        (source: EventsNode | EventsQuery | PersonsNode | PersonsQuery | HogQLQuery) =>
-            setQuery?.({ ...query, source }),
+        (source: EventsNode | EventsQuery | PersonsNode | ActorsQuery | HogQLQuery) => setQuery?.({ ...query, source }),
         [setQuery]
     )
 
     const firstRowLeft = [
+        backToSourceQuery ? <BackToSource key="return-to-source" /> : null,
         showDateRange && sourceFeatures.has(QueryFeature.dateRangePicker) ? (
             <DateRange key="date-range" query={query.source} setQuery={setQuerySource} />
         ) : null,
@@ -437,7 +447,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <div className="relative w-full flex flex-col gap-4 flex-1 overflow-hidden">
+                <div className="relative w-full flex flex-col gap-4 flex-1 h-full">
                     {showHogQLEditor && isHogQLQuery(query.source) && !isReadOnly ? (
                         <HogQLQueryEditor query={query.source} setQuery={setQuerySource} embedded={embedded} />
                     ) : null}
@@ -469,27 +479,8 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                     '::'
                                 ) /* Bust the LemonTable cache when columns change */
                             }
-                            dataSource={(dataTableRows ?? []) as DataTableRow[]}
-                            rowKey={({ result }: DataTableRow, rowIndex) => {
-                                if (result) {
-                                    if (
-                                        sourceFeatures.has(QueryFeature.resultIsArrayOfArrays) &&
-                                        sourceFeatures.has(QueryFeature.columnsInResponse)
-                                    ) {
-                                        if (columnsInResponse?.includes('*')) {
-                                            return result[columnsInResponse.indexOf('*')].uuid
-                                        } else if (columnsInResponse?.includes('uuid')) {
-                                            return result[columnsInResponse.indexOf('uuid')]
-                                        } else if (columnsInResponse?.includes('id')) {
-                                            return result[columnsInResponse.indexOf('id')]
-                                        }
-                                    }
-                                    return (
-                                        (result && 'uuid' in result ? (result as any).uuid : null) ??
-                                        (result && 'id' in result ? (result as any).id : null) ??
-                                        JSON.stringify(result ?? rowIndex)
-                                    )
-                                }
+                            dataSource={dataTableRows ?? []}
+                            rowKey={(_, rowIndex) => {
                                 return rowIndex
                             }}
                             sorting={null}
@@ -525,12 +516,11 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                                   return (
                                                       <EventDetails
                                                           event={result[columnsInResponse.indexOf('*')] ?? {}}
-                                                          useReactJsonView
                                                       />
                                                   )
                                               }
                                               if (result && !Array.isArray(result)) {
-                                                  return <EventDetails event={result as EventType} useReactJsonView />
+                                                  return <EventDetails event={result as EventType} />
                                               }
                                           },
                                           rowExpandable: ({ result }) => !!result,
@@ -552,12 +542,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                                         result && result[0] && result[0]['event'] === '$exception',
                                 })
                             }
-                            footer={
-                                canLoadNextData &&
-                                ((response as any).results.length > 0 ||
-                                    (response as any).result.length > 0 ||
-                                    !responseLoading) && <LoadNext query={query.source} />
-                            }
+                            footer={(dataTableRows ?? []).length > 0 ? <LoadNext query={query.source} /> : null}
                             onRow={context?.rowProps}
                         />
                     )}

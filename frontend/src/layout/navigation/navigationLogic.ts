@@ -1,16 +1,16 @@
-import { windowValues } from 'kea-window-values'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { kea, path, connect, actions, reducers, selectors, listeners } from 'kea'
+import { windowValues } from 'kea-window-values'
 import api from 'lib/api'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
+
 import type { navigationLogicType } from './navigationLogicType'
-import { membersLogic } from 'scenes/organization/membersLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { Scene } from 'scenes/sceneTypes'
 
 export type ProjectNoticeVariant =
     | 'demo_project'
@@ -21,25 +21,16 @@ export type ProjectNoticeVariant =
 
 export const navigationLogic = kea<navigationLogicType>([
     path(['layout', 'navigation', 'navigationLogic']),
-    connect({
-        values: [sceneLogic, ['sceneConfig', 'activeScene'], membersLogic, ['members', 'membersLoading']],
+    connect(() => ({
+        values: [sceneLogic, ['sceneConfig'], membersLogic, ['members', 'membersLoading']],
         actions: [eventUsageLogic, ['reportProjectNoticeDismissed']],
-    }),
+    })),
     actions({
-        toggleSideBarBase: (override?: boolean) => ({ override }), // Only use the override for testing
-        toggleSideBarMobile: (override?: boolean) => ({ override }), // Only use the override for testing
-        toggleActivationSideBar: true,
-        showActivationSideBar: true,
-        hideActivationSideBar: true,
-        hideSideBarMobile: true,
         openSitePopover: true,
         closeSitePopover: true,
         toggleSitePopover: true,
         toggleProjectSwitcher: true,
         hideProjectSwitcher: true,
-        openAppSourceEditor: (id: number, pluginId: number) => ({ id, pluginId }),
-        closeAppSourceEditor: true,
-        setOpenAppMenu: (id: number | null) => ({ id }),
         closeProjectNotice: (projectNoticeVariant: ProjectNoticeVariant) => ({ projectNoticeVariant }),
     }),
     loaders({
@@ -60,29 +51,6 @@ export const navigationLogic = kea<navigationLogicType>([
         mobileLayout: (window: Window) => window.innerWidth < 992, // Sync width threshold with Sass variable $lg!
     })),
     reducers({
-        // Non-mobile base
-        isSideBarShownBase: [
-            true,
-            { persist: true },
-            {
-                toggleSideBarBase: (state, { override }) => override ?? !state,
-            },
-        ],
-        // Mobile, applied on top of base, so that the sidebar does not show up annoyingly when shrinking the window
-        isSideBarShownMobile: [
-            false,
-            {
-                toggleSideBarMobile: (state, { override }) => override ?? !state,
-                hideSideBarMobile: () => false,
-            },
-        ],
-        isActivationSideBarShownBase: [
-            false,
-            {
-                showActivationSideBar: () => true,
-                hideActivationSideBar: () => false,
-            },
-        ],
         isSitePopoverOpen: [
             false,
             {
@@ -98,14 +66,6 @@ export const navigationLogic = kea<navigationLogicType>([
                 hideProjectSwitcher: () => false,
             },
         ],
-        appSourceEditor: [
-            null as null | { pluginId: number; id: number },
-            {
-                openAppSourceEditor: (_, payload) => payload,
-                closeAppSourceEditor: () => null,
-            },
-        ],
-        openAppMenu: [null as null | number, { setOpenAppMenu: (_, { id }) => id }],
         projectNoticesAcknowledged: [
             {} as Record<ProjectNoticeVariant, boolean>,
             { persist: true },
@@ -115,39 +75,16 @@ export const navigationLogic = kea<navigationLogicType>([
         ],
     }),
     selectors({
-        /** `noSidebar` whether the current scene should display a sidebar at all */
-        noSidebar: [
-            (s) => [s.fullscreen, s.sceneConfig],
-            (fullscreen, sceneConfig) => fullscreen || sceneConfig?.layout === 'plain',
-        ],
-        minimalTopBar: [
-            (s) => [s.activeScene],
-            (activeScene) => {
-                const minimalTopBarScenes = [Scene.Products, Scene.Onboarding]
-                return activeScene && minimalTopBarScenes.includes(activeScene)
-            },
-        ],
-        isSideBarShown: [
-            (s) => [s.mobileLayout, s.isSideBarShownBase, s.isSideBarShownMobile, s.noSidebar],
-            (mobileLayout, isSideBarShownBase, isSideBarShownMobile, noSidebar) =>
-                !noSidebar && (mobileLayout ? isSideBarShownMobile : isSideBarShownBase),
-        ],
-        isActivationSideBarShown: [
-            (s) => [s.mobileLayout, s.isActivationSideBarShownBase, s.isSideBarShownMobile, s.noSidebar],
-            (mobileLayout, isActivationSideBarShownBase, isSideBarShownMobile, noSidebar) =>
-                !noSidebar &&
-                (mobileLayout ? isActivationSideBarShownBase && !isSideBarShownMobile : isActivationSideBarShownBase),
-        ],
-        systemStatus: [
+        systemStatusHealthy: [
             (s) => [s.navigationStatus, preflightLogic.selectors.siteUrlMisconfigured],
             (status, siteUrlMisconfigured) => {
-                if (siteUrlMisconfigured) {
-                    return false
-                }
-
                 // On cloud non staff users don't have status metrics to review
                 if (preflightLogic.values.preflight?.cloud && !userLogic.values.user?.is_staff) {
                     return true
+                }
+
+                if (siteUrlMisconfigured) {
+                    return false
                 }
 
                 return status.system_status_ok
@@ -199,16 +136,9 @@ export const navigationLogic = kea<navigationLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         closeProjectNotice: ({ projectNoticeVariant }) => {
             actions.reportProjectNoticeDismissed(projectNoticeVariant)
-        },
-        toggleActivationSideBar: () => {
-            if (values.isActivationSideBarShown) {
-                actions.hideActivationSideBar()
-            } else {
-                actions.showActivationSideBar()
-            }
         },
     })),
 ])

@@ -1,36 +1,39 @@
-import { SceneExport } from 'scenes/sceneTypes'
-import { PageHeader } from 'lib/components/PageHeader'
+import { TZLabel } from '@posthog/apps-common'
 import {
     LemonButton,
-    LemonDivider,
-    LemonTable,
-    LemonTag,
-    LemonInput,
-    LemonTableColumns,
     LemonCheckbox,
+    LemonDivider,
+    LemonInput,
+    LemonTable,
+    LemonTableColumns,
+    LemonTag,
 } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
-import { BatchExportLogicProps, batchExportLogic, BatchExportTab } from './batchExportLogic'
-import { BatchExportLogsProps, batchExportLogsLogic, LOGS_PORTION_LIMIT } from './batchExportLogsLogic'
-import { BatchExportRunIcon, BatchExportTag } from './components'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { IconEllipsis, IconRefresh } from 'lib/lemon-ui/icons'
-import { capitalizeFirstLetter, identifierToHuman } from 'lib/utils'
-import { BatchExportBackfillModal } from './BatchExportBackfillModal'
-import { humanizeDestination, intervalToFrequency, isRunInProgress } from './utils'
-import { TZLabel } from '@posthog/apps-common'
-import { Popover } from 'lib/lemon-ui/Popover'
-import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
 import { NotFound } from 'lib/components/NotFound'
-import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { PageHeader } from 'lib/components/PageHeader'
 import { dayjs } from 'lib/dayjs'
-import { BatchExportLogEntryLevel, BatchExportLogEntry } from '~/types'
+import { IconEllipsis, IconRefresh } from 'lib/lemon-ui/icons'
+import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { Popover } from 'lib/lemon-ui/Popover'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { capitalizeFirstLetter, identifierToHuman } from 'lib/utils'
 import { pluralize } from 'lib/utils'
+import { useEffect, useState } from 'react'
+import { PipelineAppLogLevel } from 'scenes/pipeline/pipelineAppLogsLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { BatchExportLogEntry } from '~/types'
+
+import { BatchExportBackfillModal } from './BatchExportBackfillModal'
+import { batchExportLogic, BatchExportLogicProps, BatchExportTab } from './batchExportLogic'
+import { batchExportLogsLogic, BatchExportLogsProps, LOGS_PORTION_LIMIT } from './batchExportLogsLogic'
+import { BatchExportRunIcon, BatchExportTag } from './components'
+import { humanizeDestination, intervalToFrequency, isRunInProgress } from './utils'
 
 export const scene: SceneExport = {
     component: BatchExportScene,
@@ -87,7 +90,6 @@ export function RunsTab(): JSX.Element {
                                         setDateRangeVisible(!dateRangeVisible)
                                     }}
                                     type="secondary"
-                                    status="stealth"
                                     size="small"
                                 >
                                     {runsDateRange.from.format('MMMM D, YYYY')} -{' '}
@@ -238,7 +240,7 @@ export function RunsTab(): JSX.Element {
                                 <>
                                     No runs yet. Your exporter runs every <b>{batchExportConfig.interval}</b>.
                                     <br />
-                                    <LemonButton type="primary" onClick={() => openBackfillModal()}>
+                                    <LemonButton type="primary" onClick={openBackfillModal}>
                                         Create historic export
                                     </LemonButton>
                                 </>
@@ -251,22 +253,22 @@ export function RunsTab(): JSX.Element {
     )
 }
 
-function BatchExportLogEntryLevelDisplay(type: BatchExportLogEntryLevel): JSX.Element {
+function BatchExportLogEntryLevelDisplay(type: PipelineAppLogLevel): JSX.Element {
     let color: string | undefined
     switch (type) {
-        case BatchExportLogEntryLevel.Debug:
+        case PipelineAppLogLevel.Debug:
             color = 'var(--muted)'
             break
-        case BatchExportLogEntryLevel.Log:
+        case PipelineAppLogLevel.Log:
             color = 'var(--default)'
             break
-        case BatchExportLogEntryLevel.Info:
+        case PipelineAppLogLevel.Info:
             color = 'var(--blue)'
             break
-        case BatchExportLogEntryLevel.Warning:
+        case PipelineAppLogLevel.Warning:
             color = 'var(--warning)'
             break
-        case BatchExportLogEntryLevel.Error:
+        case PipelineAppLogLevel.Error:
             color = 'var(--danger)'
             break
         default:
@@ -334,7 +336,7 @@ export function LogsTab({ batchExportId }: BatchExportLogsProps): JSX.Element {
             />
             <div className="flex items-center gap-4">
                 <span>Show logs of type:&nbsp;</span>
-                {Object.values(BatchExportLogEntryLevel).map((type) => {
+                {Object.values(PipelineAppLogLevel).map((type) => {
                     return (
                         <LemonCheckbox
                             key={type}
@@ -377,7 +379,7 @@ export function LogsTab({ batchExportId }: BatchExportLogsProps): JSX.Element {
                     type="secondary"
                     fullWidth
                     center
-                    disabledReason={!isThereMoreToLoad ? "There's nothing mote to load" : undefined}
+                    disabledReason={!isThereMoreToLoad ? "There's nothing more to load" : undefined}
                 >
                     {isThereMoreToLoad ? `Load up to ${LOGS_PORTION_LIMIT} older entries` : 'No older entries'}
                 </LemonButton>
@@ -403,11 +405,6 @@ export function BatchExportScene(): JSX.Element {
     return (
         <>
             <PageHeader
-                title={
-                    <span className="flex items-center gap-2">
-                        {batchExportConfig?.name ?? (batchExportConfigLoading ? 'Loading...' : 'Missing')}
-                    </span>
-                }
                 buttons={
                     batchExportConfig ? (
                         <>
@@ -442,7 +439,7 @@ export function BatchExportScene(): JSX.Element {
                                     },
                                 ]}
                             >
-                                <LemonButton icon={<IconEllipsis />} status="stealth" size="small" />
+                                <LemonButton icon={<IconEllipsis />} size="small" />
                             </LemonMenu>
                             <LemonDivider vertical />
                             <LemonButton type="secondary" onClick={() => openBackfillModal()}>
@@ -518,7 +515,7 @@ export function BatchExportScene(): JSX.Element {
                         </div>
                     </>
                 ) : (
-                    <LemonSkeleton className="w-10" />
+                    <LemonSkeleton className="w-10 h-4" />
                 )}
             </div>
 

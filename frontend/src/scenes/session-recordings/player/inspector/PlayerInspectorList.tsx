@@ -1,28 +1,42 @@
-import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef } from 'react'
-import { List, ListRowRenderer } from 'react-virtualized/dist/es/List'
-import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
-import { AvailableFeature, SessionRecordingPlayerTab } from '~/types'
-import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
-import { playerInspectorLogic } from './playerInspectorLogic'
-import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
-import { LemonButton } from '@posthog/lemon-ui'
 import './PlayerInspectorList.scss'
+
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { range } from 'd3'
-import { teamLogic } from 'scenes/teamLogic'
-import { playerSettingsLogic } from '../playerSettingsLogic'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { userLogic } from 'scenes/userLogic'
+import { useActions, useValues } from 'kea'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
-import { PlayerInspectorListItem } from './components/PlayerInspectorListItem'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { useEffect, useMemo, useRef } from 'react'
+import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
+import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
+import { List, ListRowRenderer } from 'react-virtualized/dist/es/List'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
+
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
+import { AvailableFeature, SessionRecordingPlayerTab } from '~/types'
+
+import { playerSettingsLogic } from '../playerSettingsLogic'
+import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import { PlayerInspectorListItem } from './components/PlayerInspectorListItem'
+import { playerInspectorLogic } from './playerInspectorLogic'
+
+function isLocalhost(url: string | null | undefined): boolean {
+    try {
+        return !!url && ['localhost', '127.0.0.1'].includes(new URL(url).hostname)
+    } catch (e) {
+        // for e.g. mobile doesn't have a URL, so we can swallow this and move on
+        return false
+    }
+}
 
 function EmptyNetworkTab({
     captureNetworkLogOptIn,
     captureNetworkFeatureAvailable,
+    recordingURL,
 }: {
     captureNetworkLogOptIn: boolean
     captureNetworkFeatureAvailable: boolean
+    recordingURL: string | null | undefined
 }): JSX.Element {
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
     return !captureNetworkFeatureAvailable ? (
@@ -56,6 +70,19 @@ function EmptyNetworkTab({
                 </LemonButton>
             </div>
         </>
+    ) : isLocalhost(recordingURL) ? (
+        <>
+            <div className="flex flex-col items-center">
+                <h4 className="text-xl font-medium">Network recording</h4>
+                <p className="text-muted text-center">
+                    Network capture is not supported when replay is running on localhost.{' '}
+                    <Link to={'https://posthog.com/docs/session-replay/network-recording'}>
+                        Learn more in our docs{' '}
+                    </Link>
+                    .
+                </p>
+            </div>
+        </>
     ) : (
         <>No results found in this recording.</>
     )
@@ -87,7 +114,7 @@ function EmptyConsoleTab({ captureConsoleLogOptIn }: { captureConsoleLogOptIn: b
 }
 
 export function PlayerInspectorList(): JSX.Element {
-    const { logicProps, snapshotsLoaded } = useValues(sessionRecordingPlayerLogic)
+    const { logicProps, snapshotsLoaded, sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
     const inspectorLogic = playerInspectorLogic(logicProps)
 
     const { items, tabsState, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScrollingPaused, tab } =
@@ -218,6 +245,7 @@ export function PlayerInspectorList(): JSX.Element {
                         <EmptyNetworkTab
                             captureNetworkFeatureAvailable={performanceAvailable}
                             captureNetworkLogOptIn={performanceEnabled}
+                            recordingURL={sessionPlayerMetaData?.start_url}
                         />
                     ) : (
                         'No results found in this recording.'

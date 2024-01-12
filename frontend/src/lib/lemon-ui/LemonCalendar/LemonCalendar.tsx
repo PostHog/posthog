@@ -1,11 +1,12 @@
 import './LemonCalendar.scss'
-import { useEffect, useState } from 'react'
-import { dayjs } from 'lib/dayjs'
-import { range } from 'lib/utils'
-import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
+
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { dayjs } from 'lib/dayjs'
+import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { range } from 'lib/utils'
+import { useEffect, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
 export interface LemonCalendarProps {
@@ -63,7 +64,6 @@ export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
                                 <th className="relative">
                                     {showLeftMonth && (
                                         <LemonButton
-                                            status="stealth"
                                             fullWidth
                                             data-attr="lemon-calendar-month-previous"
                                             className="absolute-left"
@@ -76,21 +76,16 @@ export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
                                         />
                                     )}
                                 </th>
-                                <th className="relative" colSpan={5}>
-                                    <LemonButton
-                                        status="muted"
-                                        fullWidth
-                                        center
-                                        data-attr={`lemon-calendar-month-title-${month}`}
-                                        className="text-xs font-bold text-muted uppercase cursor-default"
-                                    >
-                                        {startOfMonth.format('MMMM')} {startOfMonth.year()}
-                                    </LemonButton>
+                                <th
+                                    className="relative font-title font-semibold text-muted-alt uppercase cursor-default text-center"
+                                    data-attr={`lemon-calendar-month-title-${month}`}
+                                    colSpan={5}
+                                >
+                                    {startOfMonth.format('MMMM')} {startOfMonth.year()}
                                 </th>
                                 <th className="relative">
                                     {showRightMonth && (
                                         <LemonButton
-                                            status="stealth"
                                             fullWidth
                                             data-attr="lemon-calendar-month-next"
                                             className="absolute-right"
@@ -135,7 +130,6 @@ export function LemonCalendar(props: LemonCalendarProps): JSX.Element {
                                                 <LemonButton
                                                     fullWidth
                                                     center
-                                                    status="stealth"
                                                     data-attr="lemon-calendar-day"
                                                     onClick={() => props.onDateClick?.(date)}
                                                     {...buttonProps}

@@ -68,6 +68,109 @@
             "required": ["id", "kind"],
             "type": "object"
         },
+        "ActorsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "fixedProperties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "ActorsQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "offset": {
+                    "type": "integer"
+                },
+                "orderBy": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "properties": {
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "$ref": "#/definitions/ActorsQueryResponse",
+                    "description": "Cached query response"
+                },
+                "search": {
+                    "type": "string"
+                },
+                "select": {
+                    "items": {
+                        "$ref": "#/definitions/HogQLExpression"
+                    },
+                    "type": "array"
+                },
+                "source": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/InsightActorsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLQuery"
+                        }
+                    ]
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "ActorsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "integer"
+                },
+                "missing_actors_count": {
+                    "type": "integer"
+                },
+                "offset": {
+                    "type": "integer"
+                },
+                "results": {
+                    "items": {
+                        "items": {},
+                        "type": "array"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results", "columns", "types", "hogql", "limit", "offset"],
+            "type": "object"
+        },
         "AggregationAxisFormat": {
             "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled"],
             "type": "string"
@@ -90,10 +193,10 @@
                     "$ref": "#/definitions/EventsQuery"
                 },
                 {
-                    "$ref": "#/definitions/PersonsQuery"
+                    "$ref": "#/definitions/ActorsQuery"
                 },
                 {
-                    "$ref": "#/definitions/InsightPersonsQuery"
+                    "$ref": "#/definitions/InsightActorsQuery"
                 },
                 {
                     "$ref": "#/definitions/SessionsTimelineQuery"
@@ -233,7 +336,13 @@
                 "breakdown_group_type_index": {
                     "type": ["number", "null"]
                 },
+                "breakdown_hide_other_aggregation": {
+                    "type": ["boolean", "null"]
+                },
                 "breakdown_histogram_bin_count": {
+                    "type": "number"
+                },
+                "breakdown_limit": {
                     "type": "number"
                 },
                 "breakdown_normalize_url": {
@@ -281,6 +390,16 @@
             "enum": ["cohort", "person", "event", "group", "session", "hogql"],
             "type": "string"
         },
+        "ChartAxis": {
+            "additionalProperties": false,
+            "properties": {
+                "column": {
+                    "type": "string"
+                }
+            },
+            "required": ["column"],
+            "type": "object"
+        },
         "ChartDisplayType": {
             "enum": [
                 "ActionsLineGraph",
@@ -311,7 +430,7 @@
                     "type": "string"
                 },
                 "value": {
-                    "type": "number"
+                    "type": "integer"
                 }
             },
             "required": ["key", "type", "value"],
@@ -481,7 +600,7 @@
                             "$ref": "#/definitions/PersonsNode"
                         },
                         {
-                            "$ref": "#/definitions/PersonsQuery"
+                            "$ref": "#/definitions/ActorsQuery"
                         },
                         {
                             "$ref": "#/definitions/HogQLQuery"
@@ -500,6 +619,44 @@
                         }
                     ],
                     "description": "Source of the events"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
+        "DataVisualizationNode": {
+            "additionalProperties": false,
+            "properties": {
+                "chartSettings": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "goalLines": {
+                            "items": {
+                                "$ref": "#/definitions/GoalLine"
+                            },
+                            "type": "array"
+                        },
+                        "xAxis": {
+                            "$ref": "#/definitions/ChartAxis"
+                        },
+                        "yAxis": {
+                            "items": {
+                                "$ref": "#/definitions/ChartAxis"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "type": "object"
+                },
+                "display": {
+                    "$ref": "#/definitions/ChartDisplayType"
+                },
+                "kind": {
+                    "const": "DataVisualizationNode",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/HogQLQuery"
                 }
             },
             "required": ["kind", "source"],
@@ -568,6 +725,9 @@
                 }
             },
             "type": "object"
+        },
+        "Day": {
+            "type": "integer"
         },
         "ElementPropertyFilter": {
             "additionalProperties": false,
@@ -993,6 +1153,12 @@
                 "hogql": {
                     "type": "string"
                 },
+                "limit": {
+                    "type": "integer"
+                },
+                "offset": {
+                    "type": "integer"
+                },
                 "results": {
                     "items": {
                         "items": {},
@@ -1061,6 +1227,9 @@
                 },
                 "breakdown_group_type_index": {
                     "type": ["number", "null"]
+                },
+                "breakdown_hide_other_aggregation": {
+                    "type": ["boolean", "null"]
                 },
                 "breakdown_normalize_url": {
                     "type": "boolean"
@@ -1253,7 +1422,7 @@
             "properties": {
                 "aggregation_group_type_index": {
                     "description": "Groups aggregation",
-                    "type": "number"
+                    "type": "integer"
                 },
                 "breakdown": {
                     "$ref": "#/definitions/BreakdownFilter",
@@ -1313,6 +1482,19 @@
                 }
             },
             "required": ["kind", "series"],
+            "type": "object"
+        },
+        "GoalLine": {
+            "additionalProperties": false,
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["label", "value"],
             "type": "object"
         },
         "GroupMathType": {
@@ -1387,6 +1569,10 @@
                 "expr": {
                     "description": "HogQL expression to validate (use `select` or `expr`, but not both)",
                     "type": "string"
+                },
+                "exprSource": {
+                    "$ref": "#/definitions/AnyDataNode",
+                    "description": "Query within which \"expr\" is validated. Defaults to \"select * from events\""
                 },
                 "filters": {
                     "$ref": "#/definitions/HogQLFilters"
@@ -1526,6 +1712,10 @@
                     "enum": ["leftjoin", "subquery"],
                     "type": "string"
                 },
+                "materializationMode": {
+                    "enum": ["auto", "legacy_null_as_string", "legacy_null_as_null", "disabled"],
+                    "type": "string"
+                },
                 "personsArgMaxVersion": {
                     "enum": ["auto", "v1", "v2"],
                     "type": "string"
@@ -1592,6 +1782,40 @@
             },
             "type": "object"
         },
+        "InsightActorsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "day": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/Day"
+                        }
+                    ]
+                },
+                "interval": {
+                    "description": "An interval selected out of available intervals in source query",
+                    "type": "integer"
+                },
+                "kind": {
+                    "const": "InsightActorsQuery",
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/ActorsQueryResponse"
+                },
+                "source": {
+                    "$ref": "#/definitions/InsightQueryNode"
+                },
+                "status": {
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
         "InsightFilter": {
             "anyOf": [
                 {
@@ -1635,29 +1859,6 @@
                 "LifecycleQuery"
             ],
             "type": "string"
-        },
-        "InsightPersonsQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "day": {
-                    "type": "string"
-                },
-                "kind": {
-                    "const": "InsightPersonsQuery",
-                    "type": "string"
-                },
-                "response": {
-                    "$ref": "#/definitions/PersonsQueryResponse"
-                },
-                "source": {
-                    "$ref": "#/definitions/InsightQueryNode"
-                },
-                "status": {
-                    "type": "string"
-                }
-            },
-            "required": ["kind", "source"],
-            "type": "object"
         },
         "InsightQueryNode": {
             "anyOf": [
@@ -1732,6 +1933,9 @@
                 },
                 "suppressSessionAnalysisWarning": {
                     "type": "boolean"
+                },
+                "vizSpecificOptions": {
+                    "$ref": "#/definitions/VizSpecificOptions"
                 }
             },
             "required": ["kind", "source"],
@@ -1743,7 +1947,7 @@
             "properties": {
                 "aggregation_group_type_index": {
                     "description": "Groups aggregation",
-                    "type": "number"
+                    "type": "integer"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
@@ -1801,10 +2005,6 @@
         "LifecycleQuery": {
             "additionalProperties": false,
             "properties": {
-                "aggregation_group_type_index": {
-                    "description": "Groups aggregation",
-                    "type": "number"
-                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
@@ -1928,9 +2128,10 @@
                 "PersonsNode",
                 "HogQLQuery",
                 "HogQLMetadata",
-                "PersonsQuery",
+                "ActorsQuery",
                 "SessionsTimelineQuery",
                 "DataTableNode",
+                "DataVisualizationNode",
                 "SavedInsightNode",
                 "InsightVizNode",
                 "TrendsQuery",
@@ -1939,7 +2140,7 @@
                 "PathsQuery",
                 "StickinessQuery",
                 "LifecycleQuery",
-                "InsightPersonsQuery",
+                "InsightActorsQuery",
                 "WebOverviewQuery",
                 "WebTopClicksQuery",
                 "WebStatsTableQuery",
@@ -2036,7 +2237,7 @@
             "properties": {
                 "aggregation_group_type_index": {
                     "description": "Groups aggregation",
-                    "type": "number"
+                    "type": "integer"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
@@ -2143,100 +2344,6 @@
                 }
             },
             "required": ["kind"],
-            "type": "object"
-        },
-        "PersonsQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "fixedProperties": {
-                    "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
-                    },
-                    "type": "array"
-                },
-                "kind": {
-                    "const": "PersonsQuery",
-                    "type": "string"
-                },
-                "limit": {
-                    "type": "number"
-                },
-                "offset": {
-                    "type": "number"
-                },
-                "orderBy": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "properties": {
-                    "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
-                    },
-                    "type": "array"
-                },
-                "response": {
-                    "$ref": "#/definitions/PersonsQueryResponse",
-                    "description": "Cached query response"
-                },
-                "search": {
-                    "type": "string"
-                },
-                "select": {
-                    "items": {
-                        "$ref": "#/definitions/HogQLExpression"
-                    },
-                    "type": "array"
-                },
-                "source": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/InsightPersonsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/HogQLQuery"
-                        }
-                    ]
-                }
-            },
-            "required": ["kind"],
-            "type": "object"
-        },
-        "PersonsQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "columns": {
-                    "items": {},
-                    "type": "array"
-                },
-                "hasMore": {
-                    "type": "boolean"
-                },
-                "hogql": {
-                    "type": "string"
-                },
-                "results": {
-                    "items": {
-                        "items": {},
-                        "type": "array"
-                    },
-                    "type": "array"
-                },
-                "timings": {
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                },
-                "types": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["results", "columns", "types", "hogql"],
             "type": "object"
         },
         "PropertyFilterType": {
@@ -2376,6 +2483,9 @@
                     "$ref": "#/definitions/AnyDataNode"
                 },
                 {
+                    "$ref": "#/definitions/DataVisualizationNode"
+                },
+                {
                     "$ref": "#/definitions/DataTableNode"
                 },
                 {
@@ -2409,6 +2519,51 @@
                     "$ref": "#/definitions/DatabaseSchemaQuery"
                 }
             ]
+        },
+        "QueryStatus": {
+            "additionalProperties": false,
+            "properties": {
+                "complete": {
+                    "default": false,
+                    "type": "boolean"
+                },
+                "end_time": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "error": {
+                    "default": false,
+                    "type": "boolean"
+                },
+                "error_message": {
+                    "default": "",
+                    "type": "string"
+                },
+                "expiration_time": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "query_async": {
+                    "default": true,
+                    "type": "boolean"
+                },
+                "results": {},
+                "start_time": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "task_id": {
+                    "type": "string"
+                },
+                "team_id": {
+                    "type": "integer"
+                }
+            },
+            "required": ["id", "query_async", "team_id", "error", "complete", "error_message"],
+            "type": "object"
         },
         "QueryTiming": {
             "additionalProperties": false,
@@ -2449,6 +2604,34 @@
             "required": ["key", "operator", "type", "value"],
             "type": "object"
         },
+        "RetentionEntity": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": ["string", "number"]
+                },
+                "kind": {
+                    "enum": ["ActionsNode", "EventsNode"],
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "order": {
+                    "type": "integer"
+                },
+                "type": {
+                    "$ref": "#/definitions/EntityType"
+                },
+                "uuid": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
         "RetentionFilter": {
             "additionalProperties": false,
             "description": "`RetentionFilterType` minus everything inherited from `FilterType`",
@@ -2464,13 +2647,13 @@
                     "$ref": "#/definitions/RetentionType"
                 },
                 "returning_entity": {
-                    "type": "object"
+                    "$ref": "#/definitions/RetentionEntity"
                 },
                 "target_entity": {
-                    "type": "object"
+                    "$ref": "#/definitions/RetentionEntity"
                 },
                 "total_intervals": {
-                    "type": "number"
+                    "type": "integer"
                 }
             },
             "type": "object"
@@ -2484,7 +2667,7 @@
             "properties": {
                 "aggregation_group_type_index": {
                     "description": "Groups aggregation",
-                    "type": "number"
+                    "type": "integer"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
@@ -2512,6 +2695,9 @@
                     ],
                     "description": "Property filters for all series"
                 },
+                "response": {
+                    "$ref": "#/definitions/RetentionQueryResponse"
+                },
                 "retentionFilter": {
                     "$ref": "#/definitions/RetentionFilter",
                     "description": "Properties specific to the retention insight"
@@ -2521,12 +2707,73 @@
                     "type": ["number", "null"]
                 }
             },
-            "required": ["kind"],
+            "required": ["kind", "retentionFilter"],
+            "type": "object"
+        },
+        "RetentionQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "hogql": {
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "type": "string"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/RetentionResult"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "RetentionResult": {
+            "additionalProperties": false,
+            "properties": {
+                "date": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "values": {
+                    "items": {
+                        "$ref": "#/definitions/RetentionValue"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["values", "label", "date"],
             "type": "object"
         },
         "RetentionType": {
             "enum": ["retention_recurring", "retention_first_time"],
             "type": "string"
+        },
+        "RetentionValue": {
+            "additionalProperties": false,
+            "properties": {
+                "count": {
+                    "type": "integer"
+                }
+            },
+            "required": ["count"],
+            "type": "object"
         },
         "SavedInsightNode": {
             "additionalProperties": false,
@@ -2644,6 +2891,9 @@
                 },
                 "suppressSessionAnalysisWarning": {
                     "type": "boolean"
+                },
+                "vizSpecificOptions": {
+                    "$ref": "#/definitions/VizSpecificOptions"
                 }
             },
             "required": ["kind", "shortId"],
@@ -2757,10 +3007,6 @@
         "StickinessQuery": {
             "additionalProperties": false,
             "properties": {
-                "aggregation_group_type_index": {
-                    "description": "Groups aggregation",
-                    "type": "number"
-                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
@@ -2815,6 +3061,37 @@
                 }
             },
             "required": ["kind", "series"],
+            "type": "object"
+        },
+        "StickinessQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "hogql": {
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "type": "string"
+                },
+                "results": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
             "type": "object"
         },
         "TimeToSeeDataJSONNode": {
@@ -2961,6 +3238,9 @@
                 "compare": {
                     "type": "boolean"
                 },
+                "decimal_places": {
+                    "type": "number"
+                },
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType"
                 },
@@ -2972,6 +3252,9 @@
                         "type": "number"
                     },
                     "type": "array"
+                },
+                "show_labels_on_series": {
+                    "type": "boolean"
                 },
                 "show_legend": {
                     "type": "boolean"
@@ -2993,7 +3276,7 @@
             "properties": {
                 "aggregation_group_type_index": {
                     "description": "Groups aggregation",
-                    "type": "number"
+                    "type": "integer"
                 },
                 "breakdown": {
                     "$ref": "#/definitions/BreakdownFilter",
@@ -3087,6 +3370,40 @@
                 }
             },
             "required": ["results"],
+            "type": "object"
+        },
+        "VizSpecificOptions": {
+            "additionalProperties": false,
+            "description": "Chart specific rendering options. Use ChartRenderingMetadata for non-serializable values, e.g. onClick handlers",
+            "properties": {
+                "ActionsPie": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "disableHoverOffset": {
+                            "type": "boolean"
+                        },
+                        "hideAggregation": {
+                            "type": "boolean"
+                        }
+                    },
+                    "type": "object"
+                },
+                "RETENTION": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "hideLineGraph": {
+                            "type": "boolean"
+                        },
+                        "hideSizeColumn": {
+                            "type": "boolean"
+                        },
+                        "useSmallLayout": {
+                            "type": "boolean"
+                        }
+                    },
+                    "type": "object"
+                }
+            },
             "type": "object"
         },
         "WebAnalyticsPropertyFilter": {
@@ -3199,6 +3516,7 @@
             "enum": [
                 "Page",
                 "InitialPage",
+                "InitialChannelType",
                 "InitialReferringDomain",
                 "InitialUTMSource",
                 "InitialUTMCampaign",
@@ -3222,6 +3540,9 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "includeScrollDepth": {
+                    "type": "boolean"
                 },
                 "kind": {
                     "const": "WebStatsTableQuery",

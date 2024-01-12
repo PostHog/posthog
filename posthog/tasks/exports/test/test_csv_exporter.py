@@ -292,7 +292,7 @@ class TestCSVExporter(APIBaseTest):
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 5)
     @patch("posthog.models.exported_asset.UUIDT")
     def test_csv_exporter_hogql_query(self, mocked_uuidt, DEFAULT_RETURNED_ROWS=5, MAX_SELECT_RETURNED_ROWS=10) -> None:
-        random_uuid = str(UUIDT())
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for i in range(15):
             _create_event(
                 event="$pageview",
@@ -335,7 +335,7 @@ class TestCSVExporter(APIBaseTest):
     @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
     @patch("posthog.models.exported_asset.UUIDT")
     def test_csv_exporter_events_query(self, mocked_uuidt, MAX_SELECT_RETURNED_ROWS=10) -> None:
-        random_uuid = str(UUIDT())
+        random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for i in range(15):
             _create_event(
                 event="$pageview",

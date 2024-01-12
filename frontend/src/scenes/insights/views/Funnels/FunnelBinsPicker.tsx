@@ -1,12 +1,14 @@
+import { LemonInput } from '@posthog/lemon-ui'
+import { Select } from 'antd'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { BIN_COUNT_AUTO } from 'lib/constants'
-import { InputNumber, Select } from 'antd'
-import { BinCountValue } from '~/types'
-import clsx from 'clsx'
-import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { IconBarChart } from 'lib/lemon-ui/icons'
+import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+
+import { BinCountValue } from '~/types'
 
 // Constraints as defined in funnel_time_to_convert.py:34
 const MIN = 1
@@ -62,9 +64,9 @@ export function FunnelBinsPicker({ disabled }: FunnelBinsPickerProps): JSX.Eleme
                     <>
                         {menu}
                         <div>
-                            <InputNumber
+                            <LemonInput
+                                type="number"
                                 className="funnel-bins-custom-picker"
-                                size="middle"
                                 min={MIN}
                                 max={MAX}
                                 value={numericBinCount}

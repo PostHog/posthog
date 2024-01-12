@@ -1,11 +1,12 @@
-import { SceneExport } from 'scenes/sceneTypes'
-import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton, LemonTable, Link } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
 import { useActions, useValues } from 'kea'
-import { batchExportsListLogic } from './batchExportsListLogic'
-import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { PageHeader } from 'lib/components/PageHeader'
 import { IconEllipsis } from 'lib/lemon-ui/icons'
+import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { batchExportsListLogic } from './batchExportsListLogic'
 import { BatchExportRunIcon, BatchExportTag } from './components'
 
 export const scene: SceneExport = {
@@ -16,7 +17,6 @@ export function BatchExportsListScene(): JSX.Element {
     return (
         <>
             <PageHeader
-                title="Batch Exports"
                 buttons={
                     <>
                         <LemonButton type="primary" to={urls.batchExportNew()}>
@@ -66,7 +66,6 @@ export function BatchExportsList(): JSX.Element {
                                         <LemonButton
                                             to={urls.batchExport(batchExport.id)}
                                             key={run.id}
-                                            status="stealth"
                                             className="flex gap-1"
                                             noPadding
                                         >
@@ -114,7 +113,7 @@ export function BatchExportsList(): JSX.Element {
                                 },
                                 {
                                     label: batchExport.paused ? 'Resume' : 'Pause',
-                                    status: batchExport.paused ? 'primary' : 'danger',
+                                    status: batchExport.paused ? 'default' : 'danger',
                                     onClick: () => {
                                         batchExport.paused ? unpause(batchExport) : pause(batchExport)
                                     },
@@ -122,7 +121,7 @@ export function BatchExportsList(): JSX.Element {
                             ]
                             return (
                                 <LemonMenu items={menuItems} placement="left">
-                                    <LemonButton size="small" status="stealth" noPadding icon={<IconEllipsis />} />
+                                    <LemonButton size="small" noPadding icon={<IconEllipsis />} />
                                 </LemonMenu>
                             )
                         },

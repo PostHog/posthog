@@ -7,7 +7,7 @@ from psycopg2.extensions import parse_dsn
 from posthog.batch_exports.models import BatchExport, BatchExportDestination
 from posthog.batch_exports.service import backfill_export, sync_batch_export
 from posthog.models.plugin import PluginAttachment, PluginConfig
-from posthog.temporal.client import sync_connect
+from posthog.temporal.common.client import sync_connect
 
 
 class Command(BaseCommand):
@@ -116,7 +116,7 @@ class Command(BaseCommand):
 
         if options.get("backfill_batch_export", False) and dry_run is False:
             client = sync_connect()
-            end_at = dt.datetime.utcnow()
+            end_at = dt.datetime.now(dt.timezone.utc)
             start_at = end_at - (dt.timedelta(hours=1) if interval == "hour" else dt.timedelta(days=1))
             backfill_export(
                 client,
@@ -228,9 +228,27 @@ def map_plugin_config_to_destination(plugin_config: PluginConfig) -> tuple[str, 
             "exclude_events": plugin_config.config.get("eventsToIgnore", "").split(",") or None,
         }
         export_type = "Postgres"
+
+    elif plugin.name == "Redshift Export Plugin":
+        config = {
+            "database": plugin_config.config["dbName"],
+            "user": plugin_config.config["dbUsername"],
+            "password": plugin_config.config["dbPassword"],
+            "schema": "",
+            "host": plugin_config.config["clusterHost"],
+            "port": int(
+                plugin_config.config.get("clusterPort", "5439"),
+            ),
+            "table_name": plugin_config.config.get("tableName", "posthog_event"),
+            "exclude_events": plugin_config.config.get("eventsToIgnore", "").split(",") or None,
+            "properties_data_type": plugin_config.config.get("propertiesDataType", "varchar"),
+        }
+        export_type = "Redshift"
+
     else:
         raise CommandError(
-            f"Unsupported Plugin: '{plugin.name}'.  Supported Plugins are: 'Snowflake Export' and 'S3 Export Plugin'"
+            f"Unsupported Plugin: '{plugin.name}'."
+            "Supported Plugins are: 'BigQuery Export', 'PostgreSQL Export Plugin', 'Redshift Export Plugin', 'Snowflake Export', and 'S3 Export Plugin'"
         )
 
     return (export_type, config)

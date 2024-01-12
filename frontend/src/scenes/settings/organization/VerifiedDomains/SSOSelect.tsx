@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import { SocialLoginIcon } from 'lib/components/SocialLoginButton/SocialLoginIcon'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
 import { SSOProvider } from '~/types'
 
 export interface SSOSelectInterface {

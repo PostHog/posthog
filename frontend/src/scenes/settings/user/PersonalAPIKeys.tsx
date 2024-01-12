@@ -1,13 +1,15 @@
-import { useState, useCallback, Dispatch, SetStateAction, useEffect } from 'react'
-import { useActions, useValues } from 'kea'
-import { personalAPIKeysLogic } from './personalAPIKeysLogic'
-import { PersonalAPIKeyType } from '~/types'
-import { humanFriendlyDetailedTime } from 'lib/utils'
-import { CopyToClipboardInline } from '../../../lib/components/CopyToClipboard'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog, LemonInput, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { useActions, useValues } from 'kea'
 import { IconPlus } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { humanFriendlyDetailedTime } from 'lib/utils'
+import { Dispatch, SetStateAction, useCallback, useEffect, useState } from 'react'
+
+import { PersonalAPIKeyType } from '~/types'
+
+import { CopyToClipboardInline } from '../../../lib/components/CopyToClipboard'
+import { personalAPIKeysLogic } from './personalAPIKeysLogic'
 
 function CreateKeyModal({
     isOpen,
@@ -90,7 +92,9 @@ function PersonalAPIKeysTable(): JSX.Element {
                     dataIndex: 'value',
                     render: function RenderValue(value) {
                         return value ? (
-                            <CopyToClipboardInline description="personal API key value">{`${value}`}</CopyToClipboardInline>
+                            <CopyToClipboardInline description="personal API key value">
+                                {String(value)}
+                            </CopyToClipboardInline>
                         ) : (
                             <i>secret</i>
                         )
@@ -117,8 +121,8 @@ function PersonalAPIKeysTable(): JSX.Element {
                         return (
                             <LemonButton
                                 status="danger"
-                                type="primary"
-                                size="small"
+                                type="tertiary"
+                                size="xsmall"
                                 onClick={() => {
                                     LemonDialog.open({
                                         title: `Permanently delete key "${key.label}"?`,

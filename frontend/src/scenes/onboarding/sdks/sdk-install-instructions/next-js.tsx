@@ -1,7 +1,8 @@
-import { Link } from 'lib/lemon-ui/Link'
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useValues } from 'kea'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { Link } from 'lib/lemon-ui/Link'
 import { teamLogic } from 'scenes/teamLogic'
+
 import { JSInstallSnippet } from './js-web'
 
 function NextEnvVarsSnippet(): JSX.Element {

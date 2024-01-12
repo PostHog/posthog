@@ -1,8 +1,9 @@
-import React, { HTMLProps, useState } from 'react'
+import clsx from 'clsx'
 import { IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import React, { HTMLProps, useState } from 'react'
+
 import { ExpandableConfig, LemonTableColumnGroup, TableCellRepresentation } from './types'
-import clsx from 'clsx'
 
 export interface TableRowProps<T extends Record<string, any>> {
     record: T
@@ -68,7 +69,6 @@ function TableRowRaw<T extends Record<string, any>>({
                         {!!rowExpandable && (
                             <LemonButton
                                 noPadding
-                                status="stealth"
                                 active={isRowExpanded}
                                 onClick={() => {
                                     setIsRowExpanded(!isRowExpanded)

@@ -1,10 +1,11 @@
 import './ViewLinkModal.scss'
 
 import { LemonButton, LemonDivider, LemonModal, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
+import { Field, Form } from 'kea-forms'
 import { IconDelete, IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
-import { Form, Field } from 'kea-forms'
-import { useActions, useValues } from 'kea'
+
 import { DatabaseSchemaQueryResponseField } from '~/queries/schema'
 
 export function ViewLinkModal({ tableSelectable }: { tableSelectable: boolean }): JSX.Element {
@@ -119,8 +120,6 @@ export function ViewLinkDeleteButton({ table, column }: ViewLinkDeleteButtonProp
             onClick={() => deleteViewLink(table, column)}
             tooltip={'Remove view association'}
             tooltipPlacement="bottomLeft"
-            status="primary-alt"
-            type="tertiary"
             size="small"
         />
     )

@@ -48,6 +48,21 @@ class HogQLFunctionMeta:
     """Whether the function is timezone-aware. This means the project timezone will be appended as the last arg."""
 
 
+HOGQL_COMPARISON_MAPPING: Dict[str, ast.CompareOperationOp] = {
+    "equals": ast.CompareOperationOp.Eq,
+    "notEquals": ast.CompareOperationOp.NotEq,
+    "less": ast.CompareOperationOp.Lt,
+    "greater": ast.CompareOperationOp.Gt,
+    "lessOrEquals": ast.CompareOperationOp.LtEq,
+    "greaterOrEquals": ast.CompareOperationOp.GtEq,
+    "like": ast.CompareOperationOp.Like,
+    "ilike": ast.CompareOperationOp.ILike,
+    "notLike": ast.CompareOperationOp.NotLike,
+    "notILike": ast.CompareOperationOp.NotILike,
+    "in": ast.CompareOperationOp.In,
+    "notIn": ast.CompareOperationOp.NotIn,
+}
+
 HOGQL_CLICKHOUSE_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     # arithmetic
     "plus": HogQLFunctionMeta("plus", 2, 2),
@@ -727,6 +742,13 @@ HOGQL_AGGREGATIONS: Dict[str, HogQLFunctionMeta] = {
 }
 HOGQL_POSTHOG_FUNCTIONS: Dict[str, HogQLFunctionMeta] = {
     "sparkline": HogQLFunctionMeta("sparkline", 1, 1),
+    "hogql_lookupDomainType": HogQLFunctionMeta("hogql_lookupDomainType", 1, 1),
+    "hogql_lookupPaidDomainType": HogQLFunctionMeta("hogql_lookupPaidDomainType", 1, 1),
+    "hogql_lookupPaidSourceType": HogQLFunctionMeta("hogql_lookupPaidSourceType", 1, 1),
+    "hogql_lookupPaidMediumType": HogQLFunctionMeta("hogql_lookupPaidMediumType", 1, 1),
+    "hogql_lookupOrganicDomainType": HogQLFunctionMeta("hogql_lookupOrganicDomainType", 1, 1),
+    "hogql_lookupOrganicSourceType": HogQLFunctionMeta("hogql_lookupOrganicSourceType", 1, 1),
+    "hogql_lookupOrganicMediumType": HogQLFunctionMeta("hogql_lookupOrganicMediumType", 1, 1),
 }
 
 ALL_EXPOSED_FUNCTION_NAMES = [

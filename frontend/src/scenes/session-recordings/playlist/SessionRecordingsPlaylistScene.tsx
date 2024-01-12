@@ -1,16 +1,18 @@
-import { useActions, useValues } from 'kea'
 import './SessionRecordingsPlaylist.scss'
+
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { SceneExport } from 'scenes/sceneTypes'
+import { useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import { PageHeader } from 'lib/components/PageHeader'
-import { sessionRecordingsPlaylistSceneLogic } from './sessionRecordingsPlaylistSceneLogic'
 import { NotFound } from 'lib/components/NotFound'
+import { PageHeader } from 'lib/components/PageHeader'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { SceneExport } from 'scenes/sceneTypes'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+
 import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
+import { sessionRecordingsPlaylistSceneLogic } from './sessionRecordingsPlaylistSceneLogic'
 
 export const scene: SceneExport = {
     component: SessionRecordingsPlaylistScene,
@@ -21,9 +23,7 @@ export const scene: SceneExport = {
 }
 
 export function SessionRecordingsPlaylistScene(): JSX.Element {
-    const { playlist, playlistLoading, pinnedRecordings, hasChanges, derivedName } = useValues(
-        sessionRecordingsPlaylistSceneLogic
-    )
+    const { playlist, playlistLoading, pinnedRecordings, hasChanges } = useValues(sessionRecordingsPlaylistSceneLogic)
     const { setFilters, updatePlaylist, duplicatePlaylist, deletePlaylist, onPinnedChange } = useActions(
         sessionRecordingsPlaylistSceneLogic
     )
@@ -35,8 +35,8 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
         return (
             <div className="space-y-4 mt-6">
                 <LemonSkeleton className="h-10 w-1/4" />
-                <LemonSkeleton className=" w-1/3" />
-                <LemonSkeleton className=" w-1/4" />
+                <LemonSkeleton className="h-4 w-1/3" />
+                <LemonSkeleton className="h-4 w-1/4" />
 
                 <div className="flex justify-between mt-4">
                     <LemonSkeleton.Button />
@@ -64,25 +64,12 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
         // Margin bottom hacks the fact that our wrapping container has an annoyingly large padding
         <div className="-mb-14">
             <PageHeader
-                title={
-                    <EditableField
-                        name="name"
-                        value={playlist.name || ''}
-                        placeholder={derivedName}
-                        onSave={(value) => updatePlaylist({ short_id: playlist.short_id, name: value })}
-                        saveOnBlur={true}
-                        maxLength={400}
-                        mode={undefined}
-                        data-attr="playlist-name"
-                    />
-                }
                 buttons={
                     <div className="flex justify-between items-center gap-2">
                         <More
                             overlay={
                                 <>
                                     <LemonButton
-                                        status="stealth"
                                         onClick={() => duplicatePlaylist()}
                                         fullWidth
                                         data-attr="duplicate-playlist"
@@ -90,7 +77,6 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                         Duplicate
                                     </LemonButton>
                                     <LemonButton
-                                        status="stealth"
                                         onClick={() =>
                                             updatePlaylist({
                                                 short_id: playlist.short_id,
@@ -145,7 +131,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     </>
                 }
             />
-            {playlist.short_id ? (
+            {playlist.short_id && pinnedRecordings !== null ? (
                 <div className="SessionRecordingPlaylistHeightWrapper">
                     <SessionRecordingsPlaylist
                         filters={playlist.filters}

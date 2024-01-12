@@ -1,5 +1,6 @@
 import json
 from typing import Any, Dict, List, Optional, cast
+from datetime import datetime
 
 from django.db.models import QuerySet, Q, deletion
 from django.conf import settings
@@ -16,6 +17,7 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthentic
 from rest_framework.request import Request
 from rest_framework.response import Response
 from sentry_sdk import capture_exception
+from posthog.api.cohort import CohortSerializer
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
@@ -53,6 +55,7 @@ from posthog.permissions import (
     TeamMemberAccessPermission,
 )
 from posthog.rate_limit import BurstRateThrottle
+from loginas.utils import is_impersonated_session
 
 DATABASE_FOR_LOCAL_EVALUATION = (
     "default"
@@ -65,6 +68,7 @@ class FeatureFlagThrottle(BurstRateThrottle):
     # Throttle class that's scoped just to the local evaluation endpoint.
     # This makes the rate limit independent of other endpoints.
     scope = "feature_flag_evaluations"
+    rate = "600/minute"
 
 
 class CanEditFeatureFlag(BasePermission):
@@ -149,7 +153,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
     def get_surveys(self, feature_flag: FeatureFlag) -> Dict:
         from posthog.api.survey import SurveyAPISerializer
 
-        return SurveyAPISerializer(feature_flag.surveys_linked_flag, many=True).data  # type: ignore
+        return SurveyAPISerializer(feature_flag.surveys_linked_flag, many=True).data
         # ignoring type because mypy doesn't know about the surveys_linked_flag `related_name` relationship
 
     def get_rollout_percentage(self, feature_flag: FeatureFlag) -> Optional[int]:
@@ -177,7 +181,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         # If we see this, just return the current filters
         if "groups" not in filters and self.context["request"].method == "PATCH":
             # mypy cannot tell that self.instance is a FeatureFlag
-            return self.instance.filters  # type: ignore
+            return self.instance.filters
 
         aggregation_group_type_index = filters.get("aggregation_group_type_index", None)
 
@@ -502,11 +506,11 @@ class FeatureFlagViewSet(
         should_send_cohorts = "send_cohorts" in request.GET
 
         cohorts = {}
-        seen_cohorts_cache: Dict[str, Cohort] = {}
+        seen_cohorts_cache: Dict[int, Cohort] = {}
 
         if should_send_cohorts:
             seen_cohorts_cache = {
-                str(cohort.pk): cohort
+                cohort.pk: cohort
                 for cohort in Cohort.objects.using(DATABASE_FOR_LOCAL_EVALUATION).filter(
                     team_id=self.team_id, deleted=False
                 )
@@ -546,12 +550,11 @@ class FeatureFlagViewSet(
                 ):
                     # don't duplicate queries for already added cohorts
                     if id not in cohorts:
-                        parsed_cohort_id = str(id)
-                        if parsed_cohort_id in seen_cohorts_cache:
-                            cohort = seen_cohorts_cache[parsed_cohort_id]
+                        if id in seen_cohorts_cache:
+                            cohort = seen_cohorts_cache[id]
                         else:
                             cohort = Cohort.objects.using(DATABASE_FOR_LOCAL_EVALUATION).get(id=id)
-                            seen_cohorts_cache[parsed_cohort_id] = cohort
+                            seen_cohorts_cache[id] = cohort
 
                         if not cohort.is_static:
                             cohorts[cohort.pk] = cohort.properties.to_dict()
@@ -625,6 +628,29 @@ class FeatureFlagViewSet(
             }
         )
 
+    @action(methods=["POST"], detail=True)
+    def create_static_cohort_for_flag(self, request: request.Request, **kwargs):
+        feature_flag = self.get_object()
+        feature_flag_key = feature_flag.key
+        cohort_serializer = CohortSerializer(
+            data={
+                "is_static": True,
+                "key": feature_flag_key,
+                "name": f'Users with feature flag {feature_flag_key} enabled at {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}',
+                "is_calculating": True,
+            },
+            context={
+                "request": request,
+                "team": self.team,
+                "team_id": self.team_id,
+                "from_feature_flag_key": feature_flag_key,
+            },
+        )
+
+        cohort_serializer.is_valid(raise_exception=True)
+        cohort_serializer.save()
+        return Response({"cohort": cohort_serializer.data}, status=201)
+
     @action(methods=["GET"], url_path="activity", detail=False)
     def all_activity(self, request: request.Request, **kwargs):
         limit = int(request.query_params.get("limit", "10"))
@@ -646,7 +672,7 @@ class FeatureFlagViewSet(
         activity_page = load_activity(
             scope="FeatureFlag",
             team_id=self.team_id,
-            item_id=item_id,
+            item_ids=[str(item_id)],
             limit=limit,
             page=page,
         )
@@ -658,6 +684,7 @@ class FeatureFlagViewSet(
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=serializer.context["request"].user,
+            was_impersonated=is_impersonated_session(serializer.context["request"]),
             item_id=serializer.instance.id,
             scope="FeatureFlag",
             activity="created",
@@ -680,6 +707,7 @@ class FeatureFlagViewSet(
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=serializer.context["request"].user,
+            was_impersonated=is_impersonated_session(serializer.context["request"]),
             item_id=instance_id,
             scope="FeatureFlag",
             activity="updated",

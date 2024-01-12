@@ -1,8 +1,8 @@
 .funnel-correlation-table {
     margin-top: 1rem;
+    overflow: hidden;
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    overflow: hidden;
 
     .ant-table {
         thead th {
@@ -11,55 +11,55 @@
     }
 
     .funnel-correlation-header {
-        background: var(--mid);
         display: flex;
+        flex-wrap: wrap;
+        place-content: space-between space-between;
         align-items: center;
         align-self: stretch;
         padding: 0.25rem 0.5rem;
-        justify-content: space-between;
-        align-content: space-between;
+        background: var(--mid);
         border-top-left-radius: var(--radius);
         border-top-right-radius: var(--radius);
 
         .table-header {
-            font-style: normal;
-            font-weight: bold;
-            font-size: 11px;
-            line-height: 16px;
             display: flex;
             align-items: center;
-            letter-spacing: 0.02em;
-            text-transform: uppercase;
+            font-size: 11px;
+            font-style: normal;
+            font-weight: bold;
+            line-height: 16px;
             color: var(--default);
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
         }
 
         .table-options {
             display: flex;
             flex-grow: 1;
-            justify-content: flex-end;
             align-items: center;
+            justify-content: flex-end;
 
             .title {
-                font-family: var(--font-sans);
-                font-style: normal;
-                font-weight: 600;
-                font-size: 11px;
-                line-height: 16px;
                 /* identical to box height, or 145% */
 
                 display: flex;
                 align-items: center;
-                letter-spacing: 0.02em;
-                text-transform: uppercase;
                 margin: 5px;
-
+                font-family: var(--font-sans);
+                font-size: 11px;
+                font-style: normal;
+                font-weight: 600;
+                line-height: 16px;
                 color: var(--muted);
+                text-transform: uppercase;
+                letter-spacing: 0.02em;
             }
 
             .LemonCheckbox:not(:last-child) label {
-                border-radius: var(--radius) 0 0 var(--radius);
                 border-right: none;
+                border-radius: var(--radius) 0 0 var(--radius);
             }
+
             .LemonCheckbox:last-child label {
                 border-radius: 0 var(--radius) var(--radius) 0;
             }
@@ -67,15 +67,16 @@
     }
 
     .column-info {
+        padding-left: 4px;
         color: var(--muted-alt);
         cursor: pointer;
-        padding-left: 4px;
     }
 
     .nested-properties-table {
         margin: 1rem;
         border: 1px solid var(--border);
         border-radius: var(--radius);
+
         thead th {
             border-bottom: 1px solid var(--border);
         }

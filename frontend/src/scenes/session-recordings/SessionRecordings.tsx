@@ -1,30 +1,32 @@
-import { PageHeader } from 'lib/components/PageHeader'
-import { teamLogic } from 'scenes/teamLogic'
-import { useActions, useValues } from 'kea'
-import { urls } from 'scenes/urls'
-import { SceneExport } from 'scenes/sceneTypes'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from '@posthog/lemon-ui'
-import { AvailableFeature, NotebookNodeType, ReplayTabs } from '~/types'
-import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
-import { humanFriendlyTabName, sessionRecordingsLogic } from './sessionRecordingsLogic'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { IconSettings } from 'lib/lemon-ui/icons'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { PageHeader } from 'lib/components/PageHeader'
+import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
+import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
+import { IconSettings } from 'lib/lemon-ui/icons'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+import { AndroidRecordingsPromptBanner } from 'scenes/session-recordings/mobile-replay/AndroidRecordingPromptBanner'
+import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
+import { AvailableFeature, NotebookNodeType, ReplayTabs } from '~/types'
+
 import { SessionRecordingFilePlayback } from './file-playback/SessionRecordingFilePlayback'
 import { createPlaylist } from './playlist/playlistUtils'
-import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { savedSessionRecordingPlaylistsLogic } from './saved-playlists/savedSessionRecordingPlaylistsLogic'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
-import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
-import { authorizedUrlListLogic, AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
-import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
+import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
+import { savedSessionRecordingPlaylistsLogic } from './saved-playlists/savedSessionRecordingPlaylistsLogic'
+import { humanFriendlyTabName, sessionRecordingsLogic } from './sessionRecordingsLogic'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -55,13 +57,9 @@ export function SessionsRecordings(): JSX.Element {
         reportRecordingPlaylistCreated('filters')
     })
 
-    const is3000 = useFeatureFlag('POSTHOG_3000')
-
     return (
-        // Margin bottom hacks the fact that our wrapping container has an annoyingly large padding
-        <div className={is3000 ? '' : '-mb-16'}>
+        <div>
             <PageHeader
-                title={<div>Session Replay</div>}
                 buttons={
                     <>
                         {tab === ReplayTabs.Recent && !recordingsDisabled && (
@@ -75,9 +73,8 @@ export function SessionsRecordings(): JSX.Element {
                                 />
                                 <LemonButton
                                     fullWidth={false}
-                                    data-attr={'session-recordings-filters-save-as-playlist'}
+                                    data-attr="session-recordings-filters-save-as-playlist"
                                     type="primary"
-                                    status="primary"
                                     onClick={(e) =>
                                         guardAvailableFeature(
                                             AvailableFeature.RECORDINGS_PLAYLISTS,
@@ -139,6 +136,7 @@ export function SessionsRecordings(): JSX.Element {
             />
             <div className="space-y-2">
                 <VersionCheckerBanner />
+                <AndroidRecordingsPromptBanner context={'replay'} />
 
                 {recordingsDisabled ? (
                     <LemonBanner
