@@ -1,6 +1,6 @@
 import { actions, kea, path, reducers } from 'kea'
 
-import type { globalModalsLogicType } from './GlobalModalsType'
+import type { globalModalsLogicType } from './globalModalsLogicType'
 
 export const globalModalsLogic = kea<globalModalsLogicType>([
     path(['layout', 'navigation', 'globalModalsLogic']),
