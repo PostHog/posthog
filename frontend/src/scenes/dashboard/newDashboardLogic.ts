@@ -1,6 +1,6 @@
 import { actions, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { DashboardRestrictionLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -196,4 +196,23 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             actions.setActiveDashboardTemplate(template)
         },
     })),
+    urlToAction(({ actions }) => ({
+        '/dashboard': (_, _searchParams, hashParams) => {
+            if ('newDashboard' in hashParams) {
+                actions.showNewDashboardModal()
+            }
+        },
+    })),
+    actionToUrl({
+        hideNewDashboardModal: () => {
+            const hashParams = router.values.hashParams
+            delete hashParams['newDashboard']
+            return [router.values.location.pathname, router.values.searchParams, hashParams]
+        },
+        showNewDashboardModal: () => {
+            const hashParams = router.values.hashParams
+            hashParams['newDashboard'] = 'modal'
+            return [router.values.location.pathname, router.values.searchParams, hashParams]
+        },
+    }),
 ])
