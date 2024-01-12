@@ -12,7 +12,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, OrganizationBasicType } from '~/types'
 
-import { globalModalsLogic } from '../GlobalModals'
+import { globalModalsLogic } from '../globalModalsLogic'
 import { navigationLogic } from './navigationLogic'
 
 export function AccessLevelIndicator({ organization }: { organization: OrganizationBasicType }): JSX.Element {

@@ -12,7 +12,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, TeamBasicType } from '~/types'
 
-import { globalModalsLogic } from '../GlobalModals'
+import { globalModalsLogic } from '../globalModalsLogic'
 
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     return (
