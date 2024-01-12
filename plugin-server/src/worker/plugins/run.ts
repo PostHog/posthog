@@ -1,11 +1,11 @@
 import { PluginEvent, PostHogEvent, ProcessedPluginEvent, Webhook } from '@posthog/plugin-scaffold'
-import { pluginActionMsSummary } from 'worker/metrics'
 
 import { Hub, PluginConfig, PluginTaskType, VMMethods } from '../../types'
 import { processError } from '../../utils/db/error'
 import { trackedFetch } from '../../utils/fetch'
 import { status } from '../../utils/status'
 import { IllegalOperationError } from '../../utils/utils'
+import { pluginActionMsSummary } from '../metrics'
 
 async function runSingleTeamPluginOnEvent(
     hub: Hub,

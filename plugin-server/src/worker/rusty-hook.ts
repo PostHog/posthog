@@ -1,10 +1,10 @@
 import { Webhook } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import fetch from 'node-fetch'
-import { isProdEnv } from 'utils/env-utils'
-import { raiseIfUserProvidedUrlUnsafe } from 'utils/fetch'
 
 import { ValueMatcher } from '../types'
+import { isProdEnv } from '../utils/env-utils'
+import { raiseIfUserProvidedUrlUnsafe } from '../utils/fetch'
 import { status } from '../utils/status'
 import { sleep } from '../utils/utils'
 import { pluginActionMsSummary } from './metrics'
