@@ -1,6 +1,7 @@
 import { captureException } from '@sentry/node'
 import { Histogram } from 'prom-client'
 import { format } from 'util'
+import { RustyHook } from 'worker/rusty-hook'
 
 import { Action, Hook, PostIngestionEvent, Team } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
@@ -254,6 +255,7 @@ export class HookCommander {
     postgres: PostgresRouter
     teamManager: TeamManager
     organizationManager: OrganizationManager
+    rustyHook: RustyHook
     appMetrics: AppMetrics
     siteUrl: string
     /** Hook request timeout in ms. */
@@ -263,6 +265,7 @@ export class HookCommander {
         postgres: PostgresRouter,
         teamManager: TeamManager,
         organizationManager: OrganizationManager,
+        rustyHook: RustyHook,
         appMetrics: AppMetrics,
         timeout: number
     ) {
@@ -275,6 +278,7 @@ export class HookCommander {
             status.warn('⚠️', 'SITE_URL env is not set for webhooks')
             this.siteUrl = ''
         }
+        this.rustyHook = rustyHook
         this.appMetrics = appMetrics
         this.EXTERNAL_REQUEST_TIMEOUT = timeout
     }
