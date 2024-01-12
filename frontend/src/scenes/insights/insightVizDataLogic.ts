@@ -157,7 +157,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         dateRange: [(s) => [s.querySource], (q) => (q ? q.dateRange : null)],
-        breakdown: [(s) => [s.querySource], (q) => (q ? getBreakdown(q) : null)],
+        breakdownFilter: [(s) => [s.querySource], (q) => (q ? getBreakdown(q) : null)],
         display: [(s) => [s.querySource], (q) => (q ? getDisplay(q) : null)],
         compare: [(s) => [s.querySource], (q) => (q ? getCompare(q) : null)],
         formula: [(s) => [s.querySource], (q) => (q ? getFormula(q) : null)],
@@ -179,9 +179,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         lifecycleFilter: [(s) => [s.querySource], (q) => (isLifecycleQuery(q) ? q.lifecycleFilter : null)],
 
         isUsingSessionAnalysis: [
-            (s) => [s.series, s.breakdown, s.properties],
-            (series, breakdown, properties) => {
-                const using_session_breakdown = breakdown?.breakdown_type === 'session'
+            (s) => [s.series, s.breakdownFilter, s.properties],
+            (series, breakdownFilter, properties) => {
+                const using_session_breakdown = breakdownFilter?.breakdown_type === 'session'
                 const using_session_math = series?.some((entity) => entity.math === 'unique_session')
                 const using_session_property_math = series?.some((entity) => {
                     // Should be made more generic is we ever add more session properties
@@ -213,9 +213,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         isSingleSeries: [
-            (s) => [s.isTrends, s.formula, s.series, s.breakdown],
-            (isTrends, formula, series, breakdown): boolean => {
-                return ((isTrends && !!formula) || (series || []).length <= 1) && !breakdown?.breakdown
+            (s) => [s.isTrends, s.formula, s.series, s.breakdownFilter],
+            (isTrends, formula, series, breakdownFilter): boolean => {
+                return ((isTrends && !!formula) || (series || []).length <= 1) && !breakdownFilter?.breakdown
             },
         ],
 
@@ -479,7 +479,7 @@ const handleQuerySourceUpdateSideEffects = (
     ) {
         const math = (maybeChangedSeries || (currentState as TrendsQuery).series)?.[0].math
 
-        mergedUpdate['breakdown'] = {
+        mergedUpdate['breakdownFilter'] = {
             breakdown: '$geoip_country_code',
             breakdown_type: ['dau', 'weekly_active', 'monthly_active'].includes(math || '') ? 'person' : 'event',
         }

@@ -144,7 +144,7 @@ describe('insightVizDataLogic', () => {
                     kind: NodeKind.InsightVizNode,
                     source: {
                         ...trendsQueryDefault,
-                        breakdown: {
+                        breakdownFilter: {
                             breakdown_type: 'event',
                             breakdown: '$current_url',
                         },
@@ -152,7 +152,7 @@ describe('insightVizDataLogic', () => {
                 },
             })
 
-            expect(builtInsightVizDataLogic.values.breakdown).toEqual({
+            expect(builtInsightVizDataLogic.values.breakdownFilter).toEqual({
                 breakdown_type: 'event',
                 breakdown: '$current_url',
             })
@@ -167,7 +167,7 @@ describe('insightVizDataLogic', () => {
                     kind: NodeKind.InsightVizNode,
                     source: {
                         ...trendsQueryDefault,
-                        breakdown: {
+                        breakdownFilter: {
                             breakdown_type: 'event',
                             breakdown: '$browser',
                         },
@@ -175,7 +175,7 @@ describe('insightVizDataLogic', () => {
                 },
             })
 
-            expect(builtInsightVizDataLogic.values.breakdown).toEqual({
+            expect(builtInsightVizDataLogic.values.breakdownFilter).toEqual({
                 breakdown_type: 'event',
                 breakdown: '$browser',
             })

@@ -585,7 +585,7 @@ describe('summarizing insights', () => {
                         math: BaseMathType.UniqueUsers,
                     },
                 ],
-                breakdown: {
+                breakdownFilter: {
                     breakdown_type: 'event',
                     breakdown: '$browser',
                 },

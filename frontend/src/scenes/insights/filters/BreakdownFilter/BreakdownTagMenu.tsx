@@ -14,11 +14,10 @@ export const BreakdownTagMenu = (): JSX.Element => {
     const { insightProps } = useValues(insightLogic)
     const { isHistogramable, isNormalizeable } = useValues(breakdownTagLogic)
     const { removeBreakdown } = useActions(breakdownTagLogic)
-    const { breakdown } = useValues(insightVizDataLogic(insightProps))
+    const { breakdownFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateBreakdown } = useActions(insightVizDataLogic(insightProps))
 
-    const { histogramBinCount, breakdownLimit, histogramBinsUsed, breakdownFilter } =
-        useValues(taxonomicBreakdownFilterLogic)
+    const { histogramBinCount, breakdownLimit, histogramBinsUsed } = useValues(taxonomicBreakdownFilterLogic)
     const { setHistogramBinCount, setBreakdownLimit, setHistogramBinsUsed, setNormalizeBreakdownURL } =
         useActions(taxonomicBreakdownFilterLogic)
 
@@ -94,11 +93,11 @@ export const BreakdownTagMenu = (): JSX.Element => {
                     <LemonSwitch
                         fullWidth
                         className="min-h-10 px-2"
-                        checked={!breakdown?.breakdown_hide_other_aggregation}
+                        checked={!breakdownFilter?.breakdown_hide_other_aggregation}
                         onChange={() =>
                             updateBreakdown({
-                                ...breakdown,
-                                breakdown_hide_other_aggregation: !breakdown?.breakdown_hide_other_aggregation,
+                                ...breakdownFilter,
+                                breakdown_hide_other_aggregation: !breakdownFilter?.breakdown_hide_other_aggregation,
                             })
                         }
                         label={
@@ -107,8 +106,8 @@ export const BreakdownTagMenu = (): JSX.Element => {
                                 <Tooltip
                                     title={
                                         <>
-                                            If you have over {breakdown?.breakdown_limit ?? 25} breakdown options, the
-                                            smallest ones are aggregated under the label "Other". Use this toggle to
+                                            If you have over {breakdownFilter?.breakdown_limit ?? 25} breakdown options,
+                                            the smallest ones are aggregated under the label "Other". Use this toggle to
                                             show/hide the "Other" option.
                                         </>
                                     }
