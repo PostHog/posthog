@@ -13,7 +13,7 @@ class FixingExceptionAutocaptureMigration(NonAtomicTestMigrations):
 
         Team = apps.get_model("posthog", "Team")
 
-        # there are states... create a Team for each
+        # there are three states... create a Team for each
         team_null = Team.objects.create(name="t1", organization=org)
         team_null.autocapture_exceptions_opt_in = None
         team_null.save()
