@@ -298,7 +298,8 @@ function ErrorDetailsModal({ pluginConfigId }: { pluginConfigId: number }): JSX.
                 // eslint-disable-next-line react/forbid-dom-props
                 <div className="flex flex-col space-y-2" style={{ height: '80vh' }}>
                     <div>
-                        <LemonLabel>When:</LemonLabel> <TZLabel time={activeErrorDetails.timestamp} showSeconds />
+                        <span className="font-semibold">When:</span>{' '}
+                        <TZLabel time={activeErrorDetails.timestamp} showSeconds />
                     </div>
 
                     {activeErrorDetails.error_details.eventCount && (

@@ -10,8 +10,9 @@ import {
     DashboardType,
     FilterType,
     InsightShortId,
-    PipelineAppTabs,
-    PipelineTabs,
+    PipelineAppKind,
+    PipelineAppTab,
+    PipelineTab,
     ReplayTabs,
 } from '~/types'
 
@@ -101,10 +102,14 @@ export const urls = {
         encode ? `/persons/${encodeURIComponent(uuid)}` : `/persons/${uuid}`,
     persons: (): string => '/persons',
     // TODO: Default to the landing page, once it's ready
-    pipeline: (tab?: PipelineTabs | ':tab'): string => `/pipeline/${tab ? tab : PipelineTabs.Destinations}`,
+    pipeline: (tab?: PipelineTab | ':tab'): string => `/pipeline/${tab ? tab : PipelineTab.Destinations}`,
     /** @param id 'new' for new, uuid for batch exports and numbers for plugins */
-    pipelineApp: (kind: PipelineTabs | ':kind', id: string | number, tab?: PipelineAppTabs | ':tab'): string =>
-        `/pipeline/${kind}/${id}/${tab ? tab : PipelineAppTabs.Configuration}`,
+    pipelineApp: (
+        kind: PipelineAppKind | ':kindTab',
+        id: string | number,
+        appTab?: PipelineAppTab | ':appTab'
+    ): string =>
+        `/pipeline/${!kind.startsWith(':') ? `${kind}s` : kind}/${id}/${appTab ?? PipelineAppTab.Configuration}`,
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>

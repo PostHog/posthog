@@ -68,7 +68,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
         addon.type === 'data_pipelines' &&
         addon.subscribed &&
         featureFlags['data-pipelines-notice'] &&
-        addon.plans?.[0].plan_key === 'addon-20240103-og-customers'
+        addon.plans?.[0].plan_key === 'addon-20240111-og-customers'
 
     if (showPipelineAddonNotice) {
         setProductSpecificAlert({
@@ -87,7 +87,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                     })
                 },
                 children: 'Learn more',
-                to: 'https://posthog.com',
+                to: 'https://posthog.com/changelog/2024#data-pipeline-add-on-launched',
                 targetBlank: true,
             },
             dismissKey: 'data-pipelines-notice',
