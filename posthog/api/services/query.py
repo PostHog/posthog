@@ -53,6 +53,7 @@ def process_query(
     refresh_requested: Optional[bool] = False,
 ) -> dict:
     model = QuerySchemaRoot.model_validate(query_json)
+    tag_queries(query=query_json)
     return process_query_model(
         team,
         model.root,
@@ -67,7 +68,6 @@ def process_query_model(
     limit_context: Optional[LimitContext] = None,
     refresh_requested: Optional[bool] = False,
 ) -> dict:
-    tag_queries(query=query.kind)  # TODO: ?
     result: dict | BaseModel
 
     if isinstance(query, QUERY_WITH_RUNNER):  # type: ignore

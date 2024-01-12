@@ -77,6 +77,7 @@ class QueryViewSet(PydanticModelMixin, StructuredViewSetMixin, viewsets.ViewSet)
             )
             return Response(query_status.model_dump())
 
+        tag_queries(query=request.data["query"])
         try:
             result = process_query_model(self.team, data.query, refresh_requested=data.refresh)
             return Response(result)
@@ -93,18 +94,15 @@ class QueryViewSet(PydanticModelMixin, StructuredViewSetMixin, viewsets.ViewSet)
             200: OpenApiResponse(description="Query status"),
         },
     )
-    @extend_schema(
-        description="(Experimental)",
-        responses={
-            200: OpenApiResponse(description="Query status"),
-        },
-    )
     def retrieve(self, request: Request, pk=None, *args, **kwargs) -> JsonResponse:
         status = get_query_status(team_id=self.team.pk, query_id=pk)
         return JsonResponse(status.__dict__, safe=False)
 
     @extend_schema(
         description="(Experimental)",
+        responses={
+            204: OpenApiResponse(description="Query cancelled"),
+        },
     )
     def destroy(self, request, pk=None, *args, **kwargs):
         cancel_query(self.team.pk, pk)

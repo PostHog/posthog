@@ -1,4 +1,4 @@
-from typing import TypeVar, Type, Generic
+from typing import TypeVar, Type
 
 from pydantic import BaseModel, ValidationError
 
@@ -7,7 +7,7 @@ from rest_framework.exceptions import ParseError
 T = TypeVar("T", bound=BaseModel)
 
 
-class PydanticModelMixin(Generic[T]):
+class PydanticModelMixin:
     def get_model(self, data: dict, model: Type[T]) -> T:
         try:
             return model.model_validate(data)
