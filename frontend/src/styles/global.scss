@@ -51,13 +51,10 @@ ul {
     align-items: center;
     min-height: 2.5rem;
     margin: 1.25rem 0 0.25rem;
+    margin-top: 1rem;
 
     .ant-form-item {
         margin-bottom: 0 !important;
-    }
-
-    .posthog-3000 & {
-        margin-top: 1rem;
     }
 
     @include screen($md) {
@@ -174,14 +171,10 @@ input::-ms-clear {
     font-family: var(--font-sans);
     font-size: 1rem;
     cursor: unset;
-    border: 1px solid var(--border);
+    border: 1px solid var(--secondary-3000-button-border);
     border-radius: var(--radius);
     box-shadow: var(--shadow-elevation);
     opacity: 1 !important;
-
-    .posthog-3000 & {
-        border-color: var(--secondary-3000-button-border);
-    }
 }
 
 .Toastify__toast-container {

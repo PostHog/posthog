@@ -78,7 +78,7 @@
         position: relative;
     }
 
-    .posthog-3000 &.SpinnerOverlay--scene-level::before {
+    &.SpinnerOverlay--scene-level::before {
         background: var(--bg-3000);
     }
 }

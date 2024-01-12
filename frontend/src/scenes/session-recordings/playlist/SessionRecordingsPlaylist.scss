@@ -22,9 +22,7 @@
         overflow: hidden;
 
         .text-link {
-            .posthog-3000 & {
-                color: var(--default);
-            }
+            color: var(--default);
         }
     }
 
@@ -56,12 +54,8 @@
 
 .SessionRecordingPlaylistHeightWrapper {
     // NOTE: Somewhat random way to offset the various headers and tabs above the playlist
-    height: calc(100vh - 15rem);
+    height: calc(100vh - 9rem);
     min-height: 41rem;
-
-    .posthog-3000 & {
-        height: calc(100vh - 9rem);
-    }
 }
 
 .SessionRecordingPreview {

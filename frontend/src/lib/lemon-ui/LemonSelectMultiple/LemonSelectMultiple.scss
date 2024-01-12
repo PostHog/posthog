@@ -4,7 +4,7 @@
 
         .ant-select-selector,
         &.ant-select-single .ant-select-selector {
-            min-height: 2.5rem;
+            min-height: 2.125rem;
             padding: 0.25rem;
             font-size: 0.875rem;
             line-height: 1.25rem;
@@ -12,10 +12,6 @@
             background: var(--bg-light);
             border: 1px solid var(--border);
             border-radius: var(--radius);
-
-            .posthog-3000 & {
-                min-height: 2.125rem;
-            }
 
             .ant-select-selection-overflow {
                 gap: 0.25rem;
@@ -71,12 +67,8 @@
     padding: 0.5rem;
     margin: -4px 0; // Counteract antd wrapper
     background: var(--bg-light);
-    border: 1px solid var(--primary);
+    border: 1px solid var(--primary-3000);
     border-radius: var(--radius);
-
-    .posthog-3000 & {
-        border: 1px solid var(--primary-3000);
-    }
 
     .ant-select-item {
         padding: 0;

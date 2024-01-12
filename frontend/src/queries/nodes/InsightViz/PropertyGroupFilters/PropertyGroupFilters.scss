@@ -2,11 +2,8 @@
     .property-group {
         padding: 0.5rem;
         background-color: var(--side);
+        border-width: 1px;
         border-radius: var(--radius);
-
-        .posthog-3000 & {
-            border-width: 1px;
-        }
     }
 
     .property-group-and-or-separator {

@@ -24,7 +24,7 @@
     font-weight: 500 !important; // Override status="stealth"'s font-weight
     border-radius: 0 !important;
 
-    .posthog-3000 &.LemonButton:active {
+    &.LemonButton:active {
         transform: inherit;
     }
 }
@@ -33,12 +33,9 @@
     box-sizing: content-box;
     height: 0;
     overflow: hidden;
+    background: var(--bg-light);
     border-top-width: 1px;
     transition: height 200ms ease;
-
-    .posthog-3000 & {
-        background: var(--bg-light);
-    }
 }
 
 .LemonCollapsePanel__content {
