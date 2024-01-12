@@ -82,7 +82,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 const tabs: SidePanelTab[] = []
 
                 tabs.push(SidePanelTab.Notebooks)
-                tabs.push(SidePanelTab.Canvas)
 
                 tabs.push(SidePanelTab.Docs)
                 if (isCloudOrDev) {
@@ -96,6 +95,11 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 if (featureflags[FEATURE_FLAGS.DISCUSSIONS]) {
                     tabs.push(SidePanelTab.Discussion)
                 }
+
+                if (featureflags[FEATURE_FLAGS.SIDEPANEL_CANVAS]) {
+                    tabs.push(SidePanelTab.Canvas)
+                }
+
                 tabs.push(SidePanelTab.FeaturePreviews)
                 tabs.push(SidePanelTab.Welcome)
 
