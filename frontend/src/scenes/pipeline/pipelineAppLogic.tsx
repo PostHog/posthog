@@ -5,29 +5,30 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, PipelineAppTabs, PipelineTabs, PluginConfigTypeNew, PluginType } from '~/types'
+import { Breadcrumb, PipelineAppKind, PipelineAppTab, PluginConfigTypeNew, PluginType } from '~/types'
 
-import { DestinationTypeKind, pipelineDestinationsLogic } from './destinationsLogic'
+import { PipelineAppBackend, pipelineDestinationsLogic } from './destinationsLogic'
 import type { pipelineAppLogicType } from './pipelineAppLogicType'
 
 export interface PipelineAppLogicProps {
     id: number | string
-    kind: PipelineTabs
+    /** Might be null if a non-existent kind is set in th URL. */
+    kind: PipelineAppKind | null
 }
 
 export const pipelineAppLogic = kea<pipelineAppLogicType>([
     props({} as PipelineAppLogicProps),
-    key(({ id }) => id),
+    key(({ kind, id }) => `${kind}:${id}`),
     path((id) => ['scenes', 'pipeline', 'pipelineAppLogic', id]),
     connect(() => ({
-        values: [pipelineDestinationsLogic, ['plugins', 'pluginConfigs']],
+        values: [pipelineDestinationsLogic, ['plugins', 'pluginsLoading', 'pluginConfigs', 'pluginConfigsLoading']],
     })),
     actions({
-        setCurrentTab: (tab: PipelineAppTabs = PipelineAppTabs.Configuration) => ({ tab }),
+        setCurrentTab: (tab: PipelineAppTab = PipelineAppTab.Configuration) => ({ tab }),
     }),
     reducers({
         currentTab: [
-            PipelineAppTabs.Configuration as PipelineAppTabs,
+            PipelineAppTab.Configuration as PipelineAppTab,
             {
                 setCurrentTab: (_, { tab }) => tab,
             },
@@ -43,25 +44,34 @@ export const pipelineAppLogic = kea<pipelineAppLogicType>([
                     path: urls.pipeline(),
                 },
                 {
-                    key: kind,
-                    name: capitalizeFirstLetter(kind),
-                    path: urls.pipeline(kind),
+                    key: kind || 'unknown',
+                    name: kind ? capitalizeFirstLetter(kind) : 'Unknown',
+                    path: urls.pipeline(),
                 },
                 {
                     key: [Scene.PipelineApp, id],
-                    name: maybePluginConfig?.name || 'Unknown',
+                    name: maybePluginConfig ? maybePluginConfig.name || 'Unnamed' : 'Unknown',
                 },
             ],
         ],
-        appType: [
+        appBackend: [
             (_, p) => [p.id],
-            (id): DestinationTypeKind =>
-                typeof id === 'string' ? DestinationTypeKind.BatchExport : DestinationTypeKind.Webhook,
+            (id): PipelineAppBackend =>
+                typeof id === 'string' ? PipelineAppBackend.BatchExport : PipelineAppBackend.Plugin,
+        ],
+        loading: [
+            (s) => [s.appBackend, s.pluginConfigsLoading, s.pluginsLoading],
+            (appBackend, pluginConfigsLoading, pluginsLoading): boolean => {
+                if (appBackend === PipelineAppBackend.BatchExport) {
+                    return false // TODO: Support loading state for batch exports
+                }
+                return pluginConfigsLoading || pluginsLoading
+            },
         ],
         maybePluginConfig: [
-            (s, p) => [s.pluginConfigs, s.appType, p.id],
-            (pluginConfigs, appType, maybePluginConfigId): PluginConfigTypeNew | null => {
-                if (appType !== 'webhook') {
+            (s, p) => [s.pluginConfigs, s.appBackend, p.id],
+            (pluginConfigs, appBackend, maybePluginConfigId): PluginConfigTypeNew | null => {
+                if (appBackend !== 'plugin') {
                     return null
                 }
                 return pluginConfigs[maybePluginConfigId] || null
@@ -76,6 +86,7 @@ export const pipelineAppLogic = kea<pipelineAppLogicType>([
                 return plugins[maybePluginConfig.plugin] || null
             },
         ],
+        kind: [(_, p) => [p.kind], (kind) => kind],
     })),
     forms({
         configuration: {
@@ -87,13 +98,13 @@ export const pipelineAppLogic = kea<pipelineAppLogicType>([
     }),
     actionToUrl(({ values, props }) => {
         return {
-            setCurrentTab: () => [urls.pipelineApp(props.kind, props.id, values.currentTab)],
+            setCurrentTab: () => [urls.pipelineApp(props.kind as PipelineAppKind, props.id, values.currentTab)],
         }
     }),
     urlToAction(({ actions, values }) => ({
-        '/pipeline/:kind/:id/:tab': ({ tab }) => {
-            if (tab !== values.currentTab && Object.values(PipelineAppTabs).includes(tab as PipelineAppTabs)) {
-                actions.setCurrentTab(tab as PipelineAppTabs)
+        '/pipeline/:kindTab/:id/:appTab': ({ appTab }) => {
+            if (appTab !== values.currentTab && Object.values(PipelineAppTab).includes(appTab as PipelineAppTab)) {
+                actions.setCurrentTab(appTab as PipelineAppTab)
             }
         },
     })),
