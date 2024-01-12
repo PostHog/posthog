@@ -3,6 +3,8 @@ from datetime import datetime, timedelta, timezone
 
 import json
 from typing import Any, List, Type, cast, Dict, Tuple
+
+import openai
 from django.conf import settings
 
 import posthoganalytics
@@ -51,6 +53,8 @@ from posthog.session_recordings.snapshots.convert_legacy_snapshots import (
 )
 from posthog.storage import object_storage
 from prometheus_client import Counter
+
+from posthog.utils import get_instance_region
 
 SNAPSHOT_SOURCE_REQUESTED = Counter(
     "session_snapshots_requested_counter",
@@ -474,6 +478,58 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         session_recording_serializer.is_valid(raise_exception=True)
 
         return Response({"results": session_recording_serializer.data})
+
+    @action(methods=["POST"], detail=True)
+    def summarize(self, request: request.Request, **kwargs):
+        if not request.user.is_authenticated:
+            raise exceptions.NotAuthenticated()
+
+        user = cast(User, request.user)
+
+        recording = self.get_object()
+
+        if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
+            raise exceptions.NotFound("Recording not found")
+
+        sessionMetadata = SessionReplayEvents().get_metadata(session_id=str(recording.session_id), team=self.team)
+        sessionEvents = SessionReplayEvents().get_events(
+            session_id=str(recording.session_id), team=self.team, metadata=sessionMetadata
+        )
+
+        instance_region = get_instance_region() or "HOBBY"
+        messages = [
+            {
+                "role": "system",
+                "content": "Session Replay is PostHog's tool to record visits to web sites and apps. It shows what users are. We also gather events that occur like mouse clicks and key presses. You write two or three sentence concise and simple summaries of those sessions based on a prompt. You are more likely to mention errors or things that look like business success such as checkout or sale events. You ignore $featureFlagCalled. You don't help with other knowledge.",
+            },
+            # {
+            #     "role": "system",
+            #     "content": HOGQL_EXAMPLE_MESSAGE,
+            # },
+            {
+                "role": "user",
+                "content": f"the session metadata I have is {sessionMetadata}. it gives an over view of activity and duration",
+            },
+            {
+                "role": "user",
+                "content": f"the session events I have are {sessionEvents[1]}. with columns {sessionEvents[0]}. they give an idea of what happened and when, if present the elements_chain extracted from the html can aid in understanding but not in your response",
+            },
+            {
+                "role": "user",
+                "content": "generate a simple, concise two or three sentence summary of the session to help me decide whether to watch it. generate no text other than the summary.",
+            },
+        ]
+
+        result = openai.ChatCompletion.create(
+            # model="gpt-4-1106-preview", 128k tokens
+            model="gpt-3.5-turbo",
+            temperature=0.7,
+            messages=messages,
+            user=f"{instance_region}/{user.pk}",  # The user ID is for tracking within OpenAI in case of overuse/abuse
+        )
+        content: str = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+        return Response({"ai_result": result, "content": content})
 
 
 def list_recordings(

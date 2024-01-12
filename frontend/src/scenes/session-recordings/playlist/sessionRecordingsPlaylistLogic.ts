@@ -239,6 +239,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         loadPinnedRecordings: true,
         loadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
         maybeLoadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
+        summarizeSession: (id: SessionRecordingType['id']) => ({ id }),
         loadNext: true,
         loadPrev: true,
         toggleShowOtherRecordings: (show?: boolean) => ({ show }),
@@ -255,6 +256,15 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     }),
 
     loaders(({ props, values, actions }) => ({
+        sessionSummary: {
+            summarizeSession: async ({ id }) => {
+                if (!id) {
+                    return null
+                }
+                const response = await api.recordings.summarize(id)
+                return response.content
+            },
+        },
         eventsHaveSessionId: [
             {} as Record<string, boolean>,
             {

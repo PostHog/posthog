@@ -1537,6 +1537,12 @@ const api = {
             return await new ApiRequest().recording(recordingId).withAction('persist').create()
         },
 
+        async summarize(
+            recordingId: SessionRecordingType['id']
+        ): Promise<{ content: string; ai_result: Record<string, any> }> {
+            return await new ApiRequest().recording(recordingId).withAction('summarize').create()
+        },
+
         async delete(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
             return await new ApiRequest().recording(recordingId).delete()
         },

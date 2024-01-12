@@ -1,16 +1,62 @@
+import re
 from datetime import datetime
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Set
 
 from django.conf import settings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
+
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import Team
+
 from posthog.session_recordings.models.metadata import (
     RecordingMetadata,
 )
+
+
+def is_boring_string(element: str) -> bool:
+    return element in ["a", "div", "span", "p", "h1", "h2", "h3", "h4", "h5", "h6"]
+
+
+def reduce_elements_chain(columns: List | None, results: List | None) -> Tuple[List | None, List | None]:
+    if columns is None or results is None:
+        return columns, results
+
+    # find elements_chain column index
+    elements_chain_index = None
+    for i, column in enumerate(columns):
+        if column == "elements_chain":
+            elements_chain_index = i
+            break
+
+    reduced_results = []
+    for result in results:
+        if elements_chain_index is None:
+            reduced_results.append(result)
+            continue
+
+        elements_chain: str | None = result[elements_chain_index]
+        if not elements_chain:
+            reduced_results.append(result)
+            continue
+
+        # the elements chain has lots of information that we don't need
+        reduced_elements_chain: Set[str] = set()
+        split_elements = re.split(r"_{2,}|[.:;,]", elements_chain)
+        for element in split_elements:
+            if len(element) < 3:
+                continue
+
+            if not is_boring_string(element):
+                reduced_elements_chain.add(element)
+
+        result_list = list(result)
+        result_list[elements_chain_index] = ", ".join(reduced_elements_chain) if len(reduced_elements_chain) > 0 else ""
+        reduced_results.append(tuple(result_list))
+
+    return columns, reduced_results
 
 
 class SessionReplayEvents:
@@ -101,6 +147,32 @@ class SessionReplayEvents:
             console_warn_count=replay[10],
             console_error_count=replay[11],
         )
+
+    def get_events(self, session_id: str, team: Team, metadata: RecordingMetadata) -> Tuple[List | None, List | None]:
+        from posthog.schema import HogQLQuery, HogQLQueryResponse
+        from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+
+        oq = HogQLQuery(
+            query="""
+            select event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
+            from events
+            where timestamp >= {start_time} and timestamp <= {end_time}
+            and $session_id = {session_id}
+            and event not in ('$feature_flag_called')
+            """,
+            values={
+                "start_time": metadata["start_time"],
+                "end_time": metadata["end_time"],
+                "session_id": session_id,
+            },
+        )
+
+        result: HogQLQueryResponse = HogQLQueryRunner(
+            team=team,
+            query=oq,
+        ).calculate()
+
+        return reduce_elements_chain(result.columns, result.results)
 
 
 def ttl_days(team: Team) -> int:

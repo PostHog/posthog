@@ -2,11 +2,14 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconAutocapture, IconKeyboard, IconPinFilled, IconSchedule } from 'lib/lemon-ui/icons'
+import { IconAutoAwesome, IconAutocapture, IconKeyboard, IconPinFilled, IconSchedule } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Popover } from 'lib/lemon-ui/Popover'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { colonDelimitedDuration } from 'lib/utils'
-import { Fragment } from 'react'
+import { Fragment, useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
@@ -22,6 +25,8 @@ export interface SessionRecordingPreviewProps {
     isActive?: boolean
     onClick?: () => void
     pinned?: boolean
+    summariseFn?: (recording: SessionRecordingType) => void
+    sessionSummary?: string
 }
 
 function RecordingDuration({
@@ -228,10 +233,14 @@ export function SessionRecordingPreview({
     onClick,
     onPropertyClick,
     pinned,
+    summariseFn,
+    sessionSummary,
 }: SessionRecordingPreviewProps): JSX.Element {
     const { durationTypeToShow } = useValues(playerSettingsLogic)
 
     const iconClassnames = clsx('SessionRecordingPreview__property-icon text-base text-muted-alt')
+
+    const [showSummary, setShowSummary] = useState<boolean>(false)
 
     return (
         <DraggableToNotebook href={urls.replaySingle(recording.id)}>
@@ -246,6 +255,34 @@ export function SessionRecordingPreview({
                             <div className="truncate font-medium text-link ph-no-capture">
                                 {asDisplay(recording.person)}
                             </div>
+                            {summariseFn && (
+                                <div>
+                                    <Popover
+                                        showArrow={true}
+                                        visible={showSummary}
+                                        placement="right"
+                                        onClickOutside={() => setShowSummary(false)}
+                                        // TODO should use the loader from the logic rather than assume spinner
+                                        overlay={
+                                            <div className="text-xl max-w-1/2 sm:max-w-3/5">
+                                                {sessionSummary || <Spinner />}
+                                            </div>
+                                        }
+                                    >
+                                        <LemonButton
+                                            size="small"
+                                            type="primary"
+                                            icon={<IconAutoAwesome />}
+                                            onClick={(e) => {
+                                                e.preventDefault()
+                                                e.stopPropagation()
+                                                setShowSummary(!showSummary)
+                                                summariseFn(recording)
+                                            }}
+                                        />
+                                    </Popover>
+                                </div>
+                            )}
                         </div>
                         <div className="flex-1" />
 
