@@ -1,5 +1,10 @@
 import { LemonCard, LemonSegmentedButton, Spinner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { router } from 'kea-router'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { urls } from 'scenes/urls'
+
+import { PipelineAppTabs, PipelineTabs } from '~/types'
 
 import { pipelineOverviewLogic } from './overviewLogic'
 
@@ -8,19 +13,30 @@ type PipelineStepProps = {
     name: string
     description?: string
     status?: string
-    url: string
+    to: string
     success_rate?: number
 }
 
-const PipelineStep = ({ name, description }: PipelineStepProps): JSX.Element => (
-    <LemonCard className="cursor-pointer" onClick={() => {}}>
+const PipelineStep = ({ name, description, to }: PipelineStepProps): JSX.Element => (
+    <LemonCard
+        className="cursor-pointer"
+        onClick={() => {
+            router.actions.push(to)
+        }}
+    >
         <span className="relative flex h-3 w-3">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
             <span className="relative inline-flex rounded-full h-3 w-3 bg-primary" />
         </span>
 
         <h3>{name}</h3>
-        {description ? <p>{description}</p> : <p className="italic">No description.</p>}
+        {description ? (
+            <LemonMarkdown className="row-description" lowKeyHeadings>
+                {description}
+            </LemonMarkdown>
+        ) : (
+            <p className="italic">No description.</p>
+        )}
     </LemonCard>
 )
 
@@ -50,7 +66,12 @@ export function Overview(): JSX.Element {
             {transformations && (
                 <div className="grid grid-cols-3 gap-4">
                     {transformations.map((t) => (
-                        <PipelineStep key={t.id} {...t} />
+                        <PipelineStep
+                            key={t.id}
+                            name={t.name}
+                            description={t.description}
+                            to={urls.pipelineApp(PipelineTabs.Transformations, t.id, PipelineAppTabs.Configuration)}
+                        />
                     ))}
                     {/* <pre>{JSON.stringify(transformations, null, 2)}</pre> */}
                 </div>
@@ -60,7 +81,7 @@ export function Overview(): JSX.Element {
             {destinations && (
                 <div className="grid grid-cols-3 gap-4">
                     {destinations.map((d) => (
-                        <PipelineStep key={d.id} {...d} />
+                        <PipelineStep key={d.id} name={d.name} description={d.description} to={d.config_url} />
                     ))}
                     {/* <pre>{JSON.stringify(destinations, null, 2)}</pre> */}
                 </div>
