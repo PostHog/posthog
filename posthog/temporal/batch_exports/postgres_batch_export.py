@@ -34,17 +34,19 @@ from posthog.temporal.batch_exports.metrics import (
 @contextlib.asynccontextmanager
 async def postgres_connection(inputs) -> typing.AsyncIterator[psycopg.AsyncConnection]:
     """Manage a Postgres connection."""
+    kwargs: dict[str, typing.Any] = {}
+    if inputs.has_self_signed_cert:
+        # Disable certificate verification for self-signed certificates.
+        kwargs["sslrootcert"] = None
+
     connection = await psycopg.AsyncConnection.connect(
         user=inputs.user,
         password=inputs.password,
         dbname=inputs.database,
         host=inputs.host,
         port=inputs.port,
-        # The 'hasSelfSignedCert' parameter in the postgres-plugin was provided mainly
-        # for users of Heroku and RDS. It was used to set 'rejectUnauthorized' to false if a self-signed cert was used.
-        # Mapping this to sslmode is not straight-forward, but going by Heroku's recommendation (see below) we should use 'disable'.
-        # Reference: https://devcenter.heroku.com/articles/connecting-heroku-postgres#connecting-in-node-js
-        sslmode="disable" if inputs.has_self_signed_cert is True else "prefer",
+        sslmode="prefer" if settings.TEST else "require",
+        **kwargs,
     )
 
     try:
