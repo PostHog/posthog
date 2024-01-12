@@ -3740,6 +3740,57 @@
         },
         "TrendsFilter": {
             "additionalProperties": false,
+            "properties": {
+                "aggregationAxisFormat": {
+                    "$ref": "#/definitions/AggregationAxisFormat"
+                },
+                "aggregationAxisPostfix": {
+                    "type": "string"
+                },
+                "aggregationAxisPrefix": {
+                    "type": "string"
+                },
+                "breakdownHistogramBinCount": {
+                    "type": "number"
+                },
+                "compare": {
+                    "type": "boolean"
+                },
+                "decimalPlaces": {
+                    "type": "number"
+                },
+                "display": {
+                    "$ref": "#/definitions/ChartDisplayType"
+                },
+                "formula": {
+                    "type": "string"
+                },
+                "hiddenLegendIndexes": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
+                "showLabelsOnSeries": {
+                    "type": "boolean"
+                },
+                "showLegend": {
+                    "type": "boolean"
+                },
+                "showPercentStackView": {
+                    "type": "boolean"
+                },
+                "showValuesOnSeries": {
+                    "type": "boolean"
+                },
+                "smoothingIntervals": {
+                    "type": "number"
+                }
+            },
+            "type": "object"
+        },
+        "TrendsFilterLegacy": {
+            "additionalProperties": false,
             "description": "`TrendsFilterType` minus everything inherited from `FilterType` and `hidden_legend_keys` replaced by `hidden_legend_indexes`",
             "properties": {
                 "aggregation_axis_format": {
