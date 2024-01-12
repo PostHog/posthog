@@ -44,7 +44,7 @@ type CardProps = {
 }
 
 const Card = ({ children, className }: CardProps): JSX.Element => (
-    <div className={clsx('SidePanelWelcome__card border rounded-md px-4 py-3 w-full overflow-hidden', className)}>
+    <div className={clsx('SidePanelWelcome__card border rounded px-4 py-3 w-full overflow-hidden', className)}>
         {children}
     </div>
 )
