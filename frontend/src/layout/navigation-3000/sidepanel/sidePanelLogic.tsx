@@ -41,7 +41,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             sidePanelDiscussionLogic,
             ['commentCount', 'commentCountLoading'],
             sidePanelStatusLogic,
-            ['statusIndicator'],
+            ['status'],
         ],
         actions: [sidePanelStateLogic, ['closeSidePanel', 'openSidePanel']],
     }),
@@ -100,15 +100,18 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 }
                 tabs.push(SidePanelTab.FeaturePreviews)
                 tabs.push(SidePanelTab.Welcome)
-                tabs.push(SidePanelTab.Status)
+
+                if (featureflags[FEATURE_FLAGS.SIDEPANEL_STATUS]) {
+                    tabs.push(SidePanelTab.Status)
+                }
 
                 return tabs
             },
         ],
 
         visibleTabs: [
-            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.commentCount, s.unreadCount, s.statusIndicator],
-            (enabledTabs, selectedTab, sidePanelOpen, commentCount, unreadCount, statusIndicator): SidePanelTab[] => {
+            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.commentCount, s.unreadCount, s.status],
+            (enabledTabs, selectedTab, sidePanelOpen, commentCount, unreadCount, status): SidePanelTab[] => {
                 return enabledTabs.filter((tab) => {
                     if (tab === selectedTab && sidePanelOpen) {
                         return true
@@ -122,7 +125,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                         return true
                     }
 
-                    if (tab === SidePanelTab.Status && statusIndicator !== 'none') {
+                    if (tab === SidePanelTab.Status && status !== 'operational') {
                         return true
                     }
 
@@ -137,10 +140,10 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         ],
 
         tabsStatus: [
-            (s) => [s.enabledTabs, s.statusIndicator],
-            (enabledTabs, statusIndicator): Record<SidePanelTab, LemonButtonProps['status']> => {
+            (s) => [s.enabledTabs, s.status],
+            (enabledTabs, status): Record<SidePanelTab, LemonButtonProps['status']> => {
                 return enabledTabs.reduce((acc, tab) => {
-                    acc[tab] = tab === SidePanelTab.Status && statusIndicator !== 'none' ? 'danger' : 'alt'
+                    acc[tab] = tab === SidePanelTab.Status && status !== 'operational' ? 'danger' : 'alt'
                     return acc
                 }, {} as Record<SidePanelTab, LemonButtonProps['status']>)
             },

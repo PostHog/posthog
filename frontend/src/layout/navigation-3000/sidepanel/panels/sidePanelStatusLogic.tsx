@@ -1,21 +1,93 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import type { sidePanelStatusLogicType } from './sidePanelStatusLogicType'
 
-export type StatusPageIndicator = 'none' | 'minor' | 'major'
+export type SPIndicator = 'none' | 'minor' | 'major'
 
-export type StatusPageResponse = {
-    status: {
-        indicator: StatusPageIndicator
-        description: string
-    }
+export type SPComponentStatus = 'operational' | 'degraded_performance' | 'partial_outage' | 'major_outage'
+
+export interface SPSummary {
+    // page: SPPage
+    components: SPComponent[]
+    incidents: SPIncident[]
+    scheduled_maintenances: any[]
+    status: SPStatus
 }
 
-export const STATUS_PAGE_BASE = 'https://posthogtesting.statuspage.io'
-// export const STATUS_PAGE_BASE = 'https://status.posthog.com'
+export interface SPComponent {
+    id: string
+    name: string
+    status: SPComponentStatus
+    created_at: Date
+    updated_at: Date
+    position: number
+    description: null | string
+    showcase: boolean
+    start_date: Date | null
+    group_id: null | string
+    page_id: string
+    group: boolean
+    only_show_if_degraded: boolean
+    components?: string[]
+}
+
+export interface SPIncident {
+    id: string
+    name: string
+    status: string
+    created_at: Date
+    updated_at: Date
+    monitoring_at: null
+    resolved_at: null
+    impact: string
+    shortlink: string
+    started_at: Date
+    page_id: string
+    incident_updates: SPIncidentUpdate[]
+    components: SPComponent[]
+    reminder_intervals: string
+}
+
+export interface SPIncidentUpdate {
+    id: string
+    status: string
+    body: string
+    incident_id: string
+    created_at: Date
+    updated_at: Date
+    display_at: Date
+    affected_components: SPAffectedComponent[]
+    deliver_notifications: boolean
+    custom_tweet: null
+    tweet_id: null
+}
+
+export interface SPAffectedComponent {
+    code: string
+    name: string
+    old_status: string
+    new_status: string
+}
+
+export interface SPStatus {
+    indicator: SPIndicator
+    description: string
+}
+
+export const STATUS_PAGE_BASE = 'https://status.posthog.com'
+
+// NOTE: Test account with some incidents - ask @benjackwhite for access
+// export const STATUS_PAGE_BASE = 'https://posthogtesting.statuspage.io'
+
+const RELEVANT_GROUPS_MAP = {
+    'us.posthog.com': ['41df083ftqt6'],
+    'eu.posthog.com': ['c4d9jd1jcx3f'],
+    localhost: ['f58xx1143yvt', 't3rdjq2z0x7p'],
+}
 
 export const REFRESH_INTERVAL = 60000
 
@@ -32,23 +104,34 @@ export const sidePanelStatusLogic = kea<sidePanelStatusLogicType>([
 
     reducers(() => ({
         // Persisted copy to avoid flash effect on page load
-        statusIndicator: [
-            null as StatusPageIndicator | null,
+        status: [
+            'operational' as SPComponentStatus,
             { persist: true },
             {
-                loadStatusPageSuccess: (_, { statusPage }) => statusPage.status.indicator,
-                loadStatusPageFailure: () => 'none',
+                loadStatusPageSuccess: (_, { statusPage }) => {
+                    const relevantGroups = RELEVANT_GROUPS_MAP[window.location.hostname]
+                    if (!relevantGroups) {
+                        return 'operational'
+                    }
+
+                    return (
+                        statusPage.components.find(
+                            ({ group_id, status }) => relevantGroups.includes(group_id) && status !== 'operational'
+                        )?.status || 'operational'
+                    )
+                },
+                loadStatusPageFailure: () => 'operational',
             },
         ],
     })),
 
     loaders(() => ({
         statusPage: [
-            null as StatusPageResponse | null,
+            null as SPSummary | null,
             {
                 loadStatusPage: async () => {
-                    const response = await fetch(`${STATUS_PAGE_BASE}/api/v2/status.json`)
-                    const data: StatusPageResponse = await response.json()
+                    const response = await fetch(`${STATUS_PAGE_BASE}/api/v2/summary.json`)
+                    const data: SPSummary = await response.json()
 
                     return data
                 },
@@ -63,8 +146,10 @@ export const sidePanelStatusLogic = kea<sidePanelStatusLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => {
-        return actions.loadStatusPage()
+    afterMount(({ actions, values }) => {
+        if (values.featureFlags[FEATURE_FLAGS.SIDEPANEL_STATUS]) {
+            actions.loadStatusPage()
+        }
     }),
 
     beforeUnmount(({ cache }) => {
