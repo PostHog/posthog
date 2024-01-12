@@ -41,7 +41,7 @@ export const SidePanelCanvas = (): JSX.Element | null => {
                     mode="canvas"
                     initialContent={{
                         type: 'doc',
-                        content: canvas ? [canvas] : [],
+                        content: canvas ?? [],
                     }}
                 />
             </div>

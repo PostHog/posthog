@@ -26,7 +26,7 @@ export const sidePanelCanvasLogic = kea<sidePanelCanvasLogicType>([
             },
         ],
         canvas: [
-            null as JSONContent | null,
+            null as JSONContent[] | null,
             { persist: true },
             {
                 openCanvas: (_, { canvas }) => canvas,
