@@ -30,8 +30,8 @@ pub struct PluginLogEntry {
     pub type_: PluginLogEntryType,
     pub id: Uuid,
     pub team_id: u32,
-    pub plugin_id: u32,
-    pub plugin_config_id: u32,
+    pub plugin_id: i32,
+    pub plugin_config_id: i32,
     #[serde(serialize_with = "serialize_datetime")]
     pub timestamp: DateTime<Utc>,
     #[serde(serialize_with = "serialize_message")]

@@ -731,8 +731,8 @@ mod tests {
     #[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug)]
     struct JobMetadata {
         team_id: u32,
-        plugin_config_id: u32,
-        plugin_id: u32,
+        plugin_config_id: i32,
+        plugin_id: i32,
     }
 
     impl Default for JobMetadata {

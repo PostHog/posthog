@@ -66,7 +66,7 @@ struct CompletedRow {
     #[sqlx(try_from = "i64")]
     team_id: u32,
     #[sqlx(try_from = "i64")]
-    plugin_config_id: u32,
+    plugin_config_id: i32,
     #[sqlx(try_from = "i64")]
     successes: u32,
 }
@@ -100,7 +100,7 @@ struct FailedRow {
     #[sqlx(try_from = "i64")]
     team_id: u32,
     #[sqlx(try_from = "i64")]
-    plugin_config_id: u32,
+    plugin_config_id: i32,
     #[sqlx(json)]
     last_error: WebhookJobError,
     #[sqlx(try_from = "i64")]
