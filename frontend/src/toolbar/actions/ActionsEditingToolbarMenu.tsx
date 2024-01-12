@@ -144,7 +144,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                                                     </>
                                                 }
                                             />
-                                            <LemonTag type={'highlight'}>
+                                            <LemonTag type="highlight">
                                                 <span className="uppercase">and</span>
                                             </LemonTag>
                                             <StepField
