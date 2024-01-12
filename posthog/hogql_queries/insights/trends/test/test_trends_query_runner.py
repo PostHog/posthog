@@ -168,7 +168,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             interval=interval,
             series=query_series,
             trendsFilter=trends_filters,
-            breakdown=breakdown,
+            breakdownFilter=breakdown,
             filterTestAccounts=filter_test_accounts,
         )
         return TrendsQueryRunner(team=self.team, query=query)
