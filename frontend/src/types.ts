@@ -3609,7 +3609,6 @@ export enum AppMetricsTab {
 export enum SidePanelTab {
     Notebooks = 'notebook',
     Canvas = 'canvas',
-    Feedback = 'feedback',
     Support = 'support',
     Docs = 'docs',
     Activation = 'activation',
