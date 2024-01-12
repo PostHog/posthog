@@ -1,6 +1,5 @@
 import { PluginEvent, PostHogEvent, ProcessedPluginEvent, Webhook } from '@posthog/plugin-scaffold'
 import { pluginActionMsSummary } from 'worker/metrics'
-import { enqueueInRustyHook } from 'worker/rusty-hook'
 
 import { Hub, PluginConfig, PluginTaskType, VMMethods } from '../../types'
 import { processError } from '../../utils/db/error'
@@ -93,8 +92,16 @@ async function runSingleTeamPluginComposeWebhook(
                 return
             }
 
-            if (hub.rustyHookForTeams?.(event.team_id)) {
-                return await enqueueInRustyHook(hub, webhook, pluginConfig)
+            const enqueuedInRustyHook = await hub.rustyHook.enqueueIfEnabledForTeam({
+                webhook,
+                teamId: event.team_id,
+                pluginId: pluginConfig.plugin_id,
+                pluginConfigId: pluginConfig.id,
+            })
+
+            if (enqueuedInRustyHook) {
+                // Rusty-Hook handles it from here, so we're done.
+                return
             }
 
             const request = await trackedFetch(webhook.url, {

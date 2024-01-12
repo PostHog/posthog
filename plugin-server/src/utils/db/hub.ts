@@ -6,6 +6,7 @@ import { hostname } from 'os'
 import * as path from 'path'
 import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
+import { RustyHook } from 'worker/rusty-hook'
 
 import { getPluginServerCapabilities } from '../../capabilities'
 import { buildIntegerMatcher, defaultConfig } from '../../config/config'
@@ -141,6 +142,11 @@ export async function createHub(
     const organizationManager = new OrganizationManager(postgres, teamManager)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
+    const rustyHook = new RustyHook(
+        buildIntegerMatcher(serverConfig.RUSTY_HOOK_FOR_TEAMS, true),
+        serverConfig.RUSTY_HOOK_URL,
+        serverConfig.EXTERNAL_REQUEST_TIMEOUT_MS
+    )
 
     const enqueuePluginJob = async (job: EnqueuedPluginJob) => {
         // NOTE: we use the producer directly here rather than using the wrapper
@@ -185,11 +191,11 @@ export async function createHub(
         organizationManager,
         pluginsApiKeyManager,
         rootAccessManager,
+        rustyHook,
         conversionBufferEnabledTeams,
         pluginConfigsToSkipElementsParsing: buildIntegerMatcher(process.env.SKIP_ELEMENTS_PARSING_PLUGINS, true),
         poeEmbraceJoinForTeams: buildIntegerMatcher(process.env.POE_EMBRACE_JOIN_FOR_TEAMS, true),
         poeWritesExcludeTeams: buildIntegerMatcher(process.env.POE_WRITES_EXCLUDE_TEAMS, false),
-        rustyHookForTeams: buildIntegerMatcher(process.env.RUSTY_HOOK_FOR_TEAMS, true),
         eventsToDropByToken: createEventsToDropByToken(process.env.DROP_EVENTS_BY_TOKEN_DISTINCT_ID),
     }
 
