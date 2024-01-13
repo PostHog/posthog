@@ -8,7 +8,6 @@ import {
 } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
-import { TextDecoder } from 'util'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useAvailableFeatures } from '~/mocks/features'
@@ -19,10 +18,6 @@ import { AvailableFeature } from '~/types'
 import recordingEventsJson from '../__mocks__/recording_events_query'
 import recordingMetaJson from '../__mocks__/recording_meta.json'
 import { snapshotsAsJSONLines, sortedRecordingSnapshots } from '../__mocks__/recording_snapshots'
-
-// Jest/JSDom don't know about TextEncoder but the browsers we support do
-// @ts-expect-error
-global.TextDecoder = TextDecoder
 
 const sortedRecordingSnapshotsJson = sortedRecordingSnapshots()
 
