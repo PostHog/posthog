@@ -1556,13 +1556,15 @@ const api = {
                 .getResponse()
 
             try {
-                const textLines = await response.text()
+                // we clone the response here because if we throw _after_ reading the body
+                // then we can't read the body below
+                const textLines = await response.clone().text()
 
                 if (textLines) {
                     return textLines.split('\n')
                 }
             } catch (e) {
-                // Must be gzipped
+                // we assume it is gzipped, swallow the error, and carry on below
             }
 
             const contentBuffer = new Uint8Array(await response.arrayBuffer())
