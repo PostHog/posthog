@@ -12,10 +12,15 @@ import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sess
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
+import { TextDecoder } from 'util'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+
+// Jest/JSDom don't know about TextEncoder but the browsers we support do
+// @ts-expect-error
+global.TextDecoder = TextDecoder
 
 describe('sessionRecordingPlayerLogic', () => {
     let logic: ReturnType<typeof sessionRecordingPlayerLogic.build>
