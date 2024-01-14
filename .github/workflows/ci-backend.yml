@@ -62,6 +62,8 @@ jobs:
                         # code completely
                         # really we should ignore ee/frontend/** but dorny doesn't support that
                         # - '!ee/frontend/**'
+                        # including the negated rule appears to work
+                        # but makes it always match because the checked file always isn't `ee/frontend/**` 🙈
                         - 'ee/**/*'
                         - 'posthog/**/*'
                         - 'bin/*.py'
