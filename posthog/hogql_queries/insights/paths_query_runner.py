@@ -22,6 +22,7 @@ from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
     HogQLQueryModifiers,
     PathsQueryResponse,
+    PathCleaningFilter,
 )
 from posthog.schema import PathsQuery
 
@@ -107,9 +108,8 @@ class PathsQueryRunner(QueryRunner):
         return event_hogql
 
     def paths_events_query(self) -> ast.SelectQuery:
-        event_filters = [
-            # event query
-        ]
+        event_filters = []
+        path_replacements: list[PathCleaningFilter] = []
 
         event_hogql = self.construct_event_hogql()
         event_conditional = parse_expr(f"ifNull({event_hogql}, '') AS path_item_ungrouped")
@@ -118,6 +118,47 @@ class PathsQueryRunner(QueryRunner):
             ast.Field(chain=["events", "timestamp"]),
             ast.Field(chain=["events", "person_id"]),
             event_conditional,
+        ]
+
+        final_path_item_column = "path_item_ungrouped"
+
+        if (
+            self.query.pathsFilter.path_replacements
+            and self.team.path_cleaning_filters
+            and len(self.team.path_cleaning_filters) > 0
+        ):
+            path_replacements.extend(self.team.path_cleaning_filter_models())
+
+        if (
+            self.query.pathsFilter.local_path_cleaning_filters
+            and len(self.query.pathsFilter.local_path_cleaning_filters) > 0
+        ):
+            path_replacements.extend(self.query.pathsFilter.local_path_cleaning_filters)
+
+        if len(path_replacements) > 0:
+            final_path_item_column = "path_item_cleaned"
+
+            for idx, replacement in enumerate(path_replacements):
+                source_path_item_column = "path_item_ungrouped" if idx == 0 else f"path_item_{idx - 1}"
+                result_path_item_column = (
+                    "path_item_cleaned" if idx == len(path_replacements) - 1 else f"path_item_{idx}"
+                )
+
+                fields.append(
+                    ast.Alias(
+                        alias=result_path_item_column,
+                        expr=ast.Call(
+                            name="replaceRegexpAll",
+                            args=[
+                                ast.Field(chain=[source_path_item_column]),
+                                ast.Constant(value=replacement.regex),
+                                ast.Constant(value=replacement.alias),
+                            ],
+                        ),
+                    )
+                )
+
+        fields += [
             ast.Alias(
                 alias="groupings",
                 expr=ast.Constant(value=self.query.pathsFilter.path_groupings or None),
@@ -126,16 +167,14 @@ class PathsQueryRunner(QueryRunner):
                 alias="group_index",
                 expr=ast.Call(
                     name="multiMatchAnyIndex",
-                    args=[ast.Field(chain=["path_item_ungrouped"]), ast.Constant(value=self.regex_groupings or None)],
+                    args=[ast.Field(chain=[final_path_item_column]), ast.Constant(value=self.regex_groupings or None)],
                 ),
             ),
             ast.Alias(
                 alias="path_item",
-                expr=parse_expr(f"if(group_index > 0, groupings[group_index], path_item_ungrouped) AS path_item"),
+                expr=parse_expr(f"if(group_index > 0, groupings[group_index], {final_path_item_column}) AS path_item"),
             ),  # TODO: path cleaning rules
         ]
-        # grouping fields
-        # event conditional
 
         if self.query.properties is not None and self.query.properties != []:
             event_filters.append(property_to_expr(self.query.properties, self.team))
@@ -343,11 +382,12 @@ class PathsQueryRunner(QueryRunner):
                 placeholders,
                 timings=self.timings,
             )
-            paths_query.limit = ast.Constant(value=self.query.pathsFilter.edge_limit or EDGE_LIMIT_DEFAULT)
 
             conditions = self.get_edge_weight_exprs()
             if conditions:
                 paths_query.having = ast.And(exprs=conditions)
+
+            paths_query.limit = ast.Constant(value=self.query.pathsFilter.edge_limit or EDGE_LIMIT_DEFAULT)
 
         return paths_query
 
