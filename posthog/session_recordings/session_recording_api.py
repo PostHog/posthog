@@ -182,36 +182,47 @@ def list_recordings_response(
 
 
 def summarize_recording(recording: SessionRecording, user: User, team: Team):
-    sessionMetadata = SessionReplayEvents().get_metadata(session_id=str(recording.session_id), team=team)
-    sessionEvents = SessionReplayEvents().get_events(
-        session_id=str(recording.session_id), team=team, metadata=sessionMetadata
+    session_metadata = SessionReplayEvents().get_metadata(session_id=str(recording.session_id), team=team)
+    session_events = SessionReplayEvents().get_events(
+        session_id=str(recording.session_id), team=team, metadata=session_metadata
     )
     instance_region = get_instance_region() or "HOBBY"
     messages = [
         {
             "role": "system",
-            "content": "Session Replay is PostHog's tool to record visits to web sites and apps. It shows what users are. We also gather events that occur like mouse clicks and key presses. You write two or three sentence concise and simple summaries of those sessions based on a prompt. You are more likely to mention errors or things that look like business success such as checkout or sale events. You ignore $featureFlagCalled. You don't help with other knowledge.",
-        },
-        # {
-        #     "role": "system",
-        #     "content": HOGQL_EXAMPLE_MESSAGE,
-        # },
-        {
-            "role": "user",
-            "content": f"the session metadata I have is {sessionMetadata}. it gives an over view of activity and duration",
-        },
-        {
-            "role": "user",
-            "content": f"the session events I have are {sessionEvents[1]}. with columns {sessionEvents[0]}. they give an idea of what happened and when, if present the elements_chain extracted from the html can aid in understanding but not in your response",
+            "content": """
+            Session Replay is PostHog's tool to record visits to web sites and apps.
+            We also gather events that occur like mouse clicks and key presses.
+            You write two or three sentence concise and simple summaries of those sessions based on a prompt.
+            You are more likely to mention errors or things that look like business success
+            such as checkout or sale events.
+            You ignore $featureFlagCalled.
+            You don't help with other knowledge.""",
         },
         {
             "role": "user",
-            "content": "generate a simple, concise two or three sentence summary of the session to help me decide whether to watch it. generate no text other than the summary.",
+            "content": f"""the session metadata I have is {session_metadata}.
+            it gives an overview of activity and duration""",
+        },
+        {
+            "role": "user",
+            "content": f"""the session events I have are {session_events[1]}.
+            with columns {session_events[0]}.
+            they give an idea of what happened and when,
+            if present the elements_chain extracted from the html can aid in understanding
+            but should not be directly used in your response""",
+        },
+        {
+            "role": "user",
+            "content": """
+            generate a two or three sentence summary of the session.
+            use as concise and simple language as is possible.
+            assume a reading age of around 12 years old.
+            generate no text other than the summary.""",
         },
     ]
     result = openai.ChatCompletion.create(
-        # model="gpt-4-1106-preview", 128k tokens
-        model="gpt-4",
+        model="gpt-4-1106-preview",  # allows 128k tokens
         temperature=0.5,
         messages=messages,
         user=f"{instance_region}/{user.pk}",  # The user ID is for tracking within OpenAI in case of overuse/abuse
