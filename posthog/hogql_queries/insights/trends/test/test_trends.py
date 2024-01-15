@@ -178,7 +178,7 @@ def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
         dateRange=DateRange(date_from=filter_as_dict.get("date_from"), date_to=filter_as_dict.get("date_to")),
         samplingFactor=filter.sampling_factor,
         aggregation_group_type_index=filter.aggregation_group_type_index,
-        breakdown=BreakdownFilter(
+        breakdownFilter=BreakdownFilter(
             breakdown=filter.breakdown,
             breakdown_type=filter.breakdown_type,
             breakdown_normalize_url=filter.breakdown_normalize_url,
@@ -193,7 +193,7 @@ def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
             breakdown_histogram_bin_count=filter.breakdown_histogram_bin_count,
             compare=filter.compare,
             formula=filter.formula,
-            smoothing_intervals=filter.smoothing_intervals,
+            smoothingIntervals=filter.smoothing_intervals,
         ),
     )
 

@@ -48,7 +48,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
             <Form
                 name="action_step"
                 logic={actionsTabLogic}
-                formKey={'actionForm'}
+                formKey="actionForm"
                 enableFormOnSubmit
                 className="flex flex-col overflow-hidden flex-1"
             >
@@ -166,7 +166,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                                     ) : null}
 
                                     {index === (actionForm.steps?.length || 0) - 1 ? (
-                                        <div className={'text-right mt-4'}>
+                                        <div className="text-right mt-4">
                                             <LemonButton
                                                 type="secondary"
                                                 size="small"

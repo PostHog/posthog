@@ -3,7 +3,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
 
 function PythonInstallSnippet(): JSX.Element {
-    return <CodeSnippet language={Language.Bash}>{'pip install posthog'}</CodeSnippet>
+    return <CodeSnippet language={Language.Bash}>pip install posthog</CodeSnippet>
 }
 
 function PythonSetupSnippet(): JSX.Element {

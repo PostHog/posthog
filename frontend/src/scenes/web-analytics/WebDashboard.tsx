@@ -44,7 +44,7 @@ const Filters = (): JSX.Element => {
                         setWebAnalyticsFilters(filters.filter(isEventPropertyOrPersonPropertyFilter))
                     }
                     propertyFilters={webAnalyticsFilters}
-                    pageKey={'web-analytics'}
+                    pageKey="web-analytics"
                     eventNames={['$pageview', '$pageleave', '$autocapture']}
                     propertyAllowList={{
                         [TaxonomicFilterGroupType.EventProperties]: [
@@ -77,7 +77,7 @@ const Filters = (): JSX.Element => {
                     }}
                 />
             </div>
-            <div className={'bg-border h-px w-full mt-2'} />
+            <div className="bg-border h-px w-full mt-2" />
         </div>
     )
 }

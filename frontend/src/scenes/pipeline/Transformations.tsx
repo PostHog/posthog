@@ -112,7 +112,7 @@ export function Transformations(): JSX.Element {
                                 render: function RenderPluginName(_, pluginConfig) {
                                     return (
                                         <>
-                                            <Tooltip title={'Click to update configuration, view metrics, and more'}>
+                                            <Tooltip title="Click to update configuration, view metrics, and more">
                                                 <Link
                                                     to={urls.pipelineApp(
                                                         PipelineAppKind.Transformation,
@@ -184,7 +184,7 @@ export function Transformations(): JSX.Element {
                                                     {pluginConfig.enabled && (
                                                         <LemonButton
                                                             onClick={openReorderModal}
-                                                            id={`app-reorder`}
+                                                            id="app-reorder"
                                                             disabledReason={
                                                                 canConfigurePlugins
                                                                     ? undefined
@@ -250,7 +250,7 @@ export function Transformations(): JSX.Element {
                                                                 callback: loadPluginConfigs,
                                                             })
                                                         }}
-                                                        id={`app-delete`}
+                                                        id="app-delete"
                                                         disabledReason={
                                                             canConfigurePlugins
                                                                 ? undefined

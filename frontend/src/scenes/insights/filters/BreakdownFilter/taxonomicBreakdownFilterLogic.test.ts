@@ -19,7 +19,7 @@ const taxonomicGroupFor = (
     getPopoverHeader: () => 'unused in these tests',
 })
 
-const updateBreakdown = jest.fn()
+const updateBreakdownFilter = jest.fn()
 const updateDisplay = jest.fn()
 const insightProps: InsightLogicProps = { dashboardItemId: 'new' }
 
@@ -36,7 +36,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 insightProps,
                 breakdownFilter: {},
                 isTrends: true,
-                updateBreakdown,
+                updateBreakdownFilter,
                 updateDisplay,
             })
             logic.mount()
@@ -47,7 +47,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 logic.actions.addBreakdown(changedBreakdown, group)
             }).toFinishListeners()
 
-            expect(updateBreakdown).toHaveBeenCalledWith({
+            expect(updateBreakdownFilter).toHaveBeenCalledWith({
                 breakdown_type: 'event',
                 breakdown: 'c',
                 breakdown_group_type_index: undefined,
@@ -63,7 +63,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                     breakdown: ['all', 1],
                 },
                 isTrends: true,
-                updateBreakdown,
+                updateBreakdownFilter,
                 updateDisplay,
             })
             logic.mount()
@@ -77,7 +77,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 logic.actions.addBreakdown(changedBreakdown, group)
             }).toFinishListeners()
 
-            expect(updateBreakdown).toHaveBeenCalledWith({
+            expect(updateBreakdownFilter).toHaveBeenCalledWith({
                 breakdown_type: 'cohort',
                 breakdown: ['all', 1, 2],
                 breakdown_group_type_index: undefined,
@@ -91,7 +91,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 insightProps,
                 breakdownFilter: {},
                 isTrends: true,
-                updateBreakdown,
+                updateBreakdownFilter,
                 updateDisplay,
             })
             logic.mount()
@@ -102,7 +102,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 logic.actions.addBreakdown(changedBreakdown, group)
             }).toFinishListeners()
 
-            expect(updateBreakdown).toHaveBeenCalledWith({
+            expect(updateBreakdownFilter).toHaveBeenCalledWith({
                 breakdown_type: 'person',
                 breakdown: 'height',
                 breakdown_group_type_index: undefined,
@@ -114,7 +114,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 insightProps,
                 breakdownFilter: {},
                 isTrends: true,
-                updateBreakdown,
+                updateBreakdownFilter,
                 updateDisplay,
             })
             logic.mount()
@@ -125,7 +125,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
                 logic.actions.addBreakdown(changedBreakdown, group)
             }).toFinishListeners()
 
-            expect(updateBreakdown).toHaveBeenCalledWith({
+            expect(updateBreakdownFilter).toHaveBeenCalledWith({
                 breakdown_type: 'group',
                 breakdown: '$lib_version',
                 breakdown_group_type_index: 0,

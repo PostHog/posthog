@@ -76,10 +76,7 @@ function EmptyNetworkTab({
                 <h4 className="text-xl font-medium">Network recording</h4>
                 <p className="text-muted text-center">
                     Network capture is not supported when replay is running on localhost.{' '}
-                    <Link to={'https://posthog.com/docs/session-replay/network-recording'}>
-                        Learn more in our docs{' '}
-                    </Link>
-                    .
+                    <Link to="https://posthog.com/docs/session-replay/network-recording">Learn more in our docs </Link>.
                 </p>
             </div>
         </>

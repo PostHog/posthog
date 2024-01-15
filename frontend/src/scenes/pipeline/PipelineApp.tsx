@@ -11,9 +11,9 @@ import { urls } from 'scenes/urls'
 
 import { PipelineAppKind, PipelineAppTab, PipelineTab } from '~/types'
 
-import { AppMetrics } from './AppMetrics'
 import { PipelineAppConfiguration } from './PipelineAppConfiguration'
 import { pipelineAppLogic, PipelineAppLogicProps } from './pipelineAppLogic'
+import { PipelineAppMetrics } from './PipelineAppMetrics'
 
 export const PIPELINE_TAB_TO_APP_KIND: Partial<Record<PipelineTab, PipelineAppKind>> = {
     [PipelineTab.Filters]: PipelineAppKind.Filter,
@@ -63,7 +63,7 @@ export function PipelineApp(params: { kindTab?: string; id?: string } = {}): JSX
 
     const tabToContent: Record<PipelineAppTab, JSX.Element> = {
         [PipelineAppTab.Configuration]: <PipelineAppConfiguration />,
-        [PipelineAppTab.Metrics]: <AppMetrics pluginConfigId={id as number} />,
+        [PipelineAppTab.Metrics]: <PipelineAppMetrics pluginConfigId={id as number} />,
         [PipelineAppTab.Logs]: <PipelineAppLogs id={id} kind={kind} />,
     }
 

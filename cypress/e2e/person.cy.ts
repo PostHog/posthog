@@ -1,7 +1,7 @@
 describe('Person Visualization Check', () => {
     beforeEach(() => {
         cy.clickNavMenu('personsmanagement')
-        cy.location('pathname').should('eq', '/persons')
+        cy.location('pathname').should('contain', '/persons')
         cy.wait(1000)
         cy.get('[data-attr=persons-search]').type('deb').should('have.value', 'deb')
         cy.contains('deborah.fernandez@gmail.com').should('not.exist')

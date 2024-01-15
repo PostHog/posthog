@@ -1251,7 +1251,7 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         self.assertEqual(
-            query.breakdown,
+            query.breakdownFilter,
             BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="$browser"),
         )
 
@@ -1261,7 +1261,7 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         self.assertEqual(
-            query.breakdown,
+            query.breakdownFilter,
             BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="$browser"),
         )
 
@@ -1271,7 +1271,7 @@ class TestFilterToQuery(BaseTest):
         query = filter_to_query(filter)
 
         self.assertEqual(
-            query.breakdown,
+            query.breakdownFilter,
             BreakdownFilter(breakdown_type=BreakdownType.event, breakdown="some_prop"),
         )
 
@@ -1293,7 +1293,7 @@ class TestFilterToQuery(BaseTest):
         self.assertEqual(
             query.trendsFilter,
             TrendsFilter(
-                smoothing_intervals=2,
+                smoothingIntervals=2,
                 compare=True,
                 aggregation_axis_format=AggregationAxisFormat.duration_ms,
                 aggregation_axis_prefix="pre",

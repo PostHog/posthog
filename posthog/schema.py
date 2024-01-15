@@ -4,10 +4,9 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel
-from typing_extensions import Literal
 
 
 class SchemaRoot(RootModel[Any]):
@@ -455,6 +454,34 @@ class PropertyOperator(str, Enum):
     max = "max"
 
 
+class QueryResponseAlternative1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    next: Optional[str] = None
+    results: List[EventType]
+
+
+class QueryResponseAlternative2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    results: List[Dict[str, Any]]
+
+
+class QueryResponseAlternative7(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    errors: List[HogQLNotice]
+    inputExpr: Optional[str] = None
+    inputSelect: Optional[str] = None
+    isValid: Optional[bool] = None
+    isValidView: Optional[bool] = None
+    notices: List[HogQLNotice]
+    warnings: List[HogQLNotice]
+
+
 class QueryStatus(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -612,6 +639,26 @@ class TimelineEntry(BaseModel):
 
 
 class TrendsFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_axis_format: Optional[AggregationAxisFormat] = None
+    aggregation_axis_postfix: Optional[str] = None
+    aggregation_axis_prefix: Optional[str] = None
+    breakdown_histogram_bin_count: Optional[float] = None
+    compare: Optional[bool] = None
+    decimal_places: Optional[float] = None
+    display: Optional[ChartDisplayType] = None
+    formula: Optional[str] = None
+    hidden_legend_indexes: Optional[List[float]] = None
+    show_labels_on_series: Optional[bool] = None
+    show_legend: Optional[bool] = None
+    show_percent_stack_view: Optional[bool] = None
+    show_values_on_series: Optional[bool] = None
+    smoothingIntervals: Optional[float] = None
+
+
+class TrendsFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -978,6 +1025,105 @@ class QueryResponse(BaseModel):
     last_refresh: Optional[str] = None
     next_allowed_client_refresh: Optional[str] = None
     results: List
+    timings: Optional[List[QueryTiming]] = None
+
+
+class QueryResponseAlternative3(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: List
+    hasMore: Optional[bool] = None
+    hogql: str
+    limit: Optional[int] = None
+    offset: Optional[int] = None
+    results: List[List]
+    timings: Optional[List[QueryTiming]] = None
+    types: List[str]
+
+
+class QueryResponseAlternative4(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: List
+    hasMore: Optional[bool] = None
+    hogql: str
+    limit: int
+    missing_actors_count: Optional[int] = None
+    offset: int
+    results: List[List]
+    timings: Optional[List[QueryTiming]] = None
+    types: List[str]
+
+
+class QueryResponseAlternative5(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = None
+    results: List[TimelineEntry]
+    timings: Optional[List[QueryTiming]] = None
+
+
+class QueryResponseAlternative6(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    clickhouse: Optional[str] = Field(default=None, description="Executed ClickHouse query")
+    columns: Optional[List] = Field(default=None, description="Returned columns")
+    error: Optional[str] = Field(
+        default=None, description="Query error. Returned only if 'explain' is true. Throws an error otherwise."
+    )
+    explain: Optional[List[str]] = Field(default=None, description="Query explanation output")
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query")
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    query: Optional[str] = Field(default=None, description="Input query string")
+    results: Optional[List] = Field(default=None, description="Query results")
+    timings: Optional[List[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+    types: Optional[List] = Field(default=None, description="Types of returned columns")
+
+
+class QueryResponseAlternative8(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List[WebOverviewItem]
+    timings: Optional[List[QueryTiming]] = None
+
+
+class QueryResponseAlternative9(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[List] = None
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List
+    timings: Optional[List[QueryTiming]] = None
+    types: Optional[List] = None
+
+
+class QueryResponseAlternative11(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List[Dict[str, Any]]
     timings: Optional[List[QueryTiming]] = None
 
 
@@ -1446,6 +1592,54 @@ class PropertyGroupFilterValue(BaseModel):
     ]
 
 
+class QueryResponseAlternative12(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List[RetentionResult]
+    timings: Optional[List[QueryTiming]] = None
+
+
+class QueryResponseAlternative(
+    RootModel[
+        Union[
+            QueryResponseAlternative1,
+            Dict[str, Any],
+            QueryResponseAlternative2,
+            QueryResponseAlternative3,
+            QueryResponseAlternative4,
+            QueryResponseAlternative5,
+            QueryResponseAlternative6,
+            QueryResponseAlternative7,
+            QueryResponseAlternative8,
+            QueryResponseAlternative9,
+            QueryResponseAlternative11,
+            QueryResponseAlternative12,
+            Dict[str, List[DatabaseSchemaQueryResponseField]],
+        ]
+    ]
+):
+    root: Union[
+        QueryResponseAlternative1,
+        Dict[str, Any],
+        QueryResponseAlternative2,
+        QueryResponseAlternative3,
+        QueryResponseAlternative4,
+        QueryResponseAlternative5,
+        QueryResponseAlternative6,
+        QueryResponseAlternative7,
+        QueryResponseAlternative8,
+        QueryResponseAlternative9,
+        QueryResponseAlternative11,
+        QueryResponseAlternative12,
+        Dict[str, List[DatabaseSchemaQueryResponseField]],
+    ]
+
+
 class RetentionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1624,7 +1818,7 @@ class TrendsQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    breakdown: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
+    breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
@@ -1712,7 +1906,7 @@ class FunnelsQuery(BaseModel):
         extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
-    breakdown: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
+    breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         default=None, description="Exclude internal and test users by applying the respective filters"
@@ -1875,7 +2069,9 @@ class InsightVizNode(BaseModel):
     showLastComputationRefresh: Optional[bool] = None
     showResults: Optional[bool] = None
     showTable: Optional[bool] = None
-    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
+    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(
+        ..., discriminator="kind"
+    )
     suppressSessionAnalysisWarning: Optional[bool] = None
     vizSpecificOptions: Optional[VizSpecificOptions] = None
 
@@ -1890,7 +2086,9 @@ class InsightActorsQuery(BaseModel):
     )
     kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
     response: Optional[ActorsQueryResponse] = None
-    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
+    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(
+        ..., discriminator="kind"
+    )
     status: Optional[str] = None
 
 
@@ -2029,40 +2227,33 @@ class HogQLMetadata(BaseModel):
     table: Optional[str] = Field(default=None, description="Table to validate the expression against")
 
 
-class QuerySchema(
-    RootModel[
-        Union[
-            DataVisualizationNode,
-            DataTableNode,
-            SavedInsightNode,
-            InsightVizNode,
-            TrendsQuery,
-            FunnelsQuery,
-            RetentionQuery,
-            PathsQuery,
-            StickinessQuery,
-            LifecycleQuery,
-            TimeToSeeDataSessionsQuery,
-            DatabaseSchemaQuery,
-            Union[
-                EventsNode,
-                ActionsNode,
-                PersonsNode,
-                TimeToSeeDataSessionsQuery,
-                EventsQuery,
-                ActorsQuery,
-                InsightActorsQuery,
-                SessionsTimelineQuery,
-                HogQLQuery,
-                HogQLMetadata,
-                WebOverviewQuery,
-                WebStatsTableQuery,
-                WebTopClicksQuery,
-            ],
-        ]
-    ]
-):
-    root: Union[
+class QueryRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    async_: Optional[bool] = Field(
+        default=None,
+        alias="async",
+        description="(Experimental) Whether to run the query asynchronously. Defaults to False. If True, the `id` of the query can be used to check the status and to cancel it.",
+        examples=[True],
+    )
+    client_query_id: Optional[str] = Field(
+        default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
+    )
+    query: Union[
+        EventsNode,
+        ActionsNode,
+        PersonsNode,
+        TimeToSeeDataSessionsQuery,
+        EventsQuery,
+        ActorsQuery,
+        InsightActorsQuery,
+        SessionsTimelineQuery,
+        HogQLQuery,
+        HogQLMetadata,
+        WebOverviewQuery,
+        WebStatsTableQuery,
+        WebTopClicksQuery,
         DataVisualizationNode,
         DataTableNode,
         SavedInsightNode,
@@ -2073,8 +2264,17 @@ class QuerySchema(
         PathsQuery,
         StickinessQuery,
         LifecycleQuery,
-        TimeToSeeDataSessionsQuery,
         DatabaseSchemaQuery,
+    ] = Field(
+        ...,
+        description='Submit a JSON string representing a query for PostHog data analysis, for example a HogQL query.\n\nExample payload:\n\n```\n\n{"query": {"kind": "HogQLQuery", "query": "select * from events limit 100"}}\n\n```\n\nFor more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access).',
+        discriminator="kind",
+    )
+    refresh: Optional[bool] = None
+
+
+class QuerySchemaRoot(
+    RootModel[
         Union[
             EventsNode,
             ActionsNode,
@@ -2089,8 +2289,47 @@ class QuerySchema(
             WebOverviewQuery,
             WebStatsTableQuery,
             WebTopClicksQuery,
-        ],
+            DataVisualizationNode,
+            DataTableNode,
+            SavedInsightNode,
+            InsightVizNode,
+            TrendsQuery,
+            FunnelsQuery,
+            RetentionQuery,
+            PathsQuery,
+            StickinessQuery,
+            LifecycleQuery,
+            DatabaseSchemaQuery,
+        ]
     ]
+):
+    root: Union[
+        EventsNode,
+        ActionsNode,
+        PersonsNode,
+        TimeToSeeDataSessionsQuery,
+        EventsQuery,
+        ActorsQuery,
+        InsightActorsQuery,
+        SessionsTimelineQuery,
+        HogQLQuery,
+        HogQLMetadata,
+        WebOverviewQuery,
+        WebStatsTableQuery,
+        WebTopClicksQuery,
+        DataVisualizationNode,
+        DataTableNode,
+        SavedInsightNode,
+        InsightVizNode,
+        TrendsQuery,
+        FunnelsQuery,
+        RetentionQuery,
+        PathsQuery,
+        StickinessQuery,
+        LifecycleQuery,
+        DatabaseSchemaQuery,
+    ] = Field(..., discriminator="kind")
 
 
 PropertyGroupFilterValue.model_rebuild()
+QueryRequest.model_rebuild()

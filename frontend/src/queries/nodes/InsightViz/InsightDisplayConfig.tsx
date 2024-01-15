@@ -42,7 +42,7 @@ export function InsightDisplayConfig(): JSX.Element {
         isLifecycle,
         supportsDisplay,
         display,
-        breakdown,
+        breakdownFilter,
         trendsFilter,
         hasLegend,
         showLegend,
@@ -60,7 +60,7 @@ export function InsightDisplayConfig(): JSX.Element {
         ((isTrends || isStickiness) && !(display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display)))
     const showSmoothing =
         isTrends &&
-        !breakdown?.breakdown_type &&
+        !breakdownFilter?.breakdown_type &&
         !trendsFilter?.compare &&
         (!display || display === ChartDisplayType.ActionsLineGraph) &&
         featureFlags[FEATURE_FLAGS.SMOOTHING_INTERVAL]
