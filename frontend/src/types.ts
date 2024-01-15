@@ -1098,6 +1098,7 @@ export interface SessionRecordingType {
     console_error_count?: number
     /** Where this recording information was loaded from  */
     storage?: 'object_storage_lts' | 'object_storage'
+    summary?: string
 }
 
 export interface SessionRecordingPropertiesType {

@@ -1,7 +1,9 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAutoAwesome, IconAutocapture, IconKeyboard, IconPinFilled, IconSchedule } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -26,7 +28,6 @@ export interface SessionRecordingPreviewProps {
     onClick?: () => void
     pinned?: boolean
     summariseFn?: (recording: SessionRecordingType) => void
-    sessionSummary?: string
     sessionSummaryLoading?: boolean
 }
 
@@ -235,16 +236,15 @@ export function SessionRecordingPreview({
     onPropertyClick,
     pinned,
     summariseFn,
-    sessionSummary,
     sessionSummaryLoading,
 }: SessionRecordingPreviewProps): JSX.Element {
     const { durationTypeToShow } = useValues(playerSettingsLogic)
 
     const iconClassnames = clsx('SessionRecordingPreview__property-icon text-base text-muted-alt')
 
-    const [showSummary, setShowSummary] = useState<boolean>(false)
+    const [summaryPopoverIsVisible, setSummaryPopoverIsVisible] = useState<boolean>(false)
 
-    const [summaryIsVisible, setSummaryIsVisible] = useState<boolean>(false)
+    const [summaryButtonIsVisible, setSummaryButtonIsVisible] = useState<boolean>(false)
 
     return (
         <DraggableToNotebook href={urls.replaySingle(recording.id)}>
@@ -252,40 +252,44 @@ export function SessionRecordingPreview({
                 key={recording.id}
                 className={clsx('SessionRecordingPreview', isActive && 'SessionRecordingPreview--active')}
                 onClick={() => onClick?.()}
-                onMouseEnter={() => setSummaryIsVisible(true)}
-                onMouseLeave={() => setSummaryIsVisible(false)}
+                onMouseEnter={() => setSummaryButtonIsVisible(true)}
+                onMouseLeave={() => setSummaryButtonIsVisible(false)}
             >
-                {summariseFn && (
-                    <Popover
-                        showArrow={true}
-                        visible={showSummary && summaryIsVisible}
-                        placement="right"
-                        onClickOutside={() => setShowSummary(false)}
-                        onMouseLeaveInside={() => setShowSummary(false)}
-                        overlay={
-                            sessionSummaryLoading || !sessionSummary ? (
-                                <Spinner />
-                            ) : (
-                                <div className="text-xl max-w-auto lg:max-w-3/5">{sessionSummary}</div>
-                            )
-                        }
-                    >
-                        <LemonButton
-                            size="small"
-                            type="primary"
-                            className={clsx(summaryIsVisible ? 'block' : 'hidden', 'absolute right-px top-px')}
-                            icon={<IconAutoAwesome />}
-                            onClick={(e) => {
-                                e.preventDefault()
-                                e.stopPropagation()
-                                setShowSummary(!showSummary)
-                                if (!sessionSummary) {
-                                    summariseFn(recording)
-                                }
-                            }}
-                        />
-                    </Popover>
-                )}
+                <FlaggedFeature flag={FEATURE_FLAGS.AI_SESSION_SUMMARY} match={true}>
+                    {summariseFn && (
+                        <Popover
+                            showArrow={true}
+                            visible={summaryPopoverIsVisible && summaryButtonIsVisible}
+                            placement="right"
+                            onClickOutside={() => setSummaryPopoverIsVisible(false)}
+                            overlay={
+                                sessionSummaryLoading ? (
+                                    <Spinner />
+                                ) : (
+                                    <div className="text-xl max-w-auto lg:max-w-3/5">{recording.summary}</div>
+                                )
+                            }
+                        >
+                            <LemonButton
+                                size="small"
+                                type="primary"
+                                className={clsx(
+                                    summaryButtonIsVisible ? 'block' : 'hidden',
+                                    'absolute right-px top-px'
+                                )}
+                                icon={<IconAutoAwesome />}
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    setSummaryPopoverIsVisible(!summaryPopoverIsVisible)
+                                    if (!recording.summary) {
+                                        summariseFn(recording)
+                                    }
+                                }}
+                            />
+                        </Popover>
+                    )}
+                </FlaggedFeature>
                 <div className="grow overflow-hidden space-y-px">
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-1 shrink overflow-hidden">

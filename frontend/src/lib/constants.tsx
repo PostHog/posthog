@@ -194,6 +194,7 @@ export const FEATURE_FLAGS = {
     REDIRECT_INGESTION_PRODUCT_ANALYTICS_ONBOARDING: 'redirect-ingestion-product-analytics-onboarding', // owner: @biancayang
     RECRUIT_ANDROID_MOBILE_BETA_TESTERS: 'recruit-android-mobile-beta-testers', // owner: #team-replay
     SIDEPANEL_STATUS: 'sidepanel-status', // owner: @benjackwhite
+    AI_SESSION_SUMMARY: 'ai-session-summary', // owner: #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

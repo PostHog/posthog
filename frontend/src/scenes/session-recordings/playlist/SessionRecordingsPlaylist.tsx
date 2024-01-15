@@ -92,8 +92,8 @@ function RecordingsLists(): JSX.Element {
         logicProps,
         showOtherRecordings,
         recordingsCount,
-        sessionSummary,
         sessionSummaryLoading,
+        sessionBeingSummarized,
     } = useValues(sessionRecordingsPlaylistLogic)
     const {
         setSelectedRecordingId,
@@ -256,8 +256,9 @@ function RecordingsLists(): JSX.Element {
                                               isActive={activeSessionRecordingId === rec.id}
                                               pinned={false}
                                               summariseFn={onSummarizeClick}
-                                              sessionSummary={sessionSummary}
-                                              sessionSummaryLoading={sessionSummaryLoading}
+                                              sessionSummaryLoading={
+                                                  sessionSummaryLoading && sessionBeingSummarized === rec.id
+                                              }
                                           />
                                       </div>
                                   ))
