@@ -80,10 +80,12 @@ class MultipleInCohortResolver(TraversingVisitor):
             compare_node.left = ast.Constant(value=1)
             compare_node.right = ast.Constant(value=1)
 
-    def _resolve_cohorts(self, compare_operations: List[ast.CompareOperation]) -> List[Tuple[int, StaticOrDynamic]]:
+    def _resolve_cohorts(
+        self, compare_operations: List[ast.CompareOperation]
+    ) -> List[Tuple[int, StaticOrDynamic, int]]:
         from posthog.models import Cohort
 
-        cohorts: List[Tuple[int, StaticOrDynamic]] = []
+        cohorts: List[Tuple[int, StaticOrDynamic, int]] = []
 
         for node in compare_operations:
             arg = node.right
@@ -92,7 +94,7 @@ class MultipleInCohortResolver(TraversingVisitor):
 
             if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
                 int_cohorts = Cohort.objects.filter(id=int(arg.value), team_id=self.context.team_id).values_list(
-                    "id", "is_static", "name"
+                    "id", "is_static", "version"
                 )
                 if len(int_cohorts) == 1:
                     if node.op == ast.CompareOperationOp.NotInCohort:
@@ -100,14 +102,15 @@ class MultipleInCohortResolver(TraversingVisitor):
 
                     id = int_cohorts[0][0]
                     is_static = int_cohorts[0][1]
+                    version = int_cohorts[0][2] or 0
 
-                    cohorts.append((id, "static" if is_static else "dynamic"))
+                    cohorts.append((id, "static" if is_static else "dynamic", version))
                     continue
                 raise HogQLException(f"Could not find cohort with id {arg.value}", node=arg)
 
             if isinstance(arg.value, str):
                 str_cohorts = Cohort.objects.filter(name=arg.value, team_id=self.context.team_id).values_list(
-                    "id", "is_static"
+                    "id", "is_static", "version"
                 )
                 if len(str_cohorts) == 1:
                     if node.op == ast.CompareOperationOp.NotInCohort:
@@ -115,8 +118,9 @@ class MultipleInCohortResolver(TraversingVisitor):
 
                     id = str_cohorts[0][0]
                     is_static = str_cohorts[0][1]
+                    version = str_cohorts[0][2] or 0
 
-                    cohorts.append((id, "static" if is_static else "dynamic"))
+                    cohorts.append((id, "static" if is_static else "dynamic", version))
                     continue
                 elif len(str_cohorts) > 1:
                     raise HogQLException(f"Found multiple cohorts with name '{arg.value}'", node=arg)
@@ -128,7 +132,7 @@ class MultipleInCohortResolver(TraversingVisitor):
 
     def _add_join(
         self,
-        cohorts: List[Tuple[int, StaticOrDynamic]],
+        cohorts: List[Tuple[int, StaticOrDynamic, int]],
         select: ast.SelectQuery,
         compare_operations: List[ast.CompareOperation],
     ):
@@ -145,42 +149,76 @@ class MultipleInCohortResolver(TraversingVisitor):
                 break
 
         if must_add_join:
-            any_static = any(is_static == "static" for id, is_static in cohorts)
-            any_dynamic = any(is_static == "dynamic" for id, is_static in cohorts)
+            static_cohorts = list(filter(lambda cohort: cohort[1] == "static", cohorts))
+            dynamic_cohorts = list(filter(lambda cohort: cohort[1] == "dynamic", cohorts))
 
-            cohort_in = ast.CompareOperation(
-                left=ast.Field(chain=["cohort_id"]),
-                op=ast.CompareOperationOp.In,
-                right=ast.Array(exprs=[ast.Constant(value=id) for id, is_static in cohorts]),
-            )
+            any_static = len(static_cohorts) > 0
+            any_dynamic = len(dynamic_cohorts) > 0
+
+            def get_static_cohort_clause():
+                return ast.CompareOperation(
+                    left=ast.Field(chain=["cohort_id"]),
+                    op=ast.CompareOperationOp.In,
+                    right=ast.Array(exprs=[ast.Constant(value=id) for id, is_static, version in static_cohorts]),
+                )
+
+            def get_dynamic_cohort_clause():
+                cohort_or = ast.Or(
+                    exprs=[
+                        ast.And(
+                            exprs=[
+                                ast.CompareOperation(
+                                    left=ast.Field(chain=["cohort_id"]),
+                                    op=ast.CompareOperationOp.Eq,
+                                    right=ast.Constant(value=id),
+                                ),
+                                ast.CompareOperation(
+                                    left=ast.Field(chain=["version"]),
+                                    op=ast.CompareOperationOp.Eq,
+                                    right=ast.Constant(value=version),
+                                ),
+                            ]
+                        )
+                        for id, is_static, version in dynamic_cohorts
+                    ]
+                )
+
+                if len(cohort_or.exprs) == 1:
+                    return cohort_or.exprs[0]
+
+                return cohort_or
 
             # TODO: Extract these `SELECT` clauses out into their own vars and inject
             # via placeholders once the HogQL SELECT placeholders functionality is done
             if any_static and any_dynamic:
+                static_clause = get_static_cohort_clause()
+                dynamic_clause = get_dynamic_cohort_clause()
+
                 table_query = parse_select(
                     """
                         SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id
                         FROM static_cohort_people
-                        WHERE {cohort_clause}
+                        WHERE {static_clause}
                         UNION ALL
                         SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id
                         FROM raw_cohort_people
-                        WHERE {cohort_clause}
+                        WHERE {dynamic_clause}
                         GROUP BY cohort_person_id, cohort_id, version
-                        HAVING sum(sign) > 0
                     """,
-                    placeholders={"cohort_clause": cohort_in},
+                    placeholders={"static_clause": static_clause, "dynamic_clause": dynamic_clause},
                 )
             elif any_static:
+                clause = get_static_cohort_clause()
                 table_query = parse_select(
                     """
                         SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id
                         FROM static_cohort_people
                         WHERE {cohort_clause}
                     """,
-                    placeholders={"cohort_clause": cohort_in},
+                    placeholders={"cohort_clause": clause},
                 )
             else:
+                clause = get_dynamic_cohort_clause()
                 table_query = parse_select(
                     """
                         SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id
@@ -189,7 +227,7 @@ class MultipleInCohortResolver(TraversingVisitor):
                         GROUP BY cohort_person_id, cohort_id, version
                         HAVING sum(sign) > 0
                     """,
-                    placeholders={"cohort_clause": cohort_in},
+                    placeholders={"cohort_clause": clause},
                 )
 
             new_join = ast.JoinExpr(
