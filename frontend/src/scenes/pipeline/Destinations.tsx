@@ -20,9 +20,9 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
 import { PipelineAppKind, ProductKey } from '~/types'
 
-import { appMetricsLogic } from './appMetricsLogic'
 import { DestinationType, PipelineAppBackend, pipelineDestinationsLogic } from './destinationsLogic'
 import { NewButton } from './NewButton'
+import { pipelineAppMetricsLogic } from './pipelineAppMetricsLogic'
 import { RenderApp } from './utils'
 
 export function Destinations(): JSX.Element {
@@ -215,7 +215,7 @@ function DestinationSparkLine({ destination }: { destination: DestinationType })
     if (destination.backend === PipelineAppBackend.BatchExport) {
         return <></> // TODO: not ready yet
     } else {
-        const logic = appMetricsLogic({ pluginConfigId: destination.id })
+        const logic = pipelineAppMetricsLogic({ pluginConfigId: destination.id })
         const { appMetricsResponse } = useValues(logic)
 
         if (appMetricsResponse === null) {
