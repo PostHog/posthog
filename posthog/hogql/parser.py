@@ -172,6 +172,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
                 flattened_queries.append(query)
             elif isinstance(query, ast.SelectUnionQuery):
                 flattened_queries.extend(query.select_queries)
+            elif isinstance(query, ast.Placeholder):
+                flattened_queries.append(query)
             else:
                 raise Exception(f"Unexpected query node type {type(query).__name__}")
         if len(flattened_queries) == 1:
@@ -179,7 +181,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.SelectUnionQuery(select_queries=flattened_queries)
 
     def visitSelectStmtWithParens(self, ctx: HogQLParser.SelectStmtWithParensContext):
-        return self.visit(ctx.selectStmt() or ctx.selectUnionStmt())
+        return self.visit(ctx.selectStmtWithPlaceholder() or ctx.selectUnionStmt())
 
     def visitSelectStmt(self, ctx: HogQLParser.SelectStmtContext):
         select_query = ast.SelectQuery(
@@ -830,6 +832,12 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitTableExprTag(self, ctx: HogQLParser.TableExprTagContext):
         return self.visit(ctx.hogqlxTagElement())
+
+    def visitSelectStmtWithPlaceholder(self, ctx: HogQLParser.SelectStmtWithPlaceholderContext):
+        if ctx.placeholder():
+            return self.visit(ctx.placeholder())
+
+        return self.visit(ctx.selectStmt())
 
     def visitTableFunctionExpr(self, ctx: HogQLParser.TableFunctionExprContext):
         name = self.visit(ctx.identifier())

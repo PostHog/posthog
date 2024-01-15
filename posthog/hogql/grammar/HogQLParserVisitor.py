@@ -24,6 +24,11 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by HogQLParser#selectStmtWithPlaceholder.
+    def visitSelectStmtWithPlaceholder(self, ctx:HogQLParser.SelectStmtWithPlaceholderContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by HogQLParser#selectStmt.
     def visitSelectStmt(self, ctx:HogQLParser.SelectStmtContext):
         return self.visitChildren(ctx)

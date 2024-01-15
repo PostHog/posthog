@@ -25,6 +25,8 @@ public:
 
     virtual std::any visitSelectStmtWithParens(HogQLParser::SelectStmtWithParensContext *context) = 0;
 
+    virtual std::any visitSelectStmtWithPlaceholder(HogQLParser::SelectStmtWithPlaceholderContext *context) = 0;
+
     virtual std::any visitSelectStmt(HogQLParser::SelectStmtContext *context) = 0;
 
     virtual std::any visitWithClause(HogQLParser::WithClauseContext *context) = 0;
