@@ -91,7 +91,7 @@ export const NoPadding = (): JSX.Element => {
 }
 
 export const TextOnly = (): JSX.Element => {
-    return <StatusesTemplate type={'secondary'} icon={null} />
+    return <StatusesTemplate type="secondary" icon={null} />
 }
 
 export const Sizes = (): JSX.Element => {
@@ -332,7 +332,7 @@ export const AsLinks = (): JSX.Element => {
         <div className="space-y-2">
             <LemonBanner type="info">
                 <b>Reminder</b> - if you just want a link, use the{' '}
-                <Link to={'/?path=/docs/lemon-ui-link'} disableClientSideRouting>
+                <Link to="/?path=/docs/lemon-ui-link" disableClientSideRouting>
                     Link component
                 </Link>
             </LemonBanner>

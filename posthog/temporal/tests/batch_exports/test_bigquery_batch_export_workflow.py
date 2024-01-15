@@ -146,8 +146,17 @@ def bigquery_dataset(bigquery_config, bigquery_client) -> typing.Generator[bigqu
     # bigquery_client.delete_dataset(dataset_id, delete_contents=True, not_found_ok=True)
 
 
+@pytest.fixture
+def use_json_type(request) -> bool:
+    """A parametrizable fixture to configure the bool use_json_type setting."""
+    try:
+        return request.param
+    except AttributeError:
+        return False
+
+
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
-@pytest.mark.parametrize("use_json_type", [False, True])
+@pytest.mark.parametrize("use_json_type", [False, True], indirect=True)
 async def test_insert_into_bigquery_activity_inserts_data_into_bigquery_table(
     clickhouse_client,
     activity_environment,
@@ -248,7 +257,7 @@ def table_id(ateam, interval):
 
 @pytest_asyncio.fixture
 async def bigquery_batch_export(
-    ateam, table_id, bigquery_config, interval, exclude_events, temporal_client, bigquery_dataset
+    ateam, table_id, bigquery_config, interval, exclude_events, use_json_type, temporal_client, bigquery_dataset
 ):
     destination_data = {
         "type": "BigQuery",
@@ -257,6 +266,7 @@ async def bigquery_batch_export(
             "table_id": table_id,
             "dataset_id": bigquery_dataset.dataset_id,
             "exclude_events": exclude_events,
+            "use_json_type": use_json_type,
         },
     }
 
@@ -280,7 +290,7 @@ async def bigquery_batch_export(
 
 @pytest.mark.parametrize("interval", ["hour", "day"])
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
-@pytest.mark.parametrize("use_json_type", [False, True])
+@pytest.mark.parametrize("use_json_type", [False, True], indirect=True)
 async def test_bigquery_export_workflow(
     clickhouse_client,
     bigquery_client,
@@ -289,7 +299,6 @@ async def test_bigquery_export_workflow(
     exclude_events,
     ateam,
     table_id,
-    use_json_type,
 ):
     """Test BigQuery Export Workflow end-to-end.
 
@@ -331,7 +340,6 @@ async def test_bigquery_export_workflow(
         batch_export_id=str(bigquery_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
-        use_json_type=use_json_type,
         **bigquery_batch_export.destination.config,
     )
 

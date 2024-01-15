@@ -15,7 +15,7 @@ function PHPConfigSnippet(): JSX.Element {
 }
 
 function PHPInstallSnippet(): JSX.Element {
-    return <CodeSnippet language={Language.Bash}>{'php composer.phar install'}</CodeSnippet>
+    return <CodeSnippet language={Language.Bash}>php composer.phar install</CodeSnippet>
 }
 
 function PHPSetupSnippet(): JSX.Element {

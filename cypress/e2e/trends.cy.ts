@@ -43,8 +43,7 @@ describe('Trends', () => {
         cy.get('[data-attr=math-selector-0]').click()
         cy.get('[data-attr=math-total-0]').should('be.visible')
 
-        cy.get('[data-attr=math-node-property-value-0]').click()
-        cy.get('[data-attr=math-avg-0]').click()
+        cy.get('[data-attr=math-node-property-value-0]').click('left')
         cy.get('[data-attr=math-property-select]').should('exist')
     })
 

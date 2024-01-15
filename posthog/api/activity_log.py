@@ -179,8 +179,10 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins
                 last_read_filter = f"AND created_at > '{last_read_date.last_viewed_activity_date.isoformat()}'"
 
         with timer("query_for_candidate_ids"):
-            # before we filter to include only the important changes, we need to deduplicate too frequent changes
-            candidate_ids = ActivityLog.objects.raw(
+            # before we filter to include only the important changes,
+            # we need to deduplicate too frequent changes
+            # we only really need to do this on notebooks
+            deduplicated_notebook_activity_ids_query = ActivityLog.objects.raw(
                 f"""
                 SELECT id
                 FROM (SELECT
@@ -195,12 +197,16 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins
                                    activity, item_id, scope, id, created_at
                             FROM posthog_activitylog
                             WHERE team_id = {self.team_id}
+                            -- we only really care about de-duplicating Notebook changes,
+                            -- as multiple actual activities are logged for one logical activity
+                            AND scope = 'Notebook'
                             AND NOT (user_id = {user.pk} AND user_id IS NOT NULL)
                             {last_read_filter}
                             ORDER BY created_at DESC) AS inner_q) AS counted_q
                 WHERE row_number = 1
                 """
             )
+            deduplicated_notebook_activity_ids = [c.id for c in deduplicated_notebook_activity_ids_query]
 
         with timer("construct_query"):
             other_peoples_changes = (
@@ -210,7 +216,11 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins
                     Q(
                         Q(Q(scope="FeatureFlag") & Q(item_id__in=my_feature_flags))
                         | Q(Q(scope="Insight") & Q(item_id__in=my_insights))
-                        | Q(Q(scope="Notebook") & Q(item_id__in=my_notebooks))
+                        | Q(
+                            Q(scope="Notebook")
+                            & Q(item_id__in=my_notebooks)
+                            & Q(id__in=deduplicated_notebook_activity_ids)
+                        )
                         | Q(Q(scope="Comment") & Q(item_id__in=my_comments))
                     )
                     | Q(
@@ -219,12 +229,15 @@ class ActivityLogViewSet(StructuredViewSetMixin, viewsets.GenericViewSet, mixins
                         & Q(
                             Q(Q(scope="FeatureFlag") & Q(item_id__in=my_changed_feature_flags))
                             | Q(Q(scope="Insight") & Q(item_id__in=my_changed_insights))
-                            | Q(Q(scope="Notebook") & Q(item_id__in=my_changed_notebooks))
+                            | Q(
+                                Q(scope="Notebook")
+                                & Q(item_id__in=my_changed_notebooks)
+                                & Q(id__in=deduplicated_notebook_activity_ids)
+                            )
                             | Q(Q(scope="Comment") & Q(item_id__in=my_changed_comments))
                         )
                     )
                 )
-                .filter(id__in=[c.id for c in candidate_ids])
                 .order_by("-created_at")
             )
 

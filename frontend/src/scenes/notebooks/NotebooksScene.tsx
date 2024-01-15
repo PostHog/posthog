@@ -1,7 +1,7 @@
 import './NotebookScene.scss'
 
 import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonTag, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, lemonToast } from '@posthog/lemon-ui'
 import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { base64Encode } from 'lib/utils'
@@ -19,14 +19,6 @@ export function NotebooksScene(): JSX.Element {
     return (
         <div className="space-y-4">
             <PageHeader
-                title={
-                    <div className="flex items-center gap-2">
-                        Notebooks
-                        <LemonTag type="warning" className="uppercase">
-                            Beta
-                        </LemonTag>
-                    </div>
-                }
                 buttons={
                     <>
                         <LemonMenu
@@ -63,7 +55,7 @@ export function NotebooksScene(): JSX.Element {
                         >
                             <LemonButton icon={<IconEllipsis />} size="small" />
                         </LemonMenu>
-                        <LemonButton data-attr={'new-notebook'} to={urls.notebook('new')} type="primary">
+                        <LemonButton data-attr="new-notebook" to={urls.notebook('new')} type="primary">
                             New notebook
                         </LemonButton>
                     </>

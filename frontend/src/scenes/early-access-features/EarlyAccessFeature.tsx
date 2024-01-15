@@ -68,7 +68,6 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
     return (
         <Form id="early-access-feature" formKey="earlyAccessFeature" logic={earlyAccessFeatureLogic}>
             <PageHeader
-                title={isNewEarlyAccessFeature ? 'New feature release' : earlyAccessFeature.name}
                 buttons={
                     !earlyAccessFeatureLoading ? (
                         earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability &&
@@ -155,7 +154,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                                 {earlyAccessFeature.stage == EarlyAccessFeatureStage.Draft && (
                                     <LemonButton
                                         onClick={() => updateStage(EarlyAccessFeatureStage.Beta)}
-                                        tooltip={'Make beta feature available'}
+                                        tooltip="Make beta feature available"
                                         type="primary"
                                     >
                                         Release beta
@@ -184,7 +183,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                     isEditingFeature || isNewEarlyAccessFeature ? 'max-w-160' : null
                 )}
             >
-                <div className="flex flex-col gap-4 flex-2 min-w-60">
+                <div className="flex flex-col gap-4 flex-2 min-w-[15rem]">
                     {isNewEarlyAccessFeature && (
                         <Field name="name" label="Name">
                             <LemonInput data-attr="feature-name" />
@@ -285,7 +284,7 @@ export function EarlyAccessFeature({ id }: { id?: string } = {}): JSX.Element {
                     )}
                 </div>
                 {!isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature && (
-                    <div className="flex-3 min-w-60">
+                    <div className="flex-3 min-w-[15rem]">
                         <PersonList earlyAccessFeature={earlyAccessFeature} />
                     </div>
                 )}

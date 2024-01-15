@@ -72,8 +72,9 @@ function cleanBreakdownNormalizeURL(
 
 const cleanBreakdownParams = (cleanedParams: Partial<FilterType>, filters: Partial<FilterType>): void => {
     const isStepsFunnel = isFunnelsFilter(filters) && filters.funnel_viz_type === FunnelVizType.Steps
+    const isTrendsFunnel = isFunnelsFilter(filters) && filters.funnel_viz_type === FunnelVizType.Trends
     const isTrends = isTrendsFilter(filters)
-    const canBreakdown = isStepsFunnel || isTrends
+    const canBreakdown = isStepsFunnel || isTrendsFunnel || isTrends
 
     const canMultiPropertyBreakdown = isStepsFunnel
 

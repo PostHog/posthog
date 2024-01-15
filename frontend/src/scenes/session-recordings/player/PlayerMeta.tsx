@@ -35,7 +35,7 @@ function SessionPropertyMeta(props: {
     return (
         <PropertyIcons
             recordingProperties={gatheredProperties}
-            iconClassnames={'text-muted-alt'}
+            iconClassnames="text-muted-alt"
             showTooltip={false}
             showLabel={(key) => (props.fullScreen ? key === '$geoip_country_code' : key !== '$geoip_country_code')}
         />
@@ -142,7 +142,7 @@ export function PlayerMeta(): JSX.Element {
                 <div className="flex justify-between items-center m-2">
                     {!whitelabel ? (
                         <Tooltip title="Powered by PostHog" placement="right">
-                            <Link to={'https://posthog.com'} className="flex items-center" target="blank">
+                            <Link to="https://posthog.com" className="flex items-center" target="blank">
                                 <Logo />
                             </Link>
                         </Tooltip>
@@ -183,7 +183,7 @@ export function PlayerMeta(): JSX.Element {
                                     <span className="font-bold whitespace-nowrap truncate">
                                         <PersonDisplay person={sessionPerson} withIcon={false} noEllipsis={true} />
                                     </span>
-                                    {'·'}
+                                    ·
                                     <TZLabel
                                         time={dayjs(startTime)}
                                         formatDate="MMMM DD, YYYY"
@@ -241,7 +241,7 @@ export function PlayerMeta(): JSX.Element {
                             )}
                         </>
                     )}
-                    <div className={clsx('flex-1', isSmallPlayer ? 'min-w-4' : 'min-w-20')} />
+                    <div className={clsx('flex-1', isSmallPlayer ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
                     {resolutionView}
                 </div>
             </div>

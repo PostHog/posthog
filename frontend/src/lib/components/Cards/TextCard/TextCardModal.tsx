@@ -35,7 +35,7 @@ export function TextCardModal({
         <LemonModal
             closable={true}
             isOpen={isOpen}
-            title={''}
+            title=""
             onClose={handleClose}
             footer={
                 <>
@@ -65,14 +65,14 @@ export function TextCardModal({
             <Form
                 logic={textCardModalLogic}
                 props={{ dashboard, textTileId }}
-                formKey={'textTile'}
+                formKey="textTile"
                 id="text-tile-form"
                 className=""
                 enableFormOnSubmit
             >
                 <PayGateMini feature={AvailableFeature.DASHBOARD_COLLABORATION}>
                     <Field name="body" label="">
-                        <LemonTextAreaMarkdown data-attr={'text-card-edit-area'} />
+                        <LemonTextAreaMarkdown data-attr="text-card-edit-area" />
                     </Field>
                 </PayGateMini>
             </Form>

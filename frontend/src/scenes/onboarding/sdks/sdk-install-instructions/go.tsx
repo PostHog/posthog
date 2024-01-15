@@ -3,7 +3,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
 
 function GoInstallSnippet(): JSX.Element {
-    return <CodeSnippet language={Language.Bash}>{'go get "github.com/posthog/posthog-go"'}</CodeSnippet>
+    return <CodeSnippet language={Language.Bash}>go get "github.com/posthog/posthog-go"</CodeSnippet>
 }
 
 function GoSetupSnippet(): JSX.Element {

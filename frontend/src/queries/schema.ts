@@ -208,6 +208,8 @@ export interface HogQLMetadata extends DataNode {
     select?: string
     /** HogQL expression to validate (use `select` or `expr`, but not both) */
     expr?: string
+    /** Query within which "expr" is validated. Defaults to "select * from events" */
+    exprSource?: AnyDataNode
     /** Table to validate the expression against */
     table?: string
     filters?: HogQLFilters
@@ -569,6 +571,11 @@ export type StickinessFilter = Omit<
     StickinessFilterType & { hidden_legend_indexes?: number[] },
     keyof FilterType | 'hidden_legend_keys' | 'stickiness_days' | 'shown_as'
 >
+
+export interface StickinessQueryResponse extends QueryResponse {
+    results: Record<string, any>[]
+}
+
 export interface StickinessQuery extends Omit<InsightsQueryBase, 'aggregation_group_type_index'> {
     kind: NodeKind.StickinessQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
@@ -776,10 +783,13 @@ export type InsightFilter =
     | StickinessFilter
     | LifecycleFilter
 
+/** @asType integer */
+export type Day = number
+
 export interface InsightActorsQuery {
     kind: NodeKind.InsightActorsQuery
     source: InsightQueryNode
-    day?: string
+    day?: string | Day
     status?: string
     /**
      * An interval selected out of available intervals in source query

@@ -55,6 +55,7 @@ from .views import (
     stats,
 )
 from .year_in_posthog import year_in_posthog
+from posthog.constants import PERMITTED_FORUM_DOMAINS
 
 import structlog
 
@@ -108,8 +109,13 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
     current_team = cast(User, request.user).team
     referer_url = urlparse(request.META["HTTP_REFERER"])
     redirect_url = urlparse(request.GET["redirect"])
+    is_forum_login = request.GET.get("forum_login", "").lower() == "true"
 
-    if not current_team or not hostname_in_allowed_url_list(current_team.app_urls, redirect_url.hostname):
+    if (
+        not current_team
+        or (redirect_url.hostname not in PERMITTED_FORUM_DOMAINS and is_forum_login)
+        or (not is_forum_login and not hostname_in_allowed_url_list(current_team.app_urls, redirect_url.hostname))
+    ):
         return HttpResponse(f"Can only redirect to a permitted domain.", status=403)
 
     if referer_url.hostname != redirect_url.hostname:
@@ -131,9 +137,10 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
         )
 
     return render_template(
-        "authorize_and_redirect.html",
+        "authorize_and_link.html" if is_forum_login else "authorize_and_redirect.html",
         request=request,
         context={
+            "email": request.user,
             "domain": redirect_url.hostname,
             "redirect_url": request.GET["redirect"],
         },
@@ -173,6 +180,7 @@ urlpatterns = [
     path("api/", include(router.urls)),
     path("", include(tf_urls)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
+    opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
     opt_slash_path("api/prompts/webhook", prompt_webhook),
     opt_slash_path("api/early_access_features", early_access_features),

@@ -27,6 +27,7 @@ import { LogLevel } from 'rrweb'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
+import { PipelineAppLogLevel } from 'scenes/pipeline/pipelineAppLogsLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 import { QueryContext } from '~/queries/types'
@@ -523,14 +524,20 @@ export enum ExperimentsTabs {
     Archived = 'archived',
 }
 
-export enum PipelineTabs {
+export enum PipelineTab {
     Filters = 'filters',
     Transformations = 'transformations',
     Destinations = 'destinations',
     AppsManagement = 'apps-management',
 }
 
-export enum PipelineAppTabs {
+export enum PipelineAppKind {
+    Filter = 'filter',
+    Transformation = 'transformation',
+    Destination = 'destination',
+}
+
+export enum PipelineAppTab {
     Configuration = 'configuration',
     Logs = 'logs',
     Metrics = 'metrics',
@@ -1518,7 +1525,7 @@ export interface PluginType {
     url?: string
     tag?: string
     icon?: string
-    latest_tag?: string
+    latest_tag?: string // apps management page: The latest git hash for the repo behind the url
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
     maintainer?: string
@@ -1565,6 +1572,7 @@ export interface JobSpec {
     payload?: Record<string, JobPayloadFieldOptions>
 }
 
+/** @deprecated in favor of PluginConfigTypeNew */
 export interface PluginConfigType {
     id?: number
     plugin: number
@@ -1578,7 +1586,13 @@ export interface PluginConfigType {
     created_at?: string
 }
 
-// TODO: Rename to PluginConfigType once the are removed from the frontend
+/** @deprecated in favor of PluginConfigWithPluginInfoNew */
+export interface PluginConfigWithPluginInfo extends PluginConfigType {
+    id: number
+    plugin_info: PluginType
+}
+
+// TODO: Rename to PluginConfigType once the legacy PluginConfigType are removed from the frontend
 export interface PluginConfigTypeNew {
     id: number
     plugin: number
@@ -1589,11 +1603,12 @@ export interface PluginConfigTypeNew {
     description?: string
     updated_at: string
     delivery_rate_24h?: number | null
+    config: Record<string, any>
 }
 
-export interface PluginConfigWithPluginInfo extends PluginConfigType {
-    id: number
-    plugin_info: PluginType
+// TODO: Rename to PluginConfigWithPluginInfo once the are removed from the frontend
+export interface PluginConfigWithPluginInfoNew extends PluginConfigTypeNew {
+    plugin_info: PluginType | null
 }
 
 export interface PluginErrorType {
@@ -1624,20 +1639,12 @@ export interface PluginLogEntry {
     instance_id: string
 }
 
-export enum BatchExportLogEntryLevel {
-    Debug = 'DEBUG',
-    Log = 'LOG',
-    Info = 'INFO',
-    Warning = 'WARNING',
-    Error = 'ERROR',
-}
-
 export interface BatchExportLogEntry {
     team_id: number
     batch_export_id: number
     run_id: number
     timestamp: string
-    level: BatchExportLogEntryLevel
+    level: PipelineAppLogLevel
     message: string
 }
 
