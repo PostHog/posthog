@@ -645,6 +645,7 @@ class TrendsFilter(BaseModel):
     aggregation_axis_format: Optional[AggregationAxisFormat] = None
     aggregation_axis_postfix: Optional[str] = None
     aggregation_axis_prefix: Optional[str] = None
+    breakdown_histogram_bin_count: Optional[float] = None
     compare: Optional[bool] = None
     decimalPlaces: Optional[float] = None
     display: Optional[ChartDisplayType] = None
