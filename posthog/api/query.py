@@ -71,9 +71,9 @@ class QueryViewSet(PydanticModelMixin, StructuredViewSetMixin, viewsets.ViewSet)
         if data.async_:
             query_status = enqueue_process_query_task(
                 team_id=self.team.pk,
-                query_json=data.query.model_dump(),
+                query_json=request.data["query"],
                 query_id=client_query_id,
-                refresh_requested=(data.refresh),
+                refresh_requested=data.refresh,
             )
             return Response(query_status.model_dump())
 

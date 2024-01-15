@@ -32,6 +32,7 @@ import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
  */
 export const urls = {
     default: (): string => '/',
+    project: (id: string | number, path = ''): string => `/project/${id}` + path,
     dashboards: (): string => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
@@ -133,11 +134,11 @@ export const urls = {
     dataWarehouseRedirect: (kind: string): string => `/data-warehouse/${kind}/redirect`,
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
-    projectApps: (tab?: PluginTab): string => `/project/apps${tab ? `?tab=${tab}` : ''}`,
-    projectApp: (id: string | number): string => `/project/apps/${id}`,
-    projectAppSearch: (name: string): string => `/project/apps?name=${name}`,
-    projectAppLogs: (id: string | number): string => `/project/apps/${id}/logs`,
-    projectAppSource: (id: string | number): string => `/project/apps/${id}/source`,
+    projectApps: (tab?: PluginTab): string => `/apps${tab ? `?tab=${tab}` : ''}`,
+    projectApp: (id: string | number): string => `/apps/${id}`,
+    projectAppSearch: (name: string): string => `/apps?name=${name}`,
+    projectAppLogs: (id: string | number): string => `/apps/${id}/logs`,
+    projectAppSource: (id: string | number): string => `/apps/${id}/source`,
     frontendApp: (id: string | number): string => `/app/${id}`,
     appMetrics: (pluginConfigId: string | number, params: AppMetricsUrlParams = {}): string =>
         combineUrl(`/app/${pluginConfigId}/metrics`, params).url,
@@ -146,8 +147,8 @@ export const urls = {
         combineUrl(`/app/${pluginConfigId}/history`, searchParams).url,
     appLogs: (pluginConfigId: string | number, searchParams?: Record<string, any>): string =>
         combineUrl(`/app/${pluginConfigId}/logs`, searchParams).url,
-    projectCreateFirst: (): string => '/project/create',
-    projectHomepage: (): string => '/home',
+    projectCreateFirst: (): string => '/create',
+    projectHomepage: (): string => '/',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,
     organizationCreationConfirm: (): string => '/organization/confirm-creation',

@@ -185,7 +185,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     </LemonButton>
                                     {hogQL && (
                                         <LemonButton
-                                            data-attr={`edit-insight-sql`}
+                                            data-attr="edit-insight-sql"
                                             onClick={() => {
                                                 router.actions.push(
                                                     urls.insightNew(

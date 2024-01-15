@@ -58,7 +58,7 @@ export function SessionRecordingsPlaylistSettings(): JSX.Element {
                 <DurationTypeSelect
                     value={durationTypeToShow}
                     onChange={(value) => setDurationTypeToShow(value)}
-                    onChangeEventDescription={'session recording list duration type to show selected'}
+                    onChangeEventDescription="session recording list duration type to show selected"
                 />
             </div>
         </div>

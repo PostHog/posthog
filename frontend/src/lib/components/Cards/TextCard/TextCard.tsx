@@ -112,7 +112,7 @@ export function TextCardInternal(
                                         Move to
                                     </LemonButtonWithDropdown>
                                 )}
-                                <LemonButton onClick={duplicate} fullWidth data-attr={'duplicate-text-from-dashboard'}>
+                                <LemonButton onClick={duplicate} fullWidth data-attr="duplicate-text-from-dashboard">
                                     Duplicate
                                 </LemonButton>
                                 {moreButtons && (

@@ -120,7 +120,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                             <LemonButton
                                 type="primary"
                                 data-attr="new-data-warehouse-view"
-                                key={'new-data-warehouse-view'}
+                                key="new-data-warehouse-view"
                                 to={urls.insightNewHogQL('SELECT event AS event FROM events LIMIT 100')}
                             >
                                 Create View
@@ -129,7 +129,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                         <LemonButton
                             type="primary"
                             data-attr="new-data-warehouse-easy-link"
-                            key={'new-data-warehouse-easy-link'}
+                            key="new-data-warehouse-easy-link"
                             onClick={() => toggleSourceModal()}
                         >
                             Link Source
@@ -138,7 +138,7 @@ export function DataWarehouseExternalScene(): JSX.Element {
                             type="primary"
                             icon={<IconSettings />}
                             data-attr="new-data-warehouse-settings-link"
-                            key={'new-data-warehouse-settings-link'}
+                            key="new-data-warehouse-settings-link"
                             onClick={() => router.actions.push(urls.dataWarehouseSettings())}
                         />
                     </>

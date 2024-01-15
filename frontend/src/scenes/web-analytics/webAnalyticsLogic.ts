@@ -613,7 +613,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     kind: NodeKind.InsightVizNode,
                                     source: {
                                         kind: NodeKind.TrendsQuery,
-                                        breakdown: { breakdown: '$device_type', breakdown_type: 'event' },
+                                        breakdownFilter: { breakdown: '$device_type', breakdown_type: 'event' },
                                         dateRange,
                                         series: [
                                             {
@@ -690,7 +690,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           kind: NodeKind.InsightVizNode,
                                           source: {
                                               kind: NodeKind.TrendsQuery,
-                                              breakdown: {
+                                              breakdownFilter: {
                                                   breakdown: '$geoip_country_code',
                                                   breakdown_type: 'person',
                                               },

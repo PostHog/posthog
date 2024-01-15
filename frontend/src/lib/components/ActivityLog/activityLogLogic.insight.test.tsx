@@ -143,7 +143,7 @@ describe('the activity log logic', () => {
                         trendsFilter: {
                             display: 'ActionsAreaGraph',
                         },
-                        breakdown: {
+                        breakdownFilter: {
                             breakdown: '$geoip_country_code',
                             breakdown_type: 'event',
                         },

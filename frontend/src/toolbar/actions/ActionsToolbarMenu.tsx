@@ -29,10 +29,10 @@ const ActionsListToolbarMenu = (): JSX.Element => {
                     autoFocus
                     fullWidth
                     placeholder="Search"
-                    type={'search'}
+                    type="search"
                     value={searchTerm}
                     onChange={(s) => setSearchTerm(s)}
-                    className={'Toolbar__top_input'}
+                    className="Toolbar__top_input"
                 />
             </ToolbarMenu.Header>
             <ToolbarMenu.Body>

@@ -15,7 +15,7 @@ export default meta
 
 const Template: StoryFn<typeof PropertyIcons> = (args: PropertyIconsProps) => {
     return (
-        <div className={'border rounded px-4 py-2 w-fit'}>
+        <div className="border rounded px-4 py-2 w-fit">
             <PropertyIcons {...args} />
         </div>
     )

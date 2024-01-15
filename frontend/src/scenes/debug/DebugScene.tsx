@@ -77,7 +77,7 @@ export function DebugScene(): JSX.Element {
                         </LemonButton>
                         <LemonLabel>
                             <LemonSelect
-                                placeholder={'More sample queries'}
+                                placeholder="More sample queries"
                                 options={Object.entries(stringifiedExamples)
                                     .filter(([k]) => k !== 'HogQLTable' && k !== 'HogQLRaw')
                                     .map(([k, v]) => {

@@ -266,7 +266,7 @@ function ErrorDetailsModal({ pluginConfigId }: { pluginConfigId: number }): JSX.
             isOpen={!!errorDetailsModalError}
             onClose={closeErrorDetailsModal}
             title={errorDetailsModalError}
-            width={'min(50vw, 80rem)'}
+            width="min(50vw, 80rem)"
             description={<span>{activeErrorDetails?.error_details?.error.message?.substring(0, 200)}</span>}
             footer={
                 <div className="flex items-center justify-end gap-1 h-">

@@ -90,9 +90,7 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
             </div>
             <div>
                 <span className="text-muted">Merge restrictions:</span> {person.is_identified ? 'applied' : 'none'}
-                <Link
-                    to={'https://posthog.com/docs/data/identify#alias-assigning-multiple-distinct-ids-to-the-same-user'}
-                >
+                <Link to="https://posthog.com/docs/data/identify#alias-assigning-multiple-distinct-ids-to-the-same-user">
                     <Tooltip
                         title={
                             <>

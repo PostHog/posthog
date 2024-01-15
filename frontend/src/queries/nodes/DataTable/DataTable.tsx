@@ -263,7 +263,7 @@ export function DataTable({
                         ) : null}
                         <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
-                            value={''}
+                            value=""
                             groupTypes={groupTypes}
                             metadataSource={query.source}
                             placeholder={<span className="not-italic">Add column left</span>}
@@ -292,7 +292,7 @@ export function DataTable({
                         />
                         <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
-                            value={''}
+                            value=""
                             groupTypes={groupTypes}
                             metadataSource={query.source}
                             placeholder={<span className="not-italic">Add column right</span>}

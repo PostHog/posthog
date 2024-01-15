@@ -59,14 +59,14 @@ export function SessionRecordingFilePlayback(): JSX.Element {
                     className="w-full border rounded p-20 text-muted-alt flex flex-col items-center justify-center"
                 >
                     <LemonFileInput
-                        accept={'application/json'}
+                        accept="application/json"
                         multiple={false}
                         onChange={(files) => loadFromFile(files[0])}
                         alternativeDropTargetRef={dropRef}
                         callToAction={
-                            <div className={'flex flex-col items-center justify-center space-y-2'}>
+                            <div className="flex flex-col items-center justify-center space-y-2">
                                 <span className="flex items-center gap-2 font-semibold">
-                                    <IconUploadFile className={'text-2xl'} /> Load recording
+                                    <IconUploadFile className="text-2xl" /> Load recording
                                 </span>
                                 <div>Drag and drop your exported recording here or click to open the file browser.</div>
                             </div>

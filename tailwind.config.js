@@ -1,6 +1,7 @@
 /** @type {import('tailwindcss').Config} */
 const config = {
     content: ['./frontend/src/**/*.{ts,tsx}', './ee/frontend/**/*.{ts,tsx}', './frontend/src/index.html'],
+    important: true, // Basically this: https://sebastiandedeyne.com/why-we-use-important-with-tailwind
     theme: {
         colors: {
             // TODO: Move all colors over to Tailwind
@@ -39,17 +40,24 @@ const config = {
             ],
             mono: ['ui-monospace', 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', 'monospace'],
         },
+        screens: {
+            // Sync with vars.scss
+            sm: '576px',
+            md: '768px',
+            lg: '992px',
+            xl: '1200px',
+            '2xl': '1600px',
+        },
+        borderRadius: {
+            'none': '0',
+            'sm': '0.25rem', // Originally 0.125rem, but we're rounder
+            DEFAULT: '0.375rem', // Originally 0.25rem, but we're rounder - aligned with var(--radius)
+            'lg': '0.5rem',
+            'full': '9999px',
+        },
         extend: {
             fontSize: {
                 xxs: ['0.625rem', '0.75rem'], // 10px (12px of line height)
-            },
-            screens: {
-                // Sync with vars.scss
-                sm: '576px',
-                md: '768px',
-                lg: '992px',
-                xl: '1200px',
-                '2xl': '1600px',
             },
             spacing: {
                 // Some additional larger widths for compatibility with our pre-Tailwind system
