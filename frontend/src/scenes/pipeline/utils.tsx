@@ -4,8 +4,19 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import posthog from 'posthog-js'
 import { PluginImage, PluginImageSize } from 'scenes/plugins/plugin/PluginImage'
+import BigQueryIcon from 'src/scenes/pipeline/icons/BigQuery.png'
+import PostgresIcon from 'src/scenes/pipeline/icons/Postgres.png'
+import RedshiftIcon from 'src/scenes/pipeline/icons/Redshift.svg'
+import S3Icon from 'src/scenes/pipeline/icons/S3.png'
+import SnowflakeIcon from 'src/scenes/pipeline/icons/Snowflake.png'
 
-import { BatchExportConfiguration, PluginConfigTypeNew, PluginLogEntryType, PluginType } from '~/types'
+import {
+    BatchExportConfiguration,
+    BatchExportDestination,
+    PluginConfigTypeNew,
+    PluginLogEntryType,
+    PluginType,
+} from '~/types'
 
 import { PipelineAppLogLevel } from './pipelineAppLogsLogic'
 
@@ -115,6 +126,24 @@ export function RenderApp({ plugin, imageSize }: RenderAppProps): JSX.Element {
                     <PluginImage plugin={plugin} size={imageSize} /> // TODO: tooltip doesn't work on this
                 )}
             </Tooltip>
+        </div>
+    )
+}
+
+export function RenderBatchExportIcon({ type }: { type: BatchExportDestination['type'] }): JSX.Element {
+    const icon = {
+        BigQuery: BigQueryIcon,
+        Postgres: PostgresIcon,
+        Redshift: RedshiftIcon,
+        S3: S3Icon,
+        Snowflake: SnowflakeIcon,
+    }[type]
+
+    return (
+        <div className="flex items-center gap-4">
+            <Link to={`https://posthog.com/docs/cdp/batch-exports/${type.toLowerCase()}`} target="_blank">
+                <img src={icon} alt={type} height={60} width={60} />
+            </Link>
         </div>
     )
 }
