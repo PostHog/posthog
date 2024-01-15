@@ -299,6 +299,32 @@ interface PersonListProps {
     earlyAccessFeature: EarlyAccessFeatureType
 }
 
+function featureFlagEnrolmentFilter(earlyAccessFeature: EarlyAccessFeatureType, optedIn: boolean): Partial<FilterType> {
+    return {
+        events: [
+            {
+                type: 'events',
+                order: 0,
+                name: '$feature_enrollment_update',
+                properties: [
+                    {
+                        key: '$feature_enrollment',
+                        value: [optedIn ? 'true' : 'false'],
+                        operator: 'exact',
+                        type: 'event',
+                    },
+                    {
+                        key: '$feature_flag',
+                        value: [earlyAccessFeature.feature_flag.key],
+                        operator: 'exact',
+                        type: 'event',
+                    },
+                ],
+            },
+        ],
+    }
+}
+
 export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element {
     const { implementOptInInstructionsModal, activeTab } = useValues(earlyAccessFeatureLogic)
     const { toggleImplementOptInInstructionsModal, setActiveTab } = useActions(earlyAccessFeatureLogic)
@@ -319,29 +345,7 @@ export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element
                         content: (
                             <>
                                 <PersonsTableByFilter
-                                    recordingsFilters={{
-                                        events: [
-                                            {
-                                                type: 'events',
-                                                order: 0,
-                                                name: '$feature_enrollment_update',
-                                                properties: [
-                                                    {
-                                                        key: '$feature_enrollment',
-                                                        value: ['true'],
-                                                        operator: 'exact',
-                                                        type: 'event',
-                                                    },
-                                                    {
-                                                        key: '$feature_flag',
-                                                        value: [earlyAccessFeature.feature_flag.key],
-                                                        operator: 'exact',
-                                                        type: 'event',
-                                                    },
-                                                ],
-                                            },
-                                        ],
-                                    }}
+                                    recordingsFilters={featureFlagEnrolmentFilter(earlyAccessFeature, true)}
                                     properties={[
                                         {
                                             key: key,
@@ -367,29 +371,7 @@ export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element
                         label: 'Opted-Out Users',
                         content: (
                             <PersonsTableByFilter
-                                recordingsFilters={{
-                                    events: [
-                                        {
-                                            type: 'events',
-                                            order: 0,
-                                            name: '$feature_enrollment_update',
-                                            properties: [
-                                                {
-                                                    key: '$feature_enrollment',
-                                                    value: ['false'],
-                                                    operator: 'exact',
-                                                    type: 'event',
-                                                },
-                                                {
-                                                    key: '$feature_flag',
-                                                    value: [earlyAccessFeature.feature_flag.key],
-                                                    operator: 'exact',
-                                                    type: 'event',
-                                                },
-                                            ],
-                                        },
-                                    ],
-                                }}
+                                recordingsFilters={featureFlagEnrolmentFilter(earlyAccessFeature, false)}
                                 properties={[
                                     {
                                         key: key,
