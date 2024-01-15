@@ -141,7 +141,7 @@ export function PresentationTypeCard({
             // eslint-disable-next-line react/forbid-dom-props
             style={{ height: 180, width: 200 }}
             className={clsx(
-                'border rounded-md relative px-4 py-2 overflow-hidden',
+                'border rounded relative px-4 py-2 overflow-hidden',
                 active ? 'border-primary' : 'border-border'
             )}
         >

@@ -51,7 +51,7 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                 }
             />
             <LemonDivider />
-            <div className={'DefinitionEdit--form my-4'}>
+            <div className="DefinitionEdit--form my-4">
                 <div>
                     <h1>{getPropertyLabel(definition.name) || ''}</h1>
                     <div className="definition-sent-as flex-wrap">

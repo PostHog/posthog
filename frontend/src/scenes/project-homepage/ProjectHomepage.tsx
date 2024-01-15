@@ -58,7 +58,7 @@ export function ProjectHomepage(): JSX.Element {
     return (
         <div className="ProjectHomepage">
             <PageHeader delimited buttons={headerButtons} />
-            <AndroidRecordingsPromptBanner context={'home'} />
+            <AndroidRecordingsPromptBanner context="home" />
             <div className="ProjectHomepage__lists">
                 <RecentInsights />
                 <RecentPersons />

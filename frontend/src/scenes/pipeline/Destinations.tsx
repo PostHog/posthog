@@ -68,7 +68,7 @@ function DestinationsTable(): JSX.Element {
                         render: function RenderPluginName(_, destination) {
                             return (
                                 <>
-                                    <Tooltip title={'Click to update configuration, view metrics, and more'}>
+                                    <Tooltip title="Click to update configuration, view metrics, and more">
                                         <Link to={destination.config_url}>
                                             <span className="row-name">{destination.name}</span>
                                         </Link>
@@ -129,7 +129,7 @@ function DestinationsTable(): JSX.Element {
                                 return (
                                     <Tooltip title={tooltip}>
                                         <Link to={destination.metrics_url}>
-                                            <LemonTag type="muted">{'-'}</LemonTag>
+                                            <LemonTag type="muted">-</LemonTag>
                                         </Link>
                                     </Tooltip>
                                 )

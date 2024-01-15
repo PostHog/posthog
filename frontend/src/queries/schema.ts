@@ -521,7 +521,7 @@ export interface TrendsQuery extends InsightsQueryBase {
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
-    breakdown?: BreakdownFilter
+    breakdownFilter?: BreakdownFilter
     response?: TrendsQueryResponse
 }
 
@@ -548,7 +548,7 @@ export interface FunnelsQuery extends InsightsQueryBase {
     /** Properties specific to the funnels insight */
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
-    breakdown?: BreakdownFilter
+    breakdownFilter?: BreakdownFilter
 }
 
 /** `RetentionFilterType` minus everything inherited from `FilterType` */

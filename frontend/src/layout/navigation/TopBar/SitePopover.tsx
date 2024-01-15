@@ -283,7 +283,7 @@ export function SitePopoverOverlay(): JSX.Element {
                 <ThemeSwitcher fullWidth type="tertiary" />
                 <LemonButton
                     onClick={closeSitePopover}
-                    to={'https://posthog.com/changelog'}
+                    to="https://posthog.com/changelog"
                     icon={<IconLive />}
                     fullWidth
                     data-attr="whats-new-button"

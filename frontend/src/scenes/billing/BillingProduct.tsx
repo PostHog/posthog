@@ -420,7 +420,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                 </div>
                 <div className="px-8">
                     {product.percentage_usage > 1 ? (
-                        <LemonBanner type={'error'}>
+                        <LemonBanner type="error">
                             You have exceeded the {customLimitUsd ? 'billing limit' : 'free tier limit'} for this
                             product.
                         </LemonBanner>
@@ -628,11 +628,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         {!billing?.has_active_subscription && (
                                             <div className="flex gap-x-2 items-center mb-2">
                                                 <IconCheckCircleOutline className="text-success" />
-                                                <Tooltip
-                                                    title={
-                                                        'Multiple projects, Feature flags, Experiments, Integrations, Apps, and more'
-                                                    }
-                                                >
+                                                <Tooltip title="Multiple projects, Feature flags, Experiments, Integrations, Apps, and more">
                                                     <b>Upgraded platform features</b>
                                                 </Tooltip>
                                             </div>

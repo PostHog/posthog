@@ -334,7 +334,7 @@ describe('filtersToQueryNode', () => {
                     formula: 'A+B',
                     display: ChartDisplayType.ActionsAreaGraph,
                 },
-                breakdown: {
+                breakdownFilter: {
                     breakdown_histogram_bin_count: 1,
                 },
                 series: [],
@@ -890,7 +890,7 @@ describe('filtersToQueryNode', () => {
                 trendsFilter: {
                     display: ChartDisplayType.ActionsTable,
                 },
-                breakdown: {
+                breakdownFilter: {
                     breakdown: '$current_url',
                     breakdown_type: 'event',
                     breakdown_normalize_url: true,
@@ -1329,7 +1329,7 @@ describe('filtersToQueryNode', () => {
                 trendsFilter: {
                     display: ChartDisplayType.WorldMap,
                 },
-                breakdown: {
+                breakdownFilter: {
                     breakdown: '$geoip_country_code',
                     breakdown_type: 'event',
                 },

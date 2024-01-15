@@ -57,7 +57,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
     }
 
     if (!playlist) {
-        return <NotFound object={'Recording Playlist'} />
+        return <NotFound object="Recording Playlist" />
     }
 
     return (

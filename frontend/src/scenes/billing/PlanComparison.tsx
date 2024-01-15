@@ -178,7 +178,7 @@ export const PlanComparison = ({
                     ))}
                 </tr>
 
-                <tr className={'PlanTable__tr__border'}>
+                <tr className="PlanTable__tr__border">
                     <th scope="row">
                         {includeAddons && product.addons?.length > 0 && (
                             <p className="ml-0">
@@ -195,7 +195,7 @@ export const PlanComparison = ({
                 {includeAddons &&
                     product.addons?.map((addon) => {
                         return addon.tiered ? (
-                            <tr key={addon.name + 'pricing-row'} className={'PlanTable__tr__border'}>
+                            <tr key={addon.name + 'pricing-row'} className="PlanTable__tr__border">
                                 <th scope="row">
                                     <p className="ml-0">
                                         <span className="font-bold">{addon.name}</span>
@@ -260,7 +260,7 @@ export const PlanComparison = ({
                                     feature={plan.features?.find(
                                         (thisPlanFeature) => feature.key === thisPlanFeature.key
                                     )}
-                                    className={'text-base'}
+                                    className="text-base"
                                 />
                             </td>
                         ))}
@@ -326,7 +326,7 @@ export const PlanComparison = ({
                                                                     */}
                                                         {includedProduct.plans?.length === 1 && (
                                                             <td>
-                                                                <PlanIcon feature={undefined} className={'text-base'} />
+                                                                <PlanIcon feature={undefined} className="text-base" />
                                                             </td>
                                                         )}
                                                         <td>
@@ -335,7 +335,7 @@ export const PlanComparison = ({
                                                                     (thisPlanFeature) =>
                                                                         feature.key === thisPlanFeature.key
                                                                 )}
-                                                                className={'text-base'}
+                                                                className="text-base"
                                                             />
                                                         </td>
                                                     </React.Fragment>
@@ -365,7 +365,7 @@ export const PlanComparisonModal = ({
     return (
         <LemonModal isOpen={modalOpen} onClose={onClose}>
             <div className="PlanComparisonModal flex w-full h-full justify-center p-8">
-                <div className="text-left bg-bg-light rounded-md relative w-full">
+                <div className="text-left bg-bg-light rounded relative w-full">
                     <h2>{product.name} plans</h2>
                     <PlanComparison product={product} includeAddons={includeAddons} />
                 </div>

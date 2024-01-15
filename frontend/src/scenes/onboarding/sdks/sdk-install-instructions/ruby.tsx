@@ -3,7 +3,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
 
 function RubyInstallSnippet(): JSX.Element {
-    return <CodeSnippet language={Language.Bash}>{'gem "posthog-ruby"'}</CodeSnippet>
+    return <CodeSnippet language={Language.Bash}>gem "posthog-ruby"</CodeSnippet>
 }
 
 function RubySetupSnippet(): JSX.Element {

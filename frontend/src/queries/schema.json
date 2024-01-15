@@ -1424,7 +1424,7 @@
                     "description": "Groups aggregation",
                     "type": "integer"
                 },
-                "breakdown": {
+                "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",
                     "description": "Breakdown of the events and actions"
                 },
@@ -3797,7 +3797,7 @@
                     "description": "Groups aggregation",
                     "type": "integer"
                 },
-                "breakdown": {
+                "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",
                     "description": "Breakdown of the events and actions"
                 },

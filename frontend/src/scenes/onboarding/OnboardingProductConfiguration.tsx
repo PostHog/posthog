@@ -20,7 +20,7 @@ export const OnboardingProductConfiguration = ({
     }, [])
 
     return configOptions ? (
-        <OnboardingStep title={`Set up your configuration`} stepKey={stepKey} continueAction={saveConfiguration}>
+        <OnboardingStep title="Set up your configuration" stepKey={stepKey} continueAction={saveConfiguration}>
             {configOptions?.map((option: ProductConfigOption) => (
                 <div className="my-8" key={option.teamProperty}>
                     {option.type == 'toggle' ? (
@@ -36,7 +36,7 @@ export const OnboardingProductConfiguration = ({
                                 }}
                                 label={option.title}
                                 fullWidth={true}
-                                labelClassName={'text-base font-semibold'}
+                                labelClassName="text-base font-semibold"
                                 checked={option.value || false}
                             />
                             <p className="prompt-text ml-0">{option.description}</p>
