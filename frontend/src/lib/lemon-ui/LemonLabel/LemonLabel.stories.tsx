@@ -52,12 +52,12 @@ export const Overview = (): JSX.Element => {
     return (
         <div className="flex flex-col gap-2">
             <LemonLabel>Basic</LemonLabel>
-            <LemonLabel info={'I am some extra info'}>Label with info</LemonLabel>
+            <LemonLabel info="I am some extra info">Label with info</LemonLabel>
 
-            <LemonLabel info={'I am some extra info'} showOptional>
+            <LemonLabel info="I am some extra info" showOptional>
                 Pineapple on Pizza
             </LemonLabel>
-            <LemonLabel info={'I am some extra info'}>
+            <LemonLabel info="I am some extra info">
                 Label with info <span>custom subtext</span>
             </LemonLabel>
             <LemonLabel onExplanationClick={() => setOpen(true)}>Label with explanation modal</LemonLabel>

@@ -41,7 +41,7 @@ export function DurationFilter({ recordingDurationFilter, durationTypeFilter, on
     return (
         <Popover
             visible={isOpen}
-            placement={'bottom-start'}
+            placement="bottom-start"
             fallbackPlacements={['bottom-end']}
             onClickOutside={() => setIsOpen(false)}
             overlay={

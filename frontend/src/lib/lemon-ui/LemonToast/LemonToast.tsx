@@ -127,18 +127,18 @@ export const lemonToast = {
             promise,
             {
                 pending: {
-                    render: <ToastContent type={'info'} message={messages.pending} />,
+                    render: <ToastContent type="info" message={messages.pending} />,
                     icon: icons.pending ?? <Spinner />,
                 },
                 success: {
                     render({ data }: ToastifyRenderProps<string>) {
-                        return <ToastContent type={'success'} message={data || messages.success} />
+                        return <ToastContent type="success" message={data || messages.success} />
                     },
                     icon: icons.success ?? <IconCheckmark />,
                 },
                 error: {
                     render({ data }: ToastifyRenderProps<Error>) {
-                        return <ToastContent type={'error'} message={data?.message || messages.error} />
+                        return <ToastContent type="error" message={data?.message || messages.error} />
                     },
                     icon: icons.error ?? <IconErrorOutline />,
                 },
