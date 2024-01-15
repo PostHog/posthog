@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 import * as path from 'path'
 import { fileURLToPath } from 'url'
+
 import {
-    copyPublicFolder,
-    isDev,
-    startDevServer,
-    createHashlessEntrypoints,
     buildInParallel,
     copyIndexHtml,
+    copyPublicFolder,
+    createHashlessEntrypoints,
+    isDev,
+    startDevServer,
 } from './utils.mjs'
 
 export const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -58,6 +59,10 @@ await buildInParallel(
     ],
     {
         async onBuildComplete(config, buildResponse) {
+            if (!buildResponse) {
+                return
+            }
+
             const { chunks, entrypoints } = buildResponse
 
             if (config.name === 'PostHog App') {

@@ -135,7 +135,7 @@ export const LemonFileInput = ({
             >
                 <label className="text-muted inline-flex flex flow-row items-center gap-1 cursor-pointer">
                     <input
-                        className={'hidden'}
+                        className="hidden"
                         type="file"
                         multiple={multiple}
                         accept={accept}
@@ -143,13 +143,13 @@ export const LemonFileInput = ({
                     />
                     {callToAction || (
                         <>
-                            <IconUploadFile className={'text-2xl'} /> Click or drag and drop to upload
+                            <IconUploadFile className="text-2xl" /> Click or drag and drop to upload
                             {accept ? ` ${acceptToDisplayName(accept)}` : ''}
                         </>
                     )}
                 </label>
                 {files.length > 0 && (
-                    <div className={'flex flex-row gap-2'}>
+                    <div className="flex flex-row gap-2">
                         {files.map((x, i) => (
                             <LemonTag key={i} icon={loading ? <Spinner /> : undefined}>
                                 {x.name}

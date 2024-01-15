@@ -1,6 +1,6 @@
 import { hiddenLegendItemsToKeys, queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { LifecycleQuery, NodeKind } from '~/queries/schema'
-import { InsightType, LifecycleFilterType } from '~/types'
+import { LifecycleQuery, NodeKind, TrendsQuery } from '~/queries/schema'
+import { InsightType, LifecycleFilterType, TrendsFilterType } from '~/types'
 
 describe('queryNodeToFilter', () => {
     test('converts a query node to a filter', () => {
@@ -18,6 +18,29 @@ describe('queryNodeToFilter', () => {
             entity_type: 'events',
             insight: InsightType.LIFECYCLE,
             toggledLifecycles: ['new', 'dormant'],
+        }
+        expect(result).toEqual(filters)
+    })
+
+    test('converts a breakdownFilter into breakdown properties', () => {
+        const query: TrendsQuery = {
+            kind: NodeKind.TrendsQuery,
+            series: [],
+            breakdownFilter: {
+                breakdown: '$current_url',
+                breakdown_normalize_url: false,
+                breakdown_hide_other_aggregation: false,
+            },
+        }
+
+        const result = queryNodeToFilter(query)
+
+        const filters: Partial<TrendsFilterType> = {
+            entity_type: 'events',
+            insight: InsightType.TRENDS,
+            breakdown: '$current_url',
+            breakdown_hide_other_aggregation: false,
+            breakdown_normalize_url: false,
         }
         expect(result).toEqual(filters)
     })

@@ -57,7 +57,7 @@ export function RunsTab(): JSX.Element {
     const [dateRangeVisible, setDateRangeVisible] = useState(false)
 
     if (!batchExportConfig && !batchExportConfigLoading) {
-        return <NotFound object={'Batch Export'} />
+        return <NotFound object="Batch Export" />
     }
 
     return (
@@ -399,7 +399,7 @@ export function BatchExportScene(): JSX.Element {
     }, [])
 
     if (!batchExportConfig && !batchExportConfigLoading) {
-        return <NotFound object={'Batch Export'} />
+        return <NotFound object="Batch Export" />
     }
 
     return (

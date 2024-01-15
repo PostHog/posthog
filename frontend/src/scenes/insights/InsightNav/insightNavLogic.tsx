@@ -316,9 +316,9 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
         mergedQuery.interval = cache.interval
     }
 
-    // breakdown
-    if (isInsightQueryWithBreakdown(mergedQuery) && cache.breakdown) {
-        mergedQuery.breakdown = cache.breakdown
+    // breakdown filter
+    if (isInsightQueryWithBreakdown(mergedQuery) && cache.breakdownFilter) {
+        mergedQuery.breakdownFilter = cache.breakdownFilter
     }
 
     // insight specific filter

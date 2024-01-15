@@ -14,10 +14,9 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
 @import 'fonts';
 @import 'functions';
 @import 'mixins';
-@import 'utility-legacy';
-@import 'colors';
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss/components'; // NOTE: The components layer must be before utilities for correct specificity
+@import 'utilities';
+@import 'utilities-legacy'; // TODO: Remove all legacy utilities
 
 :root {
     @include root-variables;

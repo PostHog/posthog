@@ -29,13 +29,13 @@ export const UnsubscribeSurveyModal = ({
             onClose={() => {
                 reportSurveyDismissed(surveyID)
             }}
-            width={'max(40vw)'}
+            width="max(40vw)"
         >
             <div>
                 {includesPipelinesAddon && itemsToDisable.length > 0 ? (
                     <div className="mb-6">
                         <div className="mb-4">
-                            <h3 className="mt-2 mb-2 mr-8">{`Important: Disable remaining export apps`}</h3>
+                            <h3 className="mt-2 mb-2 mr-8">Important: Disable remaining export apps</h3>
                             <p>
                                 To avoid unexpected impact on your data, you must explicitly disable the following apps
                                 and exports before unsubscribing:
@@ -50,7 +50,7 @@ export const UnsubscribeSurveyModal = ({
                 <div className="flex flex-col gap-3.5">
                     <LemonTextArea
                         data-attr="unsubscribe-reason-survey-textarea"
-                        placeholder={'Start typing...'}
+                        placeholder="Start typing..."
                         value={surveyResponse['$survey_response']}
                         onChange={(value) => {
                             setSurveyResponse(value, '$survey_response')

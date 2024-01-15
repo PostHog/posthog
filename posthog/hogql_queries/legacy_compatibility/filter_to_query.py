@@ -301,7 +301,7 @@ def _breakdown_filter(_filter: Dict):
     if len(BreakdownFilter(**breakdownFilter).model_dump(exclude_defaults=True)) == 0:
         return {}
 
-    return {"breakdown": BreakdownFilter(**breakdownFilter)}
+    return {"breakdownFilter": BreakdownFilter(**breakdownFilter)}
 
 
 def _group_aggregation_filter(filter: Dict):

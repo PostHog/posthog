@@ -93,7 +93,7 @@ export function InsightTimeoutState({
                 ) : (
                     <p className="mx-auto text-center mb-6">Crunching through hogloads of data...</p>
                 )}
-                <div className="p-4 rounded-lg bg-mid flex gap-x-2 max-w-120">
+                <div className="p-4 rounded bg-mid flex gap-x-2 max-w-120">
                     <div className="flex">
                         <IconInfo className="w-4 h-4" />
                     </div>

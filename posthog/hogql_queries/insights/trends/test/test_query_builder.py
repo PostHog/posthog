@@ -94,7 +94,7 @@ class TestQueryBuilder(BaseTest):
             dateRange=DateRange(date_from="2023-01-01"),
             series=[EventsNode(event="$pageview")],
             trendsFilter=TrendsFilter(display=display_type),
-            breakdown=BreakdownFilter(breakdown="$geoip_country_code", breakdown_type=BreakdownType.event),
+            breakdownFilter=BreakdownFilter(breakdown="$geoip_country_code", breakdown_type=BreakdownType.event),
         )
 
         response = self.get_response(trends_query)

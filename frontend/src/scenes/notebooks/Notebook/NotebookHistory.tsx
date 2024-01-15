@@ -58,7 +58,7 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
                                         email: logItem.user?.email ?? undefined,
                                     }}
                                     type={logItem.is_system ? 'system' : 'person'}
-                                    size={'md'}
+                                    size="md"
                                 />
                                 <span className="flex-1">
                                     <b>{name}</b> {changedContent ? 'made changes' : 'created this'}

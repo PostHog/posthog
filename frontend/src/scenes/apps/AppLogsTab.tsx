@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { PipelineAppLogs } from 'scenes/pipeline/PipelineAppLogs'
 
-import { PipelineTabs } from '~/types'
+import { PipelineAppKind } from '~/types'
 
 import { appMetricsSceneLogic } from './appMetricsSceneLogic'
 
@@ -15,7 +15,7 @@ export function AppLogsTab(): JSX.Element {
 
     return (
         <div className="space-y-8">
-            <PipelineAppLogs id={pluginConfig.id} kind={PipelineTabs.Destinations} />
+            <PipelineAppLogs id={pluginConfig.id} kind={PipelineAppKind.Destination} />
         </div>
     )
 }

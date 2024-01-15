@@ -51,7 +51,7 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
             <div
                 data-attr="query-editor"
                 className={clsx(
-                    'flex flex-col p-2 bg-mid space-y-2 resize-y overflow-auto h-80 rounded-sm',
+                    'flex flex-col p-2 bg-mid space-y-2 resize-y overflow-auto h-80 rounded',
                     props.className
                 )}
             >

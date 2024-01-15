@@ -18,10 +18,10 @@ export const WebTabs = ({
     return (
         <div className={clsx(className, 'flex flex-col')}>
             <div className="flex flex-row items-center self-stretch mb-3">
-                {<h2 className="flex-1 m-0">{activeTab?.title}</h2>}
+                <h2 className="flex-1 m-0">{activeTab?.title}</h2>
                 {tabs.length > 3 ? (
                     <LemonSelect
-                        size={'small'}
+                        size="small"
                         disabled={false}
                         value={activeTabId}
                         dropdownMatchSelectWidth={false}

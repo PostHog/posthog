@@ -16,7 +16,7 @@ export function DataWarehouseRedirectScene(): JSX.Element {
             <p>Add a prefix to your tables to avoid conflicts with other data sources</p>
             <Form
                 logic={sourceFormLogic}
-                formKey={'externalDataSource'}
+                formKey="externalDataSource"
                 className="space-y-4 max-w-100"
                 enableFormOnSubmit
             >
