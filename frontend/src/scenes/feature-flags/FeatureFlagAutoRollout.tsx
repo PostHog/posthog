@@ -122,7 +122,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                                         loadInsightAtIndex(index, payload)
                                                     }}
                                                     typeKey={'feature-flag-rollback-trends-' + index}
-                                                    buttonCopy={'Add graph series'}
+                                                    buttonCopy="Add graph series"
                                                     showSeriesIndicator={false}
                                                     showNestedArrow
                                                     hideRename={true}

@@ -76,7 +76,7 @@ export const FilterRow = React.memo(function FilterRow({
                     </>
                 ) : (
                     <Popover
-                        className={'filter-row-popover'}
+                        className="filter-row-popover"
                         visible={open}
                         onClickOutside={() => handleVisibleChange(false)}
                         overlay={filterComponent(() => setOpen(false))}

@@ -20,7 +20,7 @@ export function ChartFilter(): JSX.Element {
     const { display } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
-    const { isTrends, isSingleSeries, formula, breakdown } = useValues(insightVizDataLogic(insightProps))
+    const { isTrends, isSingleSeries, formula, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
 
     const trendsOnlyDisabledReason = !isTrends ? 'This type is only available in Trends.' : undefined
     const singleSeriesOnlyDisabledReason = !isSingleSeries
@@ -95,9 +95,9 @@ export function ChartFilter(): JSX.Element {
                         trendsOnlyDisabledReason ||
                         (formula
                             ? "This type isn't available, because it doesn't support formulas."
-                            : !!breakdown?.breakdown &&
-                              breakdown.breakdown !== '$geoip_country_code' &&
-                              breakdown.breakdown !== '$geoip_country_name'
+                            : !!breakdownFilter?.breakdown &&
+                              breakdownFilter.breakdown !== '$geoip_country_code' &&
+                              breakdownFilter.breakdown !== '$geoip_country_name'
                             ? "This type isn't available, because there's a breakdown other than by Country Code or Country Name properties."
                             : undefined),
                 },

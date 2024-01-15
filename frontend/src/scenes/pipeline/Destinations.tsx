@@ -18,10 +18,10 @@ import { TableCellSparkline } from 'lib/lemon-ui/LemonTable/TableCellSparkline'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
-import { PipelineTabs, ProductKey } from '~/types'
+import { PipelineAppKind, ProductKey } from '~/types'
 
 import { appMetricsLogic } from './appMetricsLogic'
-import { DestinationType, pipelineDestinationsLogic } from './destinationsLogic'
+import { DestinationType, PipelineAppBackend, pipelineDestinationsLogic } from './destinationsLogic'
 import { NewButton } from './NewButton'
 import { RenderApp } from './utils'
 
@@ -44,7 +44,7 @@ export function Destinations(): JSX.Element {
                     productKey={ProductKey.PIPELINE_DESTINATIONS}
                     description="Pipeline destinations allow you to export data outside of PostHog, such as webhooks to Slack."
                     docsURL="https://posthog.com/docs/cdp"
-                    actionElementOverride={<NewButton tab={PipelineTabs.Destinations} />}
+                    actionElementOverride={<NewButton kind={PipelineAppKind.Destination} />}
                     isEmpty={true}
                 />
             )}
@@ -70,7 +70,7 @@ function DestinationsTable(): JSX.Element {
                         render: function RenderPluginName(_, destination) {
                             return (
                                 <>
-                                    <Tooltip title={'Click to update configuration, view metrics, and more'}>
+                                    <Tooltip title="Click to update configuration, view metrics, and more">
                                         <Link to={destination.config_url}>
                                             <span className="row-name">{destination.name}</span>
                                         </Link>
@@ -87,7 +87,7 @@ function DestinationsTable(): JSX.Element {
                     {
                         title: 'App',
                         render: function RenderAppInfo(_, destination) {
-                            if (destination.type === 'webhook') {
+                            if (destination.backend === 'plugin') {
                                 return <RenderApp plugin={destination.plugin} />
                             }
                             return <></> // TODO: batch export
@@ -175,7 +175,7 @@ function DestinationsTable(): JSX.Element {
                                                 </LemonButton>
                                             )}
                                             <LemonDivider />
-                                            {destination.type === 'webhook' && (
+                                            {destination.backend === 'plugin' && (
                                                 <LemonButton // TODO: batch exports
                                                     status="danger"
                                                     onClick={() => {
@@ -212,7 +212,7 @@ function DestinationsTable(): JSX.Element {
 }
 
 function DestinationSparkLine({ destination }: { destination: DestinationType }): JSX.Element {
-    if (destination.type === 'batch_export') {
+    if (destination.backend === PipelineAppBackend.BatchExport) {
         return <></> // TODO: not ready yet
     } else {
         const logic = appMetricsLogic({ pluginConfigId: destination.id })

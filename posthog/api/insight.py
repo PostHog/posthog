@@ -160,7 +160,7 @@ class QuerySchemaParser(JSONParser):
         try:
             query = data.get("query", None)
             if query:
-                schema.QuerySchema.model_validate(query)
+                schema.QuerySchemaRoot.model_validate(query)
         except Exception as error:
             raise ParseError(detail=str(error))
         else:

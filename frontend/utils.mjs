@@ -1,3 +1,5 @@
+import fs from 'node:fs/promises'
+
 import autoprefixer from 'autoprefixer'
 import chokidar from 'chokidar'
 import cors from 'cors'
@@ -17,14 +19,18 @@ const defaultPort = 8234
 
 export const isDev = process.argv.includes('--dev')
 
-export const lessPlugin = lessLoader({ javascriptEnabled: true })
-
 export function copyPublicFolder(srcDir, destDir) {
     fse.copySync(srcDir, destDir, { overwrite: true }, function (err) {
         if (err) {
             console.error(err)
         }
     })
+}
+
+/** Update the file's modified and accessed times to now. */
+async function touchFile(file) {
+    const now = new Date()
+    await fs.utimes(file, now, now)
 }
 
 export function copyIndexHtml(
@@ -139,7 +145,7 @@ export const commonConfig = {
                 return css
             },
         }),
-        lessPlugin,
+        lessLoader({ javascriptEnabled: true }),
     ],
     tsconfig: isDev ? 'tsconfig.dev.json' : 'tsconfig.json',
     define: {
@@ -245,7 +251,8 @@ export async function buildOrWatch(config) {
 
     let buildPromise = null
     let buildAgain = false
-    let inputFiles = new Set([])
+
+    let inputFiles = new Set()
 
     // The aim is to make sure that when we request a build, then:
     // - we only build one thing at a time
@@ -315,7 +322,6 @@ export async function buildOrWatch(config) {
             inputFiles = getInputFiles(buildResult)
 
             log({ success: true, name, time })
-
             return {
                 entrypoints: getBuiltEntryPoints(config, buildResult),
                 chunks: getChunks(buildResult),
@@ -327,16 +333,30 @@ export async function buildOrWatch(config) {
     }
 
     if (isDev) {
+        const tailwindConfigJsPath = path.resolve(absWorkingDir, '../tailwind.config.js')
+
         chokidar
-            .watch([path.resolve(absWorkingDir, 'src'), path.resolve(absWorkingDir, '../ee/frontend')], {
-                ignored: /.*(Type|\.test\.stories)\.[tj]sx$/,
-                ignoreInitial: true,
-            })
+            .watch(
+                [
+                    path.resolve(absWorkingDir, 'src'),
+                    path.resolve(absWorkingDir, '../ee/frontend'),
+                    tailwindConfigJsPath,
+                ],
+                {
+                    ignored: /.*(Type|\.test\.stories)\.[tj]sx?$/,
+                    ignoreInitial: true,
+                }
+            )
             .on('all', async (event, filePath) => {
                 if (inputFiles.size === 0) {
                     await buildPromise
                 }
-                if (inputFiles.has(filePath)) {
+                if (inputFiles.has(filePath) || filePath === tailwindConfigJsPath) {
+                    if (filePath.match(/\.tsx?$/) || filePath === tailwindConfigJsPath) {
+                        // For changed TS/TSX files, we need to initiate a Tailwind JIT rescan
+                        // in case any new utility classes are used. `touch`ing `utilities.scss` achieves this.
+                        await touchFile(path.resolve(absWorkingDir, 'src/styles/utilities.scss'))
+                    }
                     void debouncedBuild()
                 }
             })

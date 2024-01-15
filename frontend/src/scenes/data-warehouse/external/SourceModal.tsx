@@ -29,7 +29,7 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
         if (config.name === 'Stripe') {
             return (
                 <LemonButton onClick={onClick} className="w-100" center type="secondary">
-                    <img src={stripeLogo} alt={`stripe logo`} height={50} />
+                    <img src={stripeLogo} alt="stripe logo" height={50} />
                 </LemonButton>
             )
         }
@@ -37,7 +37,7 @@ export default function SourceModal(props: SourceModalProps): JSX.Element {
             return (
                 <Link to={addToHubspotButtonUrl() || ''}>
                     <LemonButton className="w-100" center type="secondary">
-                        <img src={hubspotLogo} alt={`hubspot logo`} height={45} />
+                        <img src={hubspotLogo} alt="hubspot logo" height={45} />
                     </LemonButton>
                 </Link>
             )
@@ -125,7 +125,7 @@ function SourceForm({ sourceType }: SourceFormProps): JSX.Element {
         <Form
             logic={sourceFormLogic}
             props={{ sourceType }}
-            formKey={'externalDataSource'}
+            formKey="externalDataSource"
             className="space-y-4"
             enableFormOnSubmit
         >

@@ -28,7 +28,7 @@ export function _CohortCriteriaRowBuilder(props: CohortCriteriaRowBuilderProps):
     const [type, setType] = useState<BehavioralFilterType>(BehavioralEventType.PerformEvent)
 
     return (
-        <Form logic={cohortEditLogic} props={{ id: 1 }} formKey={'cohort'}>
+        <Form logic={cohortEditLogic} props={{ id: 1 }} formKey="cohort">
             <CohortCriteriaRowBuilder {...props} criteria={{}} type={type} onChangeType={setType} />
         </Form>
     )

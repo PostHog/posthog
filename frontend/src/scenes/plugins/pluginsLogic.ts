@@ -364,12 +364,6 @@ export const pluginsLogic = kea<pluginsLogicType>([
                 hidePluginLogs: () => null,
             },
         ],
-        lastShownLogsPluginId: [
-            null as number | null,
-            {
-                showPluginLogs: (_, { id }) => id,
-            },
-        ],
         searchTerm: [
             null as string | null,
             {
@@ -523,16 +517,6 @@ export const pluginsLogic = kea<pluginsLogicType>([
             (s) => [s.pluginsLoading, s.repositoryLoading, s.pluginConfigsLoading],
             (pluginsLoading, repositoryLoading, pluginConfigsLoading) =>
                 pluginsLoading || repositoryLoading || pluginConfigsLoading,
-        ],
-        showingLogsPlugin: [
-            (s) => [s.showingLogsPluginId, s.installedPlugins],
-            (showingLogsPluginId, installedPlugins) =>
-                showingLogsPluginId ? installedPlugins.find((plugin) => plugin.id === showingLogsPluginId) : null,
-        ],
-        lastShownLogsPlugin: [
-            (s) => [s.lastShownLogsPluginId, s.installedPlugins],
-            (lastShownLogsPluginId, installedPlugins) =>
-                lastShownLogsPluginId ? installedPlugins.find((plugin) => plugin.id === lastShownLogsPluginId) : null,
         ],
         filteredUninstalledPlugins: [
             (s) => [s.searchTerm, s.uninstalledPlugins],

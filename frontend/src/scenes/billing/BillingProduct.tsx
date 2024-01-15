@@ -68,7 +68,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
         addon.type === 'data_pipelines' &&
         addon.subscribed &&
         featureFlags['data-pipelines-notice'] &&
-        addon.plans?.[0].plan_key === 'addon-20240103-og-customers'
+        addon.plans?.[0].plan_key === 'addon-20240111-og-customers'
 
     if (showPipelineAddonNotice) {
         setProductSpecificAlert({
@@ -87,7 +87,7 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                     })
                 },
                 children: 'Learn more',
-                to: 'https://posthog.com',
+                to: 'https://posthog.com/changelog/2024#data-pipeline-add-on-launched',
                 targetBlank: true,
             },
             dismissKey: 'data-pipelines-notice',
@@ -420,7 +420,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                 </div>
                 <div className="px-8">
                     {product.percentage_usage > 1 ? (
-                        <LemonBanner type={'error'}>
+                        <LemonBanner type="error">
                             You have exceeded the {customLimitUsd ? 'billing limit' : 'free tier limit'} for this
                             product.
                         </LemonBanner>
@@ -628,11 +628,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                         {!billing?.has_active_subscription && (
                                             <div className="flex gap-x-2 items-center mb-2">
                                                 <IconCheckCircleOutline className="text-success" />
-                                                <Tooltip
-                                                    title={
-                                                        'Multiple projects, Feature flags, Experiments, Integrations, Apps, and more'
-                                                    }
-                                                >
+                                                <Tooltip title="Multiple projects, Feature flags, Experiments, Integrations, Apps, and more">
                                                     <b>Upgraded platform features</b>
                                                 </Tooltip>
                                             </div>

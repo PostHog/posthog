@@ -371,17 +371,11 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
 }
 
-const preserveParams = (url: string) => (_params: Params, searchParams: Params, hashParams: Params) => {
-    const combined = combineUrl(url, searchParams, hashParams)
-    return combined.url
-}
-
 // NOTE: These redirects will fully replace the URL. If you want to keep support for query and hash params then you should use the above `preserveParams` function.
 export const redirects: Record<
     string,
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
 > = {
-    '/': preserveParams(urls.projectHomepage()),
     '/saved_insights': urls.savedInsights(),
     '/dashboards': urls.dashboards(),
     '/plugins': urls.projectApps(),
@@ -477,7 +471,7 @@ export const routes: Record<string, Scene> = {
     [urls.personByUUID('*', false)]: Scene.Person,
     [urls.persons()]: Scene.PersonsManagement,
     [urls.pipeline(':tab')]: Scene.Pipeline,
-    [urls.pipelineApp(':kind', ':id', ':tab')]: Scene.PipelineApp,
+    [urls.pipelineApp(':kindTab', ':id', ':appTab')]: Scene.PipelineApp,
     [urls.groups(':groupTypeIndex')]: Scene.PersonsManagement,
     [urls.group(':groupTypeIndex', ':groupKey', false)]: Scene.Group,
     [urls.group(':groupTypeIndex', ':groupKey', false, ':groupTab')]: Scene.Group,

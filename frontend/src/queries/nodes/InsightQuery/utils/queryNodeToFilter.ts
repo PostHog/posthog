@@ -1,7 +1,15 @@
 import { objectClean } from 'lib/utils'
 import { isFunnelsFilter, isLifecycleFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
-import { ActionsNode, BreakdownFilter, EventsNode, InsightNodeKind, InsightQueryNode, NodeKind } from '~/queries/schema'
+import {
+    ActionsNode,
+    BreakdownFilter,
+    EventsNode,
+    InsightNodeKind,
+    InsightQueryNode,
+    NodeKind,
+    TrendsFilterLegacy,
+} from '~/queries/schema'
 import {
     isActionsNode,
     isEventsNode,
@@ -103,8 +111,8 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
     }
 
     // TODO stickiness should probably support breakdowns as well
-    if ((isTrendsQuery(query) || isFunnelsQuery(query)) && query.breakdown) {
-        Object.assign(filters, objectClean<Partial<Record<keyof BreakdownFilter, unknown>>>(query.breakdown))
+    if ((isTrendsQuery(query) || isFunnelsQuery(query)) && query.breakdownFilter) {
+        Object.assign(filters, objectClean<Partial<Record<keyof BreakdownFilter, unknown>>>(query.breakdownFilter))
     }
 
     if (!isLifecycleQuery(query) && !isStickinessQuery(query)) {
@@ -139,7 +147,14 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
     }
 
     // get node specific filter properties e.g. trendsFilter, funnelsFilter, ...
-    Object.assign(filters, query[filterMap[query.kind]])
+    const insightFilter = JSON.parse(JSON.stringify(query[filterMap[query.kind]] || {}))
+    const legacyProps: TrendsFilterLegacy = {}
+    if (isTrendsQuery(query)) {
+        legacyProps.smoothing_intervals = insightFilter.smoothingIntervals
+        delete insightFilter.smoothingIntervals
+    }
+    Object.assign(filters, insightFilter)
+    Object.assign(filters, legacyProps)
 
     return filters
 }
