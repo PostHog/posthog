@@ -134,7 +134,7 @@ export function Billing(): JSX.Element {
             {showLicenseDirectInput && (
                 <>
                     <Form logic={billingLogic} formKey="activateLicense" enableFormOnSubmit className="space-y-4">
-                        <Field name="license" label={'Activate license key'}>
+                        <Field name="license" label="Activate license key">
                             <LemonInput fullWidth autoFocus />
                         </Field>
 

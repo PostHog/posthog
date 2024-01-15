@@ -25,9 +25,8 @@ export function InstructionsModal({ onClose, visible, featureFlag }: Instruction
                     header: 'Option 1: Widget Site App',
                     content: (
                         <div>
-                            Give your users a{' '}
-                            <Link to={'https://app.posthog.com/project/apps/574'}>prebuilt widget</Link> to opt-in to
-                            features
+                            Give your users a <Link to="https://app.posthog.com/project/apps/574">prebuilt widget</Link>{' '}
+                            to opt-in to features
                             <img className="max-h-full max-w-full mt-2.5" src={EarlyAccessFeatureImage} />
                         </div>
                     ),

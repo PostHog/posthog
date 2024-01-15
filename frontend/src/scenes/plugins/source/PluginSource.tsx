@@ -77,7 +77,7 @@ export function PluginSource({
             forceRender={true}
             visible={visible}
             onClose={closePluginSource}
-            width={'min(90vw, 64rem)'}
+            width="min(90vw, 64rem)"
             title={pluginSourceLoading ? 'Loading...' : `Edit App: ${name}`}
             placement={placement ?? 'left'}
             footer={

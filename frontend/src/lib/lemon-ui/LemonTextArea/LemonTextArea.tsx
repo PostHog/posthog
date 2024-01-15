@@ -111,7 +111,7 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
                                     onChange={onChange}
                                 />
                                 <div className="text-muted inline-flex items-center space-x-1">
-                                    <IconMarkdown className={'text-2xl'} />
+                                    <IconMarkdown className="text-2xl" />
                                     <span>Markdown formatting support</span>
                                 </div>
                                 {objectStorageAvailable ? (
@@ -125,14 +125,12 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
                                     />
                                 ) : (
                                     <div className="text-muted inline-flex items-center space-x-1">
-                                        <Tooltip
-                                            title={'Enable object storage to add images by dragging and dropping.'}
-                                        >
-                                            <IconTools className={'text-xl mr-1'} />
+                                        <Tooltip title="Enable object storage to add images by dragging and dropping.">
+                                            <IconTools className="text-xl mr-1" />
                                         </Tooltip>
                                         <span>
                                             Add external images using{' '}
-                                            <Link to={'https://www.markdownguide.org/basic-syntax/#images-1'}>
+                                            <Link to="https://www.markdownguide.org/basic-syntax/#images-1">
                                                 {' '}
                                                 Markdown image links
                                             </Link>
@@ -147,7 +145,7 @@ export const LemonTextAreaMarkdown = React.forwardRef<HTMLTextAreaElement, Lemon
                         key: 'preview',
                         label: 'Preview',
                         content: value ? (
-                            <TextContent text={value} className={'LemonTextArea--preview'} />
+                            <TextContent text={value} className="LemonTextArea--preview" />
                         ) : (
                             <i>Nothing to preview</i>
                         ),

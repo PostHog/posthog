@@ -145,7 +145,7 @@ export const SidePanelActivity = (): JSX.Element => {
                                 Notifications shows you changes others make to{' '}
                                 <Link to={urls.savedInsights('history')}>Insights</Link> and{' '}
                                 <Link to={urls.featureFlags('history')}>Feature Flags</Link> that you created. Come join{' '}
-                                <Link to={'https://posthog.com/community'}>our community forum</Link> and tell us what
+                                <Link to="https://posthog.com/community">our community forum</Link> and tell us what
                                 else should be here!
                             </LemonBanner>
 

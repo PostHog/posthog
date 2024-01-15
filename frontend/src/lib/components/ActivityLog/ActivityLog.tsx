@@ -30,7 +30,7 @@ const Empty = ({ scope }: { scope: string }): JSX.Element => {
         <ProductIntroduction
             productName={noun.toUpperCase()}
             productKey={ProductKey.HISTORY}
-            thingName={'history record'}
+            thingName="history record"
             description={`History shows any ${noun} changes that have been made. After making changes you'll see them logged here.`}
             isEmpty={true}
         />
@@ -78,14 +78,14 @@ export const ActivityLogRow = ({
                     email: logItem.email ?? undefined,
                 }}
                 type={logItem.isSystem ? 'system' : 'person'}
-                size={'xl'}
+                size="xl"
             />
             <div className="ActivityLogRow__details">
                 <div className="ActivityLogRow__description">{logItem.description}</div>
                 {showExtendedDescription && logItem.extendedDescription && (
                     <div className="ActivityLogRow__description__extended">{logItem.extendedDescription}</div>
                 )}
-                <div className={'text-muted'}>
+                <div className="text-muted">
                     <TZLabel time={logItem.created_at} />
                 </div>
             </div>

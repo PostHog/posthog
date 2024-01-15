@@ -108,11 +108,7 @@ export function ExperimentPreview({
                     <div className="mb-4 experiment-preview-row">
                         <div className="flex items-center">
                             <b>Minimum acceptable improvement</b>
-                            <Tooltip
-                                title={
-                                    'Minimum acceptable improvement is a calculation that estimates the smallest significant improvement you are willing to accept.'
-                                }
-                            >
+                            <Tooltip title="Minimum acceptable improvement is a calculation that estimates the smallest significant improvement you are willing to accept.">
                                 <IconInfo className="ml-1 text-muted text-xl" />
                             </Tooltip>
                         </div>
@@ -352,7 +348,7 @@ export function ExperimentPreview({
                 isOpen={isExperimentGoalModalOpen}
                 onClose={closeExperimentGoalModal}
                 width={1000}
-                title={'Change experiment goal'}
+                title="Change experiment goal"
                 footer={
                     <div className="flex items-center gap-2">
                         <LemonButton
@@ -396,7 +392,7 @@ export function ExperimentPreview({
                 isOpen={isExperimentExposureModalOpen}
                 onClose={closeExperimentExposureModal}
                 width={1000}
-                title={'Change experiment exposure'}
+                title="Change experiment exposure"
                 footer={
                     <div className="flex items-center gap-2">
                         <LemonButton

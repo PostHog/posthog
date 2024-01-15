@@ -68,7 +68,7 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
 
     return (
         <>
-            <img src={imageSource} onLoad={onImageLoad} alt={'user uploaded file'} />
+            <img src={imageSource} onLoad={onImageLoad} alt="user uploaded file" />
             {uploading ? <SpinnerOverlay className="text-3xl" /> : null}
         </>
     )
