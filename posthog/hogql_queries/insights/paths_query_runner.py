@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from math import ceil
+from re import escape
 from typing import Any, Dict, Literal
 from typing import Optional
 
@@ -43,6 +44,12 @@ class PathsQueryRunner(QueryRunner):
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
         self.event_in_session_limit = self.query.pathsFilter.step_limit or EVENT_IN_SESSION_LIMIT_DEFAULT
+
+        self.regex_groupings: list[str] = []
+        if self.query.pathsFilter.path_groupings:
+            self.regex_groupings = [
+                escape(grouping).replace("\\*", ".*") for grouping in self.query.pathsFilter.path_groupings
+            ]
 
     @property
     def group_type_index(self) -> int | None:
@@ -112,8 +119,19 @@ class PathsQueryRunner(QueryRunner):
             ast.Field(chain=["events", "person_id"]),
             event_conditional,
             ast.Alias(
+                alias="groupings",
+                expr=ast.Constant(value=self.query.pathsFilter.path_groupings or None),
+            ),
+            ast.Alias(
+                alias="group_index",
+                expr=ast.Call(
+                    name="multiMatchAnyIndex",
+                    args=[ast.Field(chain=["path_item_ungrouped"]), ast.Constant(value=self.regex_groupings or None)],
+                ),
+            ),
+            ast.Alias(
                 alias="path_item",
-                expr=ast.Field(chain=["path_item_ungrouped"]),
+                expr=parse_expr(f"if(group_index > 0, groupings[group_index], path_item_ungrouped) AS path_item"),
             ),  # TODO: path cleaning rules
         ]
         # grouping fields
@@ -284,7 +302,6 @@ class PathsQueryRunner(QueryRunner):
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         # TODO: Weight filter
-        # TODO: Edge limit
 
         placeholders = {
             "paths_per_person_query": self.paths_per_person_query(),
