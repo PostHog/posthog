@@ -145,7 +145,7 @@ export function ResourcePermission({
                             <LemonButton
                                 icon={<IconDelete />}
                                 onClick={() => deleteAssociatedRole(role.id)}
-                                tooltip={'Remove custom role from feature flag'}
+                                tooltip="Remove custom role from feature flag"
                                 tooltipPlacement="bottomLeft"
                                 size="small"
                             />
@@ -172,7 +172,7 @@ export function ResourcePermission({
             {!shouldShowPermissionsTable && (
                 <>
                     {resourceLevel && <OrganizationResourcePermissionLabel resourceLevel={resourceLevel} />}
-                    {<OrganizationResourcePermissionRoles roles={rolesWithAccess} />}
+                    <OrganizationResourcePermissionRoles roles={rolesWithAccess} />
                 </>
             )}
             {shouldShowPermissionsTable && <LemonTable dataSource={tableData} columns={columns} className="mt-4" />}
@@ -212,16 +212,9 @@ export function ResourcePermission({
                                 options={roleLemonSelectOptions(addableRoles)}
                             />
                         </div>
-                        {
-                            <LemonButton
-                                type="primary"
-                                loading={false}
-                                disabled={rolesToAdd.length === 0}
-                                onClick={onAdd}
-                            >
-                                Add
-                            </LemonButton>
-                        }
+                        <LemonButton type="primary" loading={false} disabled={rolesToAdd.length === 0} onClick={onAdd}>
+                            Add
+                        </LemonButton>
                     </div>
                 </>
             )}
@@ -278,7 +271,7 @@ function RoleRow({ role, deleteRole }: { role: RoleType; deleteRole?: (roleId: R
                 <LemonButton
                     icon={<IconDelete />}
                     onClick={() => deleteRole(role.id)}
-                    tooltip={'Remove role from permission'}
+                    tooltip="Remove role from permission"
                     tooltipPlacement="bottomLeft"
                     size="small"
                 />

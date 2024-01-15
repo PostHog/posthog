@@ -17,15 +17,20 @@ import { humanFriendlyNumber, inStorybookTestRunner, lightenDarkenColor } from '
 import { useState } from 'react'
 import { useEffect, useRef } from 'react'
 
-import { AppMetricErrorDetail, AppMetricsData, appMetricsLogic, AppMetricsProps } from './appMetricsLogic'
+import {
+    AppMetricErrorDetail,
+    AppMetricsData,
+    pipelineAppMetricsLogic,
+    PipelineAppMetricsProps,
+} from './pipelineAppMetricsLogic'
 
 export interface MetricsOverviewProps {
     metrics?: AppMetricsData | null
     metricsLoading: boolean
 }
 
-export function AppMetrics({ pluginConfigId }: AppMetricsProps): JSX.Element {
-    const logic = appMetricsLogic({ pluginConfigId })
+export function PipelineAppMetrics({ pluginConfigId }: PipelineAppMetricsProps): JSX.Element {
+    const logic = pipelineAppMetricsLogic({ pluginConfigId })
 
     const { appMetricsResponse, appMetricsResponseLoading, dateFrom } = useValues(logic)
     const { setDateFrom } = useActions(logic)
@@ -185,7 +190,7 @@ function colorConfig(baseColorVar: string): Partial<ChartDataset<'line', any>> {
 }
 
 function ErrorsOverview({ pluginConfigId }: { pluginConfigId: number }): JSX.Element {
-    const logic = appMetricsLogic({ pluginConfigId })
+    const logic = pipelineAppMetricsLogic({ pluginConfigId })
     const { appMetricsResponse, appMetricsResponseLoading } = useValues(logic)
     const { openErrorDetailsModal } = useActions(logic)
 
@@ -253,7 +258,7 @@ function ErrorsOverview({ pluginConfigId }: { pluginConfigId: number }): JSX.Ele
 }
 
 function ErrorDetailsModal({ pluginConfigId }: { pluginConfigId: number }): JSX.Element {
-    const logic = appMetricsLogic({ pluginConfigId })
+    const logic = pipelineAppMetricsLogic({ pluginConfigId })
     // const { appMetricsResponse, appMetricsResponseLoading } = useValues(logic)
     const { errorDetails, errorDetailsModalError, errorDetailsLoading } = useValues(logic)
     const { closeErrorDetailsModal } = useActions(logic)
@@ -266,7 +271,7 @@ function ErrorDetailsModal({ pluginConfigId }: { pluginConfigId: number }): JSX.
             isOpen={!!errorDetailsModalError}
             onClose={closeErrorDetailsModal}
             title={errorDetailsModalError}
-            width={'min(50vw, 80rem)'}
+            width="min(50vw, 80rem)"
             description={<span>{activeErrorDetails?.error_details?.error.message?.substring(0, 200)}</span>}
             footer={
                 <div className="flex items-center justify-end gap-1 h-">
@@ -298,7 +303,8 @@ function ErrorDetailsModal({ pluginConfigId }: { pluginConfigId: number }): JSX.
                 // eslint-disable-next-line react/forbid-dom-props
                 <div className="flex flex-col space-y-2" style={{ height: '80vh' }}>
                     <div>
-                        <LemonLabel>When:</LemonLabel> <TZLabel time={activeErrorDetails.timestamp} showSeconds />
+                        <span className="font-semibold">When:</span>{' '}
+                        <TZLabel time={activeErrorDetails.timestamp} showSeconds />
                     </div>
 
                     {activeErrorDetails.error_details.eventCount && (

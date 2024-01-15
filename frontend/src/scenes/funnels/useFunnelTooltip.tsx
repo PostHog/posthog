@@ -102,7 +102,7 @@ function FunnelTooltip({
 
 export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTMLDivElement> {
     const { insightProps } = useValues(insightLogic)
-    const { breakdown, querySource } = useValues(funnelDataLogic(insightProps))
+    const { breakdownFilter, querySource } = useValues(funnelDataLogic(insightProps))
     const { isTooltipShown, currentTooltip, tooltipOrigin } = useValues(funnelTooltipLogic(insightProps))
     const { aggregationLabel } = useValues(groupsModel)
 
@@ -122,7 +122,7 @@ export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTM
                             stepIndex={currentTooltip[0]}
                             series={currentTooltip[1]}
                             groupTypeLabel={aggregationLabel(querySource?.aggregation_group_type_index).plural}
-                            breakdownFilter={breakdown}
+                            breakdownFilter={breakdownFilter}
                         />
                     )}
                 </>

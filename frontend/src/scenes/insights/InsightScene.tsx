@@ -16,7 +16,7 @@ export function InsightScene(): JSX.Element {
         return <InsightSkeleton />
     }
 
-    return <NotFound object={'insight'} />
+    return <NotFound object="insight" />
 }
 
 export const scene: SceneExport = {

@@ -9,7 +9,6 @@ import {
     MOCK_DEFAULT_USER,
     MOCK_PERSON_PROPERTIES,
     MOCK_SECOND_ORGANIZATION_MEMBER,
-    MOCK_TEAM_ID,
 } from 'lib/api.mock'
 
 import { getAvailableFeatures } from '~/mocks/features'
@@ -73,8 +72,7 @@ export const defaultMocks: Mocks = {
         '/api/organizations/@current/plugins/repository/': [],
         '/api/organizations/@current/plugins/unused/': [],
         '/api/plugin_config/': toPaginatedResponse([MOCK_DEFAULT_PLUGIN_CONFIG]),
-        [`/api/projects/${MOCK_TEAM_ID}/plugin_configs/${MOCK_DEFAULT_PLUGIN_CONFIG.id}/`]: MOCK_DEFAULT_PLUGIN_CONFIG,
-        '/api/projects/@current/persons/properties/': toPaginatedResponse(MOCK_PERSON_PROPERTIES),
+        [`/api/projects/:team_id/plugin_configs/${MOCK_DEFAULT_PLUGIN_CONFIG.id}/`]: MOCK_DEFAULT_PLUGIN_CONFIG,
         '/api/projects/:team_id/persons': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/persons/properties/': toPaginatedResponse(MOCK_PERSON_PROPERTIES),
         '/api/personal_api_keys/': [],

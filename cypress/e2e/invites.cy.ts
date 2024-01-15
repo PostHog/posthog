@@ -8,7 +8,7 @@ describe('Invite Signup', () => {
         cy.get('[data-attr=menu-item-me]').click()
         cy.get('[data-attr=top-menu-item-org-settings]').click()
 
-        cy.location('pathname').should('eq', '/settings/organization')
+        cy.location('pathname').should('contain', '/settings/organization')
         cy.get('[id="invites"]').should('exist')
         cy.contains('Pending Invites').should('exist')
 

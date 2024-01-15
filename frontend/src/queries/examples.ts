@@ -188,7 +188,7 @@ const InsightTrendsQuery: TrendsQuery = {
     trendsFilter: {
         display: ChartDisplayType.ActionsAreaGraph,
     },
-    breakdown: {
+    breakdownFilter: {
         breakdown: '$geoip_country_code',
         breakdown_type: 'event',
     },
@@ -206,7 +206,7 @@ const InsightFunnelsQuery: FunnelsQuery = {
     funnelsFilter: {
         funnel_order_type: StepOrderValue.ORDERED,
     },
-    breakdown: {
+    breakdownFilter: {
         breakdown: '$geoip_country_code',
         breakdown_type: 'event',
     },

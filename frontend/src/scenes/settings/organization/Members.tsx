@@ -173,7 +173,7 @@ export function Members(): JSX.Element | null {
                             preflight?.email_service_available && (
                                 <>
                                     {' '}
-                                    <LemonTag type={'highlight'} data-attr="pending-email-verification">
+                                    <LemonTag type="highlight" data-attr="pending-email-verification">
                                         pending email verification
                                     </LemonTag>
                                 </>

@@ -13,7 +13,7 @@ export function LemonCard({ hoverEffect = true, className, children, onClick, fo
         <div
             className={`LemonCard ${hoverEffect && 'LemonCard--hoverEffect'} border ${
                 focused ? 'border-2 border-primary' : 'border-border'
-            } rounded-lg p-6 bg-bg-light ${className}`}
+            } rounded p-6 bg-bg-light ${className}`}
             onClick={onClick}
         >
             {children}

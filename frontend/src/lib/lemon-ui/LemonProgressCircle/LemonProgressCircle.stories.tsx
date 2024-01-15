@@ -58,7 +58,7 @@ export const Overview = (): JSX.Element => {
 
     return (
         <div className="flex flex-col gap-2">
-            <LemonCheckbox checked={animate} onChange={setAnimate} bordered label={'Animate'} />
+            <LemonCheckbox checked={animate} onChange={setAnimate} bordered label="Animate" />
             <LemonProgressCircle progress={progress} />
             <LemonProgressCircle progress={progress} strokePercentage={0.5} size={30} />
 

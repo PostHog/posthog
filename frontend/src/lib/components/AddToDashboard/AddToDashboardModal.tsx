@@ -155,7 +155,7 @@ export function AddToDashboardModal({
                     data-attr="dashboard-searchfield"
                     type="search"
                     fullWidth
-                    placeholder={`Search for dashboards...`}
+                    placeholder="Search for dashboards..."
                     value={searchQuery}
                     onChange={(newValue) => setSearchQuery(newValue)}
                 />

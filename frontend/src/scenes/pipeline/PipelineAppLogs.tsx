@@ -3,9 +3,10 @@ import { useActions, useValues } from 'kea'
 import { LOGS_PORTION_LIMIT } from 'lib/constants'
 import { pluralize } from 'lib/utils'
 
-import { PipelineAppLogLevel, pipelineAppLogsLogic, PipelineAppLogsProps } from './pipelineAppLogsLogic'
+import { PipelineAppLogicProps } from './pipelineAppLogic'
+import { PipelineAppLogLevel, pipelineAppLogsLogic } from './pipelineAppLogsLogic'
 
-export function PipelineAppLogs({ id, kind }: PipelineAppLogsProps): JSX.Element {
+export function PipelineAppLogs({ id, kind }: PipelineAppLogicProps): JSX.Element {
     const logic = pipelineAppLogsLogic({ id, kind })
 
     const { logs, logsLoading, backgroundLogs, columns, isThereMoreToLoad, selectedLogLevels } = useValues(logic)

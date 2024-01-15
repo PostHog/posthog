@@ -3,11 +3,11 @@ import { actions, connect, events, kea, key, listeners, path, props, reducers, s
 import { loaders } from 'kea-loaders'
 import { LOGS_PORTION_LIMIT } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { DestinationTypeKind } from 'scenes/pipeline/destinationsLogic'
-import { pipelineAppLogic } from 'scenes/pipeline/pipelineAppLogic'
+import { PipelineAppBackend } from 'scenes/pipeline/destinationsLogic'
+import { pipelineAppLogic, PipelineAppLogicProps } from 'scenes/pipeline/pipelineAppLogic'
 
 import api from '~/lib/api'
-import { BatchExportLogEntry, PipelineTabs, PluginLogEntry } from '~/types'
+import { BatchExportLogEntry, PluginLogEntry } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import type { pipelineAppLogsLogicType } from './pipelineAppLogsLogicType'
@@ -23,17 +23,12 @@ export enum PipelineAppLogLevel {
     Error = 'ERROR',
 }
 
-export interface PipelineAppLogsProps {
-    id: number | string
-    kind: PipelineTabs // This needs to be props passed for connecting to pipelineAppLogic
-}
-
 export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
-    props({} as PipelineAppLogsProps),
-    key(({ id }: PipelineAppLogsProps) => id),
+    props({} as PipelineAppLogicProps),
+    key(({ id }: PipelineAppLogicProps) => id),
     path((key) => ['scenes', 'pipeline', 'pipelineAppLogsLogic', key]),
-    connect((props: PipelineAppLogsProps) => ({
-        values: [teamLogic, ['currentTeamId'], pipelineAppLogic(props), ['appType']],
+    connect((props: PipelineAppLogicProps) => ({
+        values: [teamLogic(), ['currentTeamId'], pipelineAppLogic(props), ['appBackend']],
     })),
     actions({
         setSelectedLogLevels: (levels: PipelineAppLogLevel[]) => ({
@@ -48,7 +43,7 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
             __default: [] as PluginLogEntry[] | BatchExportLogEntry[],
             loadLogs: async () => {
                 let results: LogEntry[]
-                if (values.appType === DestinationTypeKind.BatchExport) {
+                if (values.appBackend === PipelineAppBackend.BatchExport) {
                     results = await api.batchExportLogs.search(
                         id as string,
                         values.currentTeamId,
@@ -72,7 +67,7 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
             },
             loadMoreLogs: async () => {
                 let results: LogEntry[]
-                if (values.appType === DestinationTypeKind.BatchExport) {
+                if (values.appBackend === PipelineAppBackend.BatchExport) {
                     results = await api.batchExportLogs.search(
                         id as string,
                         values.currentTeamId,
@@ -111,7 +106,7 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
                 }
 
                 let results: LogEntry[]
-                if (values.appType === DestinationTypeKind.BatchExport) {
+                if (values.appBackend === PipelineAppBackend.BatchExport) {
                     results = await api.batchExportLogs.search(
                         id as string,
                         values.currentTeamId,
@@ -188,8 +183,8 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
             },
         ],
         columns: [
-            (s) => [s.appType],
-            (appType): LemonTableColumns<LogEntry> => {
+            (s) => [s.appBackend],
+            (appBackend): LemonTableColumns<LogEntry> => {
                 return [
                     {
                         title: 'Timestamp',
@@ -198,15 +193,15 @@ export const pipelineAppLogsLogic = kea<pipelineAppLogsLogicType>([
                         render: (timestamp: string) => dayjs(timestamp).format('YYYY-MM-DD HH:mm:ss.SSS UTC'),
                     },
                     {
-                        title: appType === DestinationTypeKind.BatchExport ? 'Run Id' : 'Source',
-                        dataIndex: appType === DestinationTypeKind.BatchExport ? 'run_id' : 'source',
-                        key: appType === DestinationTypeKind.BatchExport ? 'run_id' : 'source',
+                        title: appBackend === PipelineAppBackend.BatchExport ? 'Run Id' : 'Source',
+                        dataIndex: appBackend === PipelineAppBackend.BatchExport ? 'run_id' : 'source',
+                        key: appBackend === PipelineAppBackend.BatchExport ? 'run_id' : 'source',
                     },
                     {
                         title: 'Level',
-                        key: appType === DestinationTypeKind.BatchExport ? 'level' : 'type',
-                        dataIndex: appType === DestinationTypeKind.BatchExport ? 'level' : 'type',
-                        render: appType === DestinationTypeKind.BatchExport ? LogLevelDisplay : LogTypeDisplay,
+                        key: appBackend === PipelineAppBackend.BatchExport ? 'level' : 'type',
+                        dataIndex: appBackend === PipelineAppBackend.BatchExport ? 'level' : 'type',
+                        render: appBackend === PipelineAppBackend.BatchExport ? LogLevelDisplay : LogTypeDisplay,
                     },
                     {
                         title: 'Message',

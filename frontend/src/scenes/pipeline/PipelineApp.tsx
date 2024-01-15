@@ -1,28 +1,40 @@
-import { Spinner } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { router } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
+import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { PipelineAppLogs } from 'scenes/pipeline/PipelineAppLogs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ActivityScope, PipelineAppTabs, PipelineTabs } from '~/types'
+import { ActivityScope, PipelineAppKind, PipelineAppTab, PipelineTab } from '~/types'
 
-import { AppMetrics } from './AppMetrics'
 import { PipelineAppConfiguration } from './PipelineAppConfiguration'
 import { pipelineAppLogic, PipelineAppLogicProps } from './pipelineAppLogic'
+import { PipelineAppMetrics } from './PipelineAppMetrics'
 
-const paramsToProps = ({ params: { kind, id } }: { params: { kind?: string; id?: string } }): PipelineAppLogicProps => {
+export const PIPELINE_TAB_TO_APP_KIND: Partial<Record<PipelineTab, PipelineAppKind>> = {
+    [PipelineTab.Filters]: PipelineAppKind.Filter,
+    [PipelineTab.Transformations]: PipelineAppKind.Transformation,
+    [PipelineTab.Destinations]: PipelineAppKind.Destination,
+}
+
+const paramsToProps = ({
+    params: { kindTab, id },
+}: {
+    params: { kindTab?: string; id?: string }
+}): PipelineAppLogicProps => {
     const numericId = id && /^\d+$/.test(id) ? parseInt(id) : undefined
+    if (!kindTab || !id) {
+        throw new Error('Loaded the PipelineApp without either `kindTab` or `id` passed in')
+    }
+
     return {
-        kind: (kind as PipelineTabs) || PipelineTabs.Destinations,
-        id: (numericId && !isNaN(numericId) ? numericId : id) || 'missing',
+        kind: PIPELINE_TAB_TO_APP_KIND[kindTab] || null,
+        id: numericId && !isNaN(numericId) ? numericId : id,
     }
 }
 
@@ -32,26 +44,29 @@ export const scene: SceneExport = {
     paramsToProps,
 }
 
-export function PipelineApp(params: { kind?: string; id?: string } = {}): JSX.Element {
+export function PipelineApp(params: { kindTab?: string; id?: string } = {}): JSX.Element {
     const { kind, id } = paramsToProps({ params })
+
+    const { currentTab, loading, maybePlugin } = useValues(pipelineAppLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+
     if (!featureFlags[FEATURE_FLAGS.PIPELINE_UI]) {
         return <p>Pipeline 3000 not available yet</p>
     }
-    if (!Object.values(PipelineTabs).includes(kind)) {
-        return <NotFound object="pipeline app" />
-    }
-    const { tabs, currentTab } = useValues(pipelineAppLogic)
 
-    if (!id) {
-        return <Spinner />
+    if (!kind) {
+        return <NotFound object="pipeline app kind" />
     }
 
-    const tabToContent: Partial<Record<PipelineAppTabs, JSX.Element>> = {
-        [PipelineAppTabs.Configuration]: <PipelineAppConfiguration />,
-        [PipelineAppTabs.Metrics]: <AppMetrics pluginConfigId={id as number} />,
-        [PipelineAppTabs.Logs]: <PipelineAppLogs id={id} kind={kind} />,
-        [PipelineAppTabs.History]: <ActivityLog id={id} scope={ActivityScope.PLUGIN} />,
+    if (!loading && !maybePlugin) {
+        return <NotFound object={kind} />
+    }
+
+    const tabToContent: Record<PipelineAppTab, JSX.Element> = {
+        [PipelineAppTab.Configuration]: <PipelineAppConfiguration />,
+        [PipelineAppTab.Metrics]: <PipelineAppMetrics pluginConfigId={id as number} />,
+        [PipelineAppTab.Logs]: <PipelineAppLogs id={id} kind={kind} />,
+        [PipelineAppTab.History]: <ActivityLog id={id} scope={ActivityScope.PLUGIN} />,
     }
 
     return (
@@ -59,12 +74,15 @@ export function PipelineApp(params: { kind?: string; id?: string } = {}): JSX.El
             <PageHeader />
             <LemonTabs
                 activeKey={currentTab}
-                onChange={(tab) => router.actions.push(urls.pipelineApp(kind, id, tab as PipelineAppTabs))}
-                tabs={tabs.map((tab) => ({
-                    label: capitalizeFirstLetter(tab),
-                    key: tab,
-                    content: tabToContent[tab],
-                }))}
+                tabs={Object.values(PipelineAppTab).map(
+                    (tab) =>
+                        ({
+                            label: capitalizeFirstLetter(tab),
+                            key: tab,
+                            content: tabToContent[tab],
+                            link: params.kindTab ? urls.pipelineApp(kind, id, tab as PipelineAppTab) : undefined,
+                        } as LemonTab<PipelineAppTab>)
+                )}
             />
         </div>
     )
