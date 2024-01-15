@@ -97,13 +97,12 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.Discussion)
                 }
                 tabs.push(SidePanelTab.FeaturePreviews)
+                tabs.push(SidePanelTab.Settings)
+                tabs.push(SidePanelTab.Welcome)
 
                 if (isCloudOrDev && featureflags[FEATURE_FLAGS.SIDEPANEL_STATUS]) {
                     tabs.push(SidePanelTab.Status)
                 }
-
-                tabs.push(SidePanelTab.Settings)
-                tabs.push(SidePanelTab.Welcome)
 
                 return tabs
             },

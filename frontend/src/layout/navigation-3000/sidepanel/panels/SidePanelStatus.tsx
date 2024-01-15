@@ -13,10 +13,18 @@ import { sidePanelStatusLogic, STATUS_PAGE_BASE } from './sidePanelStatusLogic'
 export const SidePanelStatusIcon = (props: { className?: string }): JSX.Element => {
     const { status, statusPage } = useValues(sidePanelStatusLogic)
 
+    let title = statusPage?.status.description
+    if (statusPage?.status.description === 'All Systems Operational') {
+        title = 'All systems operational' // Sentence-case Statuspage.io default message, which can't be changed
+    }
+
     return (
-        <Tooltip title={statusPage?.status.description} placement="left">
+        <Tooltip title={title} placement="left">
             <span {...props}>
-                <IconWithBadge content={status !== 'operational' ? '!' : undefined}>
+                <IconWithBadge
+                    content={status !== 'operational' ? '!' : '✓'}
+                    status={status.includes('outage') ? 'danger' : status.includes('degraded') ? 'warning' : 'success'}
+                >
                     <IconCloud />
                 </IconWithBadge>
             </span>
