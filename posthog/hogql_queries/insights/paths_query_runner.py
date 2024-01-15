@@ -7,7 +7,7 @@ from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, 
 from posthog.caching.utils import is_stale
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_select, parse_expr
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -114,8 +114,26 @@ class PathsQueryRunner(QueryRunner):
             ]
         )
 
+    def get_filtered_path_ordering(self) -> list[ast.Expr]:
+        fields = {
+            "compact_path": "path",
+            "timings": "timings",
+        }
+        return [parse_expr(f"{orig} as filtered_{field}") for orig, field in fields.items()]
+
+    def get_limited_path_ordering(self) -> list[ast.Expr]:
+        fields_to_include = ["path", "timings"]
+        extra_fields = []
+        return [
+            parse_expr(f"arraySlice(filtered_{field}, 1, {EVENT_IN_SESSION_LIMIT_DEFAULT}) as limited_{field}")
+            for field in fields_to_include + extra_fields
+        ]
+
     def actor_query(self) -> ast.SelectQuery:
         target_point = self.query.pathsFilter.end_point or self.query.pathsFilter.start_point
+
+        filtered_paths = self.get_filtered_path_ordering()
+        limited_paths = self.get_limited_path_ordering()
 
         placeholders = {
             "path_event_query": self.paths_events_query(),
@@ -132,7 +150,7 @@ class PathsQueryRunner(QueryRunner):
             "extra_paths_tuple_elements": ast.Constant(value=None),
             "extra_group_array_select_statements": ast.Constant(value=None),
         }
-        return parse_select(
+        select = parse_select(
             """
                 SELECT
                     person_id,
@@ -153,11 +171,7 @@ class PathsQueryRunner(QueryRunner):
                         arrayPopFront(arrayPushBack(path_basic, '')) as path_basic_0,
                         arrayMap((x,y) -> if(x=y, 0, 1), path_basic, path_basic_0) as mapping,
                         arrayFilter((x,y) -> y, time, mapping) as timings,
-                        arrayFilter((x,y)->y, path_basic, mapping) as compact_path,
-                        indexOf(compact_path, {target_point}) as target_index,
-                        arrayDifference(limited_timings) as timings_diff,
-                        arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings,
-                        concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key /* last path item */
+                        arrayFilter((x,y)->y, path_basic, mapping) as compact_path
                     FROM (
                         SELECT
                             person_id,
@@ -186,6 +200,17 @@ class PathsQueryRunner(QueryRunner):
             """,
             placeholders,
         )
+        select.select_from.table.select.extend(filtered_paths + limited_paths)
+
+        other_selects = [
+            "indexOf(compact_path, {target_point}) as target_index",
+            "arrayDifference(limited_timings) as timings_diff",
+            "arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings",
+            "concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key /* last path item */",
+        ]
+        select.select_from.table.select.extend([parse_expr(select, placeholders) for select in other_selects])
+
+        return select
 
     def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         # TODO: Weight filter
