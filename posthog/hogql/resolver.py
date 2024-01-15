@@ -187,7 +187,6 @@ class Resolver(CloningVisitor):
                 if key in node_type.aliases:
                     # delete the keys we added in the first pass to avoid "can't redefine" errors
                     del node_type.aliases[key]
-            # from pdb import set_trace; set_trace()
             new_node.array_join_list = [self.visit(expr) for expr in node.array_join_list]
 
         # :TRICKY: Make sure to clone and visit _all_ SelectQuery nodes.
