@@ -4,8 +4,6 @@ from django.db import migrations
 
 
 def switch_exception_autocapture_off_for_all(apps, schema_editor):
-    # We can't import the Person model directly as it may be a newer
-    # version than this migration expects. We use the historical version.
     Team = apps.get_model("posthog", "Team")
     teams_with_exception_autocapture_on = Team.objects.filter(autocapture_exceptions_opt_in=True)
     teams_with_exception_autocapture_on.update(autocapture_exceptions_opt_in=False)
