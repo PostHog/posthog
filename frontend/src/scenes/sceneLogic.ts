@@ -3,7 +3,7 @@ import { router, urlToAction } from 'kea-router'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { addProjectIdIfMissing } from 'lib/utils/router-utils'
+import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import posthog from 'posthog-js'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } from 'scenes/sceneTypes'
@@ -196,7 +196,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 return
             }
 
-            // Redirect to the canonical pathname if needed
+            // Redirect to the scene's canonical pathname if needed
             const currentPathname = router.values.location.pathname
             const canonicalPathname = addProjectIdIfMissing(router.values.location.pathname)
             if (currentPathname !== canonicalPathname) {
