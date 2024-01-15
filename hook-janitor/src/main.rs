@@ -9,7 +9,7 @@ use std::{str::FromStr, time::Duration};
 use tokio::sync::Semaphore;
 use webhooks::WebhookCleaner;
 
-use hook_common::metrics;
+use hook_common::metrics::setup_metrics_routes;
 
 mod cleanup;
 mod config;
@@ -66,8 +66,7 @@ async fn main() {
 
     let cleanup_loop = Box::pin(cleanup_loop(cleaner, config.cleanup_interval_secs));
 
-    let recorder_handle = metrics::setup_metrics_recorder();
-    let app = handlers::app(Some(recorder_handle));
+    let app = setup_metrics_routes(handlers::app());
     let http_server = Box::pin(listen(app, config.bind()));
 
     match select(http_server, cleanup_loop).await {

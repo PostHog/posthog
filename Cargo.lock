@@ -827,6 +827,7 @@ dependencies = [
 name = "hook-worker"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "chrono",
  "envconfig",
  "futures",

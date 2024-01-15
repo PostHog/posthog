@@ -1,8 +1,9 @@
 //! Consume `PgQueue` jobs to run webhook calls.
+use axum::Router;
 use envconfig::Envconfig;
 
 use hook_common::{
-    metrics::serve, metrics::setup_metrics_router, pgqueue::PgQueue, retry::RetryPolicy,
+    metrics::serve, metrics::setup_metrics_routes, pgqueue::PgQueue, retry::RetryPolicy,
 };
 use hook_worker::config::Config;
 use hook_worker::error::WorkerError;
@@ -36,7 +37,7 @@ async fn main() -> Result<(), WorkerError> {
 
     let bind = config.bind();
     tokio::task::spawn(async move {
-        let router = setup_metrics_router();
+        let router = setup_metrics_routes(Router::new());
         serve(router, &bind)
             .await
             .expect("failed to start serving metrics");

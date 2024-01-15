@@ -3,7 +3,7 @@ use config::Config;
 use envconfig::Envconfig;
 use eyre::Result;
 
-use hook_common::metrics::setup_metrics_router;
+use hook_common::metrics::setup_metrics_routes;
 use hook_common::pgqueue::PgQueue;
 
 mod config;
@@ -32,8 +32,8 @@ async fn main() {
     .await
     .expect("failed to initialize queue");
 
-    let router = setup_metrics_router();
-    let app = handlers::add_routes(router, pg_queue);
+    let app = handlers::add_routes(Router::new(), pg_queue);
+    let app = setup_metrics_routes(app);
 
     match listen(app, config.bind()).await {
         Ok(_) => {}
