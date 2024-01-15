@@ -204,8 +204,8 @@ dependencies:
     specifier: ^3.1.0
     version: 3.1.0(kea@3.1.5)
   kea-router:
-    specifier: ^3.1.3
-    version: 3.1.3(kea@3.1.5)
+    specifier: ^3.1.4
+    version: 3.1.4(kea@3.1.5)
   kea-subscriptions:
     specifier: ^3.0.0
     version: 3.0.0(kea@3.1.5)
@@ -14824,8 +14824,8 @@ packages:
       kea: 3.1.5(react@18.2.0)
     dev: false
 
-  /kea-router@3.1.3(kea@3.1.5):
-    resolution: {integrity: sha512-+Pk+RZ4PzEXskL3D3903M33Mt94vqJlHb0LCBRn7lFTg0age/53n8CkMvB6QT9SgvtDXqiWgViCWdtaACDQY7A==}
+  /kea-router@3.1.4(kea@3.1.5):
+    resolution: {integrity: sha512-KjATA2vwh90GDcO3iiUrQwhRSzRbvyplvtyDzEWevfSHccbrtxdDm/ZCApAvMACPZZH0Klk4aHk1ZAZ1DJtcbg==}
     peerDependencies:
       kea: '>= 3'
     dependencies:

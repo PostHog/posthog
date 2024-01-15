@@ -129,7 +129,7 @@
         "kea-forms": "^3.0.3",
         "kea-loaders": "^3.0.0",
         "kea-localstorage": "^3.1.0",
-        "kea-router": "^3.1.3",
+        "kea-router": "^3.1.4",
         "kea-subscriptions": "^3.0.0",
         "kea-test-utils": "^0.2.4",
         "kea-waitfor": "^0.2.1",
