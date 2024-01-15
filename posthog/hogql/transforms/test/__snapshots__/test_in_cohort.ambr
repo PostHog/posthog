@@ -5,9 +5,6 @@
   
   SELECT events.event AS event 
   FROM events LEFT JOIN (
-  SELECT person_static_cohort.person_id AS cohort_person_id, 1 AS matched, person_static_cohort.cohort_id AS cohort_id 
-  FROM person_static_cohort 
-  WHERE and(equals(person_static_cohort.team_id, 420), in(person_static_cohort.cohort_id, [1])) UNION ALL 
   SELECT cohortpeople.person_id AS cohort_person_id, 1 AS matched, cohortpeople.cohort_id AS cohort_id 
   FROM cohortpeople 
   WHERE and(equals(cohortpeople.team_id, 420), in(cohortpeople.cohort_id, [1])) 
@@ -21,9 +18,6 @@
   
   SELECT event 
   FROM events LEFT JOIN (
-  SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id 
-  FROM static_cohort_people 
-  WHERE in(cohort_id, [1]) UNION ALL 
   SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id 
   FROM raw_cohort_people 
   WHERE in(cohort_id, [1]) 
@@ -41,12 +35,7 @@
   FROM events LEFT JOIN (
   SELECT person_static_cohort.person_id AS cohort_person_id, 1 AS matched, person_static_cohort.cohort_id AS cohort_id 
   FROM person_static_cohort 
-  WHERE and(equals(person_static_cohort.team_id, 420), in(person_static_cohort.cohort_id, [2])) UNION ALL 
-  SELECT cohortpeople.person_id AS cohort_person_id, 1 AS matched, cohortpeople.cohort_id AS cohort_id 
-  FROM cohortpeople 
-  WHERE and(equals(cohortpeople.team_id, 420), in(cohortpeople.cohort_id, [2])) 
-  GROUP BY cohort_person_id, cohortpeople.cohort_id, cohortpeople.version 
-  HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0)) AS __in_cohort ON equals(__in_cohort.cohort_person_id, events.person_id) 
+  WHERE and(equals(person_static_cohort.team_id, 420), in(person_static_cohort.cohort_id, [2]))) AS __in_cohort ON equals(__in_cohort.cohort_person_id, events.person_id) 
   WHERE and(equals(events.team_id, 420), 1, ifNull(equals(__in_cohort.matched, 1), 0)) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1
@@ -57,12 +46,7 @@
   FROM events LEFT JOIN (
   SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id 
   FROM static_cohort_people 
-  WHERE in(cohort_id, [2]) UNION ALL 
-  SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id 
-  FROM raw_cohort_people 
-  WHERE in(cohort_id, [2]) 
-  GROUP BY cohort_person_id, cohort_id, version 
-  HAVING greater(sum(sign), 0)) AS __in_cohort ON equals(__in_cohort.cohort_person_id, person_id) 
+  WHERE in(cohort_id, [2])) AS __in_cohort ON equals(__in_cohort.cohort_person_id, person_id) 
   WHERE and(1, equals(__in_cohort.matched, 1)) 
   LIMIT 100
   '''
@@ -75,12 +59,7 @@
   FROM events LEFT JOIN (
   SELECT person_static_cohort.person_id AS cohort_person_id, 1 AS matched, person_static_cohort.cohort_id AS cohort_id 
   FROM person_static_cohort 
-  WHERE and(equals(person_static_cohort.team_id, 420), in(person_static_cohort.cohort_id, [3])) UNION ALL 
-  SELECT cohortpeople.person_id AS cohort_person_id, 1 AS matched, cohortpeople.cohort_id AS cohort_id 
-  FROM cohortpeople 
-  WHERE and(equals(cohortpeople.team_id, 420), in(cohortpeople.cohort_id, [3])) 
-  GROUP BY cohort_person_id, cohortpeople.cohort_id, cohortpeople.version 
-  HAVING ifNull(greater(sum(cohortpeople.sign), 0), 0)) AS __in_cohort ON equals(__in_cohort.cohort_person_id, events.person_id) 
+  WHERE and(equals(person_static_cohort.team_id, 420), in(person_static_cohort.cohort_id, [3]))) AS __in_cohort ON equals(__in_cohort.cohort_person_id, events.person_id) 
   WHERE and(equals(events.team_id, 420), 1, ifNull(equals(__in_cohort.matched, 1), 0)) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1
@@ -91,12 +70,7 @@
   FROM events LEFT JOIN (
   SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id 
   FROM static_cohort_people 
-  WHERE in(cohort_id, [3]) UNION ALL 
-  SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id 
-  FROM raw_cohort_people 
-  WHERE in(cohort_id, [3]) 
-  GROUP BY cohort_person_id, cohort_id, version 
-  HAVING greater(sum(sign), 0)) AS __in_cohort ON equals(__in_cohort.cohort_person_id, person_id) 
+  WHERE in(cohort_id, [3])) AS __in_cohort ON equals(__in_cohort.cohort_person_id, person_id) 
   WHERE and(1, equals(__in_cohort.matched, 1)) 
   LIMIT 100
   '''

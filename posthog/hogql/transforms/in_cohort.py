@@ -1,4 +1,4 @@
-from typing import List, Optional, cast, Literal
+from typing import List, Optional, Tuple, cast, Literal
 
 
 from posthog.hogql import ast
@@ -40,6 +40,9 @@ class CohortCompareOperationTraverser(TraversingVisitor):
             self.ops.append(node)
 
 
+StaticOrDynamic = Literal["dynamic"] | Literal["static"]
+
+
 class MultipleInCohortResolver(TraversingVisitor):
     dialect: Literal["hogql", "clickhouse"]
 
@@ -70,17 +73,17 @@ class MultipleInCohortResolver(TraversingVisitor):
             return
 
         cohorts = self._resolve_cohorts(compare_operations)
-        self._add_join(cohort_ids=cohorts, select=node, compare_operations=compare_operations)
+        self._add_join(cohorts=cohorts, select=node, compare_operations=compare_operations)
 
         for compare_node in compare_operations:
             compare_node.op = ast.CompareOperationOp.Eq
             compare_node.left = ast.Constant(value=1)
             compare_node.right = ast.Constant(value=1)
 
-    def _resolve_cohorts(self, compare_operations: List[ast.CompareOperation]) -> List[int]:
+    def _resolve_cohorts(self, compare_operations: List[ast.CompareOperation]) -> List[Tuple[int, StaticOrDynamic]]:
         from posthog.models import Cohort
 
-        cohort_ids: List[int] = []
+        cohorts: List[Tuple[int, StaticOrDynamic]] = []
 
         for node in compare_operations:
             arg = node.right
@@ -95,7 +98,10 @@ class MultipleInCohortResolver(TraversingVisitor):
                     if node.op == ast.CompareOperationOp.NotInCohort:
                         raise HogQLException("NOT IN COHORT is not supported by this cohort mode")
 
-                    cohort_ids.append(int_cohorts[0][0])
+                    id = int_cohorts[0][0]
+                    is_static = int_cohorts[0][1]
+
+                    cohorts.append((id, "static" if is_static else "dynamic"))
                     continue
                 raise HogQLException(f"Could not find cohort with id {arg.value}", node=arg)
 
@@ -107,7 +113,10 @@ class MultipleInCohortResolver(TraversingVisitor):
                     if node.op == ast.CompareOperationOp.NotInCohort:
                         raise HogQLException("NOT IN COHORT is not supported by this cohort mode")
 
-                    cohort_ids.append(str_cohorts[0][0])
+                    id = str_cohorts[0][0]
+                    is_static = str_cohorts[0][1]
+
+                    cohorts.append((id, "static" if is_static else "dynamic"))
                     continue
                 elif len(str_cohorts) > 1:
                     raise HogQLException(f"Found multiple cohorts with name '{arg.value}'", node=arg)
@@ -115,9 +124,14 @@ class MultipleInCohortResolver(TraversingVisitor):
 
             raise HogQLException("cohort() takes exactly one string or integer argument", node=arg)
 
-        return cohort_ids
+        return cohorts
 
-    def _add_join(self, cohort_ids: List[int], select: ast.SelectQuery, compare_operations: List[ast.CompareOperation]):
+    def _add_join(
+        self,
+        cohorts: List[Tuple[int, StaticOrDynamic]],
+        select: ast.SelectQuery,
+        compare_operations: List[ast.CompareOperation],
+    ):
         must_add_join = True
         last_join = select.select_from
 
@@ -131,26 +145,52 @@ class MultipleInCohortResolver(TraversingVisitor):
                 break
 
         if must_add_join:
+            any_static = any(is_static == "static" for id, is_static in cohorts)
+            any_dynamic = any(is_static == "dynamic" for id, is_static in cohorts)
+
             cohort_in = ast.CompareOperation(
                 left=ast.Field(chain=["cohort_id"]),
                 op=ast.CompareOperationOp.In,
-                right=ast.Array(exprs=[ast.Constant(value=id) for id in cohort_ids]),
+                right=ast.Array(exprs=[ast.Constant(value=id) for id, is_static in cohorts]),
             )
 
-            table_query = parse_select(
-                """
-                    SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id
-                    FROM static_cohort_people
-                    WHERE {cohort_clause}
-                    UNION ALL
-                    SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id
-                    FROM raw_cohort_people
-                    WHERE {cohort_clause}
-                    GROUP BY cohort_person_id, cohort_id, version
-                    HAVING sum(sign) > 0
-                """,
-                placeholders={"cohort_clause": cohort_in},
-            )
+            # TODO: Extract these `SELECT` clauses out into their own vars and inject
+            # via placeholders once the HogQL SELECT placeholders functionality is done
+            if any_static and any_dynamic:
+                table_query = parse_select(
+                    """
+                        SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id
+                        FROM static_cohort_people
+                        WHERE {cohort_clause}
+                        UNION ALL
+                        SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id
+                        FROM raw_cohort_people
+                        WHERE {cohort_clause}
+                        GROUP BY cohort_person_id, cohort_id, version
+                        HAVING sum(sign) > 0
+                    """,
+                    placeholders={"cohort_clause": cohort_in},
+                )
+            elif any_static:
+                table_query = parse_select(
+                    """
+                        SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id
+                        FROM static_cohort_people
+                        WHERE {cohort_clause}
+                    """,
+                    placeholders={"cohort_clause": cohort_in},
+                )
+            else:
+                table_query = parse_select(
+                    """
+                        SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id
+                        FROM raw_cohort_people
+                        WHERE {cohort_clause}
+                        GROUP BY cohort_person_id, cohort_id, version
+                        HAVING sum(sign) > 0
+                    """,
+                    placeholders={"cohort_clause": cohort_in},
+                )
 
             new_join = ast.JoinExpr(
                 alias=f"__in_cohort",
