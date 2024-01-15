@@ -323,7 +323,7 @@ describe('filtersToQueryNode', () => {
             const query: TrendsQuery = {
                 kind: NodeKind.TrendsQuery,
                 trendsFilter: {
-                    smoothing_intervals: 1,
+                    smoothingIntervals: 1,
                     show_legend: true,
                     hidden_legend_indexes: [0, 10],
                     compare: true,

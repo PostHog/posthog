@@ -6,7 +6,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useEffect, useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { formatBreakdownLabel, isNullBreakdown, isOtherBreakdown } from 'scenes/insights/utils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -42,7 +42,9 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
 
         setData([
             {
-                labels: _data.map((item) => item.label),
+                labels: _data.map((item) =>
+                    isOtherBreakdown(item.label) ? 'Other' : isNullBreakdown(item.label) ? 'None' : item.label
+                ),
                 data: _data.map((item) => item.aggregated_value),
                 actions: _data.map((item) => item.action),
                 personsValues: _data.map((item) => item.persons),

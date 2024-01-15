@@ -644,8 +644,9 @@ unicodecsv==0.14.1
     # via djangorestframework-csv
 uritemplate==4.1.1
     # via drf-spectacular
-urllib3[secure,socks]==1.26.13
+urllib3[secure,socks]==1.26.18
     # via
+    #   -r requirements.in
     #   botocore
     #   django-revproxy
     #   geoip2
@@ -654,6 +655,7 @@ urllib3[secure,socks]==1.26.13
     #   selenium
     #   sentry-sdk
     #   snowflake-connector-python
+    #   urllib3
 urllib3-secure-extra==0.1.0
     # via urllib3
 vine==5.0.0
