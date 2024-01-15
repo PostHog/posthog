@@ -1,3 +1,5 @@
+import { AvailableFeature } from '~/types'
+
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
@@ -158,6 +160,11 @@ export const SettingsMap: SettingSection[] = [
                 id: 'replay-ingestion',
                 title: 'Ingestion controls',
                 component: <ReplayCostControl />,
+                features: [
+                    AvailableFeature.SESSION_REPLAY_SAMPLING,
+                    AvailableFeature.FEATURE_FLAG_BASED_RECORDING,
+                    AvailableFeature.RECORDING_DURATION_MINIMUM,
+                ],
             },
         ],
     },
