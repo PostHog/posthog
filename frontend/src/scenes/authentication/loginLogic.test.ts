@@ -1,9 +1,13 @@
 import { router } from 'kea-router'
 import { testUtilsPlugin } from 'kea-test-utils'
+import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { handleLoginRedirect, loginLogic } from 'scenes/authentication/loginLogic'
 
 import { initKea } from '~/initKea'
 import { initKeaTests } from '~/test/init'
+import { AppContext } from '~/types'
+
+window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
 
 describe('loginLogic', () => {
     describe('redirect vulnerability', () => {
