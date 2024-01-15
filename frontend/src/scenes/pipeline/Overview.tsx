@@ -6,7 +6,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { urls } from 'scenes/urls'
 
-import { PipelineAppTabs, PipelineTabs } from '~/types'
+import { PipelineAppKind, PipelineAppTab } from '~/types'
 
 import { DestinationMoreOverlay } from './Destinations'
 import { pipelineOverviewLogic } from './overviewLogic'
@@ -129,7 +129,7 @@ export function Overview(): JSX.Element {
                             description={t.description}
                             order={1} // TODO
                             // enabled={} // TODO
-                            to={urls.pipelineApp(PipelineTabs.Transformations, t.id, PipelineAppTabs.Configuration)}
+                            to={urls.pipelineApp(PipelineAppKind.Transformation, t.id, PipelineAppTab.Configuration)}
                             moreOverlay={<TransformationsMoreOverlay pluginConfig={{}} />}
                         />
                     ))}
