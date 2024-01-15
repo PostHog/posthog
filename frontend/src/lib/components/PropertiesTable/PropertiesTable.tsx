@@ -144,7 +144,7 @@ function ValueDisplay({
                     <Tooltip
                         title={
                             isTypeMismatched
-                                ? `This value's type is "${valueType}", which is incompatible with the property's defined type "${propertyType}". Click to update the property definition.`
+                                ? `This value is of type "${valueType}", which is incompatible with the property's defined type "${propertyType}". Click to update the property definition.`
                                 : null
                         }
                         delayMs={0}
