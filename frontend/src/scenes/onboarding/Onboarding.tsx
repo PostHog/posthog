@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { useEffect, useState } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
