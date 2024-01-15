@@ -183,8 +183,21 @@ def list_recordings_response(
 
 def summarize_recording(recording: SessionRecording, user: User, team: Team):
     session_metadata = SessionReplayEvents().get_metadata(session_id=str(recording.session_id), team=team)
+
     session_events = SessionReplayEvents().get_events(
-        session_id=str(recording.session_id), team=team, metadata=session_metadata
+        session_id=str(recording.session_id),
+        team=team,
+        metadata=session_metadata,
+        events_to_ignore=[
+            "$feature_flag_called",
+            "$raw_user_agent",
+            "$lib_version_major",
+            "$lib_version_minor",
+            "$lib_version_patch",
+            "$ip",
+            "$host",
+            "$exception_stack_trace_raw",
+        ],
     )
     instance_region = get_instance_region() or "HOBBY"
     messages = [
@@ -194,9 +207,7 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
             Session Replay is PostHog's tool to record visits to web sites and apps.
             We also gather events that occur like mouse clicks and key presses.
             You write two or three sentence concise and simple summaries of those sessions based on a prompt.
-            You are more likely to mention errors or things that look like business success
-            such as checkout or sale events.
-            You ignore $featureFlagCalled.
+            You are more likely to mention errors or things that look like business success such as checkout events.
             You don't help with other knowledge.""",
         },
         {
@@ -223,7 +234,7 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
     ]
     result = openai.ChatCompletion.create(
         model="gpt-4-1106-preview",  # allows 128k tokens
-        temperature=0.5,
+        temperature=0.7,
         messages=messages,
         user=f"{instance_region}/{user.pk}",  # The user ID is for tracking within OpenAI in case of overuse/abuse
     )

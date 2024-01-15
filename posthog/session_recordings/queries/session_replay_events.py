@@ -148,28 +148,34 @@ class SessionReplayEvents:
             console_error_count=replay[11],
         )
 
-    def get_events(self, session_id: str, team: Team, metadata: RecordingMetadata) -> Tuple[List | None, List | None]:
+    def get_events(
+        self, session_id: str, team: Team, metadata: RecordingMetadata, events_to_ignore: List[str] | None
+    ) -> Tuple[List | None, List | None]:
         from posthog.schema import HogQLQuery, HogQLQueryResponse
         from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 
-        oq = HogQLQuery(
-            query="""
+        q = """
             select event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type
             from events
             where timestamp >= {start_time} and timestamp <= {end_time}
             and $session_id = {session_id}
-            and event not in ('$feature_flag_called')
-            """,
+            """
+        if events_to_ignore:
+            q += " and event not in {events_to_ignore}"
+
+        hq = HogQLQuery(
+            query=q,
             values={
                 "start_time": metadata["start_time"],
                 "end_time": metadata["end_time"],
                 "session_id": session_id,
+                "events_to_ignore": events_to_ignore,
             },
         )
 
         result: HogQLQueryResponse = HogQLQueryRunner(
             team=team,
-            query=oq,
+            query=hq,
         ).calculate()
 
         return reduce_elements_chain(result.columns, result.results)
