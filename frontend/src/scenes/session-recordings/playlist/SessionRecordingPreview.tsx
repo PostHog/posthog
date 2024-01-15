@@ -27,6 +27,7 @@ export interface SessionRecordingPreviewProps {
     pinned?: boolean
     summariseFn?: (recording: SessionRecordingType) => void
     sessionSummary?: string
+    sessionSummaryLoading?: boolean
 }
 
 function RecordingDuration({
@@ -235,6 +236,7 @@ export function SessionRecordingPreview({
     pinned,
     summariseFn,
     sessionSummary,
+    sessionSummaryLoading,
 }: SessionRecordingPreviewProps): JSX.Element {
     const { durationTypeToShow } = useValues(playerSettingsLogic)
 
@@ -242,47 +244,52 @@ export function SessionRecordingPreview({
 
     const [showSummary, setShowSummary] = useState<boolean>(false)
 
+    const [summaryIsVisible, setSummaryIsVisible] = useState<boolean>(false)
+
     return (
         <DraggableToNotebook href={urls.replaySingle(recording.id)}>
             <div
                 key={recording.id}
                 className={clsx('SessionRecordingPreview', isActive && 'SessionRecordingPreview--active')}
                 onClick={() => onClick?.()}
+                onMouseEnter={() => setSummaryIsVisible(true)}
+                onMouseLeave={() => setSummaryIsVisible(false)}
             >
+                {summariseFn && (
+                    <Popover
+                        showArrow={true}
+                        visible={showSummary && summaryIsVisible}
+                        placement="right"
+                        onClickOutside={() => setShowSummary(false)}
+                        // TODO should use the loader from the logic rather than assume spinner
+                        overlay={
+                            sessionSummaryLoading || !sessionSummary ? (
+                                <Spinner />
+                            ) : (
+                                <div className="text-xl max-w-1/2 sm:max-w-3/5">{sessionSummary}</div>
+                            )
+                        }
+                    >
+                        <LemonButton
+                            size="small"
+                            type="primary"
+                            className={clsx(summaryIsVisible ? 'block' : 'hidden', 'absolute right-px top-px')}
+                            icon={<IconAutoAwesome />}
+                            onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                setShowSummary(!showSummary)
+                                summariseFn(recording)
+                            }}
+                        />
+                    </Popover>
+                )}
                 <div className="grow overflow-hidden space-y-px">
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-1 shrink overflow-hidden">
                             <div className="truncate font-medium text-link ph-no-capture">
                                 {asDisplay(recording.person)}
                             </div>
-                            {summariseFn && (
-                                <div>
-                                    <Popover
-                                        showArrow={true}
-                                        visible={showSummary}
-                                        placement="right"
-                                        onClickOutside={() => setShowSummary(false)}
-                                        // TODO should use the loader from the logic rather than assume spinner
-                                        overlay={
-                                            <div className="text-xl max-w-1/2 sm:max-w-3/5">
-                                                {sessionSummary || <Spinner />}
-                                            </div>
-                                        }
-                                    >
-                                        <LemonButton
-                                            size="small"
-                                            type="primary"
-                                            icon={<IconAutoAwesome />}
-                                            onClick={(e) => {
-                                                e.preventDefault()
-                                                e.stopPropagation()
-                                                setShowSummary(!showSummary)
-                                                summariseFn(recording)
-                                            }}
-                                        />
-                                    </Popover>
-                                </div>
-                            )}
                         </div>
                         <div className="flex-1" />
 

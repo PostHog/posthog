@@ -522,10 +522,13 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         result = openai.ChatCompletion.create(
             # model="gpt-4-1106-preview", 128k tokens
-            model="gpt-3.5-turbo",
-            temperature=0.7,
+            model="gpt-4",
+            # model="./models/llama-2-13b-chat.bin",
+            temperature=0.5,
             messages=messages,
             user=f"{instance_region}/{user.pk}",  # The user ID is for tracking within OpenAI in case of overuse/abuse
+            # api_base="http://localhost:3001/v1",
+            # api_key=""
         )
         content: str = result.get("choices", [{}])[0].get("message", {}).get("content", "")
 

@@ -93,6 +93,7 @@ function RecordingsLists(): JSX.Element {
         showOtherRecordings,
         recordingsCount,
         sessionSummary,
+        sessionSummaryLoading,
     } = useValues(sessionRecordingsPlaylistLogic)
     const {
         setSelectedRecordingId,
@@ -258,6 +259,7 @@ function RecordingsLists(): JSX.Element {
                                               pinned={false}
                                               summariseFn={onSummarizeClick}
                                               sessionSummary={sessionSummary}
+                                              sessionSummaryLoading={sessionSummaryLoading}
                                           />
                                       </div>
                                   ))
