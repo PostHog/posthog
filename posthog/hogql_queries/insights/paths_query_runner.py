@@ -300,9 +300,27 @@ class PathsQueryRunner(QueryRunner):
 
         return select
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
-        # TODO: Weight filter
+    def get_edge_weight_exprs(self) -> list[ast.Expr]:
+        conditions = []
+        if self.query.pathsFilter.min_edge_weight:
+            conditions.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["event_count"]),
+                    right=ast.Constant(value=self.query.pathsFilter.min_edge_weight),
+                )
+            )
+        if self.query.pathsFilter.max_edge_weight:
+            conditions.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=["event_count"]),
+                    right=ast.Constant(value=self.query.pathsFilter.max_edge_weight),
+                )
+            )
+        return conditions
 
+    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
         placeholders = {
             "paths_per_person_query": self.paths_per_person_query(),
         }
@@ -326,6 +344,11 @@ class PathsQueryRunner(QueryRunner):
                 timings=self.timings,
             )
             paths_query.limit = ast.Constant(value=self.query.pathsFilter.edge_limit or EDGE_LIMIT_DEFAULT)
+
+            conditions = self.get_edge_weight_exprs()
+            if conditions:
+                paths_query.having = ast.And(exprs=conditions)
+
         return paths_query
 
     @cached_property

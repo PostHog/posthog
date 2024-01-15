@@ -1873,7 +1873,9 @@ export interface PathsFilterType extends FilterType {
     local_path_cleaning_filters?: PathCleaningFilter[]
     /** @asType integer */
     edge_limit?: number | undefined // Paths edge limit
+    /** @asType integer */
     min_edge_weight?: number | undefined // Paths
+    /** @asType integer */
     max_edge_weight?: number | undefined // Paths
 
     // persons only

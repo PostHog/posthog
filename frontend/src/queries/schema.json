@@ -2211,10 +2211,10 @@
                     "type": "array"
                 },
                 "max_edge_weight": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "min_edge_weight": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "path_groupings": {
                     "items": {

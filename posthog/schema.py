@@ -398,8 +398,8 @@ class PathsFilter(BaseModel):
     funnel_paths: Optional[FunnelPathType] = None
     include_event_types: Optional[List[PathType]] = None
     local_path_cleaning_filters: Optional[List[PathCleaningFilter]] = None
-    max_edge_weight: Optional[float] = None
-    min_edge_weight: Optional[float] = None
+    max_edge_weight: Optional[int] = None
+    min_edge_weight: Optional[int] = None
     path_groupings: Optional[List[str]] = None
     path_replacements: Optional[bool] = None
     path_type: Optional[PathType] = None
