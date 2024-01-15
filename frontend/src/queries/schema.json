@@ -2181,7 +2181,7 @@
             "description": "`PathsFilterType` minus everything inherited from `FilterType` and persons modal related params",
             "properties": {
                 "edge_limit": {
-                    "type": "number"
+                    "type": "integer"
                 },
                 "end_point": {
                     "type": "string"
@@ -2235,7 +2235,7 @@
                     "type": "string"
                 },
                 "step_limit": {
-                    "type": "number"
+                    "type": "integer"
                 }
             },
             "type": "object"
@@ -2934,6 +2934,37 @@
                         "results": {
                             "items": {
                                 "$ref": "#/definitions/RetentionResult"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "hogql": {
+                            "type": "string"
+                        },
+                        "is_cached": {
+                            "type": "boolean"
+                        },
+                        "last_refresh": {
+                            "type": "string"
+                        },
+                        "next_allowed_client_refresh": {
+                            "type": "string"
+                        },
+                        "results": {
+                            "items": {
+                                "type": "object"
                             },
                             "type": "array"
                         },

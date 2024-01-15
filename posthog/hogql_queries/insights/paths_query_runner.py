@@ -42,6 +42,7 @@ class PathsQueryRunner(QueryRunner):
         limit_context: Optional[LimitContext] = None,
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+        self.event_in_session_limit = self.query.pathsFilter.step_limit or EVENT_IN_SESSION_LIMIT_DEFAULT
 
     @property
     def group_type_index(self) -> int | None:
@@ -65,8 +66,13 @@ class PathsQueryRunner(QueryRunner):
             conditions.append(ast.Or(exprs=or_conditions))
 
         if self.query.pathsFilter.exclude_events:
-            # TODO: SQL Injection?
-            conditions.append(parse_expr(f"NOT path_item IN {self.query.pathsFilter.exclude_events}"))
+            conditions.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotIn,
+                    left=ast.Field(chain=["path_item"]),
+                    right=ast.Constant(value=self.query.pathsFilter.exclude_events),
+                )
+            )
 
         if conditions:
             return ast.And(exprs=conditions)
@@ -151,12 +157,12 @@ class PathsQueryRunner(QueryRunner):
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=field_to_compare,
-                    right=ast.Constant(value=self.query_date_range.date_from()),
+                    right=self.query_date_range.date_from_to_start_of_interval_hogql(),
                 ),
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
                     left=field_to_compare,
-                    right=ast.Constant(value=self.query_date_range.date_to()),
+                    right=self.query_date_range.date_to_as_hogql(),
                 ),
             ]
         )
@@ -172,7 +178,7 @@ class PathsQueryRunner(QueryRunner):
         fields_to_include = ["path", "timings"]
         extra_fields = []
         return [
-            parse_expr(f"arraySlice(filtered_{field}, 1, {EVENT_IN_SESSION_LIMIT_DEFAULT}) as limited_{field}")
+            parse_expr(f"arraySlice(filtered_{field}, 1, {self.event_in_session_limit}) as limited_{field}")
             for field in fields_to_include + extra_fields
         ]
 
@@ -285,6 +291,7 @@ class PathsQueryRunner(QueryRunner):
                 placeholders,
                 timings=self.timings,
             )
+            paths_query.limit = ast.Constant(value=self.query.pathsFilter.edge_limit or EDGE_LIMIT_DEFAULT)
         return paths_query
 
     @cached_property

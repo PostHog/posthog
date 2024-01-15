@@ -391,7 +391,7 @@ class PathsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    edge_limit: Optional[float] = None
+    edge_limit: Optional[int] = None
     end_point: Optional[str] = None
     exclude_events: Optional[List[str]] = None
     funnel_filter: Optional[Dict[str, Any]] = None
@@ -405,7 +405,7 @@ class PathsFilter(BaseModel):
     path_type: Optional[PathType] = None
     paths_hogql_expression: Optional[str] = None
     start_point: Optional[str] = None
-    step_limit: Optional[float] = None
+    step_limit: Optional[int] = None
 
 
 class PropertyFilterType(str, Enum):
