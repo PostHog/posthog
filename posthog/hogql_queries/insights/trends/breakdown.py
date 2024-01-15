@@ -73,10 +73,6 @@ class Breakdown:
                 expr=parse_expr(self.query.breakdownFilter.breakdown),
             )
         elif self.query.breakdownFilter.breakdown_type == "cohort":
-            cohort_breakdown = (
-                0 if self.query.breakdownFilter.breakdown == "all" else int(self.query.breakdownFilter.breakdown)
-            )
-        elif self.query.breakdownFilter.breakdown_type == "cohort":
             if self.modifiers.inCohortVia == InCohortVia.leftjoin_conjoined:
                 return ast.Alias(
                     alias="breakdown_value",
@@ -84,8 +80,8 @@ class Breakdown:
                 )
 
             cohort_breakdown = (
-                0 if self.query.breakdownFilter.breakdown == "all" else int(self.query.breakdownFilter.breakdown)
-            )  # type: ignore
+                0 if self.query.breakdownFilter.breakdown == "all" else int(self.query.breakdownFilter.breakdown)  # type: ignore
+            )
             return ast.Alias(
                 alias="breakdown_value",
                 expr=ast.Constant(value=cohort_breakdown),
