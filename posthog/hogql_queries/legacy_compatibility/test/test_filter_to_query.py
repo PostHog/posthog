@@ -1295,9 +1295,9 @@ class TestFilterToQuery(BaseTest):
             TrendsFilter(
                 smoothingIntervals=2,
                 compare=True,
-                aggregation_axis_format=AggregationAxisFormat.duration_ms,
-                aggregation_axis_prefix="pre",
-                aggregation_axis_postfix="post",
+                aggregationAxisFormat=AggregationAxisFormat.duration_ms,
+                aggregationAxisPrefix="pre",
+                aggregationAxisPostfix="post",
                 formula="A + B",
                 display=ChartDisplayType.ActionsAreaGraph,
                 decimalPlaces=5,
