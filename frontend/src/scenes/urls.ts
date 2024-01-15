@@ -147,12 +147,12 @@ export const urls = {
         combineUrl(`/app/${pluginConfigId}/history`, searchParams).url,
     appLogs: (pluginConfigId: string | number, searchParams?: Record<string, any>): string =>
         combineUrl(`/app/${pluginConfigId}/logs`, searchParams).url,
-    projectCreateFirst: (): string => '/create',
+    organizationCreateFirst: (): string => '/create-organization',
+    projectCreateFirst: (): string => '/organization/create-project',
     projectHomepage: (): string => '/',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,
     organizationCreationConfirm: (): string => '/organization/confirm-creation',
-    organizationCreateFirst: (): string => '/organization/create',
     toolbarLaunch: (): string => '/toolbar',
     site: (url: string): string => `/site/${url === ':url' ? url : encodeURIComponent(url)}`,
     // Onboarding / setup routes

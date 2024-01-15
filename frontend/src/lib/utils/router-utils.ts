@@ -2,14 +2,23 @@ import { TeamType } from '~/types'
 
 import { getCurrentTeamId } from './getAppContext'
 
-const pathsWithoutProjectId = ['api', 'me', 'instance', 'organization', 'preflight', 'login', 'signup']
+const pathsWithoutProjectId = [
+    'api',
+    'me',
+    'instance',
+    'organization',
+    'preflight',
+    'login',
+    'signup',
+    'create-organization',
+]
 
 function isPathWithoutProjectId(path: string): boolean {
     const firstPart = path.split('/')[1]
     return pathsWithoutProjectId.includes(firstPart)
 }
 
-function addProjectIdUnlessPresent(path: string, teamId: TeamType['id']): string {
+function addProjectIdUnlessPresent(path: string, teamId?: TeamType['id']): string {
     if (path.match(/^\/project\/\d+/)) {
         return path
     }
