@@ -90,7 +90,7 @@ const RELEVANT_GROUPS_MAP = {
     localhost: ['f58xx1143yvt', 't3rdjq2z0x7p'], // localhost has IDs for the test status page - that way we really only show it if local dev and overridden to use the other status page
 }
 
-export const REFRESH_INTERVAL = 60000
+export const REFRESH_INTERVAL = 60 * 1000 * 5 // 5 minutes
 
 export const sidePanelStatusLogic = kea<sidePanelStatusLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelStatusLogic']),

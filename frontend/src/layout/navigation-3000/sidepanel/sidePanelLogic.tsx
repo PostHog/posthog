@@ -1,4 +1,3 @@
-import { LemonButtonProps } from '@posthog/lemon-ui'
 import { afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { activationLogic } from 'lib/components/ActivationSidebar/activationLogic'
@@ -137,16 +136,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
                     return true
                 })
-            },
-        ],
-
-        tabsStatus: [
-            (s) => [s.enabledTabs, s.status],
-            (enabledTabs, status): Record<SidePanelTab, LemonButtonProps['status']> => {
-                return enabledTabs.reduce((acc, tab) => {
-                    acc[tab] = tab === SidePanelTab.Status && status !== 'operational' ? 'danger' : 'alt'
-                    return acc
-                }, {} as Record<SidePanelTab, LemonButtonProps['status']>)
             },
         ],
 
