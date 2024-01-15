@@ -15,13 +15,14 @@ import {
     IconTestTube,
     IconToggle,
 } from '@posthog/icons'
-import { LemonButton, lemonToast, Spinner } from '@posthog/lemon-ui'
+import { lemonToast, Spinner } from '@posthog/lemon-ui'
 import { captureException } from '@sentry/react'
 import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconPlusMini } from 'lib/lemon-ui/icons'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import React from 'react'
@@ -339,28 +340,22 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                                 identifier: 'pinned-dashboards-dropdown',
                                 dropdown: {
                                     overlay: (
-                                        <div className="w-50">
-                                            <p className="text-xs text-text-secondary-3000 uppercase font-bold px-2 mt-2 mb-1">
-                                                Pinned dashboards
-                                            </p>
-                                            {dashboardsLoading ? (
-                                                <div className="px-2 py-1 text-text-secondary-3000">
-                                                    <Spinner /> Loading…
-                                                </div>
-                                            ) : (
-                                                <>
-                                                    {pinnedDashboards.map((dashboard) => (
-                                                        <LemonButton
-                                                            key={dashboard.id}
-                                                            to={urls.dashboard(dashboard.id)}
-                                                            fullWidth
-                                                        >
-                                                            {dashboard.name}
-                                                        </LemonButton>
-                                                    ))}
-                                                </>
-                                            )}
-                                        </div>
+                                        <LemonMenuOverlay
+                                            items={[
+                                                {
+                                                    title: 'Pinned dashboards',
+                                                    items: pinnedDashboards.map((dashboard) => ({
+                                                        label: dashboard.name,
+                                                        to: urls.dashboard(dashboard.id),
+                                                    })),
+                                                    footer: dashboardsLoading && (
+                                                        <div className="px-2 py-1 text-text-secondary-3000">
+                                                            <Spinner /> Loading…
+                                                        </div>
+                                                    ),
+                                                },
+                                            ]}
+                                        />
                                     ),
                                     placement: 'bottom-end',
                                 },
