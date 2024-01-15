@@ -419,6 +419,10 @@ export const insightLogic = kea<insightLogicType>([
                 pathname.startsWith('/home') ||
                 pathname.startsWith('/shared-dashboard'),
         ],
+        isInExperimentContext: [
+            () => [router.selectors.location],
+            ({ pathname }) => /^.*\/experiments\/\d+$/.test(pathname),
+        ],
         allEventNames: [
             (s) => [s.filters, actionsModel.selectors.actions],
             (filters, actions: ActionType[]) => {
