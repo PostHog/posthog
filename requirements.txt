@@ -276,7 +276,7 @@ h11==0.13.0
     # via wsproto
 hexbytes==1.0.0
     # via dlt
-hogql-parser==1.0.2
+hogql-parser==1.0.3
     # via -r requirements.in
 humanize==4.9.0
     # via dlt
