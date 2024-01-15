@@ -1,15 +1,21 @@
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { Editor, isTextSelection } from '@tiptap/core'
 import { BubbleMenu } from '@tiptap/react'
-import { IconBold, IconDelete, IconItalic, IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
-import { isURL } from 'lib/utils'
+import { useActions } from 'kea'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { IconBold, IconComment, IconDelete, IconItalic, IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { isURL, uuid } from 'lib/utils'
 import { useRef } from 'react'
 
 import NotebookIconHeading from './NotebookIconHeading'
+import { notebookLogic } from './notebookLogic'
 
 export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
+    const { insertComment } = useActions(notebookLogic)
     const { href, target } = editor.getAttributes('link')
     const menuRef = useRef<HTMLDivElement>(null)
+    const hasDiscussions = useFeatureFlag('DISCUSSIONS')
+    const commentSelected = editor.isActive('comment')
 
     const setLink = (href: string): void => {
         editor.commands.setMark('link', { href: href })
@@ -97,6 +103,20 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
                         <LemonButton
                             onClick={() => editor.chain().focus().setMark('link').run()}
                             icon={<IconLink />}
+                            size="small"
+                        />
+                    </>
+                )}
+                {hasDiscussions && !commentSelected && (
+                    <>
+                        <LemonDivider vertical />
+                        <LemonButton
+                            onClick={() => {
+                                const markId = uuid()
+                                editor.commands.setMark('comment', { id: markId })
+                                insertComment({ type: 'mark', id: markId })
+                            }}
+                            icon={<IconComment className="w-4 h-4" />}
                             size="small"
                         />
                     </>

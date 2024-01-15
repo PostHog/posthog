@@ -200,7 +200,7 @@ function FirstURL(props: { startUrl: string | undefined }): JSX.Element {
 
 function PinnedIndicator(): JSX.Element | null {
     return (
-        <Tooltip placement="topRight" title={`This recording is pinned to this list.`}>
+        <Tooltip placement="topRight" title="This recording is pinned to this list.">
             <IconPinFilled className="text-sm text-orange shrink-0" />
         </Tooltip>
     )
@@ -208,7 +208,7 @@ function PinnedIndicator(): JSX.Element | null {
 
 function ViewedIndicator(props: { viewed: boolean }): JSX.Element | null {
     return !props.viewed ? (
-        <Tooltip title={'Indicates the recording has not been watched yet'}>
+        <Tooltip title="Indicates the recording has not been watched yet">
             <div className="w-2 h-2 m-1 rounded-full bg-primary-3000" aria-label="unwatched-recording-label" />
         </Tooltip>
     ) : null

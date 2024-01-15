@@ -28,6 +28,7 @@ from posthog.permissions import (
     TeamMemberAccessPermission,
 )
 from posthog.settings import EE_AVAILABLE
+from loginas.utils import is_impersonated_session
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
 
@@ -187,6 +188,7 @@ class EventDefinitionViewSet(
             organization_id=cast(UUIDT, self.organization_id),
             team_id=self.team_id,
             user=user,
+            was_impersonated=is_impersonated_session(request),
             item_id=instance_id,
             scope="EventDefinition",
             activity="deleted",

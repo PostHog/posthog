@@ -6,7 +6,7 @@ import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature } from '~/types'
 
 import { BatchExportsEditForm } from './BatchExportEditForm'
-import { batchExportsEditLogic, BatchExportsEditLogicProps } from './batchExportEditLogic'
+import { BatchExportsEditLogicProps } from './batchExportEditLogic'
 import { batchExportsEditSceneLogic } from './batchExportEditSceneLogic'
 
 export const scene: SceneExport = {
@@ -23,11 +23,10 @@ export function BatchExportsEditScene(): JSX.Element {
         return <></>
     }
     const { id } = useValues(batchExportsEditSceneLogic)
-    const { isNew } = useValues(batchExportsEditLogic({ id }))
 
     return (
         <>
-            <PageHeader title={`${isNew ? 'New' : 'Edit'} batch export`} />
+            <PageHeader />
 
             <div className="my-8" />
 

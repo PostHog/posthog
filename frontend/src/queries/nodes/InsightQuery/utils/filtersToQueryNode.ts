@@ -227,7 +227,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             filters.breakdown_type = 'event'
         }
 
-        query.breakdown = objectCleanWithEmpty({
+        query.breakdownFilter = objectCleanWithEmpty({
             breakdown_type: filters.breakdown_type,
             breakdown: filters.breakdown,
             breakdown_normalize_url: filters.breakdown_normalize_url,
@@ -250,7 +250,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     // trends filter
     if (isTrendsFilter(filters) && isTrendsQuery(query)) {
         query.trendsFilter = objectCleanWithEmpty({
-            smoothing_intervals: filters.smoothing_intervals,
+            smoothingIntervals: filters.smoothing_intervals,
             show_legend: filters.show_legend,
             hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
             compare: filters.compare,

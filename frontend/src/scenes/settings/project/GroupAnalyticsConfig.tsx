@@ -75,7 +75,7 @@ export function GroupAnalyticsConfig(): JSX.Element | null {
                 <LemonBanner type="info" className="mb-4">
                     Group types will show up here after you send your first event associated with a group. Take a look
                     at{' '}
-                    <Link to={`https://posthog.com/manual/group-analytics`} target="_blank">
+                    <Link to="https://posthog.com/manual/group-analytics" target="_blank">
                         this guide
                     </Link>
                     for more information on getting started.

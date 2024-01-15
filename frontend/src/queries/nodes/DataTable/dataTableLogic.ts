@@ -26,6 +26,8 @@ export interface DataTableLogicProps {
     dataKey: string
     query: DataTableNode
     context?: QueryContext
+    // Override the data logic node key if needed
+    dataNodeLogicKey?: string
 }
 
 export interface DataTableRow {
@@ -58,7 +60,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
         values: [
             featureFlagLogic,
             ['featureFlags'],
-            dataNodeLogic({ key: props.dataKey, query: props.query.source }),
+            dataNodeLogic({ key: props.dataNodeLogicKey ?? props.dataKey, query: props.query.source }),
             ['response', 'responseLoading', 'responseError'],
         ],
     })),

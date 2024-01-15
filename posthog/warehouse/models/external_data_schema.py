@@ -12,7 +12,7 @@ class ExternalDataSchema(CreatedMetaFields, UUIDModel):
         "posthog.ExternalDataSource", related_name="schemas", on_delete=models.CASCADE
     )
     table: models.ForeignKey = models.ForeignKey(
-        "posthog.DataWarehouseTable", on_delete=models.CASCADE, null=True, blank=True
+        "posthog.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True
     )
     should_sync: models.BooleanField = models.BooleanField(default=True)
     latest_error: models.TextField = models.TextField(

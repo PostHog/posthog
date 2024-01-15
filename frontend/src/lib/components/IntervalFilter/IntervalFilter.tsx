@@ -51,7 +51,7 @@ export function IntervalFilterStandalone({
 }: IntervalFilterStandaloneProps): JSX.Element {
     return (
         <LemonSelect
-            size={'small'}
+            size="small"
             disabled={disabled}
             value={interval || 'day'}
             dropdownMatchSelectWidth={false}

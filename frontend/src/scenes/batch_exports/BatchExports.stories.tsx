@@ -27,6 +27,7 @@ export default {
             createExportServiceHandlers({
                 1: {
                     id: '1',
+                    team_id: 1,
                     name: 'My S3 Exporter',
                     destination: {
                         type: 'S3',

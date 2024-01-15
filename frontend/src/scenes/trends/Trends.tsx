@@ -21,10 +21,9 @@ export function TrendInsight({ view, context }: Props): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
     const { insightProps, showPersonsModal } = useValues(insightLogic)
 
-    const { display, series, breakdown, loadMoreBreakdownUrl, hasBreakdownOther, breakdownValuesLoading } = useValues(
-        trendsDataLogic(insightProps)
-    )
-    const { loadMoreBreakdownValues, updateBreakdown } = useActions(trendsDataLogic(insightProps))
+    const { display, series, breakdownFilter, loadMoreBreakdownUrl, hasBreakdownOther, breakdownValuesLoading } =
+        useValues(trendsDataLogic(insightProps))
+    const { loadMoreBreakdownValues, updateBreakdownFilter } = useActions(trendsDataLogic(insightProps))
 
     const renderViz = (): JSX.Element | undefined => {
         if (
@@ -65,7 +64,7 @@ export function TrendInsight({ view, context }: Props): JSX.Element {
         <>
             {series && <div className={`TrendsInsight TrendsInsight--${display}`}>{renderViz()}</div>}
             {display !== ChartDisplayType.WorldMap && // the world map doesn't need this cta
-                breakdown &&
+                breakdownFilter &&
                 (hasBreakdownOther || loadMoreBreakdownUrl) && (
                     <div className="my-4 flex flex-col items-center px-2">
                         <div className="text-muted text-center mb-2">
@@ -75,9 +74,9 @@ export function TrendInsight({ view, context }: Props): JSX.Element {
                             onClick={
                                 hasBreakdownOther
                                     ? () =>
-                                          updateBreakdown({
-                                              ...breakdown,
-                                              breakdown_limit: (breakdown.breakdown_limit || 25) * 2,
+                                          updateBreakdownFilter({
+                                              ...breakdownFilter,
+                                              breakdown_limit: (breakdownFilter.breakdown_limit || 25) * 2,
                                           })
                                     : loadMoreBreakdownValues
                             }

@@ -210,7 +210,7 @@ export default function SurveyEdit(): JSX.Element {
                                                                           <b>Confirmation message</b>
                                                                           <LemonButton
                                                                               icon={<IconDelete />}
-                                                                              data-attr={`delete-survey-confirmation`}
+                                                                              data-attr="delete-survey-confirmation"
                                                                               onClick={(e) => {
                                                                                   e.stopPropagation()
                                                                                   setSelectedQuestion(
@@ -317,7 +317,7 @@ export default function SurveyEdit(): JSX.Element {
                                                 Add question
                                             </LemonButton>
                                             {!surveysMultipleQuestionsAvailable && (
-                                                <Link to={'/organization/billing'} target="_blank" targetBlankIcon>
+                                                <Link to="/organization/billing" target="_blank" targetBlankIcon>
                                                     Subscribe
                                                 </Link>
                                             )}

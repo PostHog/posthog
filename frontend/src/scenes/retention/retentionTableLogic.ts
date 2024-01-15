@@ -36,7 +36,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightVizDataLogic(props),
-            ['dateRange', 'retentionFilter', 'breakdown', 'vizSpecificOptions'],
+            ['dateRange', 'retentionFilter', 'breakdownFilter', 'vizSpecificOptions'],
             retentionLogic(props),
             ['results'],
         ],
@@ -68,10 +68,10 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
         ],
 
         tableRows: [
-            (s) => [s.results, s.maxIntervalsCount, s.retentionFilter, s.breakdown, s.hideSizeColumn],
-            (results, maxIntervalsCount, retentionFilter, breakdown, hideSizeColumn) => {
+            (s) => [s.results, s.maxIntervalsCount, s.retentionFilter, s.breakdownFilter, s.hideSizeColumn],
+            (results, maxIntervalsCount, retentionFilter, breakdownFilter, hideSizeColumn) => {
                 const { period } = retentionFilter || {}
-                const { breakdowns } = breakdown || {}
+                const { breakdowns } = breakdownFilter || {}
 
                 return range(maxIntervalsCount).map((rowIndex: number) => [
                     // First column is the cohort label

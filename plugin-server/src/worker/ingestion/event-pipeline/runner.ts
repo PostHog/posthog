@@ -111,7 +111,10 @@ export class EventPipelineRunner {
     }
 
     async runEventPipelineSteps(event: PluginEvent): Promise<EventPipelineResult> {
-        if (this.hub.poeEmbraceJoinForTeams?.(event.team_id)) {
+        if (
+            this.hub.poeEmbraceJoinForTeams?.(event.team_id) ||
+            (event.team_id <= this.hub.POE_WRITES_ENABLED_MAX_TEAM_ID && !this.hub.poeWritesExcludeTeams(event.team_id))
+        ) {
             // https://docs.google.com/document/d/12Q1KcJ41TicIwySCfNJV5ZPKXWVtxT7pzpB3r9ivz_0
             // We're not using the buffer anymore
             // instead we'll (if within timeframe) merge into the newer personId

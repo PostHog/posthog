@@ -2,6 +2,7 @@ import { IconGear, IconSearch, IconToolbar } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
+import { DebugNotice } from 'lib/components/DebugNotice'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { IconWarning } from 'lib/lemon-ui/icons'
@@ -70,6 +71,7 @@ export function Navbar(): JSX.Element {
                     </ScrollableShadows>
                     <div className="Navbar3000__bottom">
                         <ul>
+                            <DebugNotice />
                             <NavbarButton
                                 identifier="search-button"
                                 icon={<IconSearch />}
@@ -119,7 +121,7 @@ export function Navbar(): JSX.Element {
                 </div>
                 {!mobileLayout && (
                     <Resizer
-                        placement={'right'}
+                        placement="right"
                         containerRef={containerRef}
                         closeThreshold={100}
                         onToggleClosed={(shouldBeClosed) => toggleNavCollapsed(shouldBeClosed)}

@@ -55,6 +55,7 @@ from posthog.permissions import (
     TeamMemberAccessPermission,
 )
 from posthog.rate_limit import BurstRateThrottle
+from loginas.utils import is_impersonated_session
 
 DATABASE_FOR_LOCAL_EVALUATION = (
     "default"
@@ -152,7 +153,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
     def get_surveys(self, feature_flag: FeatureFlag) -> Dict:
         from posthog.api.survey import SurveyAPISerializer
 
-        return SurveyAPISerializer(feature_flag.surveys_linked_flag, many=True).data  # type: ignore
+        return SurveyAPISerializer(feature_flag.surveys_linked_flag, many=True).data
         # ignoring type because mypy doesn't know about the surveys_linked_flag `related_name` relationship
 
     def get_rollout_percentage(self, feature_flag: FeatureFlag) -> Optional[int]:
@@ -180,7 +181,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         # If we see this, just return the current filters
         if "groups" not in filters and self.context["request"].method == "PATCH":
             # mypy cannot tell that self.instance is a FeatureFlag
-            return self.instance.filters  # type: ignore
+            return self.instance.filters
 
         aggregation_group_type_index = filters.get("aggregation_group_type_index", None)
 
@@ -671,7 +672,7 @@ class FeatureFlagViewSet(
         activity_page = load_activity(
             scope="FeatureFlag",
             team_id=self.team_id,
-            item_id=item_id,
+            item_ids=[str(item_id)],
             limit=limit,
             page=page,
         )
@@ -683,6 +684,7 @@ class FeatureFlagViewSet(
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=serializer.context["request"].user,
+            was_impersonated=is_impersonated_session(serializer.context["request"]),
             item_id=serializer.instance.id,
             scope="FeatureFlag",
             activity="created",
@@ -705,6 +707,7 @@ class FeatureFlagViewSet(
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=serializer.context["request"].user,
+            was_impersonated=is_impersonated_session(serializer.context["request"]),
             item_id=instance_id,
             scope="FeatureFlag",
             activity="updated",

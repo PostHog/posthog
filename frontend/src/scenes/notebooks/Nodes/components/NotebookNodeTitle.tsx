@@ -43,7 +43,7 @@ export function NotebookNodeTitle(): JSX.Element {
             {title}
         </span>
     ) : !isEditingTitle ? (
-        <Tooltip title={'Double click to edit title'}>
+        <Tooltip title="Double click to edit title">
             <span
                 title={title}
                 className="NotebookNodeTitle NotebookNodeTitle--editable"

@@ -1,15 +1,17 @@
 import {
     ActivityLogItem,
-    ActivityScope,
+    defaultDescriber,
     HumanizedChange,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { dayjs } from 'lib/dayjs'
 
-import { SECRET_FIELD_VALUE } from './utils'
+import { ActivityScope } from '~/types'
 
-export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChange {
+import { SECRET_FIELD_VALUE } from '../pipeline/configUtils'
+
+export function pluginActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope !== ActivityScope.PLUGIN && logItem.scope !== ActivityScope.PLUGIN_CONFIG) {
         console.error('plugin describer received a non-plugin activity')
         return { description: null }
@@ -218,5 +220,5 @@ export function pluginActivityDescriber(logItem: ActivityLogItem): HumanizedChan
         }
     }
 
-    return { description: null }
+    return defaultDescriber(logItem, asNotification)
 }

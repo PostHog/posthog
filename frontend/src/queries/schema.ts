@@ -94,9 +94,24 @@ export type AnyDataNode =
     | WebStatsTableQuery
     | WebTopClicksQuery
 
+/**
+ * @discriminator kind
+ */
 export type QuerySchema =
     // Data nodes (see utils.ts)
-    | AnyDataNode
+    | EventsNode // never queried directly
+    | ActionsNode // old actions API endpoint
+    | PersonsNode // old persons API endpoint
+    | TimeToSeeDataSessionsQuery // old API
+    | EventsQuery
+    | ActorsQuery
+    | InsightActorsQuery
+    | SessionsTimelineQuery
+    | HogQLQuery
+    | HogQLMetadata
+    | WebOverviewQuery
+    | WebStatsTableQuery
+    | WebTopClicksQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -113,8 +128,15 @@ export type QuerySchema =
     | LifecycleQuery
 
     // Misc
-    | TimeToSeeDataSessionsQuery
     | DatabaseSchemaQuery
+
+// Keep this, because QuerySchema itself will be collapsed as it is used in other models
+export type QuerySchemaRoot = QuerySchema
+
+// Dynamically make a union type out of all the types in all `response` fields in QuerySchema
+type QueryResponseType<T> = T extends { response: infer R } ? { response: R } : never
+type QueryAllResponses = QueryResponseType<QuerySchema>
+export type QueryResponseAlternative = QueryAllResponses[keyof QueryAllResponses]
 
 /** Node base class, everything else inherits from here */
 export interface Node {
@@ -208,6 +230,8 @@ export interface HogQLMetadata extends DataNode {
     select?: string
     /** HogQL expression to validate (use `select` or `expr`, but not both) */
     expr?: string
+    /** Query within which "expr" is validated. Defaults to "select * from events" */
+    exprSource?: AnyDataNode
     /** Table to validate the expression against */
     table?: string
     filters?: HogQLFilters
@@ -479,10 +503,27 @@ export interface InsightsQueryBase extends Node {
 
 /** `TrendsFilterType` minus everything inherited from `FilterType` and
  * `hidden_legend_keys` replaced by `hidden_legend_indexes` */
-export type TrendsFilter = Omit<
+export type TrendsFilterLegacy = Omit<
     TrendsFilterType & { hidden_legend_indexes?: number[] },
     keyof FilterType | 'hidden_legend_keys' | 'shown_as'
 >
+
+export type TrendsFilter = {
+    smoothingIntervals?: TrendsFilterLegacy['smoothing_intervals']
+    compare?: TrendsFilterLegacy['compare']
+    formula?: TrendsFilterLegacy['formula']
+    display?: TrendsFilterLegacy['display']
+    breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count']
+    show_legend?: TrendsFilterLegacy['show_legend']
+    aggregation_axis_format?: TrendsFilterLegacy['aggregation_axis_format']
+    aggregation_axis_prefix?: TrendsFilterLegacy['aggregation_axis_prefix']
+    aggregation_axis_postfix?: TrendsFilterLegacy['aggregation_axis_postfix']
+    decimal_places?: TrendsFilterLegacy['decimal_places']
+    show_values_on_series?: TrendsFilterLegacy['show_values_on_series']
+    show_labels_on_series?: TrendsFilterLegacy['show_labels_on_series']
+    show_percent_stack_view?: TrendsFilterLegacy['show_percent_stack_view']
+    hidden_legend_indexes?: TrendsFilterLegacy['hidden_legend_indexes']
+}
 
 export interface TrendsQueryResponse extends QueryResponse {
     results: Record<string, any>[]
@@ -497,7 +538,7 @@ export interface TrendsQuery extends InsightsQueryBase {
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
-    breakdown?: BreakdownFilter
+    breakdownFilter?: BreakdownFilter
     response?: TrendsQueryResponse
 }
 
@@ -524,7 +565,7 @@ export interface FunnelsQuery extends InsightsQueryBase {
     /** Properties specific to the funnels insight */
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
-    breakdown?: BreakdownFilter
+    breakdownFilter?: BreakdownFilter
 }
 
 /** `RetentionFilterType` minus everything inherited from `FilterType` */
@@ -569,6 +610,11 @@ export type StickinessFilter = Omit<
     StickinessFilterType & { hidden_legend_indexes?: number[] },
     keyof FilterType | 'hidden_legend_keys' | 'stickiness_days' | 'shown_as'
 >
+
+export interface StickinessQueryResponse extends QueryResponse {
+    results: Record<string, any>[]
+}
+
 export interface StickinessQuery extends Omit<InsightsQueryBase, 'aggregation_group_type_index'> {
     kind: NodeKind.StickinessQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
@@ -584,6 +630,35 @@ export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType | 'show
     /** Lifecycles that have been removed from display are not included in this array */
     toggledLifecycles?: LifecycleToggle[]
 } // using everything except what it inherits from FilterType
+
+export interface QueryRequest {
+    /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
+    client_query_id?: string
+    refresh?: boolean
+    /**
+     * (Experimental)
+     * Whether to run the query asynchronously. Defaults to False.
+     * If True, the `id` of the query can be used to check the status and to cancel it.
+     * @example true
+     */
+    async?: boolean
+    /**
+     * Submit a JSON string representing a query for PostHog data analysis,
+     * for example a HogQL query.
+     *
+     * Example payload:
+     *
+     * ```
+     *
+     * {"query": {"kind": "HogQLQuery", "query": "select * from events limit 100"}}
+     *
+     * ```
+     *
+     * For more details on HogQL queries,
+     * see the [PostHog HogQL documentation](/docs/hogql#api-access).
+     */
+    query: QuerySchema
+}
 
 export interface QueryResponse {
     results: unknown[]
@@ -760,6 +835,11 @@ export type InsightQueryNode =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
+
+/**
+ * @discriminator kind
+ */
+export type InsightQuerySource = InsightQueryNode
 export type InsightNodeKind = InsightQueryNode['kind']
 export type InsightFilterProperty =
     | 'trendsFilter'
@@ -776,10 +856,13 @@ export type InsightFilter =
     | StickinessFilter
     | LifecycleFilter
 
+/** @asType integer */
+export type Day = number
+
 export interface InsightActorsQuery {
     kind: NodeKind.InsightActorsQuery
-    source: InsightQueryNode
-    day?: string
+    source: InsightQuerySource
+    day?: string | Day
     status?: string
     /**
      * An interval selected out of available intervals in source query

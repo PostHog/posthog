@@ -24,7 +24,6 @@ export function BatchExportsListScene(): JSX.Element {
     return (
         <>
             <PageHeader
-                title="Batch Exports"
                 buttons={
                     <>
                         <LemonButton type="primary" to={urls.batchExportNew()}>

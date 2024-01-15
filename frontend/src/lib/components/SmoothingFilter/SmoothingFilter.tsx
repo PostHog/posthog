@@ -17,29 +17,30 @@ export function SmoothingFilter(): JSX.Element | null {
         return null
     }
 
-    const { smoothing_intervals } = trendsFilter || {}
+    const { smoothingIntervals } = trendsFilter || {}
 
     // Put a little icon next to the selected item
     const options = smoothingOptions[interval].map(({ value, label }) => ({
         value,
         label:
-            value === smoothing_intervals ? (
+            value === smoothingIntervals ? (
                 <>
-                    <FundOutlined /> {label}
+                    <FundOutlined className="mr-1 text-muted" /> {label}
                 </>
             ) : (
                 label
             ),
+        labelInMenu: label,
     }))
 
     return options.length ? (
         <LemonSelect
             key={interval}
-            value={smoothing_intervals || 1}
+            value={smoothingIntervals || 1}
             dropdownMatchSelectWidth={false}
             onChange={(key) => {
                 updateInsightFilter({
-                    smoothing_intervals: key,
+                    smoothingIntervals: key,
                 })
             }}
             data-attr="smoothing-filter"

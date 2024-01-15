@@ -42,21 +42,6 @@ describe('Cohorts', () => {
         cy.get('tbody').contains('Test Cohort')
         cy.contains('Create your first cohort').should('not.exist')
 
-        it('Cohorts new and list', () => {
-            cy.get('[data-row-key]').first().click()
-            cy.get('[data-test-goto-person]').first().click()
-            cy.url().should('include', '/person/')
-
-            cy.get('[data-attr="persons-cohorts-tab"]').click()
-            cy.get('[data-row-key]').first().click()
-
-            cy.get('div:not(disabled) > [data-attr="persons-cohorts-tab"]').click()
-            cy.get('[data-row-key]').first().click()
-
-            cy.url().should('include', '/cohorts/')
-            cy.get('[data-attr="cohort-name"]').should('have.value', 'Test Cohort')
-        })
-
         // back into cohort
         cy.get('tbody').contains('Test Cohort').click()
 

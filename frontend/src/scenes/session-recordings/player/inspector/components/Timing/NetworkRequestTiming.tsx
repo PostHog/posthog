@@ -245,7 +245,7 @@ const TimeLineView = ({ performanceEvent }: { performanceEvent: PerformanceEvent
     if (typeof rangeStart === 'number' && typeof rangeEnd === 'number') {
         const timings = calculatePerformanceParts(performanceEvent)
         return (
-            <div className={'font-semibold text-xs'}>
+            <div className="font-semibold text-xs">
                 {perfSections.map((section) => {
                     const matchedSection = timings[section]
                     const start = matchedSection?.start
@@ -271,13 +271,13 @@ const TimeLineView = ({ performanceEvent }: { performanceEvent: PerformanceEvent
 
                     return (
                         <>
-                            <div key={section} className={'flex flex-row px-2 py-1'}>
-                                <div className={'w-2/5'}>
+                            <div key={section} className="flex flex-row px-2 py-1">
+                                <div className="w-2/5">
                                     <Tooltip title={perfDescriptions[section]}>{section}</Tooltip>
                                 </div>
-                                <div className={'flex-1 grow relative'}>
+                                <div className="flex-1 grow relative">
                                     <div
-                                        className={'relative h-full'}
+                                        className="relative h-full"
                                         /* eslint-disable-next-line react/forbid-dom-props */
                                         style={{
                                             backgroundColor: colorForSection(section),
@@ -286,7 +286,7 @@ const TimeLineView = ({ performanceEvent }: { performanceEvent: PerformanceEvent
                                         }}
                                     />
                                 </div>
-                                <div className={'w-1/6 text-right'}>{formattedDuration || ''}</div>
+                                <div className="w-1/6 text-right">{formattedDuration || ''}</div>
                             </div>
                         </>
                     )
@@ -318,8 +318,8 @@ export const NetworkRequestTiming = ({
     const timelineView = timelineMode ? <TimeLineView performanceEvent={performanceEvent} /> : null
 
     return (
-        <div className={'flex flex-col space-y-2'}>
-            <div className={'flex flex-row justify-end'}>
+        <div className="flex flex-col space-y-2">
+            <div className="flex flex-row justify-end">
                 <LemonButton
                     type="secondary"
                     size="xsmall"

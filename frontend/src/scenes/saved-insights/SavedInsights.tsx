@@ -15,7 +15,6 @@ import {
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -57,7 +56,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { NodeKind } from '~/queries/schema'
 import { isInsightVizNode } from '~/queries/utils'
-import { InsightModel, InsightType, LayoutView, SavedInsightsTabs } from '~/types'
+import { ActivityScope, InsightModel, InsightType, LayoutView, SavedInsightsTabs } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
@@ -361,7 +360,7 @@ function SavedInsightsGrid(): JSX.Element {
                                 callback: loadInsights,
                             })
                         }
-                        placement={'SavedInsightGrid'}
+                        placement="SavedInsightGrid"
                     />
                 ))}
                 {insightsLoading && (
@@ -464,7 +463,7 @@ export function SavedInsights(): JSX.Element {
             dataIndex: 'last_modified_at',
             render: function renderLastModified(last_modified_at: string) {
                 return (
-                    <div className={'whitespace-nowrap'}>{last_modified_at && <TZLabel time={last_modified_at} />}</div>
+                    <div className="whitespace-nowrap">{last_modified_at && <TZLabel time={last_modified_at} />}</div>
                 )
             },
         },
@@ -491,7 +490,7 @@ export function SavedInsights(): JSX.Element {
                                 </LemonButton>
                                 <LemonButton
                                     onClick={() => duplicateInsight(insight)}
-                                    data-attr={`duplicate-insight-from-list-view`}
+                                    data-attr="duplicate-insight-from-list-view"
                                     fullWidth
                                 >
                                     Duplicate
@@ -521,10 +520,7 @@ export function SavedInsights(): JSX.Element {
 
     return (
         <div className="saved-insights">
-            <PageHeader
-                title="Product analytics"
-                buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />}
-            />
+            <PageHeader buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />} />
             <LemonTabs
                 activeKey={tab}
                 onChange={(tab) => setSavedInsightsFilters({ tab })}

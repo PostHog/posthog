@@ -82,7 +82,7 @@ export function AppView({
                                 {orderedIndex ? (
                                     <LemonBadge.Number status="primary" count={orderedIndex} maxDigits={3} />
                                 ) : (
-                                    <LemonBadge status="primary" content={'-'} />
+                                    <LemonBadge status="primary" content="-" />
                                 )}
                             </LemonButton>
                         </Tooltip>

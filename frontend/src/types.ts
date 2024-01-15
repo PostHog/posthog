@@ -27,6 +27,8 @@ import { LogLevel } from 'rrweb'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { JSONContent } from 'scenes/notebooks/Notebook/utils'
+import { PipelineAppLogLevel } from 'scenes/pipeline/pipelineAppLogsLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 import { QueryContext } from '~/queries/types'
 
@@ -231,7 +233,7 @@ export interface OrganizationType extends OrganizationBasicType {
     created_at: string
     updated_at: string
     plugins_access_level: PluginsAccessLevel
-    teams: TeamBasicType[] | null
+    teams: TeamBasicType[]
     available_features: AvailableFeature[]
     available_product_features: BillingV2FeatureType[]
     is_member_join_email_enabled: boolean
@@ -523,14 +525,20 @@ export enum ExperimentsTabs {
     Archived = 'archived',
 }
 
-export enum PipelineTabs {
+export enum PipelineTab {
     Filters = 'filters',
     Transformations = 'transformations',
     Destinations = 'destinations',
     AppsManagement = 'apps-management',
 }
 
-export enum PipelineAppTabs {
+export enum PipelineAppKind {
+    Filter = 'filter',
+    Transformation = 'transformation',
+    Destination = 'destination',
+}
+
+export enum PipelineAppTab {
     Configuration = 'configuration',
     Logs = 'logs',
     Metrics = 'metrics',
@@ -1518,7 +1526,7 @@ export interface PluginType {
     url?: string
     tag?: string
     icon?: string
-    latest_tag?: string
+    latest_tag?: string // apps management page: The latest git hash for the repo behind the url
     config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     source?: string
     maintainer?: string
@@ -1565,6 +1573,7 @@ export interface JobSpec {
     payload?: Record<string, JobPayloadFieldOptions>
 }
 
+/** @deprecated in favor of PluginConfigTypeNew */
 export interface PluginConfigType {
     id?: number
     plugin: number
@@ -1578,7 +1587,13 @@ export interface PluginConfigType {
     created_at?: string
 }
 
-// TODO: Rename to PluginConfigType once the are removed from the frontend
+/** @deprecated in favor of PluginConfigWithPluginInfoNew */
+export interface PluginConfigWithPluginInfo extends PluginConfigType {
+    id: number
+    plugin_info: PluginType
+}
+
+// TODO: Rename to PluginConfigType once the legacy PluginConfigType are removed from the frontend
 export interface PluginConfigTypeNew {
     id: number
     plugin: number
@@ -1589,11 +1604,12 @@ export interface PluginConfigTypeNew {
     description?: string
     updated_at: string
     delivery_rate_24h?: number | null
+    config: Record<string, any>
 }
 
-export interface PluginConfigWithPluginInfo extends PluginConfigType {
-    id: number
-    plugin_info: PluginType
+// TODO: Rename to PluginConfigWithPluginInfo once the are removed from the frontend
+export interface PluginConfigWithPluginInfoNew extends PluginConfigTypeNew {
+    plugin_info: PluginType | null
 }
 
 export interface PluginErrorType {
@@ -1624,20 +1640,12 @@ export interface PluginLogEntry {
     instance_id: string
 }
 
-export enum BatchExportLogEntryLevel {
-    Debug = 'DEBUG',
-    Log = 'LOG',
-    Info = 'INFO',
-    Warning = 'WARNING',
-    Error = 'ERROR',
-}
-
 export interface BatchExportLogEntry {
     team_id: number
     batch_export_id: number
     run_id: number
     timestamp: string
-    level: BatchExportLogEntryLevel
+    level: PipelineAppLogLevel
     message: string
 }
 
@@ -2450,12 +2458,21 @@ export enum ScheduledChangeModels {
     FeatureFlag = 'FeatureFlag',
 }
 
+export enum ScheduledChangeOperationType {
+    UpdateStatus = 'update_status',
+    AddReleaseCondition = 'add_release_condition',
+}
+
+export type ScheduledChangePayload =
+    | { operation: ScheduledChangeOperationType.UpdateStatus; value: boolean }
+    | { operation: ScheduledChangeOperationType.AddReleaseCondition; value: FeatureFlagFilters }
+
 export interface ScheduledChangeType {
     id: number
     team_id: number
     record_id: number | string
     model_name: ScheduledChangeModels
-    payload: Record<string, any>
+    payload: ScheduledChangePayload
     scheduled_at: string
     executed_at: string | null
     failure_reason: string | null
@@ -2503,6 +2520,11 @@ export interface PreflightStatus {
     slack_service: {
         available: boolean
         client_id?: string
+    }
+    data_warehouse_integrations: {
+        hubspot: {
+            client_id?: string
+        }
     }
     /** Whether PostHog is running in DEBUG mode. */
     is_debug?: boolean
@@ -2851,8 +2873,8 @@ export interface DateMappingOption {
 }
 
 interface BreadcrumbBase {
-    /** E.g. scene identifier or item ID. Particularly important if `onRename` is used. */
-    key: string | number
+    /** E.g. scene, tab, or scene with item ID. Particularly important for `onRename`. */
+    key: string | number | [scene: Scene, key: string | number]
     /** Name to display. */
     name: string | null | undefined
     /** Symbol, e.g. a lettermark or a profile picture. */
@@ -2873,9 +2895,6 @@ interface RenamableBreadcrumb extends BreadcrumbBase {
     forceEditMode?: boolean
 }
 export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb
-export type FinalizedBreadcrumb =
-    | (LinkBreadcrumb & { globalKey: string })
-    | (RenamableBreadcrumb & { globalKey: string })
 
 export enum GraphType {
     Bar = 'bar',
@@ -3243,8 +3262,39 @@ export type PromptFlag = {
     tooltipCSS?: Partial<CSSStyleDeclaration>
 }
 
+// Should be kept in sync with "posthog/models/activity_logging/activity_log.py"
+export enum ActivityScope {
+    FEATURE_FLAG = 'FeatureFlag',
+    PERSON = 'Person',
+    INSIGHT = 'Insight',
+    PLUGIN = 'Plugin',
+    PLUGIN_CONFIG = 'PluginConfig',
+    DATA_MANAGEMENT = 'DataManagement',
+    EVENT_DEFINITION = 'EventDefinition',
+    PROPERTY_DEFINITION = 'PropertyDefinition',
+    NOTEBOOK = 'Notebook',
+    DASHBOARD = 'Dashboard',
+    REPLAY = 'Replay',
+    EXPERIMENT = 'Experiment',
+    SURVEY = 'Survey',
+    EARLY_ACCESS_FEATURE = 'EarlyAccessFeature',
+    COMMENT = 'Comment',
+}
+
+export type CommentType = {
+    id: string
+    content: string
+    version: number
+    created_at: string
+    created_by: UserBasicType | null
+    source_comment?: string | null
+    scope: ActivityScope
+    item_id?: string
+    item_context: Record<string, any> | null
+}
+
 export type NotebookListItemType = {
-    // id: string
+    id: string
     short_id: string
     title?: string
     is_template?: boolean
@@ -3332,13 +3382,13 @@ export interface DataWarehouseViewLink {
     from_join_key?: string
 }
 
-export interface ExternalDataStripeSourceCreatePayload {
-    account_id: string
-    client_secret: string
-    prefix: string
-    source_type: string
-}
+export type ExternalDataSourceType = 'Stripe' | 'Hubspot'
 
+export interface ExternalDataSourceCreatePayload {
+    source_type: ExternalDataSourceType
+    prefix: string
+    payload: Record<string, any>
+}
 export interface ExternalDataStripeSource {
     id: string
     source_id: string
@@ -3426,6 +3476,7 @@ export type BatchExportDestinationBigQuery = {
         table_id: string
         exclude_events: string[]
         include_events: string[]
+        use_json_type: boolean
     }
 }
 
@@ -3456,6 +3507,7 @@ export type BatchExportConfiguration = {
     // User provided data for the export. This is the data that the user
     // provides when creating the export.
     id: string
+    team_id: number
     name: string
     destination: BatchExportDestination
     interval: 'hour' | 'day' | 'every 5 minutes'
@@ -3564,4 +3616,6 @@ export enum SidePanelTab {
     Welcome = 'welcome',
     FeaturePreviews = 'feature-previews',
     Activity = 'activity',
+    Discussion = 'discussion',
+    Status = 'status',
 }
