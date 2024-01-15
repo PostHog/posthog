@@ -60,7 +60,7 @@ export function AppsScene(): JSX.Element | null {
                 onChange={(newKey) => setPluginTab(newKey)}
                 tabs={[
                     { key: PluginTab.Apps, label: 'Apps', content: <AppsTab /> },
-                    hasDataPipelines && {
+                    {
                         key: PluginTab.BatchExports,
                         label: 'Batch Exports',
                         content: <BatchExportsTab />,
