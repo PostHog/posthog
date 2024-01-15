@@ -24,9 +24,19 @@ describe('formatAggregationAxisValue', () => {
             },
             expected: '£3,940💖',
         },
+        {
+            candidate: 3940,
+            filters: {
+                aggregationAxisFormat: 'numeric',
+                aggregationAxisPrefix: '£',
+                aggregationAxisPostfix: '💖',
+            },
+            expected: '£3,940💖',
+        },
         { candidate: 0.8709423, filters: {}, expected: '0.87' },
         { candidate: 0.8709423, filters: { decimal_places: 2 }, expected: '0.87' },
         { candidate: 0.8709423, filters: { decimal_places: 3 }, expected: '0.871' },
+        { candidate: 0.8709423, filters: { decimalPlaces: 3 }, expected: '0.871' },
         { candidate: 0.8709423, filters: { decimal_places: 9 }, expected: '0.8709423' },
         { candidate: 0.8709423, filters: { decimal_places: -1 }, expected: '0.87' }, // Fall back to default for unsupported values
     ]

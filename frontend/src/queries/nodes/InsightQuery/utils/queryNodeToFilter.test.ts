@@ -56,9 +56,9 @@ describe('queryNodeToFilter', () => {
                 display: ChartDisplayType.ActionsBar,
                 // breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count']
                 // show_legend?: TrendsFilterLegacy['show_legend']
-                // aggregation_axis_format?: TrendsFilterLegacy['aggregation_axis_format']
-                // aggregation_axis_prefix?: TrendsFilterLegacy['aggregation_axis_prefix']
-                // aggregation_axis_postfix?: TrendsFilterLegacy['aggregation_axis_postfix']
+                aggregationAxisFormat: 'numeric',
+                aggregationAxisPrefix: 'M',
+                aggregationAxisPostfix: '$',
                 decimalPlaces: 5,
                 // show_values_on_series?: TrendsFilterLegacy['show_values_on_series']
                 // show_labels_on_series?: TrendsFilterLegacy['show_labels_on_series']
@@ -79,6 +79,9 @@ describe('queryNodeToFilter', () => {
             formula: 'A + B',
             compare: true,
             decimal_places: 5,
+            aggregation_axis_format: 'numeric',
+            aggregation_axis_prefix: 'M',
+            aggregation_axis_postfix: '$',
         }
         expect(result).toEqual(filters)
     })

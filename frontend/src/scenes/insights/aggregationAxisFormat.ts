@@ -24,9 +24,18 @@ export const formatAggregationAxisValue = (
     value = Number(value)
     const decimalPlaces =
         (trendsFilter as TrendsFilter)?.decimalPlaces || (trendsFilter as Partial<TrendsFilterType>)?.decimal_places
+    const aggregationAxisFormat =
+        (trendsFilter as TrendsFilter)?.aggregationAxisFormat ||
+        (trendsFilter as Partial<TrendsFilterType>)?.aggregation_axis_format
+    const aggregationAxisPrefix =
+        (trendsFilter as TrendsFilter)?.aggregationAxisPrefix ||
+        (trendsFilter as Partial<TrendsFilterType>)?.aggregation_axis_prefix
+    const aggregationAxisPostfix =
+        (trendsFilter as TrendsFilter)?.aggregationAxisPostfix ||
+        (trendsFilter as Partial<TrendsFilterType>)?.aggregation_axis_postfix
     let formattedValue = humanFriendlyNumber(value, decimalPlaces)
-    if (trendsFilter?.aggregation_axis_format) {
-        switch (trendsFilter?.aggregation_axis_format) {
+    if (aggregationAxisFormat) {
+        switch (aggregationAxisFormat) {
             case 'duration':
                 formattedValue = humanFriendlyDuration(value)
                 break
@@ -44,9 +53,7 @@ export const formatAggregationAxisValue = (
                 break
         }
     }
-    return `${trendsFilter?.aggregation_axis_prefix || ''}${formattedValue}${
-        trendsFilter?.aggregation_axis_postfix || ''
-    }`
+    return `${aggregationAxisPrefix || ''}${formattedValue}${aggregationAxisPostfix || ''}`
 }
 
 export const formatPercentStackAxisValue = (

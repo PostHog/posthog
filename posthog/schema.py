@@ -642,9 +642,9 @@ class TrendsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_axis_format: Optional[AggregationAxisFormat] = None
-    aggregation_axis_postfix: Optional[str] = None
-    aggregation_axis_prefix: Optional[str] = None
+    aggregationAxisFormat: Optional[AggregationAxisFormat] = None
+    aggregationAxisPostfix: Optional[str] = None
+    aggregationAxisPrefix: Optional[str] = None
     breakdown_histogram_bin_count: Optional[float] = None
     compare: Optional[bool] = None
     decimalPlaces: Optional[float] = None

@@ -515,9 +515,9 @@ export type TrendsFilter = {
     display?: TrendsFilterLegacy['display']
     show_legend?: TrendsFilterLegacy['show_legend']
     breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
-    aggregation_axis_format?: TrendsFilterLegacy['aggregation_axis_format']
-    aggregation_axis_prefix?: TrendsFilterLegacy['aggregation_axis_prefix']
-    aggregation_axis_postfix?: TrendsFilterLegacy['aggregation_axis_postfix']
+    aggregationAxisFormat?: TrendsFilterLegacy['aggregation_axis_format']
+    aggregationAxisPrefix?: TrendsFilterLegacy['aggregation_axis_prefix']
+    aggregationAxisPostfix?: TrendsFilterLegacy['aggregation_axis_postfix']
     decimalPlaces?: TrendsFilterLegacy['decimal_places']
     show_values_on_series?: TrendsFilterLegacy['show_values_on_series']
     show_labels_on_series?: TrendsFilterLegacy['show_labels_on_series']
