@@ -1153,7 +1153,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             "2020-01-20",
             IntervalType.day,
             [EventsNode(event="$pageview")],
-            TrendsFilter(smoothing_intervals=7),
+            TrendsFilter(smoothingIntervals=7),
             None,
         )
 
