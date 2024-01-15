@@ -5,8 +5,6 @@ import clsx from 'clsx'
 import { LemonBadge, LemonBadgeProps } from 'lib/lemon-ui/LemonBadge'
 import { CSSProperties, PropsWithChildren, SVGAttributes } from 'react'
 
-import { Tooltip } from '../Tooltip'
-
 interface IconWithBadgeProps {
     content: LemonBadgeProps['content']
     status?: LemonBadgeProps['status']
