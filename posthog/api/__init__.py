@@ -11,6 +11,7 @@ from . import (
     app_metrics,
     async_migration,
     authentication,
+    comments,
     dead_letter_queue,
     early_access_feature,
     event_definition,
@@ -76,16 +77,16 @@ project_plugins_configs_router.register(
     "project_plugins_config_logs",
     ["team_id", "plugin_config_id"],
 )
-pipeline_transformations_configs_router = projects_router.register(
-    r"pipeline_transformations_configs",
+pipeline_transformation_configs_router = projects_router.register(
+    r"pipeline_transformation_configs",
     plugin.PipelineTransformationsConfigsViewSet,
-    "pipeline_transformations_configs",
+    "project_pipeline_transformation_configs",
     ["team_id"],
 )
-pipeline_destinations_configs_router = projects_router.register(
-    r"pipeline_destinations_configs",
+pipeline_destination_configs_router = projects_router.register(
+    r"pipeline_destination_configs",
     plugin.PipelineDestinationsConfigsViewSet,
-    "pipeline_destinations_configs",
+    "project_pipeline_destination_configs",
     ["team_id"],
 )
 
@@ -189,6 +190,9 @@ projects_router.register(r"warehouse_view_link", view_link.ViewLinkViewSet, "war
 
 # Organizations nested endpoints
 organizations_router = router.register(r"organizations", organization.OrganizationViewSet, "organizations")
+organizations_router.register(
+    r"batch_exports", batch_exports.BatchExportOrganizationViewSet, "batch_exports", ["organization_id"]
+)
 organization_plugins_router = organizations_router.register(
     r"plugins", plugin.PluginViewSet, "organization_plugins", ["organization_id"]
 )
@@ -356,6 +360,13 @@ projects_router.register(
     r"notebooks",
     notebook.NotebookViewSet,
     "project_notebooks",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"comments",
+    comments.CommentViewSet,
+    "project_comments",
     ["team_id"],
 )
 

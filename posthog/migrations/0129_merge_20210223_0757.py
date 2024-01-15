@@ -9,4 +9,4 @@ class Migration(migrations.Migration):
         ("posthog", "0127_add_dashboard_filters"),
     ]
 
-    operations = []  # type: ignore
+    operations = []

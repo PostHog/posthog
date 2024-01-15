@@ -250,8 +250,8 @@ export function renderColumn(
         const [parent, child] = key.split('.')
         return typeof record === 'object' ? record[parent][child] : 'unknown'
     } else {
-        if (typeof value === 'object' && value !== null) {
-            return <JSONViewer src={value} name={key} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
+        if (typeof value === 'object') {
+            return <JSONViewer src={value} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
         }
         return String(value)
     }

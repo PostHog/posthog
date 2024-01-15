@@ -14,9 +14,9 @@ describe('Dashboard', () => {
     it('Dashboards loaded', () => {
         cy.get('h1').should('contain', 'Dashboards')
         // Breadcrumbs work
-        cy.get('[data-attr=breadcrumb-0]').should('contain', 'Hogflix')
-        cy.get('[data-attr=breadcrumb-1]').should('contain', 'Hogflix Demo App')
-        cy.get('[data-attr=breadcrumb-2]').should('have.text', 'Dashboards')
+        cy.get('[data-attr=breadcrumb-organization]').should('contain', 'Hogflix')
+        cy.get('[data-attr=breadcrumb-project]').should('contain', 'Hogflix Demo App')
+        cy.get('[data-attr=breadcrumb-Dashboards]').should('have.text', 'Dashboards')
     })
 
     // FIXME: this test works in real, but not in cypress
@@ -123,10 +123,10 @@ describe('Dashboard', () => {
 
         cy.get('.InsightCard').its('length').should('be.gte', 2)
         // Breadcrumbs work
-        cy.get('[data-attr=breadcrumb-0]').should('contain', 'Hogflix')
-        cy.get('[data-attr=breadcrumb-1]').should('contain', 'Hogflix Demo App')
-        cy.get('[data-attr=breadcrumb-2]').should('have.text', 'Dashboards')
-        cy.get('[data-attr=breadcrumb-3]').should('have.text', TEST_DASHBOARD_NAME + 'UnnamedCancelSave')
+        cy.get('[data-attr=breadcrumb-organization]').should('contain', 'Hogflix')
+        cy.get('[data-attr=breadcrumb-project]').should('contain', 'Hogflix Demo App')
+        cy.get('[data-attr=breadcrumb-Dashboards]').should('have.text', 'Dashboards')
+        cy.get('[data-attr^="breadcrumb-Dashboard:"]').should('have.text', TEST_DASHBOARD_NAME + 'UnnamedCancelSave')
     })
 
     it('Click on a dashboard item dropdown and view graph', () => {

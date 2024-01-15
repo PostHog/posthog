@@ -9,4 +9,4 @@ class Migration(migrations.Migration):
     ]
 
     # Superseded by 0175_should_update_person_props
-    operations = []  # type: ignore
+    operations = []

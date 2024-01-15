@@ -9,7 +9,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { IconLock } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -21,16 +20,12 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { summarizeInsight } from 'scenes/insights/summarizeInsight'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { cohortsModel } from '~/models/cohortsModel'
-import { groupsModel } from '~/models/groupsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import {
@@ -52,7 +47,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const logic = insightLogic(insightLogicProps)
     const {
         insightProps,
-        filters,
         canEditInsight,
         insight,
         insightChanged,
@@ -66,15 +60,12 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     // insightDataLogic
-    const { query, queryChanged, showQueryEditor, hogQL } = useValues(insightDataLogic(insightProps))
+    const { queryChanged, showQueryEditor, hogQL } = useValues(insightDataLogic(insightProps))
     const { saveInsight, saveAs, toggleQueryEditorPanel } = useActions(insightDataLogic(insightProps))
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
     const { hasAvailableFeature } = useValues(userLogic)
-    const { aggregationLabel } = useValues(groupsModel)
-    const { cohortsById } = useValues(cohortsModel)
-    const { mathDefinitions } = useValues(mathsLogic)
     const { tags } = useValues(tagsModel)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
@@ -109,31 +100,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 </>
             )}
             <PageHeader
-                title={
-                    <EditableField
-                        name="name"
-                        value={insight.name || ''}
-                        placeholder={summarizeInsight(query, filters, {
-                            aggregationLabel,
-                            cohortsById,
-                            mathDefinitions,
-                        })}
-                        onSave={(value) => setInsightMetadata({ name: value })}
-                        saveOnBlur={true}
-                        maxLength={400} // Sync with Insight model
-                        mode={!canEditInsight ? 'view' : undefined}
-                        data-attr="insight-name"
-                        notice={
-                            !canEditInsight
-                                ? {
-                                      icon: <IconLock />,
-                                      tooltip:
-                                          "You don't have edit permissions on any of the dashboards this insight belongs to. Ask a dashboard collaborator with edit access to add you.",
-                                  }
-                                : undefined
-                        }
-                    />
-                }
                 buttons={
                     <div className="flex justify-between items-center gap-2">
                         <More
@@ -219,7 +185,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     </LemonButton>
                                     {hogQL && (
                                         <LemonButton
-                                            data-attr={`edit-insight-sql`}
+                                            data-attr="edit-insight-sql"
                                             onClick={() => {
                                                 router.actions.push(
                                                     urls.insightNew(

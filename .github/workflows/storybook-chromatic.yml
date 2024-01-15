@@ -42,7 +42,7 @@ jobs:
               run: pnpm i -D chromatic
 
             - name: Publish to Chromatic
-              uses: chromaui/action@v1
+              uses: chromaui/action@v10
               id: publish
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
@@ -146,15 +146,7 @@ jobs:
                   VARIANT: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'update' || 'verify' }}
                   STORYBOOK_SKIP_TAGS: 'test-skip,test-skip-${{ matrix.browser }}'
               run: |
-                  pnpm test:visual-regression:stories:ci:$VARIANT --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/$SHARD_COUNT
-
-            - name: Run @playwright/test (legacy, Chromium-only)
-              if: matrix.browser == 'chromium' && matrix.shard == 1
-              env:
-                  # Update snapshots for PRs on the main repo, verify on forks, which don't have access to PostHog Bot
-                  VARIANT: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'update' || 'verify' }}
-              run: |
-                  pnpm test:visual-regression:legacy:ci:$VARIANT
+                  pnpm test:visual-regression:ci:$VARIANT --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/$SHARD_COUNT
 
             - name: Archive failure screenshots
               if: ${{ failure() }}

@@ -38,7 +38,7 @@ export function createdByColumn<T extends { created_by?: UserBasicType | null }>
         render: function Render(_: any, item) {
             const { created_by } = item
             return (
-                <div className={'flex flex-row items-center flex-nowrap'}>
+                <div className="flex flex-row items-center flex-nowrap">
                     {created_by && <ProfilePicture user={created_by} size="md" showName />}
                 </div>
             )

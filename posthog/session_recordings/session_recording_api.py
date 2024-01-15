@@ -45,7 +45,7 @@ from posthog.rate_limit import (
     ClickHouseSustainedRateThrottle,
 )
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots
+from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots, publish_subscription
 from posthog.session_recordings.snapshots.convert_legacy_snapshots import (
     convert_original_version_lts_recording,
 )
@@ -379,6 +379,11 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                         "end_timestamp": None,
                     }
                 )
+                # the UI will use this to try to load realtime snapshots
+                # so, we can publish the request for Mr. Blobby to start syncing to Redis now
+                # it takes a short while for the subscription to be sync'd into redis
+                # let's use the network round trip time to get started
+                publish_subscription(team_id=str(self.team.pk), session_id=str(recording.session_id))
 
             response_data["sources"] = sources
 

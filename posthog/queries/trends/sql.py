@@ -99,7 +99,7 @@ GROUP BY actor_id
 
 TOP_ELEMENTS_ARRAY_OF_KEY_SQL = """
     SELECT
-        {value_expression},
+        {breakdown_expression},
         {aggregate_operation} as count
     FROM events e
     {sample_clause}
@@ -116,7 +116,7 @@ TOP_ELEMENTS_ARRAY_OF_KEY_SQL = """
 HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL = """
 SELECT {bucketing_expression} FROM (
     SELECT
-        {value_expression},
+        {breakdown_expression},
         {aggregate_operation} as count
     FROM events e
     {sample_clause}

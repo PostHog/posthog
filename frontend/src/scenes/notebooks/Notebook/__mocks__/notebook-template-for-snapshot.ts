@@ -7,6 +7,7 @@ export const notebookTestTemplate = (
     title: string = 'Notebook for snapshots',
     notebookJson: JSONContent[]
 ): NotebookType => ({
+    id: 'template-introduction',
     short_id: 'template-introduction',
     title: title,
     created_at: '2023-06-02T00:00:00Z',

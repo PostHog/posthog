@@ -9,7 +9,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { privilegeLevelToName } from 'lib/constants'
-import { IconLock } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -119,33 +118,6 @@ export function DashboardHeader(): JSX.Element | null {
             )}
 
             <PageHeader
-                title={
-                    <div className="flex items-center">
-                        <EditableField
-                            name="name"
-                            value={dashboard?.name || (dashboardLoading ? 'Loading…' : '')}
-                            placeholder="Name this dashboard"
-                            onSave={
-                                dashboard
-                                    ? (value) => updateDashboard({ id: dashboard.id, name: value, allowUndo: true })
-                                    : undefined
-                            }
-                            saveOnBlur={true}
-                            minLength={1}
-                            maxLength={400} // Sync with Dashboard model
-                            mode={!canEditDashboard ? 'view' : undefined}
-                            notice={
-                                dashboard && !canEditDashboard
-                                    ? {
-                                          icon: <IconLock />,
-                                          tooltip: DASHBOARD_CANNOT_EDIT_MESSAGE,
-                                      }
-                                    : undefined
-                            }
-                            data-attr="dashboard-name"
-                        />
-                    </div>
-                }
                 buttons={
                     dashboardMode === DashboardMode.Edit ? (
                         <LemonButton

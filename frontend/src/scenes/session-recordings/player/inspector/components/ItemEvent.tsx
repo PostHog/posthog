@@ -26,7 +26,7 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
             : undefined
 
     return (
-        <div data-attr={'item-event'}>
+        <div data-attr="item-event">
             <LemonButton noPadding onClick={() => setExpanded(!expanded)} fullWidth>
                 <div className="flex gap-2 items-start p-2 text-xs cursor-pointer truncate">
                     <PropertyKeyInfo

@@ -7,8 +7,8 @@ import { FormErrors } from 'lib/forms/Errors'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { validateJson } from 'lib/utils'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
+import { formatSource } from 'scenes/pipeline/appCodeLogic'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { formatSource } from 'scenes/plugins/source/formatSource'
 
 import type { pluginSourceLogicType } from './pluginSourceLogicType'
 

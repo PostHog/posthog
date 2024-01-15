@@ -82,7 +82,7 @@ export function PlayerInspectorControls(): JSX.Element {
 
                 <div className="flex items-center gap-2 flex-1">
                     <LemonInput
-                        className="min-w-40"
+                        className="min-w-[10rem]"
                         size="small"
                         onChange={(e) => setSearchQuery(e)}
                         placeholder="Search..."
@@ -129,7 +129,7 @@ export function PlayerInspectorControls(): JSX.Element {
             <div className="flex items-center gap-2 justify-between">
                 <div
                     className="flex items-center gap-1 flex-wrap font-medium text-primary-alt"
-                    data-attr={'mini-filters'}
+                    data-attr="mini-filters"
                 >
                     {miniFilters.map((filter) => (
                         <LemonButton

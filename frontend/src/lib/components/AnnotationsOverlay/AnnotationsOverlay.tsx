@@ -158,9 +158,14 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({ index, date }
             }
         >
             {annotations.length ? (
-                <LemonBadge.Number count={annotations.length} size="small" active={active && isDateLocked} />
+                <LemonBadge.Number
+                    count={annotations.length}
+                    status="data"
+                    size="small"
+                    active={active && isDateLocked}
+                />
             ) : (
-                <LemonBadge content={<IconPlusMini />} size="small" active={active && isDateLocked} />
+                <LemonBadge content={<IconPlusMini />} status="data" size="small" active={active && isDateLocked} />
             )}
         </button>
     )
@@ -245,12 +250,14 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
                     icon={<IconEdit />}
                     tooltip="Edit this annotation"
                     onClick={() => openModalToEditAnnotation(annotation, insightId)}
+                    noPadding
                 />
                 <LemonButton
                     size="small"
                     icon={<IconDelete />}
                     tooltip="Delete this annotation"
                     onClick={() => deleteAnnotation(annotation)}
+                    noPadding
                 />
             </div>
             <div className="mt-1">{annotation.content}</div>

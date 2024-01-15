@@ -18,10 +18,10 @@ export interface EnrichedEarlyAccessFeature extends Omit<EarlyAccessFeature, 'fl
 }
 
 export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
-    path(['layout', 'navigation', 'TopBar', 'FeaturePreviewsModal']),
+    path(['layout', 'FeaturePreviews', 'featurePreviewsLogic']),
     connect({
         values: [featureFlagLogic, ['featureFlags'], userLogic, ['user']],
-        asyncActions: [supportLogic, ['submitZendeskTicket']],
+        actions: [supportLogic, ['submitZendeskTicket']],
     }),
     actions({
         showFeaturePreviewsModal: true,

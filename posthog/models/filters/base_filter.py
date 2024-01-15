@@ -62,7 +62,7 @@ class BaseFilter(BaseParamMixin):
             self.hogql_context.person_on_events_mode = self.team.person_on_events_mode
 
         if self.team and hasattr(self, "simplify") and not getattr(self, "is_simplified", False):
-            simplified_filter = self.simplify(self.team)  # type: ignore
+            simplified_filter = self.simplify(self.team)
             self._data = simplified_filter._data
 
     def to_dict(self) -> Dict[str, Any]:

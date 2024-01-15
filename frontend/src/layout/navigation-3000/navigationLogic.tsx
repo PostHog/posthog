@@ -429,7 +429,7 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                         },
                         {
                             identifier: Scene.Pipeline,
-                            label: 'Data pipeline new',
+                            label: 'Data pipeline 3000',
                             icon: <IconDecisionTree />,
                             to: urls.pipeline(),
                             featureFlag: FEATURE_FLAGS.PIPELINE_UI,

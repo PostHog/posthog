@@ -42,6 +42,7 @@ import {
     PropertyFilterType,
     PropertyOperator,
     RolloutConditionType,
+    ScheduledChangeOperationType,
     ScheduledChangeType,
     Survey,
     SurveyQuestionType,
@@ -233,7 +234,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setFeatureFlagId: (id: number | null) => ({ id }),
         setCopyDestinationProject: (id: number | null) => ({ id }),
         setScheduleDateMarker: (dateMarker: any) => ({ dateMarker }),
-        setScheduledChangeField: (changeType: string | null) => ({ changeType }),
+        setScheduledChangeOperation: (changeType: string | null) => ({ changeType }),
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -493,10 +494,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 setScheduleDateMarker: (_, { dateMarker }) => dateMarker,
             },
         ],
-        scheduledChangeField: [
-            'active' as string | null,
+        scheduledChangeOperation: [
+            ScheduledChangeOperationType.AddReleaseCondition as string | null,
             {
-                setScheduledChangeField: (_, { changeType }) => changeType,
+                setScheduledChangeOperation: (_, { changeType }) => changeType,
             },
         ],
     }),
@@ -657,16 +658,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         scheduledChange: {
             __default: {} as ScheduledChangeType,
             createScheduledChange: async () => {
-                const { featureFlag, scheduledChangeField, scheduleDateMarker, currentTeamId } = values
+                const { featureFlag, scheduledChangeOperation, scheduleDateMarker, currentTeamId } = values
 
-                if (currentTeamId && scheduledChangeField) {
+                const fields = {
+                    [ScheduledChangeOperationType.UpdateStatus]: 'active',
+                    [ScheduledChangeOperationType.AddReleaseCondition]: 'filters',
+                }
+
+                if (currentTeamId && scheduledChangeOperation) {
                     const data = {
                         record_id: values.featureFlag.id,
                         model_name: 'FeatureFlag',
-                        operation: scheduledChangeField,
                         payload: {
-                            field: scheduledChangeField,
-                            value: featureFlag[scheduledChangeField],
+                            operation: scheduledChangeOperation,
+                            value: featureFlag[fields[scheduledChangeOperation]],
                         },
                         scheduled_at: scheduleDateMarker.toISOString(),
                     }
@@ -873,7 +878,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (scheduledChange && scheduledChange) {
                 lemonToast.success('Change scheduled successfully')
                 actions.loadScheduledChanges()
+                actions.setFeatureFlag({
+                    ...values.featureFlag,
+                    filters: NEW_FLAG.filters,
+                    active: NEW_FLAG.active,
+                })
+                eventUsageLogic.actions.reportFeatureFlagScheduleSuccess()
             }
+        },
+        createScheduledChangeFailure: ({ error }) => {
+            eventUsageLogic.actions.reportFeatureFlagScheduleFailure({ error })
         },
         deleteScheduledChangeSuccess: ({ scheduledChange }) => {
             if (scheduledChange) {
@@ -934,7 +948,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     name: 'Feature Flags',
                     path: urls.featureFlags(),
                 },
-                { key: featureFlag.id || 'unknown', name: featureFlag.key || 'Unnamed' },
+                { key: [Scene.FeatureFlag, featureFlag.id || 'unknown'], name: featureFlag.key || 'Unnamed' },
             ],
         ],
         propertySelectErrors: [
