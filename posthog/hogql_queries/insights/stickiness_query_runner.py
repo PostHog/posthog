@@ -125,7 +125,7 @@ class StickinessQueryRunner(QueryRunner):
                             SELECT 0 as aggregation_target, (number + 1) as num_intervals
                             FROM numbers(dateDiff({interval}, {date_from} - {interval_subtract}, {date_to}))
                             UNION ALL
-                            {events_query}
+                            SELECT * FROM ({events_query})
                         )
                         GROUP BY num_intervals
                         ORDER BY num_intervals
