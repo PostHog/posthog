@@ -338,24 +338,30 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             sideAction: {
                                 identifier: 'pinned-dashboards-dropdown',
                                 dropdown: {
-                                    overlay:
-                                        dashboardsLoading || true ? (
-                                            <div className="w-50 px-2 py-1">
-                                                <Spinner textColored /> Loading…
-                                            </div>
-                                        ) : (
-                                            <div className="w-50">
-                                                {pinnedDashboards.map((dashboard) => (
-                                                    <LemonButton
-                                                        key={dashboard.id}
-                                                        to={urls.dashboard(dashboard.id)}
-                                                        fullWidth
-                                                    >
-                                                        {dashboard.name}
-                                                    </LemonButton>
-                                                ))}
-                                            </div>
-                                        ),
+                                    overlay: (
+                                        <div className="w-50">
+                                            <p className="text-xs text-text-secondary-3000 uppercase font-bold px-2 mt-2 mb-1">
+                                                Pinned dashboards
+                                            </p>
+                                            {dashboardsLoading ? (
+                                                <div className="px-2 py-1 text-text-secondary-3000">
+                                                    <Spinner /> Loading…
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    {pinnedDashboards.map((dashboard) => (
+                                                        <LemonButton
+                                                            key={dashboard.id}
+                                                            to={urls.dashboard(dashboard.id)}
+                                                            fullWidth
+                                                        >
+                                                            {dashboard.name}
+                                                        </LemonButton>
+                                                    ))}
+                                                </>
+                                            )}
+                                        </div>
+                                    ),
                                     placement: 'bottom-end',
                                 },
                             },
