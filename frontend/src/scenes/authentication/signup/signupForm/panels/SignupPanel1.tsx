@@ -30,7 +30,7 @@ export function SignupPanel1(): JSX.Element | null {
                     <p className="text-muted text-center mb-0">Or use email & password</p>
                 </>
             )}
-            <Form logic={signupLogic} formKey={'signupPanel1'} className="space-y-4" enableFormOnSubmit>
+            <Form logic={signupLogic} formKey="signupPanel1" className="space-y-4" enableFormOnSubmit>
                 <Field name="email" label="Email">
                     <LemonInput
                         className="ph-ignore-input"
@@ -67,12 +67,12 @@ export function SignupPanel1(): JSX.Element | null {
                 <LemonButton
                     fullWidth
                     type="primary"
+                    status="alt"
                     center
                     htmlType="submit"
                     data-attr="signup-start"
                     loading={isSignupPanel1Submitting}
                     disabled={isSignupPanel1Submitting}
-                    status="primary-alt"
                     size="large"
                 >
                     Continue

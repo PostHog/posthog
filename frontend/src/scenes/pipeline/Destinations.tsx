@@ -10,19 +10,24 @@ import {
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { urls } from 'scenes/urls'
 
-import { PipelineAppTabs, PipelineTabs, PluginConfigTypeNew, ProductKey } from '~/types'
+import { PipelineAppKind, ProductKey } from '~/types'
 
-import { pipelineDestinationsLogic } from './destinationsLogic'
+import { DestinationType, pipelineDestinationsLogic } from './destinationsLogic'
 import { NewButton } from './NewButton'
 import { RenderApp } from './utils'
 
 export function Destinations(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    if (!featureFlags[FEATURE_FLAGS.PIPELINE_UI]) {
+        return <p>Pipeline 3000 not available yet</p>
+    }
     const { enabledPluginConfigs, disabledPluginConfigs, shouldShowProductIntroduction } =
         useValues(pipelineDestinationsLogic)
 
@@ -37,57 +42,40 @@ export function Destinations(): JSX.Element {
                     productKey={ProductKey.PIPELINE_DESTINATIONS}
                     description="Pipeline destinations allow you to export data outside of PostHog, such as webhooks to Slack."
                     docsURL="https://posthog.com/docs/cdp"
-                    actionElementOverride={<NewButton tab={PipelineTabs.Destinations} />}
+                    actionElementOverride={<NewButton kind={PipelineAppKind.Destination} />}
                     isEmpty={true}
                 />
             )}
-            <AppsTable />
-            <BatchExportsTable />
+            <DestinationsTable />
         </>
     )
 }
 
-function BatchExportsTable(): JSX.Element {
-    return (
-        <>
-            <h2>Batch exports</h2>
-
-            <h2>Backfills</h2>
-        </>
-    )
-}
-
-function AppsTable(): JSX.Element {
-    const { loading, enabledPluginConfigs, disabledPluginConfigs, plugins, canConfigurePlugins } =
-        useValues(pipelineDestinationsLogic)
+function DestinationsTable(): JSX.Element {
+    const { loading, destinations, canConfigurePlugins } = useValues(pipelineDestinationsLogic)
     const { toggleEnabled, loadPluginConfigs } = useActions(pipelineDestinationsLogic)
 
-    if (enabledPluginConfigs.length === 0 && disabledPluginConfigs.length === 0) {
-        return <></>
-    }
-
     return (
         <>
-            <h2>Webhooks</h2>
             <LemonTable
-                dataSource={[...enabledPluginConfigs, ...disabledPluginConfigs]}
+                dataSource={destinations}
                 size="xs"
                 loading={loading}
                 columns={[
                     {
                         title: 'Name',
                         sticky: true,
-                        render: function RenderPluginName(_, pluginConfig) {
+                        render: function RenderPluginName(_, destination) {
                             return (
                                 <>
-                                    <Tooltip title={'Click to update configuration, view metrics, and more'}>
-                                        <Link to={urls.pipelineApp(pluginConfig.id, PipelineAppTabs.Configuration)}>
-                                            <span className="row-name">{pluginConfig.name}</span>
+                                    <Tooltip title="Click to update configuration, view metrics, and more">
+                                        <Link to={destination.config_url}>
+                                            <span className="row-name">{destination.name}</span>
                                         </Link>
                                     </Tooltip>
-                                    {pluginConfig.description && (
+                                    {destination.description && (
                                         <LemonMarkdown className="row-description" lowKeyHeadings>
-                                            {pluginConfig.description}
+                                            {destination.description}
                                         </LemonMarkdown>
                                     )}
                                 </>
@@ -96,53 +84,71 @@ function AppsTable(): JSX.Element {
                     },
                     {
                         title: 'App',
-                        render: function RenderAppInfo(_, pluginConfig) {
-                            return <RenderApp plugin={plugins[pluginConfig.plugin]} />
+                        render: function RenderAppInfo(_, destination) {
+                            if (destination.backend === 'plugin') {
+                                return <RenderApp plugin={destination.plugin} />
+                            }
+                            return <></> // TODO: batch export
                         },
                     },
                     {
-                        title: '24h',
-                        render: function Render24hDeliveryRate(_, pluginConfig) {
-                            let tooltip = 'No events exported in the past 24 hours'
-                            let value = '-'
-                            let tagType: LemonTagType = 'muted'
-                            if (
-                                pluginConfig.delivery_rate_24h !== null &&
-                                pluginConfig.delivery_rate_24h !== undefined
-                            ) {
-                                const deliveryRate = pluginConfig.delivery_rate_24h
-                                value = `${Math.floor(deliveryRate * 100)}%`
-                                tooltip = 'Success rate for past 24 hours'
-                                if (deliveryRate >= 0.99) {
-                                    tagType = 'success'
-                                } else if (deliveryRate >= 0.75) {
-                                    tagType = 'warning'
-                                } else {
-                                    tagType = 'danger'
-                                }
-                            }
-                            return (
-                                <Tooltip title={tooltip}>
-                                    <Link to={urls.pipelineApp(pluginConfig.id, PipelineAppTabs.Metrics)}>
-                                        <LemonTag type={tagType}>{value}</LemonTag>
-                                    </Link>
-                                </Tooltip>
-                            )
+                        title: 'Frequency',
+                        render: function RenderFrequency(_, destination) {
+                            return destination.frequency
                         },
                     },
-                    updatedAtColumn() as LemonTableColumn<PluginConfigTypeNew, any>,
+                    {
+                        title: '24h', // TODO: two options 24h or 7d selected
+                        render: function Render24hDeliveryRate(_, destination) {
+                            if (destination.backend === 'plugin') {
+                                let tooltip = 'No events exported in the past 24 hours'
+                                let value = '-'
+                                let tagType: LemonTagType = 'muted'
+                                const deliveryRate = destination.success_rates['24h']
+                                if (deliveryRate !== null) {
+                                    value = `${Math.floor(deliveryRate * 100)}%`
+                                    tooltip = 'Success rate for past 24 hours'
+                                    if (deliveryRate >= 0.99) {
+                                        tagType = 'success'
+                                    } else if (deliveryRate >= 0.75) {
+                                        tagType = 'warning'
+                                    } else {
+                                        tagType = 'danger'
+                                    }
+                                }
+                                return (
+                                    <Tooltip title={tooltip}>
+                                        <Link to={destination.metrics_url}>
+                                            <LemonTag type={tagType}>{value}</LemonTag>
+                                        </Link>
+                                    </Tooltip>
+                                )
+                            } else {
+                                // Batch exports // TODO: fix this
+                                const tooltip = 'No events exported in the past 24 hours'
+                                return (
+                                    <Tooltip title={tooltip}>
+                                        <Link to={destination.metrics_url}>
+                                            <LemonTag type="muted">-</LemonTag>
+                                        </Link>
+                                    </Tooltip>
+                                )
+                            }
+                        },
+                    },
+                    updatedAtColumn() as LemonTableColumn<DestinationType, any>,
                     {
                         title: 'Status',
-                        render: function RenderStatus(_, pluginConfig) {
+                        render: function RenderStatus(_, destination) {
                             return (
                                 <>
-                                    {pluginConfig.enabled ? (
+                                    {destination.enabled ? (
                                         <LemonTag type="success" className="uppercase">
-                                            Enabled
+                                            Active
                                         </LemonTag>
                                     ) : (
                                         <LemonTag type="default" className="uppercase">
-                                            Disabled
+                                            Paused
                                         </LemonTag>
                                     )}
                                 </>
@@ -151,87 +157,79 @@ function AppsTable(): JSX.Element {
                     },
                     {
                         width: 0,
-                        render: function Render(_, pluginConfig) {
+                        render: function Render(_, destination) {
                             return (
                                 <More
                                     overlay={
                                         <>
                                             <LemonButton
-                                                status="stealth"
-                                                onClick={() => {
-                                                    toggleEnabled({
-                                                        enabled: !pluginConfig.enabled,
-                                                        id: pluginConfig.id,
-                                                    })
-                                                }}
-                                                id={`app-${pluginConfig.id}-enable-switch`}
+                                                onClick={() => toggleEnabled(destination, !destination.enabled)}
+                                                id={`app-${destination.id}-enable-switch`}
                                                 disabledReason={
                                                     canConfigurePlugins
                                                         ? undefined
-                                                        : 'You do not have permission to enable/disable apps.'
+                                                        : 'You do not have permission to enable/disable destinations.'
                                                 }
                                                 fullWidth
                                             >
-                                                {pluginConfig.enabled ? 'Disable' : 'Enable'} app
+                                                {destination.enabled ? 'Pause' : 'Unpause'} destination
                                             </LemonButton>
                                             <LemonButton
-                                                status="stealth"
-                                                to={urls.pipelineApp(pluginConfig.id, PipelineAppTabs.Configuration)}
-                                                id={`app-${pluginConfig.id}-configuration`}
+                                                to={destination.config_url}
+                                                id={`app-${destination.id}-configuration`}
                                                 fullWidth
                                             >
-                                                {canConfigurePlugins ? 'Edit' : 'View'} app configuration
+                                                {canConfigurePlugins ? 'Edit' : 'View'} destination configuration
                                             </LemonButton>
                                             <LemonButton
-                                                status="stealth"
-                                                to={urls.pipelineApp(pluginConfig.id, PipelineAppTabs.Metrics)}
-                                                id={`app-${pluginConfig.id}-metrics`}
+                                                to={destination.metrics_url}
+                                                id={`app-${destination.id}-metrics`}
                                                 fullWidth
                                             >
-                                                View app metrics
+                                                View metrics
                                             </LemonButton>
                                             <LemonButton
-                                                status="stealth"
-                                                to={urls.pipelineApp(pluginConfig.id, PipelineAppTabs.Logs)}
-                                                id={`app-${pluginConfig.id}-logs`}
+                                                to={destination.logs_url}
+                                                id={`app-${destination.id}-logs`}
                                                 fullWidth
                                             >
-                                                View app logs
+                                                View logs
                                             </LemonButton>
-                                            {plugins[pluginConfig.plugin].url && (
+                                            {destination.app_source_code_url && (
                                                 <LemonButton
-                                                    status="stealth"
-                                                    to={plugins[pluginConfig.plugin].url}
+                                                    to={destination.app_source_code_url}
                                                     targetBlank={true}
-                                                    id={`app-${pluginConfig.id}-source-code`}
+                                                    id={`app-${destination.id}-source-code`}
                                                     fullWidth
                                                 >
                                                     View app source code
                                                 </LemonButton>
                                             )}
                                             <LemonDivider />
-                                            <LemonButton
-                                                status="danger"
-                                                onClick={() => {
-                                                    void deleteWithUndo({
-                                                        endpoint: `plugin_config`,
-                                                        object: {
-                                                            id: pluginConfig.id,
-                                                            name: pluginConfig.name,
-                                                        },
-                                                        callback: loadPluginConfigs,
-                                                    })
-                                                }}
-                                                id={`app-reorder`}
-                                                disabledReason={
-                                                    canConfigurePlugins
-                                                        ? undefined
-                                                        : 'You do not have permission to delete apps.'
-                                                }
-                                                fullWidth
-                                            >
-                                                Delete app
-                                            </LemonButton>
+                                            {destination.backend === 'plugin' && (
+                                                <LemonButton // TODO: batch exports
+                                                    status="danger"
+                                                    onClick={() => {
+                                                        void deleteWithUndo({
+                                                            endpoint: `plugin_config`,
+                                                            object: {
+                                                                id: destination.id,
+                                                                name: destination.name,
+                                                            },
+                                                            callback: loadPluginConfigs,
+                                                        })
+                                                    }}
+                                                    id="app-delete"
+                                                    disabledReason={
+                                                        canConfigurePlugins
+                                                            ? undefined
+                                                            : 'You do not have permission to delete apps.'
+                                                    }
+                                                    fullWidth
+                                                >
+                                                    Delete app
+                                                </LemonButton>
+                                            )}
                                         </>
                                     }
                                 />

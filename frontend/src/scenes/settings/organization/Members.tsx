@@ -59,7 +59,6 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                     ) : (
                         allowedLevels.map((listLevel) => (
                             <LemonButton
-                                status="stealth"
                                 fullWidth
                                 key={`${member.user.uuid}-level-${listLevel}`}
                                 onClick={(event) => {
@@ -174,7 +173,7 @@ export function Members(): JSX.Element | null {
                             preflight?.email_service_available && (
                                 <>
                                     {' '}
-                                    <LemonTag type={'highlight'} data-attr="pending-email-verification">
+                                    <LemonTag type="highlight" data-attr="pending-email-verification">
                                         pending email verification
                                     </LemonTag>
                                 </>

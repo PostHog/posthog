@@ -124,7 +124,7 @@ export function SDKInstallNextJSInstructions(): JSX.Element {
             <NextAppRouterLayoutSnippet />
             <h4>With Pages router</h4>
             <p>
-                If your Next.js app uses the <Link to={'https://nextjs.org/docs/pages'}>pages router</Link>, you can
+                If your Next.js app uses the <Link to="https://nextjs.org/docs/pages">pages router</Link>, you can
                 integrate PostHog at the root of your app (pages/_app.js).
             </p>
             <NextPagesRouterCodeSnippet />

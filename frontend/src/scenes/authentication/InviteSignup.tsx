@@ -128,7 +128,7 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
 
     return (
         <BridgePage
-            view={'accept-invite'}
+            view="accept-invite"
             hedgehog
             message={user?.first_name ? `Hey ${user?.first_name}!` : 'Hello!'}
             footer={<SupportModalButton name={user?.first_name} email={user?.email} />}
@@ -195,7 +195,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
 
     return (
         <BridgePage
-            view={'invites-signup'}
+            view="invites-signup"
             hedgehog
             message={
                 <>
@@ -270,7 +270,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
 
                 <LemonButton
                     type="primary"
-                    status="primary-alt"
+                    status="alt"
                     htmlType="submit"
                     data-attr="password-signup"
                     loading={isSignupSubmitting}

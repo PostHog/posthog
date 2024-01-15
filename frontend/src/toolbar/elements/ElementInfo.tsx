@@ -19,9 +19,9 @@ function ElementStatistic({
     suffix?: string
 }): JSX.Element {
     return (
-        <div className={'flex flex-col'}>
+        <div className="flex flex-col">
             <div>{title}</div>
-            <div className={'text-2xl'}>
+            <div className="text-2xl">
                 {prefix}
                 {value} {suffix}
             </div>
@@ -55,8 +55,8 @@ export function ElementInfo(): JSX.Element | null {
                     <p>
                         <IconCalendar /> <u>{dateRange}</u>
                     </p>
-                    <div className={'flex flex-row gap-4'}>
-                        <div className={'w-2/3'}>
+                    <div className="flex flex-row gap-4">
+                        <div className="w-2/3">
                             <ElementStatistic
                                 title="Clicks"
                                 value={count || 0}
@@ -67,13 +67,13 @@ export function ElementInfo(): JSX.Element | null {
                                 }%)`}
                             />
                         </div>
-                        <div className={'w-1/3'}>
+                        <div className="w-1/3">
                             <ElementStatistic title="Ranking" prefix="#" value={position || 0} />
                         </div>
                     </div>
-                    <div className={'flex flex-row gap-4 mt-2'}>
-                        <ElementStatistic title={'Autocapture clicks'} value={clickCount || 0} />
-                        <ElementStatistic title={'Rageclicks'} value={rageclickCount || 0} />
+                    <div className="flex flex-row gap-4 mt-2">
+                        <ElementStatistic title="Autocapture clicks" value={clickCount || 0} />
+                        <ElementStatistic title="Rageclicks" value={rageclickCount || 0} />
                     </div>
                 </div>
             ) : null}
@@ -87,13 +87,7 @@ export function ElementInfo(): JSX.Element | null {
                     <ActionsListView actions={activeMeta.actions.map((a) => a.action)} />
                 )}
 
-                <LemonButton
-                    size="small"
-                    type={'secondary'}
-                    status={'primary-alt'}
-                    onClick={() => createAction(element)}
-                    icon={<IconPlus />}
-                >
+                <LemonButton size="small" type="secondary" onClick={() => createAction(element)} icon={<IconPlus />}>
                     Create a new action
                 </LemonButton>
             </div>

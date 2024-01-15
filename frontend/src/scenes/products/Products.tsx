@@ -34,12 +34,11 @@ function OnboardingCompletedButton({
 
     return (
         <>
-            <LemonButton type="secondary" status="muted" to={productUrl}>
+            <LemonButton type="secondary" to={productUrl}>
                 Go to product
             </LemonButton>
             <LemonButton
                 type="tertiary"
-                status="muted"
                 onClick={() => {
                     onSelectProduct(productKey)
                     router.actions.push(onboardingUrl)
@@ -150,7 +149,7 @@ export function Products(): JSX.Element {
             </div>
             {products.length > 0 ? (
                 <>
-                    <div className="flex w-full max-w-xl justify-center gap-6 flex-wrap">
+                    <div className="flex w-full max-w-300 justify-center gap-6 flex-wrap">
                         {products
                             .filter(
                                 (product) =>

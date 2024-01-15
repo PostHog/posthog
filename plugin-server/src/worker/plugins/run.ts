@@ -76,10 +76,13 @@ export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise
 const RUSTY_HOOK_BASE_DELAY_MS = 100
 const MAX_RUSTY_HOOK_DELAY_MS = 30_000
 
-interface RustyWebhookPayload extends Webhook {
-    team_id: number
-    plugin_id: number
-    plugin_config_id: number
+interface RustyWebhookPayload {
+    parameters: Webhook
+    metadata: {
+        team_id: number
+        plugin_id: number
+        plugin_config_id: number
+    }
 }
 
 async function enqueueInRustyHook(hub: Hub, webhook: Webhook, pluginConfig: PluginConfig) {
@@ -87,10 +90,12 @@ async function enqueueInRustyHook(hub: Hub, webhook: Webhook, pluginConfig: Plug
     webhook.headers ??= {}
 
     const rustyWebhookPayload: RustyWebhookPayload = {
-        ...webhook,
-        team_id: pluginConfig.team_id,
-        plugin_id: pluginConfig.plugin_id,
-        plugin_config_id: pluginConfig.id,
+        parameters: webhook,
+        metadata: {
+            team_id: pluginConfig.team_id,
+            plugin_id: pluginConfig.plugin_id,
+            plugin_config_id: pluginConfig.id,
+        },
     }
     const body = JSON.stringify(rustyWebhookPayload, undefined, 4)
 
@@ -129,7 +134,10 @@ async function enqueueInRustyHook(hub: Hub, webhook: Webhook, pluginConfig: Plug
                 .labels(pluginConfig.plugin_id.toString(), 'enqueueRustyHook', 'error')
                 .observe(new Date().getTime() - timer.getTime())
 
-            const redactedWebhook = { ...rustyWebhookPayload, body: '<redacted>' }
+            const redactedWebhook = {
+                parameters: { ...rustyWebhookPayload.parameters, body: '<redacted>' },
+                metadata: rustyWebhookPayload.metadata,
+            }
             status.error('🔴', 'Webhook enqueue to rusty-hook failed', { error, redactedWebhook, attempt })
             Sentry.captureException(error, { extra: { redactedWebhook } })
         }

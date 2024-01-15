@@ -38,7 +38,7 @@ export function AppView({
     if (isConfigured) {
         menuItems.push({
             label: pluginConfig?.enabled ? 'Disable' : 'Enable',
-            status: pluginConfig.enabled ? 'danger' : 'primary',
+            status: pluginConfig.enabled ? 'danger' : 'default',
             onClick: () =>
                 toggleEnabled({
                     id: pluginConfig.id,
@@ -73,7 +73,7 @@ export function AppView({
                                 {orderedIndex ? (
                                     <LemonBadge.Number status="primary" count={orderedIndex} maxDigits={3} />
                                 ) : (
-                                    <LemonBadge status="primary" content={'-'} />
+                                    <LemonBadge status="primary" content="-" />
                                 )}
                             </LemonButton>
                         </Tooltip>

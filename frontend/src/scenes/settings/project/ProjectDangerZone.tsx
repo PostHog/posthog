@@ -27,7 +27,11 @@ export function DeleteProjectModal({
             onClose={!isDeletionInProgress ? () => setIsOpen(false) : undefined}
             footer={
                 <>
-                    <LemonButton disabled={isDeletionInProgress} type="secondary" onClick={() => setIsOpen(false)}>
+                    <LemonButton
+                        disabledReason={isDeletionInProgress && 'Deleting...'}
+                        type="secondary"
+                        onClick={() => setIsOpen(false)}
+                    >
                         Cancel
                     </LemonButton>
                     <LemonButton

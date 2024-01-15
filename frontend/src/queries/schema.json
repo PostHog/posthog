@@ -726,6 +726,9 @@
             },
             "type": "object"
         },
+        "Day": {
+            "type": "integer"
+        },
         "ElementPropertyFilter": {
             "additionalProperties": false,
             "description": "Sync with plugin-server/src/types.ts",
@@ -1567,6 +1570,10 @@
                     "description": "HogQL expression to validate (use `select` or `expr`, but not both)",
                     "type": "string"
                 },
+                "exprSource": {
+                    "$ref": "#/definitions/AnyDataNode",
+                    "description": "Query within which \"expr\" is validated. Defaults to \"select * from events\""
+                },
                 "filters": {
                     "$ref": "#/definitions/HogQLFilters"
                 },
@@ -1779,7 +1786,14 @@
             "additionalProperties": false,
             "properties": {
                 "day": {
-                    "type": "string"
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "$ref": "#/definitions/Day"
+                        }
+                    ]
                 },
                 "interval": {
                     "description": "An interval selected out of available intervals in source query",
@@ -3047,6 +3061,37 @@
                 }
             },
             "required": ["kind", "series"],
+            "type": "object"
+        },
+        "StickinessQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "hogql": {
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "type": "string"
+                },
+                "next_allowed_client_refresh": {
+                    "type": "string"
+                },
+                "results": {
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
             "type": "object"
         },
         "TimeToSeeDataJSONNode": {

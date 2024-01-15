@@ -141,8 +141,6 @@ function CollaboratorRow({
                             icon={<IconDelete />}
                             onClick={() => deleteCollaborator(user.uuid)}
                             tooltip={wasInvited ? 'Remove invited collaborator' : null}
-                            status="primary-alt"
-                            type="tertiary"
                             size="small"
                         />
                     )}

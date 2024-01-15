@@ -163,7 +163,7 @@ export function IngestionWarningsView(): JSX.Element {
                                                     .split(' ')
                                                     .join('-')}`}
                                             >
-                                                {'docs'})
+                                                docs)
                                             </Link>
                                         </>
                                     )

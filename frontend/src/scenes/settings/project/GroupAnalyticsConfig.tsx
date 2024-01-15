@@ -75,7 +75,7 @@ export function GroupAnalyticsConfig(): JSX.Element | null {
                 <LemonBanner type="info" className="mb-4">
                     Group types will show up here after you send your first event associated with a group. Take a look
                     at{' '}
-                    <Link to={`https://posthog.com/manual/group-analytics`} target="_blank">
+                    <Link to="https://posthog.com/manual/group-analytics" target="_blank">
                         this guide
                     </Link>
                     for more information on getting started.
@@ -85,10 +85,14 @@ export function GroupAnalyticsConfig(): JSX.Element | null {
             <LemonTable columns={columns} dataSource={Array.from(groupTypes.values())} loading={groupTypesLoading} />
 
             <div className="flex gap-2 mt-4">
-                <LemonButton type="primary" disabled={!hasChanges} onClick={save}>
+                <LemonButton
+                    type="primary"
+                    disabledReason={!hasChanges && 'Make some changes before saving'}
+                    onClick={save}
+                >
                     Save
                 </LemonButton>
-                <LemonButton disabled={!hasChanges} onClick={reset}>
+                <LemonButton disabledReason={!hasChanges && 'Revert any changes made'} onClick={reset}>
                     Cancel
                 </LemonButton>
             </div>

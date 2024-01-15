@@ -6,6 +6,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import React, { useEffect } from 'react'
 import { LogicalRowDivider } from 'scenes/cohorts/CohortFilters/CohortCriteriaRowBuilder'
 
+import { AnyDataNode } from '~/queries/schema'
 import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
 import { FilterRow } from './components/FilterRow'
@@ -19,7 +20,7 @@ interface PropertyFiltersProps {
     showConditionBadge?: boolean
     disablePopover?: boolean
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
-    hogQLTable?: string
+    metadataSource?: AnyDataNode
     showNestedArrow?: boolean
     eventNames?: string[]
     logicalRowDivider?: boolean
@@ -40,7 +41,7 @@ export function PropertyFilters({
     showConditionBadge = false,
     disablePopover = false, // use bare PropertyFilter without popover
     taxonomicGroupTypes,
-    hogQLTable,
+    metadataSource,
     showNestedArrow = false,
     eventNames = [],
     orFiltering = false,
@@ -64,7 +65,11 @@ export function PropertyFilters({
 
     return (
         <div className="PropertyFilters">
-            {showNestedArrow && !disablePopover && <div className="PropertyFilters__prefix">{<>&#8627;</>}</div>}
+            {showNestedArrow && !disablePopover && (
+                <div className="PropertyFilters__prefix">
+                    <>&#8627;</>
+                </div>
+            )}
             <div className="PropertyFilters__content">
                 <BindLogic logic={propertyFilterLogic} props={logicProps}>
                     {(allowNew ? filtersWithNew : filters).map((item: AnyPropertyFilter, index: number) => {
@@ -82,7 +87,7 @@ export function PropertyFilters({
                                     pageKey={pageKey}
                                     showConditionBadge={showConditionBadge}
                                     disablePopover={disablePopover || orFiltering}
-                                    label={'Add filter'}
+                                    label="Add filter"
                                     onRemove={remove}
                                     orFiltering={orFiltering}
                                     filterComponent={(onComplete) => (
@@ -93,7 +98,7 @@ export function PropertyFilters({
                                             onComplete={onComplete}
                                             orFiltering={orFiltering}
                                             taxonomicGroupTypes={taxonomicGroupTypes}
-                                            hogQLTable={hogQLTable}
+                                            metadataSource={metadataSource}
                                             eventNames={eventNames}
                                             propertyGroupType={propertyGroupType}
                                             disablePopover={disablePopover || orFiltering}

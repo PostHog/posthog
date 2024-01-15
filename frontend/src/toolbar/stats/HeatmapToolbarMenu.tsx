@@ -36,9 +36,8 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
 
                         <LemonButton
                             icon={<IconSync />}
-                            type={'secondary'}
-                            status={'primary-alt'}
-                            size={'small'}
+                            type="secondary"
+                            size="small"
                             onClick={loadMoreElementStats}
                             disabledReason={
                                 canLoadMoreElementStats ? undefined : 'Loaded all elements in this data range.'
@@ -53,15 +52,11 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                         Found: {countedElements.length} elements / {clickCount} clicks!
                     </div>
 
-                    <Tooltip
-                        title={
-                            'Matching links by their target URL can exclude clicks from the heatmap if the URL is too unique.'
-                        }
-                    >
+                    <Tooltip title="Matching links by their target URL can exclude clicks from the heatmap if the URL is too unique.">
                         <div>
                             <LemonSwitch
                                 checked={matchLinksByHref}
-                                label={'Match links by their target URL'}
+                                label="Match links by their target URL"
                                 onChange={(checked) => setMatchLinksByHref(checked)}
                                 fullWidth={true}
                                 bordered={true}
@@ -71,7 +66,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                 </div>
             </ToolbarMenu.Header>
             <ToolbarMenu.Body>
-                <div className={'flex flex-col space-y-2'}>
+                <div className="flex flex-col space-y-2">
                     <div className="flex flex-col w-full h-full">
                         {heatmapLoading ? (
                             <span className="flex-1 flex justify-center items-center p-4">

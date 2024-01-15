@@ -13,6 +13,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { AndroidRecordingsPromptBanner } from 'scenes/session-recordings/mobile-replay/AndroidRecordingPromptBanner'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -59,7 +60,6 @@ export function SessionsRecordings(): JSX.Element {
     return (
         <div>
             <PageHeader
-                title={<div>Session Replay</div>}
                 buttons={
                     <>
                         {tab === ReplayTabs.Recent && !recordingsDisabled && (
@@ -73,9 +73,8 @@ export function SessionsRecordings(): JSX.Element {
                                 />
                                 <LemonButton
                                     fullWidth={false}
-                                    data-attr={'session-recordings-filters-save-as-playlist'}
+                                    data-attr="session-recordings-filters-save-as-playlist"
                                     type="primary"
-                                    status="primary"
                                     onClick={(e) =>
                                         guardAvailableFeature(
                                             AvailableFeature.RECORDINGS_PLAYLISTS,
@@ -137,6 +136,7 @@ export function SessionsRecordings(): JSX.Element {
             />
             <div className="space-y-2">
                 <VersionCheckerBanner />
+                <AndroidRecordingsPromptBanner context="replay" />
 
                 {recordingsDisabled ? (
                     <LemonBanner

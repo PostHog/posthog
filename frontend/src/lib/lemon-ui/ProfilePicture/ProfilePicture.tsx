@@ -62,7 +62,7 @@ export function ProfilePicture({
             {gravatarLoaded !== true && (
                 <>
                     {type === 'bot' ? (
-                        <IconRobot className={'p-0.5'} />
+                        <IconRobot className="p-0.5" />
                     ) : (
                         <Lettermark
                             name={combinedNameAndEmail}
@@ -75,7 +75,7 @@ export function ProfilePicture({
             )}
             {gravatarUrl && gravatarLoaded !== false ? (
                 <img
-                    className={'absolute top-0 left-0 w-full h-full rounded-full'}
+                    className="absolute top-0 left-0 w-full h-full rounded-full"
                     src={gravatarUrl}
                     title={title || `This is the Gravatar for ${combinedNameAndEmail}`}
                     alt=""

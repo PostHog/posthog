@@ -122,19 +122,13 @@ export function Experiments(): JSX.Element {
                     <More
                         overlay={
                             <>
-                                <LemonButton
-                                    status="stealth"
-                                    to={urls.experiment(`${experiment.id}`)}
-                                    size="small"
-                                    fullWidth
-                                >
+                                <LemonButton to={urls.experiment(`${experiment.id}`)} size="small" fullWidth>
                                     View
                                 </LemonButton>
                                 {!experiment.archived &&
                                     experiment?.end_date &&
                                     dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') && (
                                         <LemonButton
-                                            status="stealth"
                                             onClick={() => archiveExperiment(experiment.id as number)}
                                             data-attr={`experiment-${experiment.id}-dropdown-archive`}
                                             fullWidth
@@ -162,7 +156,6 @@ export function Experiments(): JSX.Element {
     return (
         <div>
             <PageHeader
-                title={<div className="flex items-center">A/B testing</div>}
                 buttons={
                     hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ? (
                         <LemonButton type="primary" data-attr="create-experiment" to={urls.experiment('new')}>
@@ -254,8 +247,6 @@ export function Experiments(): JSX.Element {
                                         <b>Created by</b>
                                     </span>
                                     <MemberSelect
-                                        size="small"
-                                        type="secondary"
                                         defaultLabel="Any user"
                                         value={userFilter ?? null}
                                         onChange={(user) => setUserFilter(user?.uuid ?? null)}

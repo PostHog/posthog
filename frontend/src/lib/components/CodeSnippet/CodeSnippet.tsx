@@ -124,12 +124,14 @@ export function CodeSnippet({
                             <LemonButton
                                 key={`snippet-action-${index}`}
                                 onClick={callback}
+                                icon={icon}
                                 title={title}
                                 size={compact ? 'small' : 'medium'}
+                                noPadding
                             />
                         ) : (
                             <Popconfirm key={`snippet-action-${index}`} {...popconfirmProps} onConfirm={callback}>
-                                <LemonButton icon={icon} title={title} size={compact ? 'small' : 'medium'} />
+                                <LemonButton icon={icon} title={title} size={compact ? 'small' : 'medium'} noPadding />
                             </Popconfirm>
                         )
                     )}
@@ -142,6 +144,7 @@ export function CodeSnippet({
                         }
                     }}
                     size={compact ? 'small' : 'medium'}
+                    noPadding
                 />
             </div>
             <SyntaxHighlighter

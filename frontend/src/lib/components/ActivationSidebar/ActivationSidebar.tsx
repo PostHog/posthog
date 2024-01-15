@@ -1,15 +1,8 @@
-import './ActivationSidebar.scss'
-
 import { LemonButton, LemonButtonWithSideActionProps } from '@posthog/lemon-ui'
-import { Progress } from 'antd'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 import { IconCheckmark, IconClose } from 'lib/lemon-ui/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
-
-import { ProfessorHog } from '../hedgehogs'
 import { activationLogic, ActivationTaskType } from './activationLogic'
 
 export const ActivationTask = ({
@@ -37,7 +30,6 @@ export const ActivationTask = ({
         fullWidth: true,
         type: 'secondary',
         icon: completed ? <IconCheckmark /> : skipped ? <IconClose /> : null,
-        status: completed ? 'primary-alt' : skipped ? 'muted' : undefined,
         tooltip: name,
     }
     if (url) {
@@ -58,7 +50,6 @@ export const ActivationTask = ({
                         icon: <IconClose />,
                         tooltip: 'Skip task',
                         onClick: () => skipTask(id),
-                        status: 'muted',
                     }}
                 >
                     {content}
@@ -67,60 +58,5 @@ export const ActivationTask = ({
                 <LemonButton {...params}>{content}</LemonButton>
             )}
         </li>
-    )
-}
-
-export const ActivationSidebar = (): JSX.Element => {
-    const { isActivationSideBarShown } = useValues(navigationLogic)
-    const { hideActivationSideBar } = useActions(navigationLogic)
-    const { activeTasks, completedTasks, completionPercent } = useValues(activationLogic)
-
-    return (
-        <div className={clsx('ActivationSideBar', !isActivationSideBarShown && 'ActivationSideBar--hidden')}>
-            <div className="ActivationSideBar__content pt-2 px-4 pb-16">
-                <div className="ActivationSideBar__close_button">
-                    <LemonButton icon={<IconClose />} onClick={() => hideActivationSideBar()} />
-                </div>
-                <>
-                    <h2 className="subtitle">Quick Start</h2>
-                    <p>Use our Quick Start guide to learn about everything PostHog can do for you and your product.</p>
-                    <div className="my-4 flex items-center justify-center">
-                        <div className="flex flex-col items-center">
-                            <Progress
-                                type="circle"
-                                strokeWidth={10}
-                                percent={completionPercent}
-                                format={() => activeTasks.length}
-                                strokeColor="#345cff" // primary-light
-                            />
-                            <p className="text-muted mt-2">still to go</p>
-                        </div>
-                        <div className="ActivationSideBar__hog">
-                            <ProfessorHog className="max-h-full w-auto object-contain" />
-                        </div>
-                    </div>
-                    {activeTasks.length > 0 && (
-                        <div className="mt-4">
-                            <div className="text-muted uppercase text-xs">What's next?</div>
-                            <ul>
-                                {activeTasks.map((task: ActivationTaskType) => (
-                                    <ActivationTask key={task.id} {...task} />
-                                ))}
-                            </ul>
-                        </div>
-                    )}
-                    {completedTasks.length > 0 && (
-                        <div className="mt-4">
-                            <div className="text-muted uppercase text-xs">Completed</div>
-                            <ul>
-                                {completedTasks.map((task: ActivationTaskType) => (
-                                    <ActivationTask key={task.id} {...task} />
-                                ))}
-                            </ul>
-                        </div>
-                    )}
-                </>
-            </div>
-        </div>
     )
 }

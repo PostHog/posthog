@@ -3,15 +3,14 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel
 from typing_extensions import Literal
 
 
-class SchemaRoot(RootModel):
+class SchemaRoot(RootModel[Any]):
     root: Any
 
 
@@ -461,14 +460,14 @@ class QueryStatus(BaseModel):
         extra="forbid",
     )
     complete: Optional[bool] = False
-    end_time: Optional[datetime] = None
+    end_time: Optional[AwareDatetime] = None
     error: Optional[bool] = False
     error_message: Optional[str] = ""
-    expiration_time: Optional[datetime] = None
+    expiration_time: Optional[AwareDatetime] = None
     id: str
     query_async: Optional[bool] = True
     results: Optional[Any] = None
-    start_time: Optional[datetime] = None
+    start_time: Optional[AwareDatetime] = None
     task_id: Optional[str] = None
     team_id: int
 
@@ -560,6 +559,18 @@ class StickinessFilter(BaseModel):
     hidden_legend_indexes: Optional[List[float]] = None
     show_legend: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
+
+
+class StickinessQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hogql: Optional[str] = None
+    is_cached: Optional[bool] = None
+    last_refresh: Optional[str] = None
+    next_allowed_client_refresh: Optional[str] = None
+    results: List[Dict[str, Any]]
+    timings: Optional[List[QueryTiming]] = None
 
 
 class TimeToSeeDataQuery(BaseModel):
@@ -748,7 +759,7 @@ class ActorsQueryResponse(BaseModel):
     types: List[str]
 
 
-class AnyResponseTypeItem(BaseModel):
+class AnyResponseType1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -986,7 +997,7 @@ class RetentionResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    date: datetime
+    date: AwareDatetime
     label: str
     values: List[RetentionValue]
 
@@ -1061,7 +1072,7 @@ class TimeToSeeDataJSONNode(BaseModel):
     source: TimeToSeeDataQuery
 
 
-class TimeToSeeDataNode(RootModel):
+class TimeToSeeDataNode(RootModel[Union[TimeToSeeDataJSONNode, TimeToSeeDataWaterfallNode]]):
     root: Union[TimeToSeeDataJSONNode, TimeToSeeDataWaterfallNode]
 
 
@@ -1115,9 +1126,15 @@ class WebTopClicksQuery(BaseModel):
     response: Optional[WebTopClicksQueryResponse] = None
 
 
-class AnyResponseType(RootModel):
+class AnyResponseType(
+    RootModel[
+        Union[
+            Dict[str, Any], HogQLQueryResponse, HogQLMetadataResponse, Union[AnyResponseType1, Any], EventsQueryResponse
+        ]
+    ]
+):
     root: Union[
-        Dict[str, Any], HogQLQueryResponse, HogQLMetadataResponse, Union[AnyResponseTypeItem, Any], EventsQueryResponse
+        Dict[str, Any], HogQLQueryResponse, HogQLMetadataResponse, Union[AnyResponseType1, Any], EventsQueryResponse
     ]
 
 
@@ -1336,22 +1353,6 @@ class HogQLFilters(BaseModel):
     ] = None
 
 
-class HogQLMetadata(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    expr: Optional[str] = Field(
-        default=None, description="HogQL expression to validate (use `select` or `expr`, but not both)"
-    )
-    filters: Optional[HogQLFilters] = None
-    kind: Literal["HogQLMetadata"] = "HogQLMetadata"
-    response: Optional[HogQLMetadataResponse] = Field(default=None, description="Cached query response")
-    select: Optional[str] = Field(
-        default=None, description="Full select query to validate (use `select` or `expr`, but not both)"
-    )
-    table: Optional[str] = Field(default=None, description="Table to validate the expression against")
-
-
 class HogQLQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1367,7 +1368,9 @@ class HogQLQuery(BaseModel):
     )
 
 
-class InsightFilter(RootModel):
+class InsightFilter(
+    RootModel[Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]]
+):
     root: Union[TrendsFilter, FunnelsFilter, RetentionFilter, PathsFilter, StickinessFilter, LifecycleFilter]
 
 
@@ -1532,7 +1535,7 @@ class DataVisualizationNode(BaseModel):
     source: HogQLQuery
 
 
-class HasPropertiesNode(RootModel):
+class HasPropertiesNode(RootModel[Union[EventsNode, EventsQuery, PersonsNode]]):
     root: Union[EventsNode, EventsQuery, PersonsNode]
 
 
@@ -1881,7 +1884,7 @@ class InsightActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    day: Optional[str] = None
+    day: Optional[Union[str, int]] = None
     interval: Optional[int] = Field(
         default=None, description="An interval selected out of available intervals in source query"
     )
@@ -1993,7 +1996,72 @@ class DataTableNode(BaseModel):
     ] = Field(..., description="Source of the events")
 
 
-class QuerySchema(RootModel):
+class HogQLMetadata(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    expr: Optional[str] = Field(
+        default=None, description="HogQL expression to validate (use `select` or `expr`, but not both)"
+    )
+    exprSource: Optional[
+        Union[
+            EventsNode,
+            ActionsNode,
+            PersonsNode,
+            TimeToSeeDataSessionsQuery,
+            EventsQuery,
+            ActorsQuery,
+            InsightActorsQuery,
+            SessionsTimelineQuery,
+            HogQLQuery,
+            HogQLMetadata,
+            WebOverviewQuery,
+            WebStatsTableQuery,
+            WebTopClicksQuery,
+        ]
+    ] = Field(default=None, description='Query within which "expr" is validated. Defaults to "select * from events"')
+    filters: Optional[HogQLFilters] = None
+    kind: Literal["HogQLMetadata"] = "HogQLMetadata"
+    response: Optional[HogQLMetadataResponse] = Field(default=None, description="Cached query response")
+    select: Optional[str] = Field(
+        default=None, description="Full select query to validate (use `select` or `expr`, but not both)"
+    )
+    table: Optional[str] = Field(default=None, description="Table to validate the expression against")
+
+
+class QuerySchema(
+    RootModel[
+        Union[
+            DataVisualizationNode,
+            DataTableNode,
+            SavedInsightNode,
+            InsightVizNode,
+            TrendsQuery,
+            FunnelsQuery,
+            RetentionQuery,
+            PathsQuery,
+            StickinessQuery,
+            LifecycleQuery,
+            TimeToSeeDataSessionsQuery,
+            DatabaseSchemaQuery,
+            Union[
+                EventsNode,
+                ActionsNode,
+                PersonsNode,
+                TimeToSeeDataSessionsQuery,
+                EventsQuery,
+                ActorsQuery,
+                InsightActorsQuery,
+                SessionsTimelineQuery,
+                HogQLQuery,
+                HogQLMetadata,
+                WebOverviewQuery,
+                WebStatsTableQuery,
+                WebTopClicksQuery,
+            ],
+        ]
+    ]
+):
     root: Union[
         DataVisualizationNode,
         DataTableNode,

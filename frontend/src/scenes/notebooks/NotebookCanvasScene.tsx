@@ -29,7 +29,6 @@ export function NotebookCanvas(): JSX.Element {
     return (
         <>
             <PageHeader
-                title="Canvas"
                 buttons={
                     <>
                         <LemonMenu
@@ -65,7 +64,7 @@ export function NotebookCanvas(): JSX.Element {
                                 },
                             ]}
                         >
-                            <LemonButton icon={<IconEllipsis />} status="stealth" size="small" />
+                            <LemonButton icon={<IconEllipsis />} size="small" />
                         </LemonMenu>
                         <LemonButton type="primary" onClick={duplicateNotebook}>
                             Save as Notebook

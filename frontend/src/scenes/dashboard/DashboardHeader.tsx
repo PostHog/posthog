@@ -9,7 +9,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { privilegeLevelToName } from 'lib/constants'
-import { IconLock } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -119,33 +118,6 @@ export function DashboardHeader(): JSX.Element | null {
             )}
 
             <PageHeader
-                title={
-                    <div className="flex items-center">
-                        <EditableField
-                            name="name"
-                            value={dashboard?.name || (dashboardLoading ? 'Loading…' : '')}
-                            placeholder="Name this dashboard"
-                            onSave={
-                                dashboard
-                                    ? (value) => updateDashboard({ id: dashboard.id, name: value, allowUndo: true })
-                                    : undefined
-                            }
-                            saveOnBlur={true}
-                            minLength={1}
-                            maxLength={400} // Sync with Dashboard model
-                            mode={!canEditDashboard ? 'view' : undefined}
-                            notice={
-                                dashboard && !canEditDashboard
-                                    ? {
-                                          icon: <IconLock />,
-                                          tooltip: DASHBOARD_CANNOT_EDIT_MESSAGE,
-                                      }
-                                    : undefined
-                            }
-                            data-attr="dashboard-name"
-                        />
-                    </div>
-                }
                 buttons={
                     dashboardMode === DashboardMode.Edit ? (
                         <LemonButton
@@ -193,7 +165,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                             DashboardEventSource.MoreDropdown
                                                         )
                                                     }
-                                                    status="stealth"
                                                     fullWidth
                                                 >
                                                     Edit layout (E)
@@ -206,7 +177,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                         DashboardEventSource.MoreDropdown
                                                     )
                                                 }
-                                                status="stealth"
                                                 fullWidth
                                             >
                                                 Go full screen (F)
@@ -220,7 +190,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                                 DashboardEventSource.MoreDropdown
                                                             )
                                                         }
-                                                        status="stealth"
                                                         fullWidth
                                                     >
                                                         Unpin dashboard
@@ -233,14 +202,13 @@ export function DashboardHeader(): JSX.Element | null {
                                                                 DashboardEventSource.MoreDropdown
                                                             )
                                                         }
-                                                        status="stealth"
                                                         fullWidth
                                                     >
                                                         Pin dashboard
                                                     </LemonButton>
                                                 ))}
                                             <SubscribeButton dashboardId={dashboard.id} />
-                                            <ExportButton fullWidth status="stealth" items={exportOptions} />
+                                            <ExportButton fullWidth items={exportOptions} />
                                             {user?.is_staff && (
                                                 <LemonButton
                                                     onClick={() => {
@@ -250,7 +218,6 @@ export function DashboardHeader(): JSX.Element | null {
                                                         }
                                                     }}
                                                     fullWidth
-                                                    status="stealth"
                                                 >
                                                     Save as template
                                                 </LemonButton>
@@ -260,14 +227,12 @@ export function DashboardHeader(): JSX.Element | null {
                                                 onClick={() => {
                                                     showDuplicateDashboardModal(dashboard.id, dashboard.name)
                                                 }}
-                                                status="stealth"
                                                 fullWidth
                                             >
                                                 Duplicate dashboard
                                             </LemonButton>
                                             <LemonButton
                                                 onClick={() => createNotebookFromDashboard(dashboard)}
-                                                status="stealth"
                                                 fullWidth
                                             >
                                                 Create notebook from dashboard
@@ -315,7 +280,6 @@ export function DashboardHeader(): JSX.Element | null {
                                             overlay: (
                                                 <>
                                                     <LemonButton
-                                                        status="stealth"
                                                         fullWidth
                                                         onClick={() => {
                                                             push(urls.dashboardTextTile(dashboard.id, 'new'))

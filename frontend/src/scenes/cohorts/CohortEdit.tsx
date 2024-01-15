@@ -43,7 +43,6 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
         <div className="cohort">
             <Form id="cohort" logic={cohortEditLogic} props={logicProps} formKey="cohort" enableFormOnSubmit>
                 <PageHeader
-                    title={isNewCohort ? 'New cohort' : cohort.name || 'Untitled'}
                     buttons={
                         <div className="flex items-center gap-2">
                             {isNewCohort ? (
@@ -102,7 +101,6 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     }
                                 />
                             )}
-                            <LemonDivider vertical />
                             {!isNewCohort && (
                                 <NotebookSelectButton
                                     type="secondary"

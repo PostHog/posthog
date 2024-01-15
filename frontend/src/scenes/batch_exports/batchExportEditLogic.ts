@@ -109,6 +109,7 @@ const formFields = (
                   table_id: !config.table_id ? 'This field is required' : '',
                   exclude_events: '',
                   include_events: '',
+                  use_json_type: '',
               }
             : destination === 'Snowflake'
             ? {
@@ -173,7 +174,7 @@ export const batchExportsEditLogic = kea<batchExportsEditLogicType>([
                               config: config,
                           } as unknown as BatchExportDestinationSnowflake)
 
-                const data: Omit<BatchExportConfiguration, 'id' | 'created_at'> = {
+                const data: Omit<BatchExportConfiguration, 'id' | 'created_at' | 'team_id'> = {
                     paused,
                     name,
                     interval,

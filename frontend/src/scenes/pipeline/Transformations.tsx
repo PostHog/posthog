@@ -15,25 +15,37 @@ import {
 } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { urls } from 'scenes/urls'
 
-import { PipelineAppTabs, PipelineTabs, PluginConfigTypeNew, ProductKey } from '~/types'
+import {
+    PipelineAppKind,
+    PipelineAppTab,
+    PluginConfigTypeNew,
+    PluginConfigWithPluginInfoNew,
+    ProductKey,
+} from '~/types'
 
 import { NewButton } from './NewButton'
 import { pipelineTransformationsLogic } from './transformationsLogic'
 import { RenderApp } from './utils'
 
 export function Transformations(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    if (!featureFlags[FEATURE_FLAGS.PIPELINE_UI]) {
+        return <p>Pipeline 3000 not available yet</p>
+    }
     const {
         loading,
         sortedEnabledPluginConfigs,
         disabledPluginConfigs,
-        plugins,
+        displayablePluginConfigs,
         canConfigurePlugins,
         shouldShowProductIntroduction,
     } = useValues(pipelineTransformationsLogic)
@@ -50,7 +62,7 @@ export function Transformations(): JSX.Element {
                     productKey={ProductKey.PIPELINE_TRANSFORMATIONS}
                     description="Pipeline transformations allow you to enrich your data with additional information, such as geolocation."
                     docsURL="https://posthog.com/docs/cdp"
-                    actionElementOverride={<NewButton tab={PipelineTabs.Transformations} />}
+                    actionElementOverride={<NewButton kind={PipelineAppKind.Transformation} />}
                     isEmpty={true}
                 />
             )}
@@ -64,8 +76,7 @@ export function Transformations(): JSX.Element {
                                 <LemonButton
                                     onClick={openReorderModal}
                                     noPadding
-                                    type="tertiary"
-                                    id={`app-reorder`}
+                                    id="app-reorder"
                                     disabledReason={
                                         canConfigurePlugins
                                             ? undefined
@@ -78,7 +89,7 @@ export function Transformations(): JSX.Element {
                         </>
                     )}
                     <LemonTable
-                        dataSource={[...sortedEnabledPluginConfigs, ...disabledPluginConfigs]}
+                        dataSource={displayablePluginConfigs}
                         size="xs"
                         loading={loading}
                         columns={[
@@ -92,7 +103,7 @@ export function Transformations(): JSX.Element {
                                     }
                                     // We can't use pluginConfig.order directly as it's not nicely set for everything,
                                     // e.g. geoIP, disabled plugins, especially if we disable them via django admin
-                                    return sortedEnabledPluginConfigs.findIndex((pc) => pc === pluginConfig) + 1
+                                    return sortedEnabledPluginConfigs.findIndex((pc) => pc.id === pluginConfig.id) + 1
                                 },
                             },
                             {
@@ -101,11 +112,12 @@ export function Transformations(): JSX.Element {
                                 render: function RenderPluginName(_, pluginConfig) {
                                     return (
                                         <>
-                                            <Tooltip title={'Click to update configuration, view metrics, and more'}>
+                                            <Tooltip title="Click to update configuration, view metrics, and more">
                                                 <Link
                                                     to={urls.pipelineApp(
+                                                        PipelineAppKind.Transformation,
                                                         pluginConfig.id,
-                                                        PipelineAppTabs.Configuration
+                                                        PipelineAppTab.Configuration
                                                     )}
                                                 >
                                                     <span className="row-name">{pluginConfig.name}</span>
@@ -123,10 +135,10 @@ export function Transformations(): JSX.Element {
                             {
                                 title: 'App',
                                 render: function RenderAppInfo(_, pluginConfig) {
-                                    return <RenderApp plugin={plugins[pluginConfig.plugin]} />
+                                    return <RenderApp plugin={pluginConfig.plugin_info} />
                                 },
                             },
-                            updatedAtColumn() as LemonTableColumn<PluginConfigTypeNew, any>,
+                            updatedAtColumn() as LemonTableColumn<PluginConfigWithPluginInfoNew, any>,
                             {
                                 title: 'Status',
                                 render: function RenderStatus(_, pluginConfig) {
@@ -153,7 +165,6 @@ export function Transformations(): JSX.Element {
                                             overlay={
                                                 <>
                                                     <LemonButton
-                                                        status="stealth"
                                                         onClick={() => {
                                                             toggleEnabled({
                                                                 enabled: !pluginConfig.enabled,
@@ -172,9 +183,8 @@ export function Transformations(): JSX.Element {
                                                     </LemonButton>
                                                     {pluginConfig.enabled && (
                                                         <LemonButton
-                                                            status="stealth"
                                                             onClick={openReorderModal}
-                                                            id={`app-reorder`}
+                                                            id="app-reorder"
                                                             disabledReason={
                                                                 canConfigurePlugins
                                                                     ? undefined
@@ -186,10 +196,10 @@ export function Transformations(): JSX.Element {
                                                         </LemonButton>
                                                     )}
                                                     <LemonButton
-                                                        status="stealth"
                                                         to={urls.pipelineApp(
+                                                            PipelineAppKind.Transformation,
                                                             pluginConfig.id,
-                                                            PipelineAppTabs.Configuration
+                                                            PipelineAppTab.Configuration
                                                         )}
                                                         id={`app-${pluginConfig.id}-configuration`}
                                                         fullWidth
@@ -197,32 +207,36 @@ export function Transformations(): JSX.Element {
                                                         {canConfigurePlugins ? 'Edit' : 'View'} app configuration
                                                     </LemonButton>
                                                     <LemonButton
-                                                        status="stealth"
-                                                        to={urls.pipelineApp(pluginConfig.id, PipelineAppTabs.Metrics)}
+                                                        to={urls.pipelineApp(
+                                                            PipelineAppKind.Transformation,
+                                                            pluginConfig.id,
+                                                            PipelineAppTab.Metrics
+                                                        )}
                                                         id={`app-${pluginConfig.id}-metrics`}
                                                         fullWidth
                                                     >
                                                         View app metrics
                                                     </LemonButton>
                                                     <LemonButton
-                                                        status="stealth"
-                                                        to={urls.pipelineApp(pluginConfig.id, PipelineAppTabs.Logs)}
+                                                        to={urls.pipelineApp(
+                                                            PipelineAppKind.Transformation,
+                                                            pluginConfig.id,
+                                                            PipelineAppTab.Logs
+                                                        )}
                                                         id={`app-${pluginConfig.id}-logs`}
                                                         fullWidth
                                                     >
                                                         View app logs
                                                     </LemonButton>
-                                                    {plugins[pluginConfig.plugin].url && (
-                                                        <LemonButton
-                                                            status="stealth"
-                                                            to={plugins[pluginConfig.plugin].url}
-                                                            targetBlank={true}
-                                                            id={`app-${pluginConfig.id}-source-code`}
-                                                            fullWidth
-                                                        >
-                                                            View app source code
-                                                        </LemonButton>
-                                                    )}
+                                                    <LemonButton
+                                                        to={pluginConfig.plugin_info?.url}
+                                                        targetBlank={true}
+                                                        loading={!pluginConfig.plugin_info?.url}
+                                                        id={`app-${pluginConfig.id}-source-code`}
+                                                        fullWidth
+                                                    >
+                                                        View app source code
+                                                    </LemonButton>
                                                     <LemonDivider />
                                                     <LemonButton
                                                         status="danger"
@@ -236,7 +250,7 @@ export function Transformations(): JSX.Element {
                                                                 callback: loadPluginConfigs,
                                                             })
                                                         }}
-                                                        id={`app-reorder`}
+                                                        id="app-delete"
                                                         disabledReason={
                                                             canConfigurePlugins
                                                                 ? undefined

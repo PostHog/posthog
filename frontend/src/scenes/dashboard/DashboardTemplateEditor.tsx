@@ -52,7 +52,7 @@ export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }
             footer={
                 id ? (
                     <LemonButton
-                        type={'primary'}
+                        type="primary"
                         data-attr="update-dashboard-template-button"
                         onClick={() => {
                             updateDashboardTemplate({ id })
@@ -69,7 +69,7 @@ export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }
                     </LemonButton>
                 ) : (
                     <LemonButton
-                        type={'primary'}
+                        type="primary"
                         data-attr="create-dashboard-template-button"
                         onClick={() => {
                             createDashboardTemplate()

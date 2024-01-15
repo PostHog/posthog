@@ -480,6 +480,7 @@ class UserAdmin(DjangoUserAdmin):
                     "current_organization",
                     "is_email_verified",
                     "pending_email",
+                    "strapi_id",
                 )
             },
         ),

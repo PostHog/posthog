@@ -45,10 +45,9 @@ export function Dashboards(): JSX.Element {
             <DuplicateDashboardModal />
             <DeleteDashboardModal />
             <PageHeader
-                title="Dashboards"
                 buttons={
                     <LemonButton
-                        data-attr={'new-dashboard'}
+                        data-attr="new-dashboard"
                         onClick={() => {
                             closePrompts()
                             showNewDashboardModal()

@@ -81,6 +81,7 @@ export const SettingsMap: SettingSection[] = [
                 id: 'exception-autocapture',
                 title: 'Exception Autocapture',
                 component: <ExceptionAutocaptureSettings />,
+                flag: 'EXCEPTION_AUTOCAPTURE',
             },
             {
                 id: 'autocapture-data-attributes',
@@ -157,7 +158,6 @@ export const SettingsMap: SettingSection[] = [
                 id: 'replay-ingestion',
                 title: 'Ingestion controls',
                 component: <ReplayCostControl />,
-                flag: 'SESSION_RECORDING_SAMPLING',
             },
         ],
     },

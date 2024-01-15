@@ -26,7 +26,7 @@ export function SessionRecordingDetail({ id }: SessionRecordingDetailLogicProps 
     const { currentTeam } = useValues(teamLogic)
     return (
         <div className="SessionRecordingScene">
-            <PageHeader title={<div>Recording</div>} />
+            <PageHeader />
             {currentTeam && !currentTeam?.session_recording_opt_in ? (
                 <div className="mb-4">
                     <LemonBanner type="info">

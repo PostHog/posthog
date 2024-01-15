@@ -120,15 +120,7 @@ export function Annotations(): JSX.Element {
             key: 'actions',
             width: 0,
             render: function RenderActions(_, annotation): JSX.Element {
-                return (
-                    <LemonButton
-                        icon={<IconEdit />}
-                        size="small"
-                        type="tertiary"
-                        status="stealth"
-                        to={urls.annotation(annotation.id)}
-                    />
-                )
+                return <LemonButton icon={<IconEdit />} size="small" to={urls.annotation(annotation.id)} />
             },
         },
     ]
@@ -139,7 +131,7 @@ export function Annotations(): JSX.Element {
                 Annotations allow you to mark when certain changes happened so you can easily see how they impacted your
                 metrics.
             </p>
-            <div data-attr={'annotations-content'}>
+            <div data-attr="annotations-content">
                 {(shouldShowEmptyState || shouldShowProductIntroduction) && (
                     <div className="mt-4">
                         <ProductIntroduction

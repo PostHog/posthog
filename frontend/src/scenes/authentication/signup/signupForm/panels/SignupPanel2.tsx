@@ -16,7 +16,7 @@ export function SignupPanel2(): JSX.Element | null {
 
     return (
         <div className="space-y-4 Signup__panel__2">
-            <Form logic={signupLogic} formKey={'signupPanel2'} className="space-y-4" enableFormOnSubmit>
+            <Form logic={signupLogic} formKey="signupPanel2" className="space-y-4" enableFormOnSubmit>
                 <Field name="first_name" label="Your name">
                     <LemonInput
                         className="ph-ignore-input"
@@ -45,7 +45,7 @@ export function SignupPanel2(): JSX.Element | null {
                     data-attr="signup-submit"
                     loading={isSignupPanel2Submitting}
                     disabled={isSignupPanel2Submitting}
-                    status="primary-alt"
+                    status="alt"
                     size="large"
                 >
                     {!preflight?.demo

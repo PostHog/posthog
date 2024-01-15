@@ -1,7 +1,7 @@
 import './FeatureFlag.scss'
 
-import { LemonSelect, Link } from '@posthog/lemon-ui'
-import { InputNumber, Select } from 'antd'
+import { LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
+import { Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
@@ -111,14 +111,12 @@ export function FeatureFlagReleaseConditions({
                             <div className="flex">
                                 <LemonButton
                                     icon={<IconCopy />}
-                                    status="muted"
                                     noPadding
                                     onClick={() => duplicateConditionSet(index)}
                                 />
                                 {!isEarlyAccessFeatureCondition(group) && filterGroups.length > 1 && (
                                     <LemonButton
                                         icon={<IconDelete />}
-                                        status="muted"
                                         noPadding
                                         onClick={() => removeConditionSet(index)}
                                     />
@@ -147,15 +145,10 @@ export function FeatureFlagReleaseConditions({
                                         {idx === 0 ? (
                                             <LemonButton
                                                 icon={<IconSubArrowRight className="arrow-right" />}
-                                                status="muted"
                                                 size="small"
                                             />
                                         ) : (
-                                            <LemonButton
-                                                icon={<span className="text-sm">&</span>}
-                                                status="muted"
-                                                size="small"
-                                            />
+                                            <LemonButton icon={<span className="text-sm">&</span>} size="small" />
                                         )}
                                         <span className="simple-tag tag-light-blue text-primary-alt">
                                             {property.type === 'cohort' ? 'Cohort' : property.key}{' '}
@@ -249,15 +242,17 @@ export function FeatureFlagReleaseConditions({
                         <div className="feature-flag-form-row gap-2">
                             <div className="flex items-center gap-1">
                                 Roll out to{' '}
-                                <InputNumber
-                                    style={{ width: 100, marginLeft: 8, marginRight: 8 }}
+                                <LemonInput
+                                    data-attr="rollout-percentage"
+                                    type="number"
+                                    className="mx-2"
                                     onChange={(value): void => {
-                                        updateConditionSet(index, value)
+                                        updateConditionSet(index, value || 100)
                                     }}
                                     value={group.rollout_percentage != null ? group.rollout_percentage : 100}
                                     min={0}
                                     max={100}
-                                    addonAfter="%"
+                                    suffix={<span>%</span>}
                                 />{' '}
                                 of <b>{aggregationTargetName}</b> in this set.{' '}
                             </div>
@@ -361,11 +356,7 @@ export function FeatureFlagReleaseConditions({
                     {(group.properties?.length || 0) > 0 && (
                         <>
                             <div className="feature-flag-property-display">
-                                <LemonButton
-                                    icon={<IconSubArrowRight className="arrow-right" />}
-                                    status="muted"
-                                    size="small"
-                                />
+                                <LemonButton icon={<IconSubArrowRight className="arrow-right" />} size="small" />
                                 <span>
                                     If null, default to <b>Release conditions</b>
                                 </span>
@@ -381,8 +372,7 @@ export function FeatureFlagReleaseConditions({
                                 'The matching Early Access Feature was not found. You can create it in the Early Access Management tab.'
                             }
                             aria-label="more"
-                            data-attr={'feature-flag-feature-list-button'}
-                            status="primary"
+                            data-attr="feature-flag-feature-list-button"
                             size="small"
                             onClick={() =>
                                 featureFlag.features &&
@@ -430,7 +420,7 @@ export function FeatureFlagReleaseConditions({
                             </LemonBanner>
                         )}
                 </div>
-                {!readOnly && showGroupsOptions && (
+                {!readOnly && showGroupsOptions && usageContext !== 'schedule' && (
                     <div className="centered">
                         Match by
                         <Select

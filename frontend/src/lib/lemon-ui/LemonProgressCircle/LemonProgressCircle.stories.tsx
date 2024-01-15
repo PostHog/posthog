@@ -58,14 +58,13 @@ export const Overview = (): JSX.Element => {
 
     return (
         <div className="flex flex-col gap-2">
-            <LemonCheckbox checked={animate} onChange={setAnimate} bordered label={'Animate'} />
+            <LemonCheckbox checked={animate} onChange={setAnimate} bordered label="Animate" />
             <LemonProgressCircle progress={progress} />
             <LemonProgressCircle progress={progress} strokePercentage={0.5} size={30} />
 
             <span className="flex items-center gap-2">
                 <LemonButton
                     icon={<LemonProgressCircle progress={progress} />}
-                    status="primary"
                     sideIcon={<IconGear />}
                     type="secondary"
                     size="small"
@@ -75,7 +74,6 @@ export const Overview = (): JSX.Element => {
 
                 <LemonButton
                     icon={<LemonProgressCircle progress={progress} size={20} />}
-                    status="primary"
                     sideIcon={<IconGear />}
                     type="secondary"
                 >
@@ -84,7 +82,6 @@ export const Overview = (): JSX.Element => {
 
                 <LemonButton
                     icon={<LemonProgressCircle progress={progress} size={24} />}
-                    status="primary"
                     sideIcon={<IconGear />}
                     type="secondary"
                     size="large"

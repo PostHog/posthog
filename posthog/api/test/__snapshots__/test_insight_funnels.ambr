@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: ClickhouseTestFunnelTypes.test_funnel_time_to_convert_auto_bins
-  '
+  '''
   /* user_id:0 request:_snapshot_ */ WITH step_runs AS
     (SELECT aggregation_target,
             steps,
@@ -115,10 +116,10 @@
      FROM system.numbers
      LIMIT ifNull(bin_count, 0) + 1) fill USING (bin_from_seconds)
   ORDER BY bin_from_seconds
-  '
----
+  '''
+# ---
 # name: ClickhouseTestFunnelTypes.test_funnel_time_to_convert_auto_bins_strict
-  '
+  '''
   /* user_id:0 request:_snapshot_ */ WITH step_runs AS
     (SELECT aggregation_target,
             steps,
@@ -216,10 +217,10 @@
      FROM system.numbers
      LIMIT ifNull(bin_count, 0) + 1) fill USING (bin_from_seconds)
   ORDER BY bin_from_seconds
-  '
----
+  '''
+# ---
 # name: ClickhouseTestFunnelTypes.test_funnel_time_to_convert_auto_bins_unordered
-  '
+  '''
   /* user_id:0 request:_snapshot_ */ WITH step_runs AS
     (SELECT aggregation_target,
             steps,
@@ -404,5 +405,5 @@
      FROM system.numbers
      LIMIT ifNull(bin_count, 0) + 1) fill USING (bin_from_seconds)
   ORDER BY bin_from_seconds
-  '
----
+  '''
+# ---

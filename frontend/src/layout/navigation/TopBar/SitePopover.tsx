@@ -66,7 +66,6 @@ function AccountInfo(): JSX.Element {
                 to={urls.settings('user')}
                 onClick={closeSitePopover}
                 data-attr="top-menu-item-me"
-                status="stealth"
                 fullWidth
                 tooltip="Account settings"
                 tooltipPlacement="left"
@@ -93,7 +92,6 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
                 data-attr="top-menu-item-org-settings"
                 icon={<Lettermark name={organization.name} />}
                 sideIcon={<IconSettings />}
-                status="stealth"
                 fullWidth
                 to={urls.settings('organization')}
                 onClick={closeSitePopover}
@@ -229,7 +227,7 @@ function SignOutButton(): JSX.Element {
     const { logout } = useActions(userLogic)
 
     return (
-        <LemonButton onClick={logout} icon={<IconLogout />} status="stealth" fullWidth data-attr="top-menu-item-logout">
+        <LemonButton onClick={logout} icon={<IconLogout />} fullWidth data-attr="top-menu-item-logout">
             Sign out
         </LemonButton>
     )
@@ -275,7 +273,7 @@ export function SitePopoverOverlay(): JSX.Element {
                 </SitePopoverSection>
             )}
             {(!(preflight?.cloud || preflight?.demo) || user?.is_staff) && (
-                <SitePopoverSection title="PostHog instance" className="font-title-3000">
+                <SitePopoverSection title="PostHog instance" className="font-title">
                     <SystemStatus />
                     <AsyncMigrations />
                     <InstanceSettings />
@@ -285,7 +283,7 @@ export function SitePopoverOverlay(): JSX.Element {
                 <ThemeSwitcher fullWidth type="tertiary" />
                 <LemonButton
                     onClick={closeSitePopover}
-                    to={'https://posthog.com/changelog'}
+                    to="https://posthog.com/changelog"
                     icon={<IconLive />}
                     fullWidth
                     data-attr="whats-new-button"

@@ -40,14 +40,12 @@ export const ProductIntroduction = ({
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
     const actionable = action || actionElementOverride
     return (
-        <div className="border-2 border-dashed border-border w-full p-8 justify-center rounded-md mt-2 mb-4">
+        <div className="border-2 border-dashed border-border w-full p-8 justify-center rounded mt-2 mb-4">
             {!isEmpty && (
                 <div className="flex justify-end -mb-6 -mt-2 -mr-2">
                     <div>
                         <LemonButton
                             icon={<IconClose />}
-                            type="tertiary"
-                            status="stealth"
                             onClick={() => {
                                 updateHasSeenProductIntroFor(productKey, true)
                             }}
@@ -55,7 +53,7 @@ export const ProductIntroduction = ({
                     </div>
                 </div>
             )}
-            <div className="flex items-center gap-x-8 w-full justify-center flex-wrap">
+            <div className="flex items-center gap-8 w-full justify-center flex-wrap">
                 <div>
                     <div className="w-50 mx-auto mb-4">
                         {CustomHog ? (
@@ -103,7 +101,6 @@ export const ProductIntroduction = ({
                         {docsURL && (
                             <LemonButton
                                 type={actionable ? 'tertiary' : 'secondary'}
-                                status="muted"
                                 sideIcon={<IconOpenSidebar className="w-4 h-4" />}
                                 to={`${docsURL}?utm_medium=in-product&utm_campaign=empty-state-docs-link`}
                                 data-attr="product-introduction-docs-link"

@@ -266,7 +266,7 @@ function ErrorDetailsModal({ pluginConfigId }: { pluginConfigId: number }): JSX.
             isOpen={!!errorDetailsModalError}
             onClose={closeErrorDetailsModal}
             title={errorDetailsModalError}
-            width={'min(50vw, 80rem)'}
+            width="min(50vw, 80rem)"
             description={<span>{activeErrorDetails?.error_details?.error.message?.substring(0, 200)}</span>}
             footer={
                 <div className="flex items-center justify-end gap-1 h-">
@@ -298,7 +298,8 @@ function ErrorDetailsModal({ pluginConfigId }: { pluginConfigId: number }): JSX.
                 // eslint-disable-next-line react/forbid-dom-props
                 <div className="flex flex-col space-y-2" style={{ height: '80vh' }}>
                     <div>
-                        <LemonLabel>When:</LemonLabel> <TZLabel time={activeErrorDetails.timestamp} showSeconds />
+                        <span className="font-semibold">When:</span>{' '}
+                        <TZLabel time={activeErrorDetails.timestamp} showSeconds />
                     </div>
 
                     {activeErrorDetails.error_details.eventCount && (
@@ -347,7 +348,6 @@ function CollapsibleSection(props: {
     return (
         <div className="bg-mid border rounded">
             <LemonButton
-                status="stealth"
                 fullWidth
                 onClick={() => setIsExpanded(!isExpanded)}
                 sideIcon={isExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}

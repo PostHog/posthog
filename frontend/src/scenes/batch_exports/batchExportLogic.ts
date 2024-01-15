@@ -233,7 +233,7 @@ export const batchExportLogic = kea<batchExportLogicType>([
                     path: urls.batchExports(),
                 },
                 {
-                    key: config?.id || 'loading',
+                    key: [Scene.BatchExport, config?.id || 'loading'],
                     name: config?.name,
                 },
             ],

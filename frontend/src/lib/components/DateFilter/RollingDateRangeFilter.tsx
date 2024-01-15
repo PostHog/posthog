@@ -1,7 +1,6 @@
 import './RollingDateRangeFilter.scss'
 
 import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -42,10 +41,9 @@ export function RollingDateRangeFilter({
     return (
         <Tooltip title={makeLabel ? makeLabel(formattedDate) : undefined}>
             <LemonButton
-                className={clsx('RollingDateRangeFilter')}
+                className="RollingDateRangeFilter"
                 data-attr="rolling-date-range-filter"
                 onClick={select}
-                status="stealth"
                 active={selected}
             >
                 <p className="RollingDateRangeFilter__label">In the last</p>
@@ -53,7 +51,7 @@ export function RollingDateRangeFilter({
                     <span
                         className="RollingDateRangeFilter__counter__step"
                         onClick={decreaseCounter}
-                        title={`Decrease rolling date range`}
+                        title="Decrease rolling date range"
                     >
                         -
                     </span>
@@ -68,7 +66,7 @@ export function RollingDateRangeFilter({
                     <span
                         className="RollingDateRangeFilter__counter__step"
                         onClick={increaseCounter}
-                        title={`Increase rolling date range`}
+                        title="Increase rolling date range"
                     >
                         +
                     </span>

@@ -12,6 +12,7 @@ const TEMPLATE_USERS: Record<string, UserBasicType> = {
 
 export const LOCAL_NOTEBOOK_TEMPLATES: NotebookType[] = [
     {
+        id: 'template-introduction',
         short_id: 'template-introduction',
         title: 'Introducing Notebooks! 🥳',
         created_at: '2023-06-02T00:00:00Z',
