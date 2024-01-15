@@ -464,9 +464,13 @@ class _Printer(Visitor):
             raise HogQLException(f"Unknown ArithmeticOperationOp {node.op}")
 
     def visit_and(self, node: ast.And):
+        if len(node.exprs) == 1:
+            return self.visit(node.exprs[0])
         return f"and({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_or(self, node: ast.Or):
+        if len(node.exprs) == 1:
+            return self.visit(node.exprs[0])
         return f"or({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_not(self, node: ast.Not):
