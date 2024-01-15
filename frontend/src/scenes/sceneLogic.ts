@@ -200,7 +200,7 @@ export const sceneLogic = kea<sceneLogicType>([
             const currentPathname = router.values.location.pathname
             const canonicalPathname = addProjectIdIfMissing(router.values.location.pathname)
             if (currentPathname !== canonicalPathname) {
-                router.actions.replace(canonicalPathname)
+                router.actions.replace(canonicalPathname, router.values.searchParams, router.values.hashParams)
                 return
             }
 
