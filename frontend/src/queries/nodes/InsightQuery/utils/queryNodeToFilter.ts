@@ -151,7 +151,9 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
     const legacyProps: TrendsFilterLegacy = {}
     if (isTrendsQuery(query)) {
         legacyProps.smoothing_intervals = insightFilter.smoothingIntervals
+        legacyProps.decimal_places = insightFilter.decimalPlaces
         delete insightFilter.smoothingIntervals
+        delete insightFilter.decimalPlaces
     }
     Object.assign(filters, insightFilter)
     Object.assign(filters, legacyProps)
