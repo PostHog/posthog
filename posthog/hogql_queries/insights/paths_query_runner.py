@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from math import ceil
-from typing import Any, Dict
+from typing import Any, Dict, Literal
 from typing import Optional
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
@@ -172,7 +172,13 @@ class PathsQueryRunner(QueryRunner):
             "compact_path": "path",
             "timings": "timings",
         }
-        return [parse_expr(f"{orig} as filtered_{field}") for orig, field in fields.items()]
+        return [
+            parse_expr(
+                f"if(target_index > 0, {self.get_array_compacting_function()}({orig}, target_index), {orig})"
+                f" as filtered_{field}"
+            )
+            for orig, field in fields.items()
+        ]
 
     def get_limited_path_ordering(self) -> list[ast.Expr]:
         fields_to_include = ["path", "timings"]
@@ -181,6 +187,12 @@ class PathsQueryRunner(QueryRunner):
             parse_expr(f"arraySlice(filtered_{field}, 1, {self.event_in_session_limit}) as limited_{field}")
             for field in fields_to_include + extra_fields
         ]
+
+    def get_array_compacting_function(self) -> Literal["arrayResize", "arraySlice"]:
+        if self.query.pathsFilter.end_point:
+            return "arrayResize"
+
+        return "arraySlice"
 
     def paths_per_person_query(self) -> ast.SelectQuery:
         target_point = self.query.pathsFilter.end_point or self.query.pathsFilter.start_point
@@ -224,7 +236,8 @@ class PathsQueryRunner(QueryRunner):
                         arrayPopFront(arrayPushBack(path_basic, '')) as path_basic_0,
                         arrayMap((x,y) -> if(x=y, 0, 1), path_basic, path_basic_0) as mapping,
                         arrayFilter((x,y) -> y, time, mapping) as timings,
-                        arrayFilter((x,y)->y, path_basic, mapping) as compact_path
+                        arrayFilter((x,y)->y, path_basic, mapping) as compact_path,
+                        indexOf(compact_path, {target_point}) as target_index
                     FROM (
                         SELECT
                             person_id,
@@ -256,12 +269,16 @@ class PathsQueryRunner(QueryRunner):
         select.select_from.table.select.extend(filtered_paths + limited_paths)
 
         other_selects = [
-            "indexOf(compact_path, {target_point}) as target_index",
             "arrayDifference(limited_timings) as timings_diff",
             "arrayZip(limited_path, timings_diff, arrayPopBack(arrayPushFront(limited_path, ''))) as limited_path_timings",
             "concat(toString(length(limited_path)), '_', limited_path[-1]) as path_dropoff_key /* last path item */",
         ]
         select.select_from.table.select.extend([parse_expr(select, placeholders) for select in other_selects])
+
+        if self.query.pathsFilter.end_point and self.query.pathsFilter.start_point:
+            select.select_from.table.where = parse_expr("start_target_index > 0 AND end_target_index > 0")
+        elif self.query.pathsFilter.end_point or self.query.pathsFilter.start_point:
+            select.select_from.table.where = parse_expr("target_index > 0")
 
         return select
 
