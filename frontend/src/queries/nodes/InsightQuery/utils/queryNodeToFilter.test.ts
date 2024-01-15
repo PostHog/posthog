@@ -61,7 +61,7 @@ describe('queryNodeToFilter', () => {
                 aggregationAxisPostfix: '$',
                 decimalPlaces: 5,
                 // show_values_on_series?: TrendsFilterLegacy['show_values_on_series']
-                // show_labels_on_series?: TrendsFilterLegacy['show_labels_on_series']
+                showLabelsOnSeries: true,
                 // show_percent_stack_view?: TrendsFilterLegacy['show_percent_stack_view']
                 // hidden_legend_indexes?: TrendsFilterLegacy['hidden_legend_indexes']
             },
@@ -82,6 +82,7 @@ describe('queryNodeToFilter', () => {
             aggregation_axis_format: 'numeric',
             aggregation_axis_prefix: 'M',
             aggregation_axis_postfix: '$',
+            show_labels_on_series: true,
         }
         expect(result).toEqual(filters)
     })

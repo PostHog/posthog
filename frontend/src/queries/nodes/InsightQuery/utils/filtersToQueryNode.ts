@@ -262,6 +262,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             display: filters.display,
             show_values_on_series: filters.show_values_on_series,
             show_percent_stack_view: filters.show_percent_stack_view,
+            showLabelsOnSeries: filters.show_labels_on_series,
         })
     }
 

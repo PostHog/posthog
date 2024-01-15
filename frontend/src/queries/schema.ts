@@ -520,7 +520,7 @@ export type TrendsFilter = {
     aggregationAxisPostfix?: TrendsFilterLegacy['aggregation_axis_postfix']
     decimalPlaces?: TrendsFilterLegacy['decimal_places']
     show_values_on_series?: TrendsFilterLegacy['show_values_on_series']
-    show_labels_on_series?: TrendsFilterLegacy['show_labels_on_series']
+    showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
     show_percent_stack_view?: TrendsFilterLegacy['show_percent_stack_view']
     hidden_legend_indexes?: TrendsFilterLegacy['hidden_legend_indexes']
 }

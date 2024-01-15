@@ -3771,7 +3771,7 @@
                     },
                     "type": "array"
                 },
-                "show_labels_on_series": {
+                "showLabelsOnSeries": {
                     "type": "boolean"
                 },
                 "show_legend": {

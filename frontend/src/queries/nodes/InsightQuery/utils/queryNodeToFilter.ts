@@ -155,11 +155,13 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         legacyProps.aggregation_axis_format = insightFilter.aggregationAxisFormat
         legacyProps.aggregation_axis_postfix = insightFilter.aggregationAxisPostfix
         legacyProps.aggregation_axis_prefix = insightFilter.aggregationAxisPrefix
+        legacyProps.show_labels_on_series = insightFilter.showLabelsOnSeries
         delete insightFilter.smoothingIntervals
         delete insightFilter.decimalPlaces
         delete insightFilter.aggregationAxisFormat
         delete insightFilter.aggregationAxisPostfix
         delete insightFilter.aggregationAxisPrefix
+        delete insightFilter.showLabelsOnSeries
     }
     Object.assign(filters, insightFilter)
     Object.assign(filters, legacyProps)

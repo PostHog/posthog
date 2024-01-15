@@ -57,6 +57,7 @@ const cleanInsightQuery = (query: InsightQueryNode, ignoreVisualizationOnlyChang
             decimalPlaces: undefined,
             layout: undefined,
             toggledLifecycles: undefined,
+            showLabelsOnSeries: undefined,
         }
 
         if (isInsightQueryWithDisplay(cleanedQuery)) {
