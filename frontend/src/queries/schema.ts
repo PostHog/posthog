@@ -94,9 +94,24 @@ export type AnyDataNode =
     | WebStatsTableQuery
     | WebTopClicksQuery
 
+/**
+ * @discriminator kind
+ */
 export type QuerySchema =
     // Data nodes (see utils.ts)
-    | AnyDataNode
+    | EventsNode // never queried directly
+    | ActionsNode // old actions API endpoint
+    | PersonsNode // old persons API endpoint
+    | TimeToSeeDataSessionsQuery // old API
+    | EventsQuery
+    | ActorsQuery
+    | InsightActorsQuery
+    | SessionsTimelineQuery
+    | HogQLQuery
+    | HogQLMetadata
+    | WebOverviewQuery
+    | WebStatsTableQuery
+    | WebTopClicksQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -113,8 +128,15 @@ export type QuerySchema =
     | LifecycleQuery
 
     // Misc
-    | TimeToSeeDataSessionsQuery
     | DatabaseSchemaQuery
+
+// Keep this, because QuerySchema itself will be collapsed as it is used in other models
+export type QuerySchemaRoot = QuerySchema
+
+// Dynamically make a union type out of all the types in all `response` fields in QuerySchema
+type QueryResponseType<T> = T extends { response: infer R } ? { response: R } : never
+type QueryAllResponses = QueryResponseType<QuerySchema>
+export type QueryResponseAlternative = QueryAllResponses[keyof QueryAllResponses]
 
 /** Node base class, everything else inherits from here */
 export interface Node {
@@ -592,6 +614,35 @@ export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType | 'show
     toggledLifecycles?: LifecycleToggle[]
 } // using everything except what it inherits from FilterType
 
+export interface QueryRequest {
+    /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
+    client_query_id?: string
+    refresh?: boolean
+    /**
+     * (Experimental)
+     * Whether to run the query asynchronously. Defaults to False.
+     * If True, the `id` of the query can be used to check the status and to cancel it.
+     * @example true
+     */
+    async?: boolean
+    /**
+     * Submit a JSON string representing a query for PostHog data analysis,
+     * for example a HogQL query.
+     *
+     * Example payload:
+     *
+     * ```
+     *
+     * {"query": {"kind": "HogQLQuery", "query": "select * from events limit 100"}}
+     *
+     * ```
+     *
+     * For more details on HogQL queries,
+     * see the [PostHog HogQL documentation](/docs/hogql#api-access).
+     */
+    query: QuerySchema
+}
+
 export interface QueryResponse {
     results: unknown[]
     timings?: QueryTiming[]
@@ -767,6 +818,11 @@ export type InsightQueryNode =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
+
+/**
+ * @discriminator kind
+ */
+export type InsightQuerySource = InsightQueryNode
 export type InsightNodeKind = InsightQueryNode['kind']
 export type InsightFilterProperty =
     | 'trendsFilter'
@@ -783,10 +839,13 @@ export type InsightFilter =
     | StickinessFilter
     | LifecycleFilter
 
+/** @asType integer */
+export type Day = number
+
 export interface InsightActorsQuery {
     kind: NodeKind.InsightActorsQuery
-    source: InsightQueryNode
-    day?: string
+    source: InsightQuerySource
+    day?: string | Day
     status?: string
     /**
      * An interval selected out of available intervals in source query

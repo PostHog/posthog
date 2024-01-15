@@ -24,7 +24,13 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { urls } from 'scenes/urls'
 
-import { PipelineAppTabs, PipelineTabs, PluginConfigTypeNew, PluginConfigWithPluginInfoNew, ProductKey } from '~/types'
+import {
+    PipelineAppKind,
+    PipelineAppTab,
+    PluginConfigTypeNew,
+    PluginConfigWithPluginInfoNew,
+    ProductKey,
+} from '~/types'
 
 import { NewButton } from './NewButton'
 import { pipelineTransformationsLogic } from './transformationsLogic'
@@ -56,7 +62,7 @@ export function Transformations(): JSX.Element {
                     productKey={ProductKey.PIPELINE_TRANSFORMATIONS}
                     description="Pipeline transformations allow you to enrich your data with additional information, such as geolocation."
                     docsURL="https://posthog.com/docs/cdp"
-                    actionElementOverride={<NewButton tab={PipelineTabs.Transformations} />}
+                    actionElementOverride={<NewButton kind={PipelineAppKind.Transformation} />}
                     isEmpty={true}
                 />
             )}
@@ -106,12 +112,12 @@ export function Transformations(): JSX.Element {
                                 render: function RenderPluginName(_, pluginConfig) {
                                     return (
                                         <>
-                                            <Tooltip title={'Click to update configuration, view metrics, and more'}>
+                                            <Tooltip title="Click to update configuration, view metrics, and more">
                                                 <Link
                                                     to={urls.pipelineApp(
-                                                        PipelineTabs.Transformations,
+                                                        PipelineAppKind.Transformation,
                                                         pluginConfig.id,
-                                                        PipelineAppTabs.Configuration
+                                                        PipelineAppTab.Configuration
                                                     )}
                                                 >
                                                     <span className="row-name">{pluginConfig.name}</span>
@@ -191,7 +197,7 @@ export const TransformationsMoreOverlay = ({
             {pluginConfig.enabled && (
                 <LemonButton
                     onClick={openReorderModal}
-                    id={`app-reorder`}
+                    id="app-reorder"
                     disabledReason={canConfigurePlugins ? undefined : 'You do not have permission to reorder apps.'}
                     fullWidth
                 >
@@ -199,21 +205,21 @@ export const TransformationsMoreOverlay = ({
                 </LemonButton>
             )}
             <LemonButton
-                to={urls.pipelineApp(PipelineTabs.Transformations, pluginConfig.id, PipelineAppTabs.Configuration)}
+                to={urls.pipelineApp(PipelineAppKind.Transformation, pluginConfig.id, PipelineAppTab.Configuration)}
                 id={`app-${pluginConfig.id}-configuration`}
                 fullWidth
             >
                 {canConfigurePlugins ? 'Edit' : 'View'} app configuration
             </LemonButton>
             <LemonButton
-                to={urls.pipelineApp(PipelineTabs.Transformations, pluginConfig.id, PipelineAppTabs.Metrics)}
+                to={urls.pipelineApp(PipelineAppKind.Transformation, pluginConfig.id, PipelineAppTab.Metrics)}
                 id={`app-${pluginConfig.id}-metrics`}
                 fullWidth
             >
                 View app metrics
             </LemonButton>
             <LemonButton
-                to={urls.pipelineApp(PipelineTabs.Transformations, pluginConfig.id, PipelineAppTabs.Logs)}
+                to={urls.pipelineApp(PipelineAppKind.Transformation, pluginConfig.id, PipelineAppTab.Logs)}
                 id={`app-${pluginConfig.id}-logs`}
                 fullWidth
             >
@@ -241,7 +247,7 @@ export const TransformationsMoreOverlay = ({
                         callback: loadPluginConfigs,
                     })
                 }}
-                id={`app-delete`}
+                id="app-delete"
                 disabledReason={canConfigurePlugins ? undefined : 'You do not have permission to delete apps.'}
                 fullWidth
             >

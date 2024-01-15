@@ -46,7 +46,7 @@ export function PayGatePage({
                         center
                         data-attr={`${featureKey}-learn-more`}
                     >
-                        Learn more {<IconOpenSidebar className="ml-2" />}
+                        Learn more <IconOpenSidebar className="ml-2" />
                     </LemonButton>
                 )}
             </div>

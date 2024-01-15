@@ -10,7 +10,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { NodeKind } from '~/queries/schema'
-import { isInsightVizNode, isLifecycleQuery } from '~/queries/utils'
+import { isInsightVizNode, isLifecycleQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, ChartParams, GraphType } from '~/types'
 
 import { InsightEmptyState } from '../../insights/EmptyStates'
@@ -43,6 +43,7 @@ export function ActionsLineGraph({
         trendsFilter,
         isLifecycle,
         isStickiness,
+        isTrends,
     } = useValues(trendsDataLogic(insightProps))
 
     const labels =
@@ -51,6 +52,27 @@ export function ActionsLineGraph({
             indexedResults.find((x) => x.compare_label === 'current')?.days) ||
         (indexedResults[0] && indexedResults[0].labels) ||
         []
+
+    const isLifecycleQueryWithFeatureFlagOn =
+        featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE] &&
+        isLifecycle &&
+        query &&
+        isInsightVizNode(query) &&
+        isLifecycleQuery(query.source)
+
+    const isStickinessQueryWithFeatureFlagOn =
+        featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_STICKINESS] &&
+        isStickiness &&
+        query &&
+        isInsightVizNode(query) &&
+        isStickinessQuery(query.source)
+
+    const isTrendsQueryWithFeatureFlagOn =
+        featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_TRENDS] &&
+        isTrends &&
+        query &&
+        isInsightVizNode(query) &&
+        isTrendsQuery(query.source)
 
     return indexedResults &&
         indexedResults[0]?.data &&
@@ -114,11 +136,9 @@ export function ActionsLineGraph({
                           )
 
                           if (
-                              featureFlags[FEATURE_FLAGS.HOGQL_INSIGHTS_LIFECYCLE] &&
-                              isLifecycle &&
-                              query &&
-                              isInsightVizNode(query) &&
-                              isLifecycleQuery(query.source)
+                              isLifecycleQueryWithFeatureFlagOn ||
+                              isStickinessQueryWithFeatureFlagOn ||
+                              isTrendsQueryWithFeatureFlagOn
                           ) {
                               openPersonsModal({
                                   title,

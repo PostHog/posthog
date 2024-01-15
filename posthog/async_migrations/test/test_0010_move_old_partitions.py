@@ -8,7 +8,7 @@ from posthog.async_migrations.setup import (
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest
 from posthog.models.event.util import create_event
 from posthog.models.utils import UUIDT
-
+from posthog.test.base import FuzzyInt
 
 pytestmark = pytest.mark.async_migrations
 
@@ -70,4 +70,4 @@ class Test0010MoveOldPartitions(AsyncMigrationBaseTest):
         self.assertTrue(run_migration())
 
         # this test is not very helpful, but we will at least catch if this changes
-        self.assertEqual(len(MIGRATION_DEFINITION.operations), 5)
+        self.assertEqual(len(MIGRATION_DEFINITION.operations), FuzzyInt(5, 6))

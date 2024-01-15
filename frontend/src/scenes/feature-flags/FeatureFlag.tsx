@@ -120,7 +120,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const isNewFeatureFlag = id === 'new' || id === undefined
 
     if (featureFlagMissing) {
-        return <NotFound object={'feature flag'} />
+        return <NotFound object="feature flag" />
     }
     if (featureFlagLoading) {
         return (
@@ -656,7 +656,10 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
             ) : (
                 <div>
                     <b>Dashboard</b>
-                    <div className="text-muted mb-2">{`There is currently no connected dashboard to this feature flag. If there was previously a connected dashboard, it may have been deleted.`}</div>
+                    <div className="text-muted mb-2">
+                        There is currently no connected dashboard to this feature flag. If there was previously a
+                        connected dashboard, it may have been deleted.
+                    </div>
                     {featureFlagLoading ? (
                         <EmptyDashboardComponent loading={true} canEdit={false} />
                     ) : (

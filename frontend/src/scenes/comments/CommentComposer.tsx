@@ -24,7 +24,7 @@ export const CommentComposer = (props: CommentsLogicProps): JSX.Element => {
     return (
         <div className="space-y-2">
             <LemonTextAreaMarkdown
-                data-attr={'comment-composer'}
+                data-attr="comment-composer"
                 placeholder={placeholder}
                 value={composedComment}
                 onChange={setComposedComment}
