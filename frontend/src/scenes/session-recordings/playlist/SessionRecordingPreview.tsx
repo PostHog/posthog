@@ -261,12 +261,12 @@ export function SessionRecordingPreview({
                         visible={showSummary && summaryIsVisible}
                         placement="right"
                         onClickOutside={() => setShowSummary(false)}
-                        // TODO should use the loader from the logic rather than assume spinner
+                        onMouseLeaveInside={() => setShowSummary(false)}
                         overlay={
                             sessionSummaryLoading || !sessionSummary ? (
                                 <Spinner />
                             ) : (
-                                <div className="text-xl max-w-1/2 sm:max-w-3/5">{sessionSummary}</div>
+                                <div className="text-xl max-w-auto lg:max-w-3/5">{sessionSummary}</div>
                             )
                         }
                     >
@@ -279,7 +279,9 @@ export function SessionRecordingPreview({
                                 e.preventDefault()
                                 e.stopPropagation()
                                 setShowSummary(!showSummary)
-                                summariseFn(recording)
+                                if (!sessionSummary) {
+                                    summariseFn(recording)
+                                }
                             }}
                         />
                     </Popover>

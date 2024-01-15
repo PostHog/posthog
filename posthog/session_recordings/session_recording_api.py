@@ -1,3 +1,4 @@
+import os
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -10,6 +11,7 @@ from django.conf import settings
 import posthoganalytics
 import requests
 from django.contrib.auth.models import AnonymousUser
+from django.core.cache import cache
 from django.http import JsonResponse, HttpResponse
 from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
@@ -21,8 +23,9 @@ from rest_framework.response import Response
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import SharingAccessTokenAuthentication
+from posthog.cloud_utils import is_cloud
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
-from posthog.models import User
+from posthog.models import User, Team
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person.person import PersonDistinctId
 from posthog.session_recordings.models.session_recording import SessionRecording
@@ -176,6 +179,45 @@ def list_recordings_response(
         f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
     )
     return response
+
+
+def summarize_recording(recording: SessionRecording, user: User, team: Team):
+    sessionMetadata = SessionReplayEvents().get_metadata(session_id=str(recording.session_id), team=team)
+    sessionEvents = SessionReplayEvents().get_events(
+        session_id=str(recording.session_id), team=team, metadata=sessionMetadata
+    )
+    instance_region = get_instance_region() or "HOBBY"
+    messages = [
+        {
+            "role": "system",
+            "content": "Session Replay is PostHog's tool to record visits to web sites and apps. It shows what users are. We also gather events that occur like mouse clicks and key presses. You write two or three sentence concise and simple summaries of those sessions based on a prompt. You are more likely to mention errors or things that look like business success such as checkout or sale events. You ignore $featureFlagCalled. You don't help with other knowledge.",
+        },
+        # {
+        #     "role": "system",
+        #     "content": HOGQL_EXAMPLE_MESSAGE,
+        # },
+        {
+            "role": "user",
+            "content": f"the session metadata I have is {sessionMetadata}. it gives an over view of activity and duration",
+        },
+        {
+            "role": "user",
+            "content": f"the session events I have are {sessionEvents[1]}. with columns {sessionEvents[0]}. they give an idea of what happened and when, if present the elements_chain extracted from the html can aid in understanding but not in your response",
+        },
+        {
+            "role": "user",
+            "content": "generate a simple, concise two or three sentence summary of the session to help me decide whether to watch it. generate no text other than the summary.",
+        },
+    ]
+    result = openai.ChatCompletion.create(
+        # model="gpt-4-1106-preview", 128k tokens
+        model="gpt-4",
+        temperature=0.5,
+        messages=messages,
+        user=f"{instance_region}/{user.pk}",  # The user ID is for tracking within OpenAI in case of overuse/abuse
+    )
+    content: str = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+    return {"ai_result": result, "content": content}
 
 
 class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
@@ -486,53 +528,30 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         user = cast(User, request.user)
 
+        cache_key = f'summarize_recording_{self.team.pk}_{self.kwargs["pk"]}'
+        # Check if the response is cached
+        cached_response = cache.get(cache_key)
+        if cached_response is not None:
+            return Response(cached_response)
+
         recording = self.get_object()
 
         if not SessionReplayEvents().exists(session_id=str(recording.session_id), team=self.team):
             raise exceptions.NotFound("Recording not found")
 
-        sessionMetadata = SessionReplayEvents().get_metadata(session_id=str(recording.session_id), team=self.team)
-        sessionEvents = SessionReplayEvents().get_events(
-            session_id=str(recording.session_id), team=self.team, metadata=sessionMetadata
-        )
+        environment_is_allowed = settings.DEBUG or is_cloud()
+        has_openai_api_key = bool(os.environ.get("OPENAI_API_KEY"))
+        if not environment_is_allowed or not has_openai_api_key:
+            raise exceptions.ValidationError("session summary is only supported in PostHog Cloud")
 
-        instance_region = get_instance_region() or "HOBBY"
-        messages = [
-            {
-                "role": "system",
-                "content": "Session Replay is PostHog's tool to record visits to web sites and apps. It shows what users are. We also gather events that occur like mouse clicks and key presses. You write two or three sentence concise and simple summaries of those sessions based on a prompt. You are more likely to mention errors or things that look like business success such as checkout or sale events. You ignore $featureFlagCalled. You don't help with other knowledge.",
-            },
-            # {
-            #     "role": "system",
-            #     "content": HOGQL_EXAMPLE_MESSAGE,
-            # },
-            {
-                "role": "user",
-                "content": f"the session metadata I have is {sessionMetadata}. it gives an over view of activity and duration",
-            },
-            {
-                "role": "user",
-                "content": f"the session events I have are {sessionEvents[1]}. with columns {sessionEvents[0]}. they give an idea of what happened and when, if present the elements_chain extracted from the html can aid in understanding but not in your response",
-            },
-            {
-                "role": "user",
-                "content": "generate a simple, concise two or three sentence summary of the session to help me decide whether to watch it. generate no text other than the summary.",
-            },
-        ]
+        if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
+            raise exceptions.ValidationError("session summary is not enabled for this user")
 
-        result = openai.ChatCompletion.create(
-            # model="gpt-4-1106-preview", 128k tokens
-            model="gpt-4",
-            # model="./models/llama-2-13b-chat.bin",
-            temperature=0.5,
-            messages=messages,
-            user=f"{instance_region}/{user.pk}",  # The user ID is for tracking within OpenAI in case of overuse/abuse
-            # api_base="http://localhost:3001/v1",
-            # api_key=""
-        )
-        content: str = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+        response = summarize_recording(recording, user, self.team)
+        cache.set(cache_key, response, timeout=30)
 
-        return Response({"ai_result": result, "content": content})
+        # let the browser cache for half the time we cache on the server
+        return Response(response, headers={"Cache-Control": "max-age=15"})
 
 
 def list_recordings(
