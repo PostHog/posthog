@@ -35,5 +35,7 @@ export function removeProjectIdIfPresent(path: string): string {
 }
 
 export function addProjectIdIfMissing(path: string): string {
-    return isPathWithoutProjectId(path) ? removeProjectIdIfPresent(path) : addProjectIdUnlessPresent(path)
+    return isPathWithoutProjectId(removeProjectIdIfPresent(path))
+        ? removeProjectIdIfPresent(path)
+        : addProjectIdUnlessPresent(path)
 }
