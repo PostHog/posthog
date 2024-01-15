@@ -3,6 +3,8 @@ import './Link.scss'
 import clsx from 'clsx'
 import { router } from 'kea-router'
 import { isExternalLink } from 'lib/utils'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import React from 'react'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
@@ -36,14 +38,15 @@ export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'cla
     subtle?: boolean
 }
 
-// Some URLs we want to enforce a full reload such as billing which is redirected by Django
-const FORCE_PAGE_LOAD = ['/billing/']
-
 const shouldForcePageLoad = (input: any): boolean => {
     if (!input || typeof input !== 'string') {
         return false
     }
-    return !!FORCE_PAGE_LOAD.find((x) => input.startsWith(x))
+
+    // If the link is to a different team, force a page load to ensure the proper team switch happens
+    const matches = input.match(/\/project\/(\d+)/)
+
+    return !!matches && matches[1] !== `${getCurrentTeamId()}`
 }
 
 const isPostHogDomain = (url: string): boolean => {
@@ -120,6 +123,13 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         }
 
         const rel = typeof to === 'string' && isPostHogDomain(to) ? 'noopener' : 'noopener noreferrer'
+        const href = to
+            ? typeof to === 'string'
+                ? to.includes('://')
+                    ? to
+                    : addProjectIdIfMissing(to)
+                : '#'
+            : undefined
 
         return to ? (
             // eslint-disable-next-line react/forbid-elements
@@ -127,7 +137,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 ref={ref as any}
                 className={clsx('Link', subtle && 'Link--subtle', className)}
                 onClick={onClick}
-                href={typeof to === 'string' ? to : '#'}
+                href={href}
                 target={target}
                 rel={target === '_blank' ? rel : undefined}
                 {...props}

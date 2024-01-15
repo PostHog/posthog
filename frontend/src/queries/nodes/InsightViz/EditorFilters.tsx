@@ -58,7 +58,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         isLifecycle,
         isTrendsLike,
         display,
-        breakdown,
+        breakdownFilter,
         pathsFilter,
         querySource,
         shouldShowSessionAnalysisWarning,
@@ -173,7 +173,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         },
         {
             title: 'Breakdown',
-            count: breakdown?.breakdowns?.length || (breakdown?.breakdown ? 1 : 0),
+            count: breakdownFilter?.breakdowns?.length || (breakdownFilter?.breakdown ? 1 : 0),
             editorFilters: filterFalsy([
                 hasBreakdown
                     ? {

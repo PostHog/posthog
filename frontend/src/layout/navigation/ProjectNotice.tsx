@@ -22,7 +22,7 @@ interface ProjectNoticeBlueprint {
 export function ProjectNotice(): JSX.Element | null {
     const { projectNoticeVariantWithClosability } = useValues(navigationLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { updateCurrentTeam, logout } = useActions(userLogic)
+    const { logout } = useActions(userLogic)
     const { user } = useValues(userLogic)
     const { closeProjectNotice } = useActions(navigationLogic)
     const { showInviteModal } = useActions(inviteLogic)
@@ -46,9 +46,7 @@ export function ProjectNotice(): JSX.Element | null {
                             {' '}
                             When you're ready, head on over to the{' '}
                             <Link
-                                onClick={() => {
-                                    updateCurrentTeam(altTeamForIngestion?.id, urls.products())
-                                }}
+                                to={urls.project(altTeamForIngestion.id, urls.products())}
                                 data-attr="demo-project-alt-team-ingestion_link"
                             >
                                 onboarding wizard

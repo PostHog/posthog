@@ -96,3 +96,4 @@ phonenumberslite==8.13.6
 openai==0.27.8
 nh3==0.2.14
 hogql-parser==1.0.2
+urllib3[secure,socks]==1.26.18

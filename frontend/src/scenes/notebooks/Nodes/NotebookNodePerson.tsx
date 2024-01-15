@@ -80,7 +80,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodePersonAttribute
                     return (
                         <PropertyIcon
                             key={property}
-                            className={'text-muted-alt'}
+                            className="text-muted-alt"
                             property={property}
                             value={value}
                             tooltipTitle={() => (

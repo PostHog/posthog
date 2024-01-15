@@ -57,7 +57,7 @@ export function DebugNotice(): JSX.Element | null {
     }
     return (
         <div
-            className="border rounded-md bg-bg-3000 overflow-hidden mb-1.5 w-full font-mono max-w-60"
+            className="border rounded bg-bg-3000 overflow-hidden mb-1.5 w-full font-mono max-w-60"
             // eslint-disable-next-line react/forbid-dom-props
             style={{ fontSize: 13 }} // utility classes don't have a 13px variant
         >

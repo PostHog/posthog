@@ -121,7 +121,7 @@ export function Navbar(): JSX.Element {
                 </div>
                 {!mobileLayout && (
                     <Resizer
-                        placement={'right'}
+                        placement="right"
                         containerRef={containerRef}
                         closeThreshold={100}
                         onToggleClosed={(shouldBeClosed) => toggleNavCollapsed(shouldBeClosed)}

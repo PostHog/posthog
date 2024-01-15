@@ -10,6 +10,7 @@ import { SidePanelTab } from '~/types'
 
 import { sidePanelActivityLogic } from './panels/activity/sidePanelActivityLogic'
 import { sidePanelDiscussionLogic } from './panels/discussion/sidePanelDiscussionLogic'
+import { sidePanelStatusLogic } from './panels/sidePanelStatusLogic'
 import type { sidePanelLogicType } from './sidePanelLogicType'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
@@ -18,6 +19,7 @@ const ALWAYS_EXTRA_TABS = [
     SidePanelTab.FeaturePreviews,
     SidePanelTab.Activity,
     SidePanelTab.Welcome,
+    SidePanelTab.Status,
 ]
 
 export const sidePanelLogic = kea<sidePanelLogicType>([
@@ -37,6 +39,8 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['unreadCount'],
             sidePanelDiscussionLogic,
             ['commentCount', 'commentCountLoading'],
+            sidePanelStatusLogic,
+            ['status'],
         ],
         actions: [sidePanelStateLogic, ['closeSidePanel', 'openSidePanel']],
     }),
@@ -85,7 +89,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 if (isCloudOrDev) {
                     tabs.push(SidePanelTab.Support)
                 }
-                tabs.push(SidePanelTab.Settings)
                 tabs.push(SidePanelTab.Activity)
                 if (isReady && !hasCompletedAllTasks) {
                     tabs.push(SidePanelTab.Activation)
@@ -94,15 +97,20 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.Discussion)
                 }
                 tabs.push(SidePanelTab.FeaturePreviews)
+                tabs.push(SidePanelTab.Settings)
                 tabs.push(SidePanelTab.Welcome)
+
+                if (isCloudOrDev && featureflags[FEATURE_FLAGS.SIDEPANEL_STATUS]) {
+                    tabs.push(SidePanelTab.Status)
+                }
 
                 return tabs
             },
         ],
 
         visibleTabs: [
-            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.commentCount, s.unreadCount],
-            (enabledTabs, selectedTab, sidePanelOpen, commentCount, unreadCount): SidePanelTab[] => {
+            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.commentCount, s.unreadCount, s.status],
+            (enabledTabs, selectedTab, sidePanelOpen, commentCount, unreadCount, status): SidePanelTab[] => {
                 return enabledTabs.filter((tab) => {
                     if (tab === selectedTab && sidePanelOpen) {
                         return true
@@ -113,6 +121,10 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     }
 
                     if (tab === SidePanelTab.Activity && unreadCount) {
+                        return true
+                    }
+
+                    if (tab === SidePanelTab.Status && status !== 'operational') {
                         return true
                     }
 

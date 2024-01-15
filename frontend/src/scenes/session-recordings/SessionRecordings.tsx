@@ -136,7 +136,7 @@ export function SessionsRecordings(): JSX.Element {
             />
             <div className="space-y-2">
                 <VersionCheckerBanner />
-                <AndroidRecordingsPromptBanner context={'replay'} />
+                <AndroidRecordingsPromptBanner context="replay" />
 
                 {recordingsDisabled ? (
                     <LemonBanner

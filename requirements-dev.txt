@@ -263,7 +263,7 @@ uritemplate==4.1.1
     # via
     #   -c requirements.txt
     #   coreapi
-urllib3==1.26.13
+urllib3==1.26.18
     # via
     #   -c requirements.txt
     #   requests

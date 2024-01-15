@@ -1,6 +1,6 @@
 import { hiddenLegendItemsToKeys, queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { LifecycleQuery, NodeKind } from '~/queries/schema'
-import { InsightType, LifecycleFilterType } from '~/types'
+import { LifecycleQuery, NodeKind, TrendsQuery } from '~/queries/schema'
+import { ChartDisplayType, InsightType, LifecycleFilterType, TrendsFilterType } from '~/types'
 
 describe('queryNodeToFilter', () => {
     test('converts a query node to a filter', () => {
@@ -18,6 +18,66 @@ describe('queryNodeToFilter', () => {
             entity_type: 'events',
             insight: InsightType.LIFECYCLE,
             toggledLifecycles: ['new', 'dormant'],
+        }
+        expect(result).toEqual(filters)
+    })
+
+    test('converts a breakdownFilter into breakdown properties', () => {
+        const query: TrendsQuery = {
+            kind: NodeKind.TrendsQuery,
+            series: [],
+            breakdownFilter: {
+                breakdown: '$current_url',
+                breakdown_normalize_url: false,
+                breakdown_hide_other_aggregation: false,
+            },
+        }
+
+        const result = queryNodeToFilter(query)
+
+        const filters: Partial<TrendsFilterType> = {
+            entity_type: 'events',
+            insight: InsightType.TRENDS,
+            breakdown: '$current_url',
+            breakdown_hide_other_aggregation: false,
+            breakdown_normalize_url: false,
+        }
+        expect(result).toEqual(filters)
+    })
+
+    test('converts a trendsFilter into filter properties', () => {
+        const query: TrendsQuery = {
+            kind: NodeKind.TrendsQuery,
+            series: [],
+            trendsFilter: {
+                smoothingIntervals: 3,
+                compare: true,
+                formula: 'A + B',
+                display: ChartDisplayType.ActionsBar,
+                // breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count']
+                // show_legend?: TrendsFilterLegacy['show_legend']
+                // aggregation_axis_format?: TrendsFilterLegacy['aggregation_axis_format']
+                // aggregation_axis_prefix?: TrendsFilterLegacy['aggregation_axis_prefix']
+                // aggregation_axis_postfix?: TrendsFilterLegacy['aggregation_axis_postfix']
+                // decimal_places?: TrendsFilterLegacy['decimal_places']
+                // show_values_on_series?: TrendsFilterLegacy['show_values_on_series']
+                // show_labels_on_series?: TrendsFilterLegacy['show_labels_on_series']
+                // show_percent_stack_view?: TrendsFilterLegacy['show_percent_stack_view']
+                // hidden_legend_indexes?: TrendsFilterLegacy['hidden_legend_indexes']
+            },
+        }
+
+        const result = queryNodeToFilter(query)
+
+        const filters: Partial<TrendsFilterType> = {
+            insight: InsightType.TRENDS,
+            entity_type: 'events',
+            hidden_legend_keys: undefined,
+            interval: undefined,
+            smoothing_intervals: 3,
+            display: ChartDisplayType.ActionsBar,
+            formula: 'A + B',
+            compare: true,
         }
         expect(result).toEqual(filters)
     })

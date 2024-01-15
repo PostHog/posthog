@@ -114,7 +114,7 @@ export function NotebooksTable(): JSX.Element {
                         setFilters({ search: s })
                     }}
                     value={filters.search}
-                    data-attr={'notebooks-search'}
+                    data-attr="notebooks-search"
                 />
                 <div className="flex items-center gap-4 flex-wrap">
                     <ContainsTypeFilters filters={filters} setFilters={setFilters} />
@@ -135,7 +135,7 @@ export function NotebooksTable(): JSX.Element {
                 columns={columns}
                 loading={notebooksResponseLoading}
                 defaultSorting={{ columnKey: '-created_at', order: 1 }}
-                emptyState={`No notebooks matching your filters!`}
+                emptyState="No notebooks matching your filters!"
                 nouns={['notebook', 'notebooks']}
                 sorting={sortValue ? { columnKey: sortValue, order: sortValue.startsWith('-') ? -1 : 1 } : undefined}
                 onSort={(newSorting) =>

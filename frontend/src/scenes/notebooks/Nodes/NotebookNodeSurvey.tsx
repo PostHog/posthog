@@ -43,7 +43,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttribute
     }, [survey.name])
 
     if (surveyMissing) {
-        return <NotFound object={'survey'} />
+        return <NotFound object="survey" />
     }
 
     return (

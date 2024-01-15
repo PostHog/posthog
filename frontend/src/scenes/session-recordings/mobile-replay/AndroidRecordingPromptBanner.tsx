@@ -20,8 +20,8 @@ export function AndroidRecordingsPromptBanner(props: AndroidRecordingPromptBanne
     return (
         <FlaggedFeature flag={FEATURE_FLAGS.RECRUIT_ANDROID_MOBILE_BETA_TESTERS} match={true}>
             <LemonBanner
-                type={'info'}
-                dismissKey={`android-recording-beta-prompt`}
+                type="info"
+                dismissKey="android-recording-beta-prompt"
                 action={{
                     children: 'Learn more',
                     to: 'https://github.com/PostHog/posthog-android/blob/main/USAGE.md#android-session-recording',
@@ -29,8 +29,8 @@ export function AndroidRecordingsPromptBanner(props: AndroidRecordingPromptBanne
                 }}
                 className="mb-4"
             >
-                <h1 className={'mb-0'}>Android Session Replay.</h1>
-                <div>
+                <h3 className="mb-0 ml-2">Android Session Replay</h3>
+                <div className="ml-2">
                     We're recruiting beta testers for Android Session Replay.{' '}
                     <Link onClick={() => openSupportForm({ kind: 'support', target_area: 'session_replay' })}>
                         Contact support

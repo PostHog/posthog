@@ -15,7 +15,7 @@ export function Events(): JSX.Element {
         <>
             <PageHeader />
             <div className="non-3000 pt-4 border-t" />
-            <AndroidRecordingsPromptBanner context={'events'} />
+            <AndroidRecordingsPromptBanner context="events" />
             <EventsScene />
         </>
     )

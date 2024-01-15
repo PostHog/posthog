@@ -71,11 +71,11 @@ export function RetentionModal(): JSX.Element | null {
                         {!!dataTableNodeQuery && (
                             <ExportWithConfirmation
                                 key={1}
-                                placement={'topRight'}
+                                placement="topRight"
                                 onConfirm={() => {
                                     dataTableNodeQuery && void startDownload(dataTableNodeQuery, true)
                                 }}
-                                actor={'persons'}
+                                actor="persons"
                                 limit={EXPORT_MAX_LIMIT}
                             >
                                 <LemonButton type="secondary">Export all as CSV</LemonButton>
