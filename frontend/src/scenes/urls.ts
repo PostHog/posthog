@@ -1,5 +1,6 @@
 import { combineUrl } from 'kea-router'
 import { toParams } from 'lib/utils'
+import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 
 import { ExportOptions } from '~/exporter/types'
 import {
@@ -205,4 +206,9 @@ export const urls = {
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,
+}
+for (const key of Object.keys(urls)) {
+    // Ensure the canonical URLs are returned (i.e. starting with `/project/:team_id/` for project-scoped scenes)
+    const baseFunc = urls[key]
+    urls[key] = (...args: any[]): string => addProjectIdIfMissing(baseFunc(...args))
 }
