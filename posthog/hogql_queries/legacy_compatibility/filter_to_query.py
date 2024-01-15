@@ -325,7 +325,7 @@ def _insight_filter(filter: Dict):
                 formula=filter.get("formula"),
                 display=clean_display(filter.get("display")),
                 show_values_on_series=filter.get("show_values_on_series"),
-                show_percent_stack_view=filter.get("show_percent_stack_view"),
+                showPercentStackView=filter.get("show_percent_stack_view"),
                 showLabelsOnSeries=filter.get("show_label_on_series"),
             )
         }

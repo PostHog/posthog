@@ -652,8 +652,8 @@ class TrendsFilter(BaseModel):
     formula: Optional[str] = None
     hidden_legend_indexes: Optional[List[float]] = None
     showLabelsOnSeries: Optional[bool] = None
+    showPercentStackView: Optional[bool] = None
     show_legend: Optional[bool] = None
-    show_percent_stack_view: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
     smoothingIntervals: Optional[float] = None
 

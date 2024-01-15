@@ -316,6 +316,7 @@ describe('filtersToQueryNode', () => {
                 formula: 'A+B',
                 shown_as: ShownAsValue.VOLUME,
                 display: ChartDisplayType.ActionsAreaGraph,
+                show_percent_stack_view: true,
             }
 
             const result = filtersToQueryNode(filters)
@@ -333,6 +334,7 @@ describe('filtersToQueryNode', () => {
                     decimalPlaces: 8,
                     formula: 'A+B',
                     display: ChartDisplayType.ActionsAreaGraph,
+                    showPercentStackView: true,
                 },
                 breakdownFilter: {
                     breakdown_histogram_bin_count: 1,

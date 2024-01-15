@@ -3774,10 +3774,10 @@
                 "showLabelsOnSeries": {
                     "type": "boolean"
                 },
-                "show_legend": {
+                "showPercentStackView": {
                     "type": "boolean"
                 },
-                "show_percent_stack_view": {
+                "show_legend": {
                     "type": "boolean"
                 },
                 "show_values_on_series": {
