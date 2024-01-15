@@ -55,6 +55,7 @@ def log_comment_activity(sender, instance: Comment, created: bool, **kwargs):
             organization_id=None,
             team_id=instance.team_id,
             user=instance.created_by,
+            was_impersonated=None,  # TODO - Find way to determine if the user was impersonated
             item_id=item_id,
             scope=scope,
             activity="commented",

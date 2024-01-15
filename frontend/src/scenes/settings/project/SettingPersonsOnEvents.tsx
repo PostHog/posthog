@@ -22,13 +22,13 @@ export function SettingPersonsOnEvents(): JSX.Element {
             </p>
 
             <LemonSwitch
-                data-attr={`poe-setting`}
+                data-attr="poe-setting"
                 onChange={(checked) => {
                     updateCurrentTeam({
                         extra_settings: { ...currentTeam?.extra_settings, ['poe_v2_enabled']: checked },
                     })
                 }}
-                label={`Enable Person on Events (Beta)`}
+                label="Enable Person on Events (Beta)"
                 checked={!!currentTeam?.extra_settings?.['poe_v2_enabled']}
                 bordered
             />

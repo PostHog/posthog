@@ -65,7 +65,7 @@ const Template: StoryFn<typeof NotebookSelectButton> = (props) => {
 
     return (
         // the button has its dropdown showing and so needs a container that will include the pop-over
-        <div className={'min-h-100'}>
+        <div className="min-h-100">
             <NotebookSelectButton resource={props.resource} visible={props.visible} />
         </div>
     )

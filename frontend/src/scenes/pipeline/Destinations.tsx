@@ -17,7 +17,7 @@ import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
-import { PipelineTabs, ProductKey } from '~/types'
+import { PipelineAppKind, ProductKey } from '~/types'
 
 import { DestinationType, pipelineDestinationsLogic } from './destinationsLogic'
 import { NewButton } from './NewButton'
@@ -42,7 +42,7 @@ export function Destinations(): JSX.Element {
                     productKey={ProductKey.PIPELINE_DESTINATIONS}
                     description="Pipeline destinations allow you to export data outside of PostHog, such as webhooks to Slack."
                     docsURL="https://posthog.com/docs/cdp"
-                    actionElementOverride={<NewButton tab={PipelineTabs.Destinations} />}
+                    actionElementOverride={<NewButton kind={PipelineAppKind.Destination} />}
                     isEmpty={true}
                 />
             )}
@@ -68,7 +68,7 @@ function DestinationsTable(): JSX.Element {
                         render: function RenderPluginName(_, destination) {
                             return (
                                 <>
-                                    <Tooltip title={'Click to update configuration, view metrics, and more'}>
+                                    <Tooltip title="Click to update configuration, view metrics, and more">
                                         <Link to={destination.config_url}>
                                             <span className="row-name">{destination.name}</span>
                                         </Link>
@@ -85,7 +85,7 @@ function DestinationsTable(): JSX.Element {
                     {
                         title: 'App',
                         render: function RenderAppInfo(_, destination) {
-                            if (destination.type === 'webhook') {
+                            if (destination.backend === 'plugin') {
                                 return <RenderApp plugin={destination.plugin} />
                             }
                             return <></> // TODO: batch export
@@ -100,7 +100,7 @@ function DestinationsTable(): JSX.Element {
                     {
                         title: '24h', // TODO: two options 24h or 7d selected
                         render: function Render24hDeliveryRate(_, destination) {
-                            if (destination.type === 'webhook') {
+                            if (destination.backend === 'plugin') {
                                 let tooltip = 'No events exported in the past 24 hours'
                                 let value = '-'
                                 let tagType: LemonTagType = 'muted'
@@ -129,7 +129,7 @@ function DestinationsTable(): JSX.Element {
                                 return (
                                     <Tooltip title={tooltip}>
                                         <Link to={destination.metrics_url}>
-                                            <LemonTag type="muted">{'-'}</LemonTag>
+                                            <LemonTag type="muted">-</LemonTag>
                                         </Link>
                                     </Tooltip>
                                 )
@@ -206,7 +206,7 @@ function DestinationsTable(): JSX.Element {
                                                 </LemonButton>
                                             )}
                                             <LemonDivider />
-                                            {destination.type === 'webhook' && (
+                                            {destination.backend === 'plugin' && (
                                                 <LemonButton // TODO: batch exports
                                                     status="danger"
                                                     onClick={() => {

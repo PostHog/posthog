@@ -76,7 +76,7 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value: st
         )
     }
     return (
-        <Tooltip title={`Custom event`}>
+        <Tooltip title="Custom event">
             <IconCursor className="taxonomy-icon taxonomy-icon-muted" />
         </Tooltip>
     )
@@ -135,7 +135,7 @@ function RawDefinitionHeader({
                             </>
                         )}
                         {!!KEY_MAPPING.event[definition.name] && (
-                            <Tooltip title={`PostHog event`}>
+                            <Tooltip title="PostHog event">
                                 <IconBadge
                                     className="w-5 h-5 taxonomy-icon taxonomy-icon-muted"
                                     style={{ width: '1.25rem' }}

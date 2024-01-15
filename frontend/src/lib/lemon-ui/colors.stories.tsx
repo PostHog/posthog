@@ -163,9 +163,7 @@ export function AllThreeThousandColorOptions(): JSX.Element {
                     dataIndex: 'color',
                     render: function RenderColor(color) {
                         return (
-                            <div
-                                className={'bg-bg-3000-light flex items-center justify-center border rounded h-16 w-16'}
-                            >
+                            <div className="bg-bg-3000-light flex items-center justify-center border rounded h-16 w-16">
                                 <div className={`bg-${color as string}-light border rounded h-8 w-8`} />
                             </div>
                         )
@@ -177,9 +175,7 @@ export function AllThreeThousandColorOptions(): JSX.Element {
                     dataIndex: 'color',
                     render: function RenderColor(color) {
                         return (
-                            <div
-                                className={'bg-bg-3000-dark flex items-center justify-center border rounded h-16 w-16'}
-                            >
+                            <div className="bg-bg-3000-dark flex items-center justify-center border rounded h-16 w-16">
                                 <div className={`bg-${color as string}-dark border rounded h-8 w-8`} />
                             </div>
                         )
