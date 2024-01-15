@@ -3750,6 +3750,9 @@
                 "aggregation_axis_prefix": {
                     "type": "string"
                 },
+                "breakdown_histogram_bin_count": {
+                    "type": "number"
+                },
                 "compare": {
                     "type": "boolean"
                 },
