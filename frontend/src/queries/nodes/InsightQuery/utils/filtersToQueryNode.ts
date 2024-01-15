@@ -227,7 +227,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             filters.breakdown_type = 'event'
         }
 
-        query.breakdown = objectCleanWithEmpty({
+        query.breakdownFilter = objectCleanWithEmpty({
             breakdown_type: filters.breakdown_type,
             breakdown: filters.breakdown,
             breakdown_normalize_url: filters.breakdown_normalize_url,

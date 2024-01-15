@@ -29,8 +29,8 @@ export function AndroidRecordingsPromptBanner(props: AndroidRecordingPromptBanne
                 }}
                 className="mb-4"
             >
-                <h1 className="mb-0">Android Session Replay.</h1>
-                <div>
+                <h3 className="mb-0 ml-2">Android Session Replay</h3>
+                <div className="ml-2">
                     We're recruiting beta testers for Android Session Replay.{' '}
                     <Link onClick={() => openSupportForm({ kind: 'support', target_area: 'session_replay' })}>
                         Contact support

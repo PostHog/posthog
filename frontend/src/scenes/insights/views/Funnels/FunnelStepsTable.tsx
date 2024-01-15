@@ -23,13 +23,12 @@ import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from 
 
 export function FunnelStepsTable(): JSX.Element | null {
     const { insightProps, insightLoading } = useValues(insightLogic)
-    const { breakdown } = useValues(insightVizDataLogic(insightProps))
+    const { breakdownFilter } = useValues(insightVizDataLogic(insightProps))
     const { steps, flattenedBreakdowns, funnelsFilter } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
 
-    const breakdownFilter = breakdown ?? undefined
     const isOnlySeries = flattenedBreakdowns.length <= 1
     const hiddenLegendBreakdowns = funnelsFilter?.hidden_legend_breakdowns
     const setHiddenLegendBreakdowns = (hidden_legend_breakdowns: string[]): void => {

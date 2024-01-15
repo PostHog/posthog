@@ -77,7 +77,7 @@ export const getInterval = (query: InsightQueryNode): IntervalType | undefined =
 
 export const getBreakdown = (query: InsightQueryNode): BreakdownFilter | undefined => {
     if (isInsightQueryWithBreakdown(query)) {
-        return query.breakdown
+        return query.breakdownFilter
     } else {
         return undefined
     }

@@ -191,7 +191,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                         }
                     ],
                     "trendsFilter": {"display": "ActionsAreaGraph"},
-                    "breakdown": {
+                    "breakdownFilter": {
                         "breakdown": "$geoip_country_code",
                         "breakdown_type": "event",
                     },

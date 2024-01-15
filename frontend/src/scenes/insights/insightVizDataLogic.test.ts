@@ -131,11 +131,11 @@ describe('insightVizDataLogic', () => {
         })
     })
 
-    describe('updateBreakdown', () => {
+    describe('updateBreakdownFilter', () => {
         it('updates the breakdown', () => {
             // when breakdown is empty
             expectLogic(builtInsightDataLogic, () => {
-                builtInsightVizDataLogic.actions.updateBreakdown({
+                builtInsightVizDataLogic.actions.updateBreakdownFilter({
                     breakdown_type: 'event',
                     breakdown: '$current_url',
                 })
@@ -144,7 +144,7 @@ describe('insightVizDataLogic', () => {
                     kind: NodeKind.InsightVizNode,
                     source: {
                         ...trendsQueryDefault,
-                        breakdown: {
+                        breakdownFilter: {
                             breakdown_type: 'event',
                             breakdown: '$current_url',
                         },
@@ -152,14 +152,14 @@ describe('insightVizDataLogic', () => {
                 },
             })
 
-            expect(builtInsightVizDataLogic.values.breakdown).toEqual({
+            expect(builtInsightVizDataLogic.values.breakdownFilter).toEqual({
                 breakdown_type: 'event',
                 breakdown: '$current_url',
             })
 
             // merges with existing breakdown
             expectLogic(builtInsightDataLogic, () => {
-                builtInsightVizDataLogic.actions.updateBreakdown({
+                builtInsightVizDataLogic.actions.updateBreakdownFilter({
                     breakdown: '$browser',
                 })
             }).toMatchValues({
@@ -167,7 +167,7 @@ describe('insightVizDataLogic', () => {
                     kind: NodeKind.InsightVizNode,
                     source: {
                         ...trendsQueryDefault,
-                        breakdown: {
+                        breakdownFilter: {
                             breakdown_type: 'event',
                             breakdown: '$browser',
                         },
@@ -175,7 +175,7 @@ describe('insightVizDataLogic', () => {
                 },
             })
 
-            expect(builtInsightVizDataLogic.values.breakdown).toEqual({
+            expect(builtInsightVizDataLogic.values.breakdownFilter).toEqual({
                 breakdown_type: 'event',
                 breakdown: '$browser',
             })

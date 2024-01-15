@@ -1,6 +1,7 @@
 /** @type {import('tailwindcss').Config} */
 const config = {
     content: ['./frontend/src/**/*.{ts,tsx}', './ee/frontend/**/*.{ts,tsx}', './frontend/src/index.html'],
+    important: true, // Basically this: https://sebastiandedeyne.com/why-we-use-important-with-tailwind
     theme: {
         colors: {
             // TODO: Move all colors over to Tailwind
