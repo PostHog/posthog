@@ -1,13 +1,10 @@
 import '@testing-library/jest-dom'
 
 import { render } from '@testing-library/react'
-import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogItem, humanize } from 'lib/components/ActivityLog/humanizeActivity'
 
-import { ActivityScope, AppContext, InsightShortId } from '~/types'
-
-window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
+import { ActivityScope, InsightShortId } from '~/types'
 
 describe('the activity log logic', () => {
     describe('humanizing notebooks', () => {

@@ -9,14 +9,14 @@ function isPathWithoutProjectId(path: string): boolean {
     return pathsWithoutProjectId.includes(firstPart)
 }
 
-function addProjectIdUnlessPresent(path: string, teamId: TeamType['id'] | ':teamId'): string {
+function addProjectIdUnlessPresent(path: string, teamId: TeamType['id']): string {
     if (path.match(/^\/project\/\d+/)) {
         return path
     }
 
     let prefix = ''
     try {
-        prefix = `/project/${teamId}`
+        prefix = `/project/${teamId ?? getCurrentTeamId()}`
         if (path == '/') {
             return prefix
         }
@@ -36,8 +36,8 @@ export function removeProjectIdIfPresent(path: string): string {
     return path
 }
 
-export function addProjectIdIfMissing(path: string, teamId?: TeamType['id'] | ':teamId'): string {
+export function addProjectIdIfMissing(path: string, teamId?: TeamType['id']): string {
     return isPathWithoutProjectId(removeProjectIdIfPresent(path))
         ? removeProjectIdIfPresent(path)
-        : addProjectIdUnlessPresent(path, teamId ?? getCurrentTeamId())
+        : addProjectIdUnlessPresent(path, teamId)
 }
