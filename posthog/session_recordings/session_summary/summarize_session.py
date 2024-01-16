@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import List, Dict, Tuple
 
 import openai
-
+from prometheus_client import Histogram
 
 from posthog.models import User, Team
 from posthog.models.element import chain_to_elements
@@ -12,6 +12,33 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 from posthog.utils import get_instance_region
+
+TOKENS_IN_PROMPT_HISTOGRAM = Histogram(
+    "posthog_session_summary_tokens_in_prompt_histogram",
+    "histogram of the number of tokens in the prompt used to generate a session summary",
+    buckets=[
+        0,
+        10,
+        50,
+        100,
+        500,
+        1000,
+        2000,
+        3000,
+        4000,
+        5000,
+        6000,
+        7000,
+        8000,
+        10000,
+        20000,
+        30000,
+        40000,
+        50000,
+        100000,
+        float("inf"),
+    ],
+)
 
 
 def reduce_elements_chain(session_events: Tuple[List | None, List | None]) -> Tuple[List | None, List | None]:
@@ -132,15 +159,16 @@ def format_dates(session_events: Tuple[List | None, List | None], start: datetim
         if column == "timestamp":
             timestamp_index = i
             break
+
+    if timestamp_index is None:
+        # no timestamp column so nothing to do
+        return columns, results
+
     del columns[timestamp_index]  # remove timestamp column from columns
     columns.append("milliseconds_since_start")  # add new column to columns at end
 
     formatted_results = []
     for result in results:
-        if timestamp_index is None:
-            formatted_results.append(result)
-            continue
-
         timestamp: datetime | None = result[timestamp_index]
         if not timestamp:
             formatted_results.append(result)
@@ -208,6 +236,9 @@ def collapse_sequence_of_events(session_events: Tuple[List | None, List | None])
 
 def summarize_recording(recording: SessionRecording, user: User, team: Team):
     session_metadata = SessionReplayEvents().get_metadata(session_id=str(recording.session_id), team=team)
+    if not session_metadata:
+        raise ValueError(f"no session metadata found for session_id {recording.session_id}")
+
     session_events = SessionReplayEvents().get_events(
         session_id=str(recording.session_id),
         team=team,
@@ -217,10 +248,14 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
         ],
     )
 
-    del session_metadata["distinct_id"]
+    # convert session_metadata to a Dict from a TypedDict
+    # so that we can amend its values freely
+    session_metadata_dict = dict(session_metadata)
+
+    del session_metadata_dict["distinct_id"]
     start_time = session_metadata["start_time"]
-    session_metadata["start_time"] = start_time.isoformat()
-    session_metadata["end_time"] = session_metadata["end_time"].isoformat()
+    session_metadata_dict["start_time"] = start_time.isoformat()
+    session_metadata_dict["end_time"] = session_metadata["end_time"].isoformat()
 
     session_events_columns, session_events_results, url_mapping = deduplicate_urls(
         collapse_sequence_of_events(
@@ -241,7 +276,7 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
         },
         {
             "role": "user",
-            "content": f"""the session metadata I have is {session_metadata}.
+            "content": f"""the session metadata I have is {session_metadata_dict}.
             it gives an overview of activity and duration""",
         },
         {
@@ -274,5 +309,10 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
         messages=messages,
         user=f"{instance_region}/{user.pk}",  # The user ID is for tracking within OpenAI in case of overuse/abuse
     )
+
+    usage = result.get("usage", {}).get("prompt_tokens", None)
+    if usage:
+        TOKENS_IN_PROMPT_HISTOGRAM.observe(usage)
+
     content: str = result.get("choices", [{}])[0].get("message", {}).get("content", "")
     return {"ai_result": result, "content": content, "prompt": messages}
