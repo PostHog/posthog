@@ -371,6 +371,11 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
     },
 }
 
+const preserveParams = (url: string) => (_params: Params, searchParams: Params, hashParams: Params) => {
+    const combined = combineUrl(url, searchParams, hashParams)
+    return combined.url
+}
+
 // NOTE: These redirects will fully replace the URL. If you want to keep support for query and hash params then you should use the above `preserveParams` function.
 export const redirects: Record<
     string,
@@ -427,6 +432,8 @@ export const redirects: Record<
     '/organization/settings': urls.settings('organization'),
     '/me/settings': urls.settings('user'),
     '/pipeline': urls.pipeline(),
+    '/project/apps': preserveParams(urls.projectApps()),
+    '/project/apps/:id': ({ id }) => urls.projectApp(id),
 }
 
 export const routes: Record<string, Scene> = {
