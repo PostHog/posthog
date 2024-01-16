@@ -89,7 +89,7 @@ def reduce_elements_chain(session_events: SessionSummaryPromptData) -> SessionSu
         result_list[elements_chain_index] = [{"tag": e.tag_name, "text": e.text, "href": e.href} for e in elements]
         reduced_results.append(result_list)
 
-    return SessionSummaryPromptData(columns=session_events.columns, results=reduced_results)
+    return dataclasses.replace(session_events, results=reduced_results)
 
 
 def simplify_window_id(session_events: SessionSummaryPromptData) -> SessionSummaryPromptData:
@@ -118,7 +118,7 @@ def simplify_window_id(session_events: SessionSummaryPromptData) -> SessionSumma
         result_list[window_id_index] = window_id_mapping[window_id]
         simplified_results.append(result_list)
 
-    return SessionSummaryPromptData(columns=session_events.columns, results=simplified_results)
+    return dataclasses.replace(session_events, results=simplified_results)
 
 
 def deduplicate_urls(session_events: SessionSummaryPromptData) -> SessionSummaryPromptData:
@@ -147,9 +147,7 @@ def deduplicate_urls(session_events: SessionSummaryPromptData) -> SessionSummary
         result_list[url_index] = url_mapping[url]
         deduplicated_results.append(result_list)
 
-    return SessionSummaryPromptData(
-        columns=session_events.columns, results=deduplicated_results, url_mapping=url_mapping
-    )
+    return dataclasses.replace(session_events, results=deduplicated_results, url_mapping=url_mapping)
 
 
 def format_dates(session_events: SessionSummaryPromptData, start: datetime) -> SessionSummaryPromptData:
@@ -180,7 +178,7 @@ def format_dates(session_events: SessionSummaryPromptData, start: datetime) -> S
         result_list.append(int((timestamp - start).total_seconds() * 1000))
         formatted_results.append(result_list)
 
-    return SessionSummaryPromptData(columns=session_events.columns, results=formatted_results)
+    return dataclasses.replace(session_events, results=formatted_results)
 
 
 def collapse_sequence_of_events(session_events: SessionSummaryPromptData) -> SessionSummaryPromptData:
@@ -242,7 +240,7 @@ def collapse_sequence_of_events(session_events: SessionSummaryPromptData) -> Ses
             result.append(None)  # there is no event repetition count
             collapsed_results.append(result)
 
-    return SessionSummaryPromptData(columns=session_events.columns, results=collapsed_results)
+    return dataclasses.replace(session_events, results=collapsed_results)
 
 
 def summarize_recording(recording: SessionRecording, user: User, team: Team):
