@@ -382,7 +382,8 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
         },
     ]
     result = openai.ChatCompletion.create(
-        model="gpt-4-1106-preview",  # allows 128k tokens
+        # model="gpt-4-1106-preview",  # allows 128k tokens
+        model="gpt-4",  # allows 8k tokens
         temperature=0.7,
         messages=messages,
         user=f"{instance_region}/{user.pk}",  # The user ID is for tracking within OpenAI in case of overuse/abuse
