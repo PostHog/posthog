@@ -89,6 +89,8 @@ export function Bookmarklet(): JSX.Element {
 export function ProjectVariables(): JSX.Element {
     const { currentTeam, isTeamTokenResetAvailable } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
+    const { preflight } = useValues(preflightLogic)
+    const region = preflight?.region
 
     return (
         <div className="flex items-start gap-4 flex-wrap">
@@ -142,19 +144,13 @@ export function ProjectVariables(): JSX.Element {
                 </p>
                 <CodeSnippet thing="project ID">{String(currentTeam?.id || '')}</CodeSnippet>
             </div>
-            {['https://eu.posthog.com', 'https://us.posthog.com'].includes(
-                preflightLogic.values.preflight?.site_url ?? ''
-            ) ? (
+            {region ? (
                 <div className="flex-1">
                     <h3 id="project-id" className="min-w-[25rem]">
                         Project Region
                     </h3>
                     <p>This is the region where your PostHog data is hosted.</p>
-                    <CodeSnippet thing="project ID">
-                        {preflightLogic.values.preflight?.site_url === 'https://eu.posthog.com'
-                            ? 'EU Cloud'
-                            : 'US Cloud'}
-                    </CodeSnippet>
+                    <CodeSnippet thing="project ID">{region === 'EU' ? 'EU Cloud' : 'US Cloud'}</CodeSnippet>
                 </div>
             ) : null}
         </div>
