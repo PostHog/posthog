@@ -1,9 +1,11 @@
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { LemonSwitch, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
+import { IconSettings } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { EditorFilterProps } from '~/types'
 
@@ -26,7 +28,7 @@ export function PathCleaningFilter({ insightProps }: EditorFilterProps): JSX.Ele
                 title={
                     hasFilters
                         ? 'Clean paths based using regex replacement.'
-                        : "You don't have path cleaning filters. Click the gear icon to configure it."
+                        : "You don't have path cleaning filters. Configure via gear icon."
                 }
             >
                 {/* This div is necessary for the tooltip to work. */}
@@ -41,6 +43,13 @@ export function PathCleaningFilter({ insightProps }: EditorFilterProps): JSX.Ele
                         label="Apply global path URL cleaning"
                         bordered
                     />
+                    <Link
+                        className="flex items-center mt-2"
+                        to={urls.settings('project-product-analytics', 'path-cleaning')}
+                    >
+                        <IconSettings fontSize="16" className="mr-0.5" />
+                        Configure Project Rules
+                    </Link>
                 </div>
             </Tooltip>
         </>
