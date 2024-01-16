@@ -1459,7 +1459,7 @@ class TestFilterToQuery(BaseTest):
             query.pathsFilter,
             PathsFilter(
                 includeEventTypes=[PathType.field_pageview, PathType.hogql],
-                pathsHogqlExpression="event",
+                pathsHogQLExpression="event",
                 startPoint="http://localhost:8000/events",
                 endPoint="http://localhost:8000/home",
                 edgeLimit=50,

@@ -373,7 +373,7 @@ def _insight_filter(filter: Dict):
     elif _insight_type(filter) == "PATHS":
         insight_filter = {
             "pathsFilter": PathsFilter(
-                pathsHogqlExpression=filter.get("paths_hogql_expression"),
+                pathsHogQLExpression=filter.get("paths_hogql_expression"),
                 includeEventTypes=filter.get("include_event_types"),
                 startPoint=filter.get("start_point"),
                 endPoint=filter.get("end_point"),

@@ -2239,7 +2239,7 @@
                 "pathReplacements": {
                     "type": "boolean"
                 },
-                "pathsHogqlExpression": {
+                "pathsHogQLExpression": {
                     "type": "string"
                 },
                 "startPoint": {

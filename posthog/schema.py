@@ -403,7 +403,7 @@ class PathsFilter(BaseModel):
     minEdgeWeight: Optional[float] = None
     pathGroupings: Optional[List[str]] = None
     pathReplacements: Optional[bool] = None
-    pathsHogqlExpression: Optional[str] = None
+    pathsHogQLExpression: Optional[str] = None
     startPoint: Optional[str] = None
     stepLimit: Optional[float] = None
 

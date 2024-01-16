@@ -310,7 +310,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     // paths filter
     if (isPathsFilter(filters) && isPathsQuery(query)) {
         query.pathsFilter = objectCleanWithEmpty({
-            pathsHogql_expression: filters.paths_hogql_expression,
+            pathsHogQLExpression: filters.paths_hogql_expression,
             includeEventTypes: filters.include_event_types,
             startPoint: filters.start_point,
             endPoint: filters.end_point,
