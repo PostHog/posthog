@@ -324,7 +324,7 @@ def _insight_filter(filter: Dict):
                 decimalPlaces=filter.get("decimal_places"),
                 formula=filter.get("formula"),
                 display=clean_display(filter.get("display")),
-                show_values_on_series=filter.get("show_values_on_series"),
+                showValuesOnSeries=filter.get("show_values_on_series"),
                 showPercentStackView=filter.get("show_percent_stack_view"),
                 showLabelsOnSeries=filter.get("show_label_on_series"),
             )
@@ -393,8 +393,8 @@ def _insight_filter(filter: Dict):
     elif _insight_type(filter) == "LIFECYCLE":
         insight_filter = {
             "lifecycleFilter": LifecycleFilter(
-                # toggledLifecycles=filter.get('toggledLifecycles'),
-                show_values_on_series=filter.get("show_values_on_series"),
+                toggledLifecycles=filter.get("toggledLifecycles"),
+                showValuesOnSeries=filter.get("show_values_on_series"),
             )
         }
     elif _insight_type(filter) == "STICKINESS":
@@ -403,7 +403,7 @@ def _insight_filter(filter: Dict):
                 compare=filter.get("compare"),
                 showLegend=filter.get("show_legend"),
                 # hidden_legend_indexes: cleanHiddenLegendIndexes(filter.get('hidden_legend_keys')),
-                show_values_on_series=filter.get("show_values_on_series"),
+                showValuesOnSeries=filter.get("show_values_on_series"),
             )
         }
     else:

@@ -21,6 +21,7 @@ from posthog.schema import (
     GroupPropertyFilter,
     HogQLPropertyFilter,
     Key,
+    LifecycleToggle,
     PathCleaningFilter,
     PathType,
     PersonPropertyFilter,
@@ -35,6 +36,7 @@ from posthog.schema import (
     RetentionFilter,
     PathsFilter,
     StickinessFilter,
+    LifecycleFilter,
 )
 from posthog.test.base import BaseTest
 
@@ -1488,24 +1490,35 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_stickiness_filter(self):
-        filter = {"insight": "STICKINESS", "compare": True, "show_legend": True, "shown_as": "Stickiness"}
+        filter = {
+            "insight": "STICKINESS",
+            "compare": True,
+            "show_legend": True,
+            "show_values_on_series": True,
+            "shown_as": "Stickiness",
+        }
 
         query = filter_to_query(filter)
 
         self.assertEqual(
             query.stickinessFilter,
-            StickinessFilter(compare=True, showLegend=True),
+            StickinessFilter(compare=True, showLegend=True, showValuesOnSeries=True),
         )
 
     def test_lifecycle_filter(self):
         filter = {
             "insight": "LIFECYCLE",
             "shown_as": "Lifecycle",
+            "show_values_on_series": True,
+            "toggledLifecycles": ["new", "dormant"],
         }
 
         query = filter_to_query(filter)
 
         self.assertEqual(
             query.lifecycleFilter,
-            None,
+            LifecycleFilter(
+                showValuesOnSeries=True,
+                toggledLifecycles=[LifecycleToggle.new, LifecycleToggle.dormant],
+            ),
         )
