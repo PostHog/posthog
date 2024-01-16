@@ -58,6 +58,7 @@ async def assert_events_in_redshift(connection, schema, table_name, events, excl
 
         for row in await cursor.fetchall():
             event = dict(zip(columns, row))
+            event["properties"] = json.loads(event["properties"]) if event["properties"] is not None else None
             event["timestamp"] = dt.datetime.fromisoformat(event["timestamp"].isoformat())
             inserted_events.append(event)
 
@@ -75,7 +76,7 @@ async def assert_events_in_redshift(connection, schema, table_name, events, excl
             "elements": "",
             "event": event_name,
             "ip": properties.get("$ip", None) if properties else None,
-            "properties": json.dumps(properties, ensure_ascii=False) if properties else None,
+            "properties": properties if properties else None,
             "set": properties.get("$set", None) if properties else None,
             "set_once": properties.get("$set_once", None) if properties else None,
             # Kept for backwards compatibility, but not exported anymore.
