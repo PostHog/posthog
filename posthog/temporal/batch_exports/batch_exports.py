@@ -287,7 +287,7 @@ def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.
 
 
 def json_dumps_bytes(d) -> bytes:
-    return orjson.dumps(d)
+    return orjson.dumps(d, default=str)
 
 
 class BatchExportTemporaryFile:
@@ -383,10 +383,10 @@ class BatchExportTemporaryFile:
 
     def write_records_to_jsonl(self, records):
         """Write records to a temporary file as JSONL."""
-        jsonl_dump = b"\n".join(map(json_dumps_bytes, records))
-
         if len(records) == 1:
-            jsonl_dump += b"\n"
+            jsonl_dump = orjson.dumps(records[0], option=orjson.OPT_APPEND_NEWLINE, default=str)
+        else:
+            jsonl_dump = b"\n".join(map(json_dumps_bytes, records))
 
         result = self.write(jsonl_dump)
 
