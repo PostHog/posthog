@@ -19,10 +19,7 @@ interface SparklineProps {
     data: number[] | SparkLineTimeSeries[]
 }
 
-export function Sparkline({
-    labels,
-    data,
-}: SparklineProps): JSX.Element {
+export function Sparkline({ labels, data }: SparklineProps): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const tooltipRef = useRef<HTMLDivElement | null>(null)
 
@@ -117,7 +114,7 @@ export function Sparkline({
 
     return (
         <div className="w-full">
-            <canvas ref={canvasRef} className='h-9' />
+            <canvas ref={canvasRef} className="h-9" />
             <Popover
                 visible={!!popoverContent}
                 overlay={popoverContent}
@@ -129,7 +126,6 @@ export function Sparkline({
         </div>
     )
 }
-
 
 function isSparkLineTimeSeries(data: number[] | SparkLineTimeSeries[]): data is SparkLineTimeSeries[] {
     return typeof data[0] !== 'number'
