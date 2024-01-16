@@ -9,6 +9,7 @@ import { JSSnippet } from 'lib/components/JSSnippet'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { useState } from 'react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 
 import { TimezoneConfig } from './TimezoneConfig'
@@ -141,6 +142,21 @@ export function ProjectVariables(): JSX.Element {
                 </p>
                 <CodeSnippet thing="project ID">{String(currentTeam?.id || '')}</CodeSnippet>
             </div>
+            {['https://eu.posthog.com', 'https://us.posthog.com'].includes(
+                preflightLogic.values.preflight?.site_url ?? ''
+            ) ? (
+                <div className="flex-1">
+                    <h3 id="project-id" className="min-w-[25rem]">
+                        Project Region
+                    </h3>
+                    <p>This is the region where your PostHog data is currently hosted in.</p>
+                    <CodeSnippet thing="project ID">
+                        {preflightLogic.values.preflight?.site_url === 'https://eu.posthog.com'
+                            ? 'EU Cloud'
+                            : 'US Cloud'}
+                    </CodeSnippet>
+                </div>
+            ) : null}
         </div>
     )
 }
