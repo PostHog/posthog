@@ -246,8 +246,8 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 else:
                     alias = expression
 
-                field = {"expression": expression, "alias": alias}
-                validated_data["schema"]["fields"].append(field)
+                batch_export_field = {"expression": expression, "alias": alias}
+                validated_data["schema"]["fields"].append(batch_export_field)
 
             batch_export_schema["values"] = context.values
             validated_data["schema"] = batch_export_schema
@@ -276,8 +276,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         parsed = cast(ast.SelectQuery, hogql_query)
 
-        if parsed.select_from is None or parsed.select_from.table.chain != ["events"]:
-            raise serializers.ValidationError("Query must SELECT FROM events only")
+        if parsed.select_from is None:
+            raise serializers.ValidationError("Query must SELECT FROM events")
+
+        if parsed.select_from.table.chain != ["events"]:
+            raise serializers.ValidationError("Query must only SELECT FROM events")
 
         if parsed.select_from.next_join is not None:
             raise serializers.ValidationError("JOINs are not supported")

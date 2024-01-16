@@ -142,6 +142,8 @@ class ClickHouseClient:
             format_parameters = {k: encode_clickhouse_data(v).decode("utf-8") for k, v in query_parameters.items()}
         else:
             format_parameters = {}
+
+        query = query % format_parameters
         query = query.format(**format_parameters)
         return query
 
@@ -360,5 +362,6 @@ async def get_client() -> collections.abc.AsyncIterator[ClickHouseClient]:
                 # TODO: make this a setting.
                 max_execution_time=0,
                 max_block_size=10000,
+                output_format_arrow_string_as_string="true",
             ) as client:
                 yield client

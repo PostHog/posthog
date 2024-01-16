@@ -14,6 +14,7 @@ from asgiref.sync import sync_to_async
 from django.conf import settings
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
+import pyarrow as pa
 
 from posthog.batch_exports.service import (
     create_batch_export_backfill,
@@ -26,10 +27,13 @@ from posthog.temporal.batch_exports.metrics import (
     get_export_finished_metric,
     get_export_started_metric,
 )
+from posthog.temporal.batch_exports.clickhouse import ClickHouseClient
 
 SELECT_QUERY_TEMPLATE = Template(
     """
-    SELECT $fields
+    SELECT
+    $distinct
+    $fields
     FROM events
     WHERE
         COALESCE(inserted_at, _timestamp) >= toDateTime64({data_interval_start}, 6, 'UTC')
@@ -85,6 +89,7 @@ async def get_rows_count(
         fields="count(DISTINCT event, cityHash64(distinct_id), cityHash64(uuid)) as count",
         order_by="",
         format="",
+        distinct="",
         timestamp=timestamp_predicates,
         exclude_events=exclude_events_statement,
         include_events=include_events_statement,
@@ -107,49 +112,61 @@ async def get_rows_count(
     return int(count)
 
 
-FIELDS = """
-DISTINCT ON (event, cityHash64(distinct_id), cityHash64(uuid))
-toString(uuid) as uuid,
-team_id,
-timestamp,
-inserted_at,
-created_at,
-event,
-properties,
--- Point in time identity fields
-toString(distinct_id) as distinct_id,
-toString(person_id) as person_id,
--- Autocapture fields
-elements_chain
-"""
+class Field(typing.TypedDict):
+    """A field to be queried from ClickHouse.
 
-S3_FIELDS = """
-DISTINCT ON (event, cityHash64(distinct_id), cityHash64(uuid))
-toString(uuid) as uuid,
-team_id,
-timestamp,
-inserted_at,
-created_at,
-event,
-properties,
--- Point in time identity fields
-toString(distinct_id) as distinct_id,
-toString(person_id) as person_id,
-person_properties,
--- Autocapture fields
-elements_chain
-"""
+    Attributes:
+        expression: A ClickHouse SQL expression that declares the field required.
+        alias: An alias to apply to the expression (after an 'AS' keyword).
+    """
+
+    expression: str
+    alias: str
 
 
-def get_results_iterator(
-    client,
+def default_fields() -> list[Field]:
+    """Return list of default batch export Fields."""
+    return [
+        Field(expression="toString(uuid)", alias="uuid"),
+        Field(expression="team_id", alias="team_id"),
+        Field(expression="timestamp", alias="timestamp"),
+        Field(expression="inserted_at", alias="inserted_at"),
+        Field(expression="created_at", alias="created_at"),
+        Field(expression="event", alias="event"),
+        Field(expression="nullIf(properties, '')", alias="properties"),
+        Field(expression="toString(distinct_id)", alias="distinct_id"),
+        Field(expression="toString(person_id)", alias="person_id"),
+        Field(expression="nullIf(JSONExtractString(properties, '$set'), '')", alias="set"),
+        Field(expression="nullIf(JSONExtractString(properties, '$set_once'), '')", alias="set_once"),
+    ]
+
+
+def iter_records(
+    client: ClickHouseClient,
     team_id: int,
     interval_start: str,
     interval_end: str,
     exclude_events: collections.abc.Iterable[str] | None = None,
     include_events: collections.abc.Iterable[str] | None = None,
-    include_person_properties: bool = False,
-) -> typing.Generator[dict[str, typing.Any], None, None]:
+    fields: list[Field] | None = None,
+    extra_query_parameters: dict[str, typing.Any] | None = None,
+) -> typing.Generator[tuple[dict[str, typing.Any], pa.Schema], None, None]:
+    """Iterate over Arrow batch records for a batch export.
+
+    Args:
+        client: The ClickHouse client used to query for the batch records.
+        team_id: The ID of the team whose data we are querying.
+        interval_start: The beginning of the batch export interval.
+        interval_end: The end of the batch export interval.
+        exclude_events: Optionally, any event names that should be excluded.
+        include_events: Optionally, the event names that should only be included in the export.
+        fields: The fields that will be queried from ClickHouse. Will call default_fields if not set.
+        extra_query_parameters: A dictionary of additional query parameters to pass to the query execution.
+            Useful if fields contains any fields with placeholders.
+
+    Returns:
+        A generator that yields tuples of batch records as Python dictionaries and their schema.
+    """
     data_interval_start_ch = dt.datetime.fromisoformat(interval_start).strftime("%Y-%m-%d %H:%M:%S")
     data_interval_end_ch = dt.datetime.fromisoformat(interval_end).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -171,29 +188,44 @@ def get_results_iterator(
     if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
         timestamp_predicates = ""
 
+    if fields is None:
+        query_fields = ",".join((f"{field['expression']} AS {field['alias']}" for field in default_fields()))
+    else:
+        query_fields = ",".join((f"{field['expression']} AS {field['alias']}" for field in fields))
+
     query = SELECT_QUERY_TEMPLATE.substitute(
-        fields=S3_FIELDS if include_person_properties else FIELDS,
+        fields=query_fields,
         order_by="ORDER BY inserted_at",
         format="FORMAT ArrowStream",
+        distinct="DISTINCT ON (event, cityHash64(distinct_id), cityHash64(uuid))",
         timestamp=timestamp_predicates,
         exclude_events=exclude_events_statement,
         include_events=include_events_statement,
     )
+    base_query_parameters = {
+        "team_id": team_id,
+        "data_interval_start": data_interval_start_ch,
+        "data_interval_end": data_interval_end_ch,
+        "exclude_events": events_to_exclude_tuple,
+        "include_events": events_to_include_tuple,
+    }
+
+    if extra_query_parameters is not None:
+        query_parameters = base_query_parameters | extra_query_parameters
+    else:
+        query_parameters = base_query_parameters
 
     for batch in client.stream_query_as_arrow(
         query,
-        query_parameters={
-            "team_id": team_id,
-            "data_interval_start": data_interval_start_ch,
-            "data_interval_end": data_interval_end_ch,
-            "exclude_events": events_to_exclude_tuple,
-            "include_events": events_to_include_tuple,
-        },
+        query_parameters=query_parameters,
     ):
-        yield from iter_batch_records(batch)
+        schema = batch.schema
+
+        for record in batch.to_pylist():
+            yield (record, schema)
 
 
-def iter_batch_records(batch) -> typing.Generator[dict[str, typing.Any], None, None]:
+def map_batch_record_to_default_schema(record) -> dict[str, typing.Any]:
     """Iterate over records of a batch.
 
     During iteration, we yield dictionaries with all fields used by PostHog BatchExports.
@@ -201,37 +233,36 @@ def iter_batch_records(batch) -> typing.Generator[dict[str, typing.Any], None, N
     Args:
         batch: A record batch of rows.
     """
-    for record in batch.to_pylist():
-        properties = record.get("properties")
-        person_properties = record.get("person_properties")
-        properties = json.loads(properties) if properties else None
+    properties = record.get("properties")
+    person_properties = record.get("person_properties")
+    properties = json.loads(properties) if properties else None
 
-        # This is not backwards compatible, as elements should contain a parsed array.
-        # However, parsing elements_chain is a mess, so we json.dump to at least be compatible with
-        # schemas that use JSON-like types.
-        elements = json.dumps(record.get("elements_chain").decode())
+    # This is not backwards compatible, as elements should contain a parsed array.
+    # However, parsing elements_chain is a mess, so we json.dump to at least be compatible with
+    # schemas that use JSON-like types.
+    elements = json.dumps(record.get("elements_chain").decode())
 
-        record = {
-            "created_at": record.get("created_at").isoformat(),
-            "distinct_id": record.get("distinct_id").decode(),
-            "elements": elements,
-            "elements_chain": record.get("elements_chain").decode(),
-            "event": record.get("event").decode(),
-            "inserted_at": record.get("inserted_at").isoformat() if record.get("inserted_at") else None,
-            "ip": properties.get("$ip", None) if properties else None,
-            "person_id": record.get("person_id").decode(),
-            "person_properties": json.loads(person_properties) if person_properties else None,
-            "set": properties.get("$set", None) if properties else None,
-            "set_once": properties.get("$set_once", None) if properties else None,
-            "properties": properties,
-            # Kept for backwards compatibility, but not exported anymore.
-            "site_url": "",
-            "team_id": record.get("team_id"),
-            "timestamp": record.get("timestamp").isoformat(),
-            "uuid": record.get("uuid").decode(),
-        }
+    record = {
+        "created_at": record.get("created_at").isoformat(),
+        "distinct_id": record.get("distinct_id").decode(),
+        "elements": elements,
+        "elements_chain": record.get("elements_chain").decode(),
+        "event": record.get("event").decode(),
+        "inserted_at": record.get("inserted_at").isoformat() if record.get("inserted_at") else None,
+        "ip": properties.get("$ip", None) if properties else None,
+        "person_id": record.get("person_id").decode(),
+        "person_properties": json.loads(person_properties) if person_properties else None,
+        "set": properties.get("$set", None) if properties else None,
+        "set_once": properties.get("$set_once", None) if properties else None,
+        "properties": properties,
+        # Kept for backwards compatibility, but not exported anymore.
+        "site_url": "",
+        "team_id": record.get("team_id"),
+        "timestamp": record.get("timestamp").isoformat(),
+        "uuid": record.get("uuid").decode(),
+    }
 
-        yield record
+    return record
 
 
 def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.datetime, dt.datetime]:
@@ -411,7 +442,8 @@ class BatchExportTemporaryFile:
         extrasaction: typing.Literal["raise", "ignore"] = "ignore",
         delimiter: str = ",",
         quotechar: str = '"',
-        escapechar: str = "\\",
+        escapechar: str | None = "\\",
+        lineterminator: str = "\n",
         quoting=csv.QUOTE_NONE,
     ):
         """Write records to a temporary file as CSV."""
@@ -429,6 +461,7 @@ class BatchExportTemporaryFile:
             quotechar=quotechar,
             escapechar=escapechar,
             quoting=quoting,
+            lineterminator=lineterminator,
         )
         writer.writerows(records)
 
@@ -441,7 +474,8 @@ class BatchExportTemporaryFile:
         fieldnames: None | list[str] = None,
         extrasaction: typing.Literal["raise", "ignore"] = "ignore",
         quotechar: str = '"',
-        escapechar: str = "\\",
+        escapechar: str | None = "\\",
+        lineterminator: str = "\n",
         quoting=csv.QUOTE_NONE,
     ):
         """Write records to a temporary file as TSV."""
@@ -453,6 +487,7 @@ class BatchExportTemporaryFile:
             quotechar=quotechar,
             escapechar=escapechar,
             quoting=quoting,
+            lineterminator=lineterminator,
         )
 
     def rewind(self):
