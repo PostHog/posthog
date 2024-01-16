@@ -36,6 +36,7 @@ TOKENS_IN_PROMPT_HISTOGRAM = Histogram(
         40000,
         50000,
         100000,
+        128000,
         float("inf"),
     ],
 )
@@ -198,6 +199,17 @@ def collapse_sequence_of_events(session_events: Tuple[List | None, List | None])
             event_index = i
             break
 
+    # find the window id column index
+    window_id_index = None
+    for i, column in enumerate(columns):
+        if column == "$window_id":
+            window_id_index = i
+            break
+
+    event_repetition_count_index: int | None = None
+    # only append the new column, if we need to add it below
+    # columns.append("event_repetition_count")
+
     # now enumerate the results finding sequences of events with the same event and collapsing them to a single item
     collapsed_results = []
     for i, result in enumerate(results):
@@ -214,22 +226,35 @@ def collapse_sequence_of_events(session_events: Tuple[List | None, List | None])
             collapsed_results.append(result)
             continue
 
-        previous_result = results[i - 1]
+        # we need to collapse into the last item added into collapsed results
+        # as we're going to amend it in place
+        previous_result = collapsed_results[len(collapsed_results) - 1]
         previous_event: str | None = previous_result[event_index]
         if not previous_event:
             collapsed_results.append(result)
             continue
 
-        if previous_event == event:
+        event_matches = previous_event == event
+        window_matches = previous_result[window_id_index] == result[window_id_index] if window_id_index else True
+
+        if event_matches and window_matches:
             # collapse the event into the previous result
-            collapsed_results[-1] = tuple(
-                [
-                    previous_result[j] if j != event_index else f"{previous_event} x 2"
-                    for j in range(len(previous_result))
-                ]
-            )
+            if event_repetition_count_index is None:
+                # we need to add the column
+                event_repetition_count_index = len(columns)
+                columns.append("event_repetition_count")
+            previous_result_list = list(previous_result)
+            try:
+                existing_repetition_count = previous_result_list[event_repetition_count_index]
+                previous_result_list[event_repetition_count_index] = (existing_repetition_count) + 1
+            except IndexError:
+                previous_result_list.append(2)
+
+            collapsed_results[len(collapsed_results) - 1] = tuple(previous_result_list)
         else:
-            collapsed_results.append(result)
+            x = list(result)
+            x.append(None)  # there is no event repetition count
+            collapsed_results.append(tuple(x))
 
     return columns, collapsed_results
 
