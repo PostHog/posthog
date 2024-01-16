@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, Optional
 
 from rest_framework import status
 
@@ -510,10 +510,10 @@ class TestDashboardTemplates(APIBaseTest):
         assert flag_response.status_code == status.HTTP_200_OK
         assert [(r["id"], r["scope"]) for r in flag_response.json()["results"]] == [(flag_template_id, "feature_flag")]
 
-    def create_template(self, overrides: Dict[str, str]) -> str:
+    def create_template(self, overrides: Dict[str, str], team_id: Optional[int] = None) -> str:
         template = {**variable_template, **overrides}
         response = self.client.post(
-            f"/api/projects/{self.team.pk}/dashboard_templates",
+            f"/api/projects/{team_id or self.team.pk}/dashboard_templates",
             template,
         )
         assert response.status_code == status.HTTP_201_CREATED
@@ -521,7 +521,7 @@ class TestDashboardTemplates(APIBaseTest):
 
         return id
 
-    def test_cannot_escape_team__when_filtering_template_list(self):
+    def test_cannot_escape_team_when_filtering_template_list(self):
         # create another team, and log in as a user from that team
         another_team = Team.objects.create(name="Another Team", organization=self.organization)
         another_team_user = User.objects.create_and_join(
@@ -534,12 +534,10 @@ class TestDashboardTemplates(APIBaseTest):
         self.client.force_login(another_team_user)
 
         # create a dashboard template in that other team
-        response = self.client.post(
-            f"/api/projects/{another_team.pk}/dashboard_templates",
-            variable_template,
+        id = self.create_template(
+            {"scope": DashboardTemplate.Scope.ONLY_TEAM, "template_name": "other teams template"},
+            team_id=another_team.pk,
         )
-        assert response.status_code == status.HTTP_201_CREATED
-        id = response.json()["id"]
 
         # the user from another_team can access the new dashboard via the API on their own team
         list_response = self.client.get(f"/api/projects/{another_team.pk}/dashboard_templates/")
@@ -559,3 +557,10 @@ class TestDashboardTemplates(APIBaseTest):
         )
         assert attempted_escape_response.status_code == status.HTTP_200_OK
         assert id not in [r["id"] for r in attempted_escape_response.json()["results"]]
+
+        # searching by text doesn't get around the team filtering
+        another_attempted_escape_response = self.client.get(
+            f"/api/projects/{self.team.pk}/dashboard_templates/?search=other"
+        )
+        assert another_attempted_escape_response.status_code == status.HTTP_200_OK
+        assert id not in [r["id"] for r in another_attempted_escape_response.json()["results"]]
