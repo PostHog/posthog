@@ -31,7 +31,7 @@ export const membersLogic = kea<membersLogicType>([
         members: {
             __default: [] as OrganizationMemberType[],
             loadMembers: async () => {
-                return (await api.get('api/organizations/@current/members/?limit=200')).results
+                return (await api.get('api/organizations/@current/members/?limit=250')).results
             },
             removeMember: async (member: OrganizationMemberType) => {
                 await api.delete(`api/organizations/@current/members/${member.user.uuid}/`)

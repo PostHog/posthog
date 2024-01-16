@@ -12,7 +12,7 @@ export interface TaxonomicBreakdownFilterProps {
     breakdownFilter?: BreakdownFilter | null
     display?: ChartDisplayType | null
     isTrends: boolean
-    updateBreakdown: (breakdown: BreakdownFilter) => void
+    updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => void
     updateDisplay: (display: ChartDisplayType | undefined) => void
 }
 
@@ -21,7 +21,7 @@ export function TaxonomicBreakdownFilter({
     breakdownFilter,
     display,
     isTrends,
-    updateBreakdown,
+    updateBreakdownFilter,
     updateDisplay,
 }: TaxonomicBreakdownFilterProps): JSX.Element {
     const logicProps: TaxonomicBreakdownFilterLogicProps = {
@@ -29,7 +29,7 @@ export function TaxonomicBreakdownFilter({
         isTrends,
         display,
         breakdownFilter: breakdownFilter || {},
-        updateBreakdown,
+        updateBreakdownFilter,
         updateDisplay,
     }
     const { breakdownArray, hasNonCohortBreakdown } = useValues(taxonomicBreakdownFilterLogic(logicProps))

@@ -71,7 +71,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
             label: 'JSON',
             content: (
                 <div className="px-4 py-4">
-                    <JSONViewer src={event} name={'event'} collapsed={1} collapseStringsAfterLength={80} sortKeys />
+                    <JSONViewer src={event} name="event" collapsed={1} collapseStringsAfterLength={80} sortKeys />
                 </div>
             ),
         },

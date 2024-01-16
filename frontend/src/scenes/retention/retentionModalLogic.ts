@@ -1,4 +1,6 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { retentionToActorsQuery } from 'scenes/retention/queries'
@@ -19,7 +21,14 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
     key(keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY)),
     path((key) => ['scenes', 'retention', 'retentionModalLogic', key]),
     connect((props: InsightLogicProps) => ({
-        values: [insightVizDataLogic(props), ['querySource'], groupsModel, ['aggregationLabel']],
+        values: [
+            insightVizDataLogic(props),
+            ['querySource'],
+            groupsModel,
+            ['aggregationLabel'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
         actions: [retentionPeopleLogic(props), ['loadPeople']],
     })),
     actions(() => ({
@@ -56,9 +65,9 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
             },
         ],
         exploreUrl: [
-            (s) => [s.actorsQuery],
-            (actorsQuery): string | null => {
-                if (!actorsQuery) {
+            (s) => [s.actorsQuery, s.featureFlags],
+            (actorsQuery, featureFlags): string | null => {
+                if (!actorsQuery || !featureFlags?.[FEATURE_FLAGS.HOGQL_INSIGHTS_RETENTION]) {
                     return null
                 }
                 const query: DataTableNode = {

@@ -58,7 +58,7 @@ export function SupportForm(): JSX.Element | null {
     return (
         <Form
             logic={supportLogic}
-            formKey={'sendSupportRequest'}
+            formKey="sendSupportRequest"
             id="support-modal-form"
             enableFormOnSubmit
             className="space-y-4"

@@ -44,7 +44,7 @@ const Filters = (): JSX.Element => {
                         setWebAnalyticsFilters(filters.filter(isEventPropertyOrPersonPropertyFilter))
                     }
                     propertyFilters={webAnalyticsFilters}
-                    pageKey={'web-analytics'}
+                    pageKey="web-analytics"
                     eventNames={['$pageview', '$pageleave', '$autocapture']}
                     propertyAllowList={{
                         [TaxonomicFilterGroupType.EventProperties]: [
@@ -77,7 +77,7 @@ const Filters = (): JSX.Element => {
                     }}
                 />
             </div>
-            <div className={'bg-border h-px w-full mt-2'} />
+            <div className="bg-border h-px w-full mt-2" />
         </div>
     )
 }
@@ -95,8 +95,9 @@ const Tiles = (): JSX.Element => {
                             key={i}
                             className={clsx(
                                 'col-span-1 row-span-1 flex flex-col',
-                                `md:col-span-${layout.colSpan ?? 6} md:row-span-${layout.rowSpan ?? 1}`,
-                                `xxl:order-${layout.orderLarge ?? 12}`,
+                                layout.colSpanClassName ?? 'md:col-span-6',
+                                layout.rowSpanClassName ?? 'md:row-span-1',
+                                layout.orderWhenLargeClassName ?? 'xxl:order-12',
                                 layout.className
                             )}
                         >
@@ -121,8 +122,9 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
         <WebTabs
             className={clsx(
                 'col-span-1 row-span-1',
-                `md:col-span-${layout.colSpan ?? 1} md:row-span-${layout.rowSpan ?? 1}`,
-                `xxl:order-${layout.orderLarge ?? 12}`,
+                layout.colSpanClassName || 'md:col-span-1',
+                layout.rowSpanClassName || 'md:row-span-1',
+                layout.orderWhenLargeClassName || 'xxl:order-12',
                 layout.className
             )}
             activeTabId={tile.activeTabId}

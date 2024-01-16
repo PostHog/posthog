@@ -47,19 +47,11 @@ export function DataWarehouseSettingsScene(): JSX.Element {
     return (
         <div>
             <PageHeader
-                title={
-                    <div className="flex items-center gap-2">
-                        Data Warehouse
-                        <LemonTag type="warning" className="uppercase">
-                            Beta
-                        </LemonTag>
-                    </div>
-                }
                 buttons={
                     <LemonButton
                         type="primary"
                         data-attr="new-data-warehouse-easy-link"
-                        key={'new-data-warehouse-easy-link'}
+                        key="new-data-warehouse-easy-link"
                         onClick={() => toggleSourceModal()}
                     >
                         Link Source

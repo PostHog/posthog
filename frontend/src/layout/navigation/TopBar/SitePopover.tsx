@@ -273,7 +273,7 @@ export function SitePopoverOverlay(): JSX.Element {
                 </SitePopoverSection>
             )}
             {(!(preflight?.cloud || preflight?.demo) || user?.is_staff) && (
-                <SitePopoverSection title="PostHog instance" className="font-title-3000">
+                <SitePopoverSection title="PostHog instance" className="font-title">
                     <SystemStatus />
                     <AsyncMigrations />
                     <InstanceSettings />
@@ -283,7 +283,7 @@ export function SitePopoverOverlay(): JSX.Element {
                 <ThemeSwitcher fullWidth type="tertiary" />
                 <LemonButton
                     onClick={closeSitePopover}
-                    to={'https://posthog.com/changelog'}
+                    to="https://posthog.com/changelog"
                     icon={<IconLive />}
                     fullWidth
                     data-attr="whats-new-button"

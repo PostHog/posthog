@@ -10,8 +10,9 @@ import {
     DashboardType,
     FilterType,
     InsightShortId,
-    PipelineAppTabs,
-    PipelineTabs,
+    PipelineAppKind,
+    PipelineAppTab,
+    PipelineTab,
     ReplayTabs,
 } from '~/types'
 
@@ -31,6 +32,7 @@ import { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
  */
 export const urls = {
     default: (): string => '/',
+    project: (id: string | number, path = ''): string => `/project/${id}` + path,
     dashboards: (): string => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
@@ -100,10 +102,15 @@ export const urls = {
     personByUUID: (uuid: string, encode: boolean = true): string =>
         encode ? `/persons/${encodeURIComponent(uuid)}` : `/persons/${uuid}`,
     persons: (): string => '/persons',
-    pipeline: (tab?: PipelineTabs): string => `/pipeline/${tab ? tab : PipelineTabs.Destinations}`,
-    pipelineApp: (id: string | number, tab?: PipelineAppTabs): string =>
-        `/pipeline/${id}/${tab ? tab : PipelineAppTabs.Configuration}`,
-    pipelineNew: (tab?: PipelineTabs): string => `/pipeline/${tab ? tab : PipelineTabs.Destinations}/new`,
+    // TODO: Default to the landing page, once it's ready
+    pipeline: (tab?: PipelineTab | ':tab'): string => `/pipeline/${tab ? tab : PipelineTab.Destinations}`,
+    /** @param id 'new' for new, uuid for batch exports and numbers for plugins */
+    pipelineApp: (
+        kind: PipelineAppKind | ':kindTab',
+        id: string | number,
+        appTab?: PipelineAppTab | ':appTab'
+    ): string =>
+        `/pipeline/${!kind.startsWith(':') ? `${kind}s` : kind}/${id}/${appTab ?? PipelineAppTab.Configuration}`,
     groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
     // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
@@ -123,18 +130,15 @@ export const urls = {
     surveyTemplates: (): string => '/survey_templates',
     dataWarehouse: (): string => '/data-warehouse',
     dataWarehouseTable: (): string => `/data-warehouse/new`,
-    dataWarehousePosthog: (): string => '/data-warehouse/posthog',
-    dataWarehouseExternal: (): string => '/data-warehouse/external',
-    dataWarehouseSavedQueries: (): string => '/data-warehouse/views',
     dataWarehouseSettings: (): string => '/data-warehouse/settings',
     dataWarehouseRedirect: (kind: string): string => `/data-warehouse/${kind}/redirect`,
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
-    projectApps: (tab?: PluginTab): string => `/project/apps${tab ? `?tab=${tab}` : ''}`,
-    projectApp: (id: string | number): string => `/project/apps/${id}`,
-    projectAppSearch: (name: string): string => `/project/apps?name=${name}`,
-    projectAppLogs: (id: string | number): string => `/project/apps/${id}/logs`,
-    projectAppSource: (id: string | number): string => `/project/apps/${id}/source`,
+    projectApps: (tab?: PluginTab): string => `/apps${tab ? `?tab=${tab}` : ''}`,
+    projectApp: (id: string | number): string => `/apps/${id}`,
+    projectAppSearch: (name: string): string => `/apps?name=${name}`,
+    projectAppLogs: (id: string | number): string => `/apps/${id}/logs`,
+    projectAppSource: (id: string | number): string => `/apps/${id}/source`,
     frontendApp: (id: string | number): string => `/app/${id}`,
     appMetrics: (pluginConfigId: string | number, params: AppMetricsUrlParams = {}): string =>
         combineUrl(`/app/${pluginConfigId}/metrics`, params).url,
@@ -143,12 +147,12 @@ export const urls = {
         combineUrl(`/app/${pluginConfigId}/history`, searchParams).url,
     appLogs: (pluginConfigId: string | number, searchParams?: Record<string, any>): string =>
         combineUrl(`/app/${pluginConfigId}/logs`, searchParams).url,
-    projectCreateFirst: (): string => '/project/create',
-    projectHomepage: (): string => '/home',
+    organizationCreateFirst: (): string => '/create-organization',
+    projectCreateFirst: (): string => '/organization/create-project',
+    projectHomepage: (): string => '/',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,
     organizationCreationConfirm: (): string => '/organization/confirm-creation',
-    organizationCreateFirst: (): string => '/organization/create',
     toolbarLaunch: (): string => '/toolbar',
     site: (url: string): string => `/site/${url === ':url' ? url : encodeURIComponent(url)}`,
     // Onboarding / setup routes

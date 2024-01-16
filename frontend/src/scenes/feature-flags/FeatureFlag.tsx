@@ -120,7 +120,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const isNewFeatureFlag = id === 'new' || id === undefined
 
     if (featureFlagMissing) {
-        return <NotFound object={'feature flag'} />
+        return <NotFound object="feature flag" />
     }
     if (featureFlagLoading) {
         return (
@@ -135,8 +135,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
             key: FeatureFlagsTab.OVERVIEW,
             content: (
                 <>
-                    <div className="flex space-x-4">
-                        <div className="flex-7">
+                    <div className="flex gap-4 flex-wrap">
+                        <div className="flex-1">
                             <FeatureFlagRollout readOnly />
                             {featureFlag.filters.super_groups && <FeatureFlagReleaseConditions readOnly isSuper />}
                             <FeatureFlagReleaseConditions readOnly />
@@ -144,7 +144,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 <FeatureFlagAutoRollback readOnly />
                             )}
                         </div>
-                        <div className="flex-6">
+                        <div className="max-w-120 w-full">
                             <RecentFeatureFlagInsights />
                             <div className="my-4" />
                         </div>
@@ -243,7 +243,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         className="space-y-4"
                     >
                         <PageHeader
-                            title={isNewFeatureFlag ? 'New feature flag' : featureFlag.key || 'Untitled'}
                             buttons={
                                 <div className="flex items-center gap-2">
                                     <LemonButton
@@ -484,26 +483,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     notebookProps={{
                                         href: urls.featureFlag(id),
                                     }}
-                                    title={
-                                        <div className="flex items-center gap-2 mb-2">
-                                            {featureFlag.key || 'Untitled'}
-                                            <CopyToClipboardInline
-                                                explicitValue={featureFlag.key}
-                                                iconStyle={{ color: 'var(--muted-alt)' }}
-                                            />
-                                            <div className="flex">
-                                                {featureFlag.active ? (
-                                                    <LemonTag type="success" className="uppercase">
-                                                        Enabled
-                                                    </LemonTag>
-                                                ) : (
-                                                    <LemonTag type="default" className="uppercase">
-                                                        Disabled
-                                                    </LemonTag>
-                                                )}
-                                            </div>
-                                        </div>
-                                    }
                                     caption={
                                         <>
                                             <span>{featureFlag.name || <i>Description (optional)</i>}</span>
@@ -677,7 +656,10 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
             ) : (
                 <div>
                     <b>Dashboard</b>
-                    <div className="text-muted mb-2">{`There is currently no connected dashboard to this feature flag. If there was previously a connected dashboard, it may have been deleted.`}</div>
+                    <div className="text-muted mb-2">
+                        There is currently no connected dashboard to this feature flag. If there was previously a
+                        connected dashboard, it may have been deleted.
+                    </div>
                     {featureFlagLoading ? (
                         <EmptyDashboardComponent loading={true} canEdit={false} />
                     ) : (

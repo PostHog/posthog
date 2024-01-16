@@ -5,7 +5,7 @@ import { canConfigurePlugins } from 'scenes/plugins/access'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { PluginConfigTypeNew, PluginType, ProductKey } from '~/types'
+import { PluginConfigTypeNew, PluginConfigWithPluginInfoNew, PluginType, ProductKey } from '~/types'
 
 import type { pipelineTransformationsLogicType } from './transformationsLogicType'
 import { capturePluginEvent } from './utils'
@@ -53,7 +53,7 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
             {
                 loadPluginConfigs: async () => {
                     const res: PluginConfigTypeNew[] = await api.loadPaginatedResults(
-                        `api/projects/${values.currentTeamId}/pipeline_transformations_configs`
+                        `api/projects/${values.currentTeamId}/pipeline_transformation_configs`
                     )
 
                     return Object.fromEntries(res.map((pluginConfig) => [pluginConfig.id, pluginConfig]))
@@ -138,6 +138,17 @@ export const pipelineTransformationsLogic = kea<pipelineTransformationsLogicType
         disabledPluginConfigs: [
             (s) => [s.pluginConfigs],
             (pluginConfigs) => Object.values(pluginConfigs).filter((pc) => !pc.enabled),
+        ],
+        displayablePluginConfigs: [
+            (s) => [s.sortedEnabledPluginConfigs, s.disabledPluginConfigs, s.plugins],
+            (sortedEnabledPluginConfigs, disabledPluginConfigs, plugins) => {
+                const combined = sortedEnabledPluginConfigs.concat(disabledPluginConfigs)
+                const withPluginInfo = combined.map<PluginConfigWithPluginInfoNew>((pluginConfig) => ({
+                    ...pluginConfig,
+                    plugin_info: plugins[pluginConfig.plugin] || null,
+                }))
+                return withPluginInfo
+            },
         ],
         // This is currently an organization level setting but might in the future be user level
         // it's better to add the permission checks everywhere now

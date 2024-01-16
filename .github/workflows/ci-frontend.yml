@@ -46,7 +46,6 @@ jobs:
                         - tsconfig.json
                         - tsconfig.*.json
                         - webpack.config.js
-                        - postcss.config.js
                         - stylelint*
 
     frontend-code-quality:
