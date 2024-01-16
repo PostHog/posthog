@@ -2,10 +2,10 @@ import collections.abc
 import contextlib
 import datetime as dt
 import itertools
-import json
 import typing
 from dataclasses import dataclass
 
+import orjson
 import psycopg
 from psycopg import sql
 from temporalio import activity, workflow
@@ -17,19 +17,20 @@ from posthog.temporal.batch_exports.batch_exports import (
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
+    default_fields,
     execute_batch_export_insert_activity,
     get_data_interval,
-    get_results_iterator,
     get_rows_count,
+    iter_records,
 )
 from posthog.temporal.batch_exports.clickhouse import get_client
-from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.batch_exports.metrics import get_rows_exported_metric
 from posthog.temporal.batch_exports.postgres_batch_export import (
     PostgresInsertInputs,
     create_table_in_postgres,
     postgres_connection,
 )
+from posthog.temporal.common.logger import bind_temporal_worker_logger
 
 
 def remove_escaped_whitespace_recursive(value):
@@ -232,13 +233,20 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
 
         logger.info("BatchExporting %s rows", count)
 
-        results_iterator = get_results_iterator(
+        fields = default_fields()
+        fields.append({"expression": "nullIf(JSONExtractString(properties, '$ip'), '')", "alias": "ip"})
+        # Fields kept for backwards compatibility with legacy apps schema.
+        fields.append({"expression": "elements_chain", "alias": "elements"})
+        fields.append({"expression": "''", "alias": "site_url"})
+
+        records_iterator = iter_records(
             client=client,
             team_id=inputs.team_id,
             interval_start=inputs.data_interval_start,
             interval_end=inputs.data_interval_end,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
+            fields=fields,
         )
         properties_type = "VARCHAR(65535)" if inputs.properties_data_type == "varchar" else "SUPER"
 
@@ -280,7 +288,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
         def map_to_record(row: dict) -> dict:
             """Map row to a record to insert to Redshift."""
             record = {
-                key: json.dumps(remove_escaped_whitespace_recursive(row[key]), ensure_ascii=False)
+                key: orjson.dumps(remove_escaped_whitespace_recursive(orjson.loads(row[key]))).decode("utf-8")
                 if key in json_columns and row[key] is not None
                 else row[key]
                 for key in schema_columns
@@ -290,7 +298,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs):
 
         async with postgres_connection(inputs) as connection:
             await insert_records_to_redshift(
-                (map_to_record(result) for result in results_iterator), connection, inputs.schema, inputs.table_name
+                (map_to_record(result) for result, _ in records_iterator), connection, inputs.schema, inputs.table_name
             )
 
 
@@ -307,7 +315,7 @@ class RedshiftBatchExportWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> RedshiftBatchExportInputs:
         """Parse inputs from the management command CLI."""
-        loaded = json.loads(inputs[0])
+        loaded = orjson.loads(inputs[0])
         return RedshiftBatchExportInputs(**loaded)
 
     @workflow.run
