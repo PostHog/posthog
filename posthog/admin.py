@@ -423,6 +423,7 @@ class PluginConfigAdmin(admin.ModelAdmin):
     list_display_links = ("id", "plugin_name")
     list_filter = (
         ("enabled", admin.BooleanFieldListFilter),
+        ("deleted", admin.BooleanFieldListFilter),
         ("updated_at", admin.DateFieldListFilter),
         ("plugin", admin.RelatedOnlyFieldListFilter),
     )
