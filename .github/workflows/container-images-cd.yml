@@ -98,10 +98,10 @@ jobs:
             - name: Check for changes in plugins directory
               id: check_changes_plugins
               run: |
-                  echo "changed=$(git diff --name-only HEAD^ HEAD | grep '^plugin-server/' || true)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -q '^plugin-server/' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger Ingestion Cloud deployment
-              if: steps.check_changes_plugins.outputs.changed != ''
+              if: steps.check_changes_plugins.outputs.changed == 'true'
               uses: mvasigh/dispatch-action@main
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -116,10 +116,10 @@ jobs:
             - name: Check for changes that affect batch exports temporal worker
               id: check_changes_batch_exports_temporal_worker
               run: |
-                  echo "changed=$(git diff --name-only HEAD^ HEAD | grep -E '^posthog/temporal/common|^posthog/temporal/batch_exports|^posthog/batch_exports/|^posthog/management/commands/start_temporal_worker.py$' || true)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^posthog/temporal/batch_exports|^posthog/batch_exports/|^posthog/management/commands/start_temporal_worker.py$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger Batch Exports Temporal Worker Cloud deployment
-              if: steps.check_changes_batch_exports_temporal_worker.outputs.changed != ''
+              if: steps.check_changes_batch_exports_temporal_worker.outputs.changed == 'true'
               uses: mvasigh/dispatch-action@main
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -135,10 +135,10 @@ jobs:
             - name: Check for changes that affect data warehouse temporal worker
               id: check_changes_data_warehouse_temporal_worker
               run: |
-                  echo "changed=$(git diff --name-only HEAD^ HEAD | grep -E '^posthog/temporal/common|^posthog/temporal/data_imports|^posthog/warehouse/|^posthog/management/commands/start_temporal_worker.py$' || true)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^posthog/temporal/data_imports|^posthog/warehouse/|^posthog/management/commands/start_temporal_worker.py$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger Data Warehouse Temporal Worker Cloud deployment
-              if: steps.check_changes_data_warehouse_temporal_worker.outputs.changed != ''
+              if: steps.check_changes_data_warehouse_temporal_worker.outputs.changed == 'true'
               uses: mvasigh/dispatch-action@main
               with:
                   token: ${{ steps.deployer.outputs.token }}
