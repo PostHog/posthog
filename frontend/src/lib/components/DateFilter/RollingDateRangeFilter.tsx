@@ -15,6 +15,7 @@ const dateOptions: LemonSelectOptions<DateOption> = [
 ]
 
 type RollingDateRangeFilterProps = {
+    pageKey?: string
     selected?: boolean
     dateFrom?: string | null | dayjs.Dayjs
     max?: number | null
@@ -40,8 +41,9 @@ export function RollingDateRangeFilter({
     max,
     dateRangeFilterLabel = 'In the last',
     forceUpdateDefaults,
+    pageKey,
 }: RollingDateRangeFilterProps): JSX.Element {
-    const logicProps = { onChange, dateFrom, selected, max, forceUpdateDefaults }
+    const logicProps = { onChange, dateFrom, selected, max, forceUpdateDefaults, pageKey }
     const { increaseCounter, decreaseCounter, setCounter, setDateOption, toggleDateOptionsSelector, select } =
         useActions(rollingDateRangeFilterLogic(logicProps))
     const { counter, dateOption, formattedDate, startOfDateRange } = useValues(rollingDateRangeFilterLogic(logicProps))

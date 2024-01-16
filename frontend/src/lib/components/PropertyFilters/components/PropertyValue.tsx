@@ -2,7 +2,7 @@ import './PropertyValue.scss'
 
 import { AutoComplete } from 'antd'
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { RollingDateRangeFilter } from 'lib/components/DateFilter/RollingDateRangeFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
@@ -13,6 +13,8 @@ import { useEffect, useRef, useState } from 'react'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
+
+import { propertyFilterLogic } from '../propertyFilterLogic'
 
 export interface PropertyValueProps {
     propertyKey: string
@@ -56,6 +58,9 @@ export function PropertyValue({
 
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
+
+    // Get key from bound logic props if present
+    const pageKey = useMountedLogic(propertyFilterLogic)?.props?.pageKey
 
     const isMultiSelect = operator && isOperatorMulti(operator)
     const isDateTimeProperty = operator && isOperatorDate(operator)
@@ -199,6 +204,7 @@ export function PropertyValue({
         <PropertyFilterDatePicker autoFocus={autoFocus} operator={operator} value={value} setValue={setValue} />
     ) : isRelativeDateTimeProperty ? (
         <RollingDateRangeFilter
+            pageKey={pageKey}
             dateRangeFilterLabel="the last"
             // :TRICKY: This filter adds a default negative sign to the value, which we don't need
             dateFrom={`-${String(value)}`}

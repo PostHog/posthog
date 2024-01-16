@@ -240,7 +240,7 @@ export const dateTimeOperatorMap: Record<string, string> = {
 
 export const relativeDateTimeOperatorMap: Record<string, string> = {
     is_relative_date_before: '< relative date before',
-    is_relative_date_after: '< relative date after',
+    is_relative_date_after: '> relative date after',
 }
 
 export const booleanOperatorMap: Record<string, string> = {

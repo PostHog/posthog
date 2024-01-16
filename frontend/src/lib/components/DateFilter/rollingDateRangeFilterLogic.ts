@@ -1,6 +1,6 @@
 import './RollingDateRangeFilter.scss'
 
-import { actions, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { Dayjs } from 'lib/dayjs'
 import { dateFilterToText } from 'lib/utils'
 
@@ -21,6 +21,7 @@ export type RollingDateFilterLogicPropsType = {
     dateFrom?: Dayjs | string | null
     max?: number | null
     forceUpdateDefaults?: boolean
+    pageKey?: string
 }
 
 const counterDefault = (
@@ -56,6 +57,8 @@ const dateOptionDefault = (
 
 export const rollingDateRangeFilterLogic = kea<rollingDateRangeFilterLogicType>([
     path(['lib', 'components', 'DateFilter', 'RollingDateRangeFilterLogic']),
+    props({} as RollingDateFilterLogicPropsType),
+    key(({ pageKey }) => pageKey ?? 'unknown'),
     actions({
         increaseCounter: true,
         decreaseCounter: true,
@@ -64,7 +67,6 @@ export const rollingDateRangeFilterLogic = kea<rollingDateRangeFilterLogicType>(
         toggleDateOptionsSelector: true,
         select: true,
     }),
-    props({} as RollingDateFilterLogicPropsType),
     reducers(({ props }) => ({
         counter: [
             counterDefault(props.selected, props.forceUpdateDefaults, props.dateFrom) as number | null,
