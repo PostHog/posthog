@@ -1,4 +1,4 @@
-import { LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
 import { IconSettings } from 'lib/lemon-ui/icons'
@@ -32,7 +32,7 @@ export function PathCleaningFilter({ insightProps }: EditorFilterProps): JSX.Ele
                 }
             >
                 {/* This div is necessary for the tooltip to work. */}
-                <div className="inline-block mt-4">
+                <div className="inline-block mt-4 w-full">
                     <LemonSwitch
                         disabled={!hasFilters}
                         checked={hasFilters ? path_replacements || false : false}
@@ -40,16 +40,21 @@ export function PathCleaningFilter({ insightProps }: EditorFilterProps): JSX.Ele
                             localStorage.setItem('default_path_clean_filters', checked.toString())
                             updateInsightFilter({ path_replacements: checked })
                         }}
-                        label="Apply global path URL cleaning"
+                        label={
+                            <div className="flex items-center">
+                                <span>Apply global path URL cleaning</span>
+                                <LemonButton
+                                    icon={<IconSettings />}
+                                    to={urls.settings('project-product-analytics', 'path-cleaning')}
+                                    size="small"
+                                    noPadding
+                                    className="ml-1"
+                                />
+                            </div>
+                        }
+                        fullWidth
                         bordered
                     />
-                    <Link
-                        className="flex items-center mt-2"
-                        to={urls.settings('project-product-analytics', 'path-cleaning')}
-                    >
-                        <IconSettings fontSize="16" className="mr-0.5" />
-                        Configure Project Rules
-                    </Link>
                 </div>
             </Tooltip>
         </>
