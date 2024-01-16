@@ -1,6 +1,7 @@
+import dataclasses
 from datetime import datetime
 
-from typing import List, Dict, Tuple
+from typing import List, Dict, Any
 
 import openai
 from prometheus_client import Histogram
@@ -42,21 +43,36 @@ TOKENS_IN_PROMPT_HISTOGRAM = Histogram(
 )
 
 
-def reduce_elements_chain(session_events: Tuple[List | None, List | None]) -> Tuple[List | None, List | None]:
-    columns, results = session_events
+@dataclasses.dataclass
+class SessionSummaryPromptData:
+    # we may allow customisation of columns included in the future,
+    # and we alter the columns present as we process the data
+    # so want to stay as loose as possible here
+    columns: List[str] = dataclasses.field(default_factory=list)
+    results: List[List[Any]] = dataclasses.field(default_factory=list)
+    # in order to reduce the number of tokens in the prompt
+    # we replace URLs with a placeholder and then pass this mapping of placeholder to URL into the prompt
+    url_mapping: Dict[str, str] = dataclasses.field(default_factory=dict)
 
-    if columns is None or results is None:
-        return columns, results
+    def is_empty(self) -> bool:
+        return not self.columns or not self.results
+
+    def column_index(self, column: str) -> int | None:
+        for i, c in enumerate(self.columns):
+            if c == column:
+                return i
+        return None
+
+
+def reduce_elements_chain(session_events: SessionSummaryPromptData) -> SessionSummaryPromptData:
+    if session_events.is_empty():
+        return session_events
 
     # find elements_chain column index
-    elements_chain_index = None
-    for i, column in enumerate(columns):
-        if column == "elements_chain":
-            elements_chain_index = i
-            break
+    elements_chain_index = session_events.column_index("elements_chain")
 
     reduced_results = []
-    for result in results:
+    for result in session_events.results:
         if elements_chain_index is None:
             reduced_results.append(result)
             continue
@@ -71,27 +87,21 @@ def reduce_elements_chain(session_events: Tuple[List | None, List | None]) -> Tu
 
         result_list = list(result)
         result_list[elements_chain_index] = [{"tag": e.tag_name, "text": e.text, "href": e.href} for e in elements]
-        reduced_results.append(tuple(result_list))
+        reduced_results.append(result_list)
 
-    return columns, reduced_results
+    return SessionSummaryPromptData(columns=session_events.columns, results=reduced_results)
 
 
-def simplify_window_id(session_events: Tuple[List | None, List | None]) -> Tuple[List | None, List | None]:
-    columns, results = session_events
-
-    if columns is None or results is None:
-        return columns, results
+def simplify_window_id(session_events: SessionSummaryPromptData) -> SessionSummaryPromptData:
+    if session_events.is_empty():
+        return session_events
 
     # find window_id column index
-    window_id_index = None
-    for i, column in enumerate(columns):
-        if column == "$window_id":
-            window_id_index = i
-            break
+    window_id_index = session_events.column_index("$window_id")
 
     window_id_mapping: Dict[str, int] = {}
     simplified_results = []
-    for result in results:
+    for result in session_events.results:
         if window_id_index is None:
             simplified_results.append(result)
             continue
@@ -106,29 +116,21 @@ def simplify_window_id(session_events: Tuple[List | None, List | None]) -> Tuple
 
         result_list = list(result)
         result_list[window_id_index] = window_id_mapping[window_id]
-        simplified_results.append(tuple(result_list))
+        simplified_results.append(result_list)
 
-    return columns, simplified_results
+    return SessionSummaryPromptData(columns=session_events.columns, results=simplified_results)
 
 
-def deduplicate_urls(
-    session_events: Tuple[List | None, List | None]
-) -> Tuple[List | None, List | None, Dict[str, str]]:
-    columns, results = session_events
-
-    if columns is None or results is None:
-        return columns, results, {}
+def deduplicate_urls(session_events: SessionSummaryPromptData) -> SessionSummaryPromptData:
+    if session_events.is_empty():
+        return session_events
 
     # find url column index
-    url_index = None
-    for i, column in enumerate(columns):
-        if column == "$current_url":
-            url_index = i
-            break
+    url_index = session_events.column_index("$current_url")
 
     url_mapping: Dict[str, str] = {}
     deduplicated_results = []
-    for result in results:
+    for result in session_events.results:
         if url_index is None:
             deduplicated_results.append(result)
             continue
@@ -143,33 +145,29 @@ def deduplicate_urls(
 
         result_list = list(result)
         result_list[url_index] = url_mapping[url]
-        deduplicated_results.append(tuple(result_list))
+        deduplicated_results.append(result_list)
 
-    return columns, deduplicated_results, url_mapping
+    return SessionSummaryPromptData(
+        columns=session_events.columns, results=deduplicated_results, url_mapping=url_mapping
+    )
 
 
-def format_dates(session_events: Tuple[List | None, List | None], start: datetime) -> Tuple[List | None, List | None]:
-    columns, results = session_events
-
-    if columns is None or results is None:
-        return columns, results
+def format_dates(session_events: SessionSummaryPromptData, start: datetime) -> SessionSummaryPromptData:
+    if session_events.is_empty():
+        return session_events
 
     # find timestamp column index
-    timestamp_index = None
-    for i, column in enumerate(columns):
-        if column == "timestamp":
-            timestamp_index = i
-            break
+    timestamp_index = session_events.column_index("timestamp")
 
     if timestamp_index is None:
         # no timestamp column so nothing to do
-        return columns, results
+        return session_events
 
-    del columns[timestamp_index]  # remove timestamp column from columns
-    columns.append("milliseconds_since_start")  # add new column to columns at end
+    del session_events.columns[timestamp_index]  # remove timestamp column from columns
+    session_events.columns.append("milliseconds_since_start")  # add new column to columns at end
 
     formatted_results = []
-    for result in results:
+    for result in session_events.results:
         timestamp: datetime | None = result[timestamp_index]
         if not timestamp:
             formatted_results.append(result)
@@ -180,39 +178,28 @@ def format_dates(session_events: Tuple[List | None, List | None], start: datetim
         del result_list[timestamp_index]
         # insert milliseconds since reference date
         result_list.append(int((timestamp - start).total_seconds() * 1000))
-        formatted_results.append(tuple(result_list))
+        formatted_results.append(result_list)
 
-    return columns, formatted_results
+    return SessionSummaryPromptData(columns=session_events.columns, results=formatted_results)
 
 
-def collapse_sequence_of_events(session_events: Tuple[List | None, List | None]) -> Tuple[List | None, List | None]:
+def collapse_sequence_of_events(session_events: SessionSummaryPromptData) -> SessionSummaryPromptData:
     # assumes the list is ordered by timestamp
-    columns, results = session_events
-
-    if columns is None or results is None:
-        return columns, results
+    if session_events.is_empty():
+        return session_events
 
     # find the event column index
-    event_index = None
-    for i, column in enumerate(columns):
-        if column == "event":
-            event_index = i
-            break
+    event_index = session_events.column_index("event")
 
     # find the window id column index
-    window_id_index = None
-    for i, column in enumerate(columns):
-        if column == "$window_id":
-            window_id_index = i
-            break
+    window_id_index = session_events.column_index("$window_id")
 
     event_repetition_count_index: int | None = None
-    # only append the new column, if we need to add it below
-    # columns.append("event_repetition_count")
+    # we only append this new column, if we need to add it below
 
     # now enumerate the results finding sequences of events with the same event and collapsing them to a single item
     collapsed_results = []
-    for i, result in enumerate(results):
+    for i, result in enumerate(session_events.results):
         if event_index is None:
             collapsed_results.append(result)
             continue
@@ -241,22 +228,21 @@ def collapse_sequence_of_events(session_events: Tuple[List | None, List | None])
             # collapse the event into the previous result
             if event_repetition_count_index is None:
                 # we need to add the column
-                event_repetition_count_index = len(columns)
-                columns.append("event_repetition_count")
+                event_repetition_count_index = len(session_events.columns)
+                session_events.columns.append("event_repetition_count")
             previous_result_list = list(previous_result)
             try:
                 existing_repetition_count = previous_result_list[event_repetition_count_index]
-                previous_result_list[event_repetition_count_index] = (existing_repetition_count) + 1
+                previous_result_list[event_repetition_count_index] = existing_repetition_count + 1
             except IndexError:
                 previous_result_list.append(2)
 
-            collapsed_results[len(collapsed_results) - 1] = tuple(previous_result_list)
+            collapsed_results[len(collapsed_results) - 1] = previous_result_list
         else:
-            x = list(result)
-            x.append(None)  # there is no event repetition count
-            collapsed_results.append(tuple(x))
+            result.append(None)  # there is no event repetition count
+            collapsed_results.append(result)
 
-    return columns, collapsed_results
+    return SessionSummaryPromptData(columns=session_events.columns, results=collapsed_results)
 
 
 def summarize_recording(recording: SessionRecording, user: User, team: Team):
@@ -272,6 +258,8 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
             "$feature_flag_called",
         ],
     )
+    if not session_events or not session_events[0] or not session_events[1]:
+        raise ValueError(f"no events found for session_id {recording.session_id}")
 
     # convert session_metadata to a Dict from a TypedDict
     # so that we can amend its values freely
@@ -282,9 +270,14 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
     session_metadata_dict["start_time"] = start_time.isoformat()
     session_metadata_dict["end_time"] = session_metadata["end_time"].isoformat()
 
-    session_events_columns, session_events_results, url_mapping = deduplicate_urls(
+    prompt_data = deduplicate_urls(
         collapse_sequence_of_events(
-            format_dates(reduce_elements_chain(simplify_window_id(session_events)), start=start_time)
+            format_dates(
+                reduce_elements_chain(
+                    simplify_window_id(SessionSummaryPromptData(columns=session_events[0], results=session_events[1]))
+                ),
+                start=start_time,
+            )
         )
     )
 
@@ -307,13 +300,13 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
         {
             "role": "user",
             "content": f"""
-            URLs associated with the events can be found in this mapping {url_mapping}.
+            URLs associated with the events can be found in this mapping {prompt_data.url_mapping}.
             """,
         },
         {
             "role": "user",
-            "content": f"""the session events I have are {session_events_results}.
-            with columns {session_events_columns}.
+            "content": f"""the session events I have are {prompt_data.results}.
+            with columns {prompt_data.columns}.
             they give an idea of what happened and when,
             if present the elements_chain extracted from the html can aid in understanding
             but should not be directly used in your response""",
