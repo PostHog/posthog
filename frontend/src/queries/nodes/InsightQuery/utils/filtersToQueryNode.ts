@@ -254,14 +254,15 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             show_legend: filters.show_legend,
             hidden_legend_indexes: cleanHiddenLegendIndexes(filters.hidden_legend_keys),
             compare: filters.compare,
-            aggregation_axis_format: filters.aggregation_axis_format,
-            aggregation_axis_prefix: filters.aggregation_axis_prefix,
-            aggregation_axis_postfix: filters.aggregation_axis_postfix,
-            decimal_places: filters.decimal_places,
+            aggregationAxisFormat: filters.aggregation_axis_format,
+            aggregationAxisPrefix: filters.aggregation_axis_prefix,
+            aggregationAxisPostfix: filters.aggregation_axis_postfix,
+            decimalPlaces: filters.decimal_places,
             formula: filters.formula,
             display: filters.display,
             show_values_on_series: filters.show_values_on_series,
-            show_percent_stack_view: filters.show_percent_stack_view,
+            showPercentStackView: filters.show_percent_stack_view,
+            showLabelsOnSeries: filters.show_labels_on_series,
         })
     }
 

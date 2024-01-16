@@ -513,15 +513,15 @@ export type TrendsFilter = {
     compare?: TrendsFilterLegacy['compare']
     formula?: TrendsFilterLegacy['formula']
     display?: TrendsFilterLegacy['display']
-    breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count']
     show_legend?: TrendsFilterLegacy['show_legend']
-    aggregation_axis_format?: TrendsFilterLegacy['aggregation_axis_format']
-    aggregation_axis_prefix?: TrendsFilterLegacy['aggregation_axis_prefix']
-    aggregation_axis_postfix?: TrendsFilterLegacy['aggregation_axis_postfix']
-    decimal_places?: TrendsFilterLegacy['decimal_places']
+    breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
+    aggregationAxisFormat?: TrendsFilterLegacy['aggregation_axis_format']
+    aggregationAxisPrefix?: TrendsFilterLegacy['aggregation_axis_prefix']
+    aggregationAxisPostfix?: TrendsFilterLegacy['aggregation_axis_postfix']
+    decimalPlaces?: TrendsFilterLegacy['decimal_places']
     show_values_on_series?: TrendsFilterLegacy['show_values_on_series']
-    show_labels_on_series?: TrendsFilterLegacy['show_labels_on_series']
-    show_percent_stack_view?: TrendsFilterLegacy['show_percent_stack_view']
+    showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
+    showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
     hidden_legend_indexes?: TrendsFilterLegacy['hidden_legend_indexes']
 }
 

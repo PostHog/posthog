@@ -64,7 +64,7 @@ export function FunnelLineGraph({
                         return `${count}%`
                     },
                 }}
-                trendsFilter={{ aggregation_axis_format: 'percentage' } as TrendsFilter}
+                trendsFilter={{ aggregationAxisFormat: 'percentage' } as TrendsFilter}
                 labelGroupType={aggregationGroupTypeIndex ?? 'people'}
                 incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
                 onClick={
