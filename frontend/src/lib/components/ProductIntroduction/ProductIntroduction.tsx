@@ -40,7 +40,7 @@ export const ProductIntroduction = ({
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
     const actionable = action || actionElementOverride
     return (
-        <div className="border-2 border-dashed border-border w-full p-8 justify-center rounded mt-2 mb-4">
+        <div className="@container border-2 border-dashed border-border w-full justify-center rounded mt-2 mb-4">
             {!isEmpty && (
                 <div className="flex justify-end -mb-6 -mt-2 -mr-2">
                     <div>
@@ -53,9 +53,9 @@ export const ProductIntroduction = ({
                     </div>
                 </div>
             )}
-            <div className="flex items-center gap-8 w-full justify-center flex-wrap">
+            <div className="flex items-center gap-2 @lg:gap-8 justify-center m-4 @lg:m-8">
                 <div>
-                    <div className="w-50 mx-auto mb-4">
+                    <div className="w-30 @xl:w-50 mx-auto mb-4 hidden @lg:block">
                         {CustomHog ? (
                             <CustomHog className="w-full h-full" />
                         ) : actionable ? (
