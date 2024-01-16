@@ -487,6 +487,7 @@ class TestDashboardTemplates(APIBaseTest):
         # ensure there are no templates
         DashboardTemplate.objects.all().delete()
 
+        # create a flag and a global scoped template
         flag_template_id = self.create_template(
             {"scope": DashboardTemplate.Scope.FEATURE_FLAG, "template_name": "flag scoped template"}
         )
@@ -496,16 +497,17 @@ class TestDashboardTemplates(APIBaseTest):
 
         default_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/")
         assert default_response.status_code == status.HTTP_200_OK
-        global_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/?scope=global")
-        assert global_response.status_code == status.HTTP_200_OK
-        flag_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/?scope=feature_flag")
-        assert flag_response.status_code == status.HTTP_200_OK
-
         assert [(r["id"], r["scope"]) for r in default_response.json()["results"]] == [
             (flag_template_id, "feature_flag"),
             (global_template_id, "global"),
         ]
+
+        global_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/?scope=global")
+        assert global_response.status_code == status.HTTP_200_OK
         assert [(r["id"], r["scope"]) for r in global_response.json()["results"]] == [(global_template_id, "global")]
+
+        flag_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/?scope=feature_flag")
+        assert flag_response.status_code == status.HTTP_200_OK
         assert [(r["id"], r["scope"]) for r in flag_response.json()["results"]] == [(flag_template_id, "feature_flag")]
 
     def create_template(self, overrides: Dict[str, str]) -> str:
