@@ -106,8 +106,8 @@ export function InsightDisplayConfig(): JSX.Element {
         (showPercentStackView && isPercentStackViewOn ? 1 : 0) +
         (!isPercentStackViewOn &&
         isTrends &&
-        trendsFilter?.aggregation_axis_format &&
-        trendsFilter.aggregation_axis_format !== 'numeric'
+        trendsFilter?.aggregationAxisFormat &&
+        trendsFilter.aggregationAxisFormat !== 'numeric'
             ? 1
             : 0) +
         (hasLegend && showLegend ? 1 : 0)
@@ -199,7 +199,7 @@ function DecimalPrecisionInput(): JSX.Element {
 
     const reportChange = useDebouncedCallback(() => {
         posthog.capture('decimal places changed', {
-            decimal_places: trendsFilter?.decimal_places,
+            decimal_places: trendsFilter?.decimalPlaces,
         })
     }, 500)
 
@@ -211,10 +211,10 @@ function DecimalPrecisionInput(): JSX.Element {
             min={0}
             max={9}
             defaultValue={DEFAULT_DECIMAL_PLACES}
-            value={trendsFilter?.decimal_places}
+            value={trendsFilter?.decimalPlaces}
             onChange={(value) => {
                 updateInsightFilter({
-                    decimal_places: value,
+                    decimalPlaces: value,
                 })
                 reportChange()
             }}

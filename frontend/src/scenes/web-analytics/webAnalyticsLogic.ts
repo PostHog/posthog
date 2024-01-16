@@ -624,7 +624,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                         ],
                                         trendsFilter: {
                                             display: ChartDisplayType.ActionsPie,
-                                            show_labels_on_series: true,
+                                            showLabelsOnSeries: true,
                                         },
                                         filterTestAccounts: true,
                                         properties: webAnalyticsFilters,
