@@ -190,13 +190,6 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
         metadata=session_metadata,
         events_to_ignore=[
             "$feature_flag_called",
-            "$raw_user_agent",
-            "$lib_version_major",
-            "$lib_version_minor",
-            "$lib_version_patch",
-            "$ip",
-            "$host",
-            "$exception_stack_trace_raw",
         ],
     )
     instance_region = get_instance_region() or "HOBBY"
