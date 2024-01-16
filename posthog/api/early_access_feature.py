@@ -84,6 +84,11 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
 
             related_feature_flag = instance.feature_flag
             if related_feature_flag:
+                if related_feature_flag.aggregation_group_type_index is not None:
+                    raise serializers.ValidationError(
+                        "Group-based feature flags are not supported for Early Access Features."
+                    )
+
                 related_feature_flag_key = related_feature_flag.key
                 serialized_data_filters = {
                     **related_feature_flag.filters,

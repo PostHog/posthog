@@ -283,6 +283,15 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             raise exceptions.ValidationError(
                 "Cannot delete a feature flag that is in use with early access features. Please delete the early access feature before deleting the flag."
             )
+
+        if "get_filters" in validated_data:
+            filters = validated_data.get("get_filters")
+            if filters.get("aggregation_group_type_index") is not None:
+                if instance.features.count() > 0:
+                    raise serializers.ValidationError(
+                        "Cannot change this flag to a group-based when linked to an Early Access Feature."
+                    )
+
         request = self.context["request"]
         validated_key = validated_data.get("key", None)
         if validated_key:
