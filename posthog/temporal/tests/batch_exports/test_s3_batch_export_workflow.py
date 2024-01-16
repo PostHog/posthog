@@ -186,7 +186,14 @@ async def assert_events_in_s3(
         # These are inserted/returned by the ClickHouse event generators, but we do not export them
         # or we export them as properties.
         not_exported = {"team_id", "_timestamp", "set", "set_once", "ip", "site_url", "elements"}
-        return {k: mapping_functions.get(k, lambda x: x)(v) for k, v in event.items() if k not in not_exported}
+        expected_event = {
+            k: mapping_functions.get(k, lambda x: x)(v) for k, v in event.items() if k not in not_exported
+        }
+
+        if expected_event["inserted_at"] is None:
+            expected_event["inserted_at"] = to_isoformat(event["_timestamp"])
+
+        return expected_event
 
     expected_events = list(
         map(
