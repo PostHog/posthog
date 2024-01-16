@@ -35,7 +35,6 @@ export function PathCleaningFilter({ insightProps }: EditorFilterProps): JSX.Ele
                         disabled={!hasFilters}
                         checked={hasFilters ? pathReplacements || false : false}
                         onChange={(checked: boolean) => {
-                            localStorage.setItem('default_path_clean_filters', checked.toString())
                             updateInsightFilter({ pathReplacements: checked })
                         }}
                         label="Apply global path URL cleaning"
