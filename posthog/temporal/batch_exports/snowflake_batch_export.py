@@ -4,9 +4,9 @@ import dataclasses
 import datetime as dt
 import functools
 import io
-import json
 import typing
 
+import orjson
 import snowflake.connector
 from django.conf import settings
 from snowflake.connector.connection import SnowflakeConnection
@@ -20,17 +20,18 @@ from posthog.temporal.batch_exports.batch_exports import (
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
+    default_fields,
     execute_batch_export_insert_activity,
     get_data_interval,
-    get_results_iterator,
     get_rows_count,
+    iter_records,
 )
 from posthog.temporal.batch_exports.clickhouse import get_client
-from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.batch_exports.metrics import (
     get_bytes_exported_metric,
     get_rows_exported_metric,
 )
+from posthog.temporal.common.logger import bind_temporal_worker_logger
 from posthog.temporal.common.utils import (
     BatchExportHeartbeatDetails,
     HeartbeatParseError,
@@ -364,19 +365,24 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
             rows_exported.add(file.records_since_last_reset)
             bytes_exported.add(file.bytes_since_last_reset)
 
+        fields = default_fields()
+        fields.append({"expression": "nullIf(JSONExtractString(properties, '$ip'), '')", "alias": "ip"})
+        # Fields kept for backwards compatibility with legacy apps schema.
+        fields.append({"expression": "elements_chain", "alias": "elements"})
+        fields.append({"expression": "''", "alias": "site_url"})
+
+        records_iterator = iter_records(
+            client=client,
+            team_id=inputs.team_id,
+            interval_start=inputs.data_interval_start,
+            interval_end=inputs.data_interval_end,
+            exclude_events=inputs.exclude_events,
+            include_events=inputs.include_events,
+            fields=fields,
+        )
+
         with snowflake_connection(inputs) as connection:
             await create_table_in_snowflake(connection, inputs.table_name)
-
-            results_iterator = get_results_iterator(
-                client=client,
-                team_id=inputs.team_id,
-                interval_start=inputs.data_interval_start,
-                interval_end=inputs.data_interval_end,
-                exclude_events=inputs.exclude_events,
-                include_events=inputs.include_events,
-            )
-
-            result = None
 
             async def worker_shutdown_handler():
                 """Handle the Worker shutting down by heart-beating our latest status."""
@@ -388,44 +394,52 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs):
                     # Just start from the beginning again.
                     return
 
-                activity.heartbeat(last_inserted_at, file_no)
+                activity.heartbeat(str(last_inserted_at), file_no)
 
             asyncio.create_task(worker_shutdown_handler())
 
+            inserted_at = None
+
             with BatchExportTemporaryFile() as local_results_file:
-                for result in results_iterator:
-                    record = {
-                        "uuid": result["uuid"],
-                        "event": result["event"],
-                        "properties": result["properties"],
-                        "elements": result["elements"],
-                        "people_set": result["set"],
-                        "people_set_once": result["set_once"],
-                        "distinct_id": result["distinct_id"],
-                        "team_id": result["team_id"],
-                        "ip": result["ip"],
-                        "site_url": result["site_url"],
-                        "timestamp": result["timestamp"],
+                for record, _ in records_iterator:
+                    inserted_at = record["inserted_at"]
+
+                    row = {
+                        "uuid": record["uuid"],
+                        "event": record["event"],
+                        "properties": orjson.loads(record["properties"].encode("utf-8"))
+                        if record["properties"] is not None
+                        else None,
+                        "elements": record["elements"],
+                        "people_set": record["set"],
+                        "people_set_once": record["set_once"],
+                        "distinct_id": record["distinct_id"],
+                        "team_id": record["team_id"],
+                        "ip": record["ip"],
+                        "site_url": record["site_url"],
+                        "timestamp": record["timestamp"],
                     }
-                    local_results_file.write_records_to_jsonl([record])
+                    row["elements"] = orjson.dumps(row["elements"]).decode("utf-8")
+
+                    local_results_file.write_records_to_jsonl([row])
 
                     if local_results_file.tell() > settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES:
                         await flush_to_snowflake(connection, local_results_file, inputs.table_name, file_no)
 
-                        last_inserted_at = result["inserted_at"]
+                        last_inserted_at = inserted_at
                         file_no += 1
 
-                        activity.heartbeat(last_inserted_at, file_no)
+                        activity.heartbeat(str(last_inserted_at), file_no)
 
                         local_results_file.reset()
 
-                if local_results_file.tell() > 0 and result is not None:
+                if local_results_file.tell() > 0 and inserted_at is not None:
                     await flush_to_snowflake(connection, local_results_file, inputs.table_name, file_no, last=True)
 
-                    last_inserted_at = result["inserted_at"]
+                    last_inserted_at = inserted_at
                     file_no += 1
 
-                    activity.heartbeat(last_inserted_at, file_no)
+                    activity.heartbeat(str(last_inserted_at), file_no)
 
             await copy_loaded_files_to_snowflake_table(connection, inputs.table_name)
 
@@ -443,7 +457,7 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> SnowflakeBatchExportInputs:
         """Parse inputs from the management command CLI."""
-        loaded = json.loads(inputs[0])
+        loaded = orjson.loads(inputs[0])
         return SnowflakeBatchExportInputs(**loaded)
 
     @workflow.run
