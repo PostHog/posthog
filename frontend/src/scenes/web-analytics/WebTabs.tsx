@@ -1,5 +1,6 @@
 import { LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+import { makeNonBreaking } from 'lib/utils'
 import React from 'react'
 
 export const WebTabs = ({
@@ -26,12 +27,12 @@ export const WebTabs = ({
                         value={activeTabId}
                         dropdownMatchSelectWidth={false}
                         onChange={setActiveTabId}
-                        options={tabs.map(({ id, linkText }) => ({ value: id, label: linkText }))}
+                        options={tabs.map(({ id, linkText }) => ({ value: id, label: makeNonBreaking(linkText) }))}
                     />
                 ) : (
                     <LemonSegmentedButton
                         size="small"
-                        options={tabs.map(({ id, linkText }) => ({ label: linkText, value: id }))}
+                        options={tabs.map(({ id, linkText }) => ({ label: makeNonBreaking(linkText), value: id }))}
                         onChange={(value) => setActiveTabId(value)}
                         value={activeTabId}
                     />

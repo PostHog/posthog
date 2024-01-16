@@ -1716,3 +1716,7 @@ export const base64Decode = (encodedString: string): string => {
 
     return new TextDecoder().decode(data)
 }
+
+export const makeNonBreaking = (str: string): string => {
+    return str.replace(/ /g, '\u00a0')
+}
