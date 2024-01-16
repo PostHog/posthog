@@ -1288,6 +1288,8 @@ class TestFilterToQuery(BaseTest):
             "formula": "A + B",
             "shown_as": "Volume",
             "display": "ActionsAreaGraph",
+            "show_legend": True,
+            "show_percent_stack_view": True,
         }
 
         query = filter_to_query(filter)
@@ -1303,6 +1305,8 @@ class TestFilterToQuery(BaseTest):
                 formula="A + B",
                 display=ChartDisplayType.ActionsAreaGraph,
                 decimalPlaces=5,
+                showLegend=True,
+                showPercentStackView=True,
             ),
         )
 
