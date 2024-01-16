@@ -3,6 +3,7 @@ import './DashboardTemplateChooser.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
+import {Spinner} from "lib/lemon-ui/Spinner";
 import BlankDashboardHog from 'public/blank-dashboard-hog.png'
 import { useState } from 'react'
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
@@ -16,7 +17,7 @@ interface DashboardTemplateChooserProps {
 
 export function DashboardTemplateChooser({ scope = 'global' }: DashboardTemplateChooserProps): JSX.Element {
     const templatesLogic = dashboardTemplatesLogic({ scope })
-    const { allTemplates } = useValues(templatesLogic)
+    const { allTemplates, allTemplatesLoading } = useValues(templatesLogic)
 
     const { isLoading, newDashboardModalVisible } = useValues(newDashboardLogic)
     const {
@@ -49,7 +50,7 @@ export function DashboardTemplateChooser({ scope = 'global' }: DashboardTemplate
                     index={0}
                     data-attr="create-dashboard-blank"
                 />
-                {allTemplates.map((template, index) => (
+                {allTemplatesLoading ? <Spinner className="text-6xl" /> : allTemplates.map((template, index) => (
                     <TemplateItem
                         key={index}
                         template={template}
