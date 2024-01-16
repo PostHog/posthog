@@ -2,15 +2,14 @@ import asyncio
 import contextlib
 import dataclasses
 import datetime as dt
-import json
 
+import orjson
+import pyarrow as pa
 from django.conf import settings
 from google.cloud import bigquery
 from google.oauth2 import service_account
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-import pyarrow as pa
-
 
 from posthog.batch_exports.service import BigQueryBatchExportInputs
 from posthog.temporal.batch_exports.base import PostHogWorkflow
@@ -19,11 +18,11 @@ from posthog.temporal.batch_exports.batch_exports import (
     CreateBatchExportRunInputs,
     UpdateBatchExportRunStatusInputs,
     create_export_run,
+    default_fields,
     execute_batch_export_insert_activity,
     get_data_interval,
-    iter_records,
     get_rows_count,
-    default_fields,
+    iter_records,
 )
 from posthog.temporal.batch_exports.clickhouse import get_client
 from posthog.temporal.batch_exports.metrics import (
@@ -262,14 +261,14 @@ async def insert_into_bigquery_activity(inputs: BigQueryInsertInputs):
                     inserted_at = record["inserted_at"]
 
                     row = {
-                        field.name: json.loads(record[field.name])
+                        field.name: orjson.loads(record[field.name])
                         if field.name in json_columns and record[field.name] is not None
                         else record[field.name]
                         for field in default_table_schema
                         if field.name != "bq_ingested_timestamp"
                     }
                     row["bq_ingested_timestamp"] = dt.datetime.now(dt.timezone.utc)
-                    row["elements"] = json.dumps(row["elements"])
+                    row["elements"] = orjson.dumps(row["elements"])
 
                     jsonl_file.write_records_to_jsonl([row])
 
@@ -303,7 +302,7 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> BigQueryBatchExportInputs:
         """Parse inputs from the management command CLI."""
-        loaded = json.loads(inputs[0])
+        loaded = orjson.loads(inputs[0])
         return BigQueryBatchExportInputs(**loaded)
 
     @workflow.run
