@@ -119,6 +119,8 @@ class SessionReplayEvents:
         if events_to_ignore:
             q += " and event not in {events_to_ignore}"
 
+        q += " order by timestamp asc"
+
         hq = HogQLQuery(
             query=q,
             values={
