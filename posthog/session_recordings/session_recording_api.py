@@ -292,7 +292,7 @@ def deduplicate_urls(
     return columns, deduplicated_results, url_mapping
 
 
-def format_dates(session_events: Tuple[List | None, List | None]) -> Tuple[List | None, List | None]:
+def format_dates(session_events: Tuple[List | None, List | None], start: datetime) -> Tuple[List | None, List | None]:
     columns, results = session_events
 
     if columns is None or results is None:
@@ -304,6 +304,8 @@ def format_dates(session_events: Tuple[List | None, List | None]) -> Tuple[List 
         if column == "timestamp":
             timestamp_index = i
             break
+    del columns[timestamp_index]  # remove timestamp column from columns
+    columns.append("milliseconds_since_start")  # add new column to columns at end
 
     formatted_results = []
     for result in results:
@@ -317,7 +319,10 @@ def format_dates(session_events: Tuple[List | None, List | None]) -> Tuple[List 
             continue
 
         result_list = list(result)
-        result_list[timestamp_index] = timestamp.isoformat()
+        # remove list item at timestamp_index
+        del result_list[timestamp_index]
+        # insert milliseconds since reference date
+        result_list.append(int((timestamp - start).total_seconds() * 1000))
         formatted_results.append(tuple(result_list))
 
     return columns, formatted_results
@@ -335,11 +340,12 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
     )
 
     del session_metadata["distinct_id"]
-    session_metadata["start_time"] = session_metadata["start_time"].isoformat()
+    start_time = session_metadata["start_time"]
+    session_metadata["start_time"] = start_time.isoformat()
     session_metadata["end_time"] = session_metadata["end_time"].isoformat()
 
     session_events_columns, session_events_results, url_mapping = deduplicate_urls(
-        format_dates(reduce_elements_chain(simplify_window_id(session_events)))
+        format_dates(reduce_elements_chain(simplify_window_id(session_events)), start=start_time)
     )
 
     instance_region = get_instance_region() or "HOBBY"
