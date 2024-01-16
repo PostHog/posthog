@@ -220,7 +220,7 @@ export const supportLogic = kea<supportLogicType>([
 
             actions.updateUrlParams()
         },
-        submitZendeskTicket: async ({ name, email, kind, target_area, message }) => {
+        submitZendeskTicket: async ({ name, email, kind, target_area, severity_level, message }) => {
             const zendesk_ticket_uuid = uuid()
             const subject =
                 SUPPORT_KIND_TO_SUBJECT[kind ?? 'support'] +
@@ -235,6 +235,12 @@ export const supportLogic = kea<supportLogicType>([
                 request: {
                     requester: { name: name, email: email },
                     subject: subject,
+                    custom_fields: [
+                        {
+                            id: 22084126888475,
+                            value: severity_level,
+                        },
+                    ],
                     comment: {
                         body: (
                             message +
