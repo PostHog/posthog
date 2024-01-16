@@ -31,7 +31,7 @@ export const OnboardingVerificationStep = ({
     return !currentTeam?.[teamPropertyToVerify] ? (
         <OnboardingStep
             title={`Listening for ${listeningForName}s...`}
-            subtitle={`We're verifying that you've integrated the snippet and are sending ${listeningForName}s to PostHog. It can take up to 2 minutes to recieve an ${listeningForName}.`}
+            subtitle={`We're verifying that you've integrated the snippet or SDK and are sending ${listeningForName}s to PostHog. It can take up to 2 minutes to receive ${listeningForName}s.`}
             showSkip={true}
             stepKey={stepKey}
             onSkip={() => {
