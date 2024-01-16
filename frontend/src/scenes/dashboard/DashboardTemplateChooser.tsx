@@ -6,16 +6,15 @@ import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCo
 import {Spinner} from "lib/lemon-ui/Spinner";
 import BlankDashboardHog from 'public/blank-dashboard-hog.png'
 import { useState } from 'react'
-import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
+import {
+    DashboardTemplateProps,
+    dashboardTemplatesLogic
+} from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
-import { DashboardTemplateScope, DashboardTemplateType } from '~/types'
+import { DashboardTemplateType } from '~/types'
 
-interface DashboardTemplateChooserProps {
-    scope?: DashboardTemplateScope
-}
-
-export function DashboardTemplateChooser({ scope = 'global' }: DashboardTemplateChooserProps): JSX.Element {
+export function DashboardTemplateChooser({ scope = 'default' }: DashboardTemplateProps): JSX.Element {
     const templatesLogic = dashboardTemplatesLogic({ scope })
     const { allTemplates, allTemplatesLoading } = useValues(templatesLogic)
 
@@ -50,7 +49,7 @@ export function DashboardTemplateChooser({ scope = 'global' }: DashboardTemplate
                     index={0}
                     data-attr="create-dashboard-blank"
                 />
-                {allTemplatesLoading ? <Spinner className="text-6xl" /> : allTemplates.map((template, index) => (
+                {allTemplatesLoading ? <Spinner className="text-6xl"/> : allTemplates.map((template, index) => (
                     <TemplateItem
                         key={index}
                         template={template}
@@ -78,18 +77,17 @@ export function DashboardTemplateChooser({ scope = 'global' }: DashboardTemplate
                         data-attr="create-dashboard-from-template"
                     />
                 ))}
-                {/*TODO @lukeharries should we have an empty state here? When no templates let people know what to do?*/}
             </div>
         </div>
     )
 }
 
 function TemplateItem({
-    template,
-    onClick,
-    index,
-    'data-attr': dataAttr,
-}: {
+                          template,
+                          onClick,
+                          index,
+                          'data-attr': dataAttr,
+                      }: {
     template: Pick<DashboardTemplateType, 'template_name' | 'dashboard_description' | 'image_url'>
     onClick: () => void
     index: number
