@@ -66,9 +66,8 @@ class PathsQueryRunner(QueryRunner):
         if SCREEN_EVENT in self.query.pathsFilter.include_event_types:
             or_conditions.append(parse_expr(f"event = '{SCREEN_EVENT}'"))
 
-        # TODO: ?
-        # if CUSTOM_EVENT in self.query.pathsFilter.
-        #    or_conditions.append(f"NOT event LIKE '$%%'")
+        if "custom_event" in self.query.pathsFilter.include_event_types:
+            or_conditions.append(parse_expr("NOT startsWith(events.event, '$')"))
 
         if or_conditions:
             conditions.append(ast.Or(exprs=or_conditions))
@@ -115,7 +114,10 @@ class PathsQueryRunner(QueryRunner):
         event_conditional = parse_expr(f"ifNull({event_hogql}, '') AS path_item_ungrouped")
 
         fields = [
-            ast.Field(chain=["events", "timestamp"]),
+            ast.Alias(
+                alias="timestamp",
+                expr=ast.Call(name="toUnixTimestamp64Milli", args=[ast.Field(chain=["events", "timestamp"])]),
+            ),
             ast.Field(chain=["events", "person_id"]),
             event_conditional,
         ]
@@ -306,7 +308,7 @@ class PathsQueryRunner(QueryRunner):
                         FROM (
                             SELECT
                                 person_id,
-                                groupArray(toUnixTimestamp64Milli(timestamp)) as timing,
+                                groupArray(timestamp) as timing,
                                 groupArray(path_item) as paths
                             FROM {path_event_query}
                             GROUP BY person_id
