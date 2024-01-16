@@ -1467,7 +1467,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             query = "SELEC 2"
             with self.assertRaisesMessage(
                 SyntaxException,
-                "mismatched input 'SELEC' expecting {SELECT, WITH, '(', '<'}",
+                "mismatched input 'SELEC' expecting {SELECT, WITH, '{', '(', '<'}",
             ) as e:
                 self._select(query)
             self.assertEqual(e.exception.start, 0)
