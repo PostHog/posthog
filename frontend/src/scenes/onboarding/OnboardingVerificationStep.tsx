@@ -1,7 +1,6 @@
 import { Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { BlushingHog } from 'lib/components/hedgehogs'
-import { supportLogic } from 'lib/components/Support/supportLogic'
 import { useInterval } from 'lib/hooks/useInterval'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -22,7 +21,6 @@ export const OnboardingVerificationStep = ({
     const { loadCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { reportIngestionContinueWithoutVerifying } = useActions(eventUsageLogic)
-    const { openSupportForm } = useActions(supportLogic)
 
     useInterval(() => {
         if (!currentTeam?.[teamPropertyToVerify]) {
@@ -40,11 +38,7 @@ export const OnboardingVerificationStep = ({
                 reportIngestionContinueWithoutVerifying()
             }}
             continueOverride={<></>}
-            helpButtonAction={{
-                type: 'secondary',
-                onClick: () => openSupportForm({ kind: 'support', target_area: 'onboarding' }),
-                children: 'Need help?',
-            }}
+            helpButtonEnabled
         >
             <div className="text-center mt-8">
                 <Spinner className="text-5xl" />

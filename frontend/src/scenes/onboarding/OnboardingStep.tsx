@@ -1,15 +1,14 @@
-import { LemonButton, LemonButtonPropsBase, SideAction } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { PhonePairHogs } from 'lib/components/hedgehogs'
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { IconArrowLeft, IconArrowRight } from 'lib/lemon-ui/icons'
 import React from 'react'
 import { urls } from 'scenes/urls'
 
 import { onboardingLogic, OnboardingStepKey } from './onboardingLogic'
-
-type onboardingButtonAction = SideAction & Pick<LemonButtonPropsBase, 'children'>
 
 export const OnboardingStep = ({
     stepKey,
@@ -19,7 +18,7 @@ export const OnboardingStep = ({
     showSkip = false,
     onSkip,
     continueAction,
-    helpButtonAction,
+    helpButtonEnabled = false,
     continueOverride,
     backActionOverride,
     hedgehog,
@@ -31,13 +30,14 @@ export const OnboardingStep = ({
     showSkip?: boolean
     onSkip?: () => void
     continueAction?: () => void
-    helpButtonAction?: onboardingButtonAction
+    helpButtonEnabled?: boolean
     continueOverride?: JSX.Element
     backActionOverride?: () => void
     hedgehog?: JSX.Element
 }): JSX.Element => {
     const { hasNextStep, hasPreviousStep } = useValues(onboardingLogic)
     const { completeOnboarding, goToNextStep, goToPreviousStep } = useActions(onboardingLogic)
+    const { openSupportForm } = useActions(supportLogic)
 
     const hedgehogToRender = React.cloneElement(hedgehog || <PhonePairHogs />, {
         className: 'h-full w-full',
@@ -77,7 +77,14 @@ export const OnboardingStep = ({
                 <p>{subtitle}</p>
                 {children}
                 <div className="mt-8 flex justify-end gap-x-2">
-                    {helpButtonAction && <LemonButton {...helpButtonAction} />}
+                    {helpButtonEnabled && (
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => openSupportForm({ kind: 'support', target_area: 'onboarding' })}
+                        >
+                            Need help?
+                        </LemonButton>
+                    )}
                     {showSkip && (
                         <LemonButton
                             onClick={() => {
