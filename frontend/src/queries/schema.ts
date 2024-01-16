@@ -599,10 +599,28 @@ export interface RetentionQuery extends InsightsQueryBase {
 }
 
 /** `PathsFilterType` minus everything inherited from `FilterType` and persons modal related params */
-export type PathsFilter = Omit<
+export type PathsFilterLegacy = Omit<
     PathsFilterType,
     keyof FilterType | 'path_start_key' | 'path_end_key' | 'path_dropoff_key'
 >
+
+export type PathsFilter = {
+    edge_limit?: PathsFilterLegacy['edge_limit']
+    paths_hogql_expression?: PathsFilterLegacy['paths_hogql_expression']
+    include_event_types?: PathsFilterLegacy['include_event_types']
+    start_point?: PathsFilterLegacy['start_point']
+    end_point?: PathsFilterLegacy['end_point']
+    path_groupings?: PathsFilterLegacy['path_groupings']
+    exclude_events?: PathsFilterLegacy['exclude_events']
+    step_limit?: PathsFilterLegacy['step_limit']
+    path_replacements?: PathsFilterLegacy['path_replacements']
+    local_path_cleaning_filters?: PathsFilterLegacy['local_path_cleaning_filters']
+    min_edge_weight?: PathsFilterLegacy['min_edge_weight']
+    max_edge_weight?: PathsFilterLegacy['max_edge_weight']
+    funnel_paths?: PathsFilterLegacy['funnel_paths']
+    funnel_filter?: PathsFilterLegacy['funnel_filter']
+}
+
 export interface PathsQuery extends InsightsQueryBase {
     kind: NodeKind.PathsQuery
     /** Properties specific to the paths insight */

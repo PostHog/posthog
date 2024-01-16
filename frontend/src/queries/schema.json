@@ -2193,6 +2193,66 @@
         },
         "PathsFilter": {
             "additionalProperties": false,
+            "properties": {
+                "edge_limit": {
+                    "type": "number"
+                },
+                "end_point": {
+                    "type": "string"
+                },
+                "exclude_events": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "funnel_filter": {
+                    "type": "object"
+                },
+                "funnel_paths": {
+                    "$ref": "#/definitions/FunnelPathType"
+                },
+                "include_event_types": {
+                    "items": {
+                        "$ref": "#/definitions/PathType"
+                    },
+                    "type": "array"
+                },
+                "local_path_cleaning_filters": {
+                    "items": {
+                        "$ref": "#/definitions/PathCleaningFilter"
+                    },
+                    "type": "array"
+                },
+                "max_edge_weight": {
+                    "type": "number"
+                },
+                "min_edge_weight": {
+                    "type": "number"
+                },
+                "path_groupings": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "path_replacements": {
+                    "type": "boolean"
+                },
+                "paths_hogql_expression": {
+                    "type": "string"
+                },
+                "start_point": {
+                    "type": "string"
+                },
+                "step_limit": {
+                    "type": "number"
+                }
+            },
+            "type": "object"
+        },
+        "PathsFilterLegacy": {
+            "additionalProperties": false,
             "description": "`PathsFilterType` minus everything inherited from `FilterType` and persons modal related params",
             "properties": {
                 "edge_limit": {
