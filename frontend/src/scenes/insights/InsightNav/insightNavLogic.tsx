@@ -331,8 +331,8 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
             // TODO: fix an issue where switching between trends and funnels with the option enabled would
             // result in an error before uncommenting
             // ...(getCompare(node) ? { compare: getCompare(node) } : {}),
-            ...(getShowValueOnSeries(node) ? { show_values_on_series: getShowValueOnSeries(node) } : {}),
-            ...(getShowPercentStackView(node) ? { show_percent_stack_view: getShowPercentStackView(node) } : {}),
+            ...(getShowValueOnSeries(node) ? { showValuesOnSeries: getShowValueOnSeries(node) } : {}),
+            ...(getShowPercentStackView(node) ? { showPercentStackView: getShowPercentStackView(node) } : {}),
             ...(getDisplay(node) ? { display: getDisplay(node) } : {}),
         }
     }

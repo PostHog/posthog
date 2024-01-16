@@ -585,7 +585,7 @@ class StickinessFilter(BaseModel):
     display: Optional[ChartDisplayType] = None
     hidden_legend_indexes: Optional[List[float]] = None
     showLegend: Optional[bool] = None
-    show_values_on_series: Optional[bool] = None
+    showValuesOnSeries: Optional[bool] = None
 
 
 class StickinessFilterLegacy(BaseModel):
@@ -665,7 +665,7 @@ class TrendsFilter(BaseModel):
     showLabelsOnSeries: Optional[bool] = None
     showLegend: Optional[bool] = None
     showPercentStackView: Optional[bool] = None
-    show_values_on_series: Optional[bool] = None
+    showValuesOnSeries: Optional[bool] = None
     smoothingIntervals: Optional[float] = None
 
 
@@ -990,6 +990,14 @@ class HogQLQueryResponse(BaseModel):
 
 
 class LifecycleFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    showValuesOnSeries: Optional[bool] = None
+    toggledLifecycles: Optional[List[LifecycleToggle]] = None
+
+
+class LifecycleFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )

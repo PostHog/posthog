@@ -519,7 +519,7 @@ export type TrendsFilter = {
     aggregationAxisPrefix?: TrendsFilterLegacy['aggregation_axis_prefix']
     aggregationAxisPostfix?: TrendsFilterLegacy['aggregation_axis_postfix']
     decimalPlaces?: TrendsFilterLegacy['decimal_places']
-    show_values_on_series?: TrendsFilterLegacy['show_values_on_series']
+    showValuesOnSeries?: TrendsFilterLegacy['show_values_on_series']
     showLabelsOnSeries?: TrendsFilterLegacy['show_labels_on_series']
     showPercentStackView?: TrendsFilterLegacy['show_percent_stack_view']
     hidden_legend_indexes?: TrendsFilterLegacy['hidden_legend_indexes']
@@ -615,7 +615,7 @@ export type StickinessFilter = {
     compare?: StickinessFilterLegacy['compare']
     display?: StickinessFilterLegacy['display']
     showLegend?: StickinessFilterLegacy['show_legend']
-    show_values_on_series?: StickinessFilterLegacy['show_values_on_series']
+    showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
     hidden_legend_indexes?: StickinessFilterLegacy['hidden_legend_indexes']
 }
 
@@ -634,10 +634,15 @@ export interface StickinessQuery extends Omit<InsightsQueryBase, 'aggregation_gr
 }
 
 /** `LifecycleFilterType` minus everything inherited from `FilterType` */
-export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType | 'shown_as'> & {
+export type LifecycleFilterLegacy = Omit<LifecycleFilterType, keyof FilterType | 'shown_as'> & {
     /** Lifecycles that have been removed from display are not included in this array */
     toggledLifecycles?: LifecycleToggle[]
 } // using everything except what it inherits from FilterType
+
+export type LifecycleFilter = {
+    showValuesOnSeries?: LifecycleFilterLegacy['show_values_on_series']
+    toggledLifecycles?: LifecycleFilterLegacy['toggledLifecycles']
+}
 
 export interface QueryRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */

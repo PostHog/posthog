@@ -60,7 +60,7 @@ describe('queryNodeToFilter', () => {
                 aggregationAxisPrefix: 'M',
                 aggregationAxisPostfix: '$',
                 decimalPlaces: 5,
-                // show_values_on_series?: TrendsFilterLegacy['show_values_on_series']
+                showValuesOnSeries: true,
                 showLabelsOnSeries: true,
                 showPercentStackView: true,
                 // hidden_legend_indexes?: TrendsFilterLegacy['hidden_legend_indexes']
@@ -85,6 +85,7 @@ describe('queryNodeToFilter', () => {
             show_labels_on_series: true,
             show_percent_stack_view: true,
             show_legend: true,
+            show_values_on_series: true,
         }
         expect(result).toEqual(filters)
     })

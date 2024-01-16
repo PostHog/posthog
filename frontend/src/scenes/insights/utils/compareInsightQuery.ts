@@ -50,7 +50,7 @@ const cleanInsightQuery = (query: InsightQueryNode, ignoreVisualizationOnlyChang
             ...insightFilter,
             showLegend: undefined,
             showPercentStackView: undefined,
-            show_values_on_series: undefined,
+            showValuesOnSeries: undefined,
             aggregationAxisFormat: undefined,
             aggregationAxisPrefix: undefined,
             aggregationAxisPostfix: undefined,

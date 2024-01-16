@@ -1996,6 +1996,21 @@
         },
         "LifecycleFilter": {
             "additionalProperties": false,
+            "properties": {
+                "showValuesOnSeries": {
+                    "type": "boolean"
+                },
+                "toggledLifecycles": {
+                    "items": {
+                        "$ref": "#/definitions/LifecycleToggle"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
+        "LifecycleFilterLegacy": {
+            "additionalProperties": false,
             "description": "`LifecycleFilterType` minus everything inherited from `FilterType`",
             "properties": {
                 "show_values_on_series": {
@@ -3516,7 +3531,7 @@
                 "showLegend": {
                     "type": "boolean"
                 },
-                "show_values_on_series": {
+                "showValuesOnSeries": {
                     "type": "boolean"
                 }
             },
@@ -3804,7 +3819,7 @@
                 "showPercentStackView": {
                     "type": "boolean"
                 },
-                "show_values_on_series": {
+                "showValuesOnSeries": {
                     "type": "boolean"
                 },
                 "smoothingIntervals": {
