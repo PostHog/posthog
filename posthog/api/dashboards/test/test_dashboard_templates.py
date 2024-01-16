@@ -1,5 +1,6 @@
 from rest_framework import status
 
+from posthog.models import User
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -445,18 +446,74 @@ class TestDashboardTemplates(APIBaseTest):
         assert response.json()["results"][0]["scope"] == "global"
 
     def test_filter_template_list_by_scope(self):
+        # ensure there are no templates
+        DashboardTemplate.objects.all().delete()
+
+        flag_template_id = self.create_scoped_template(DashboardTemplate.Scope.FEATURE_FLAG, "flag scoped template")
+        global_template_id = self.create_scoped_template(DashboardTemplate.Scope.GLOBAL, "globally scoped template")
+
+        default_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/")
+        assert default_response.status_code == status.HTTP_200_OK
+        global_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/?scope=global")
+        assert global_response.status_code == status.HTTP_200_OK
+        flag_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/?scope=feature_flag")
+        assert flag_response.status_code == status.HTTP_200_OK
+
+        assert [(r["id"], r["scope"]) for r in default_response.json()["results"]] == [
+            (flag_template_id, "feature_flag"),
+            (global_template_id, "global"),
+        ]
+        assert [(r["id"], r["scope"]) for r in global_response.json()["results"]] == [(global_template_id, "global")]
+        assert [(r["id"], r["scope"]) for r in flag_response.json()["results"]] == [(flag_template_id, "feature_flag")]
+
+    def create_scoped_template(self, scope: str, name: str) -> str:
         response = self.client.post(
             f"/api/projects/{self.team.pk}/dashboard_templates",
-            variable_template,
+            {**variable_template, "template_name": name},
         )
+        assert response.status_code == status.HTTP_201_CREATED
         id = response.json()["id"]
-
         self.client.patch(
             f"/api/projects/{self.team.pk}/dashboard_templates/{id}",
-            {"scope": "feature_flag"},
+            {"scope": scope},
         )
+        return id
 
-        response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/?scope=feature_flag")
+    def test_cannot_escape_team__when_filtering_template_list(self):
+        # create another team, and log in as a user from that team
+        another_team = Team.objects.create(name="Another Team", organization=self.organization)
+        another_team_user = User.objects.create_and_join(
+            organization=self.organization, first_name="Another", email="another_user@email.com", password="wat"
+        )
+        another_team_user.current_team = another_team
+        another_team_user.is_staff = True
+        another_team_user.save()
 
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["results"][0]["scope"] == "feature_flag"
+        self.client.force_login(another_team_user)
+
+        # create a dashboard template in that other team
+        response = self.client.post(
+            f"/api/projects/{another_team.pk}/dashboard_templates",
+            variable_template,
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        id = response.json()["id"]
+
+        # the user from another_team can access the new dashboard via the API on their own team
+        list_response = self.client.get(f"/api/projects/{another_team.pk}/dashboard_templates/")
+        assert list_response.status_code == status.HTTP_200_OK
+        assert id in [r["id"] for r in list_response.json()["results"]]
+
+        # the user from the home team cannot see the dashboard by default
+        self.client.force_login(self.user)
+        home_list_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates")
+
+        assert home_list_response.status_code == status.HTTP_200_OK
+        assert id not in [r["id"] for r in home_list_response.json()["results"]]
+
+        # the user form the home team cannot escape their permissions by passing filters
+        attempted_escape_response = self.client.get(
+            f"/api/projects/{self.team.pk}/dashboard_templates/?team_id={another_team.pk}"
+        )
+        assert attempted_escape_response.status_code == status.HTTP_200_OK
+        assert id not in [r["id"] for r in attempted_escape_response.json()["results"]]
