@@ -67,8 +67,9 @@ SNAPSHOT_SOURCE_REQUESTED = Counter(
 
 # context manager for gathering a sequence of server timings
 class ServerTimingsGathered:
-    # Class level dictionary to store timings
-    timings_dict: Dict[str, float] = {}
+    def __init__(self):
+        # Instance level dictionary to store timings
+        self.timings_dict = {}
 
     def __call__(self, name):
         self.name = name
@@ -83,11 +84,10 @@ class ServerTimingsGathered:
     def __exit__(self, exc_type, exc_val, exc_tb):
         end_time = time.perf_counter() * 1000
         elapsed_time = end_time - self.start_time
-        ServerTimingsGathered.timings_dict[self.name] = elapsed_time
+        self.timings_dict[self.name] = elapsed_time
 
-    @classmethod
-    def get_all_timings(cls):
-        return cls.timings_dict
+    def get_all_timings(self):
+        return self.timings_dict
 
 
 class SessionRecordingSerializer(serializers.ModelSerializer):
@@ -507,11 +507,17 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
             raise exceptions.ValidationError("session summary is not enabled for this user")
 
-        response = summarize_recording(recording, user, self.team)
-        cache.set(cache_key, response, timeout=30)
+        summary = summarize_recording(recording, user, self.team)
+        timings = summary.pop("timings", None)
+        cache.set(cache_key, summary, timeout=30)
 
         # let the browser cache for half the time we cache on the server
-        return Response(response, headers={"Cache-Control": "max-age=15"})
+        r = Response(summary, headers={"Cache-Control": "max-age=15"})
+        if timings:
+            r.headers["Server-Timing"] = ", ".join(
+                f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
+            )
+        return r
 
 
 def list_recordings(

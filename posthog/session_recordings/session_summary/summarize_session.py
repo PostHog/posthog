@@ -6,6 +6,7 @@ from typing import List, Dict, Any
 import openai
 from prometheus_client import Histogram
 
+from posthog.api.activity_log import ServerTimingsGathered
 from posthog.models import User, Team
 from posthog.models.element import chain_to_elements
 from posthog.session_recordings.models.session_recording import SessionRecording
@@ -230,7 +231,7 @@ def collapse_sequence_of_events(session_events: SessionSummaryPromptData) -> Ses
                 session_events.columns.append("event_repetition_count")
             previous_result_list = list(previous_result)
             try:
-                existing_repetition_count = previous_result_list[event_repetition_count_index]
+                existing_repetition_count = previous_result_list[event_repetition_count_index] or 0
                 previous_result_list[event_repetition_count_index] = existing_repetition_count + 1
             except IndexError:
                 previous_result_list.append(2)
@@ -244,20 +245,24 @@ def collapse_sequence_of_events(session_events: SessionSummaryPromptData) -> Ses
 
 
 def summarize_recording(recording: SessionRecording, user: User, team: Team):
-    session_metadata = SessionReplayEvents().get_metadata(session_id=str(recording.session_id), team=team)
-    if not session_metadata:
-        raise ValueError(f"no session metadata found for session_id {recording.session_id}")
+    timer = ServerTimingsGathered()
 
-    session_events = SessionReplayEvents().get_events(
-        session_id=str(recording.session_id),
-        team=team,
-        metadata=session_metadata,
-        events_to_ignore=[
-            "$feature_flag_called",
-        ],
-    )
-    if not session_events or not session_events[0] or not session_events[1]:
-        raise ValueError(f"no events found for session_id {recording.session_id}")
+    with timer("get_metadata"):
+        session_metadata = SessionReplayEvents().get_metadata(session_id=str(recording.session_id), team=team)
+        if not session_metadata:
+            raise ValueError(f"no session metadata found for session_id {recording.session_id}")
+
+    with timer("get_events"):
+        session_events = SessionReplayEvents().get_events(
+            session_id=str(recording.session_id),
+            team=team,
+            metadata=session_metadata,
+            events_to_ignore=[
+                "$feature_flag_called",
+            ],
+        )
+        if not session_events or not session_events[0] or not session_events[1]:
+            raise ValueError(f"no events found for session_id {recording.session_id}")
 
     # convert session_metadata to a Dict from a TypedDict
     # so that we can amend its values freely
@@ -268,16 +273,19 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
     session_metadata_dict["start_time"] = start_time.isoformat()
     session_metadata_dict["end_time"] = session_metadata["end_time"].isoformat()
 
-    prompt_data = deduplicate_urls(
-        collapse_sequence_of_events(
-            format_dates(
-                reduce_elements_chain(
-                    simplify_window_id(SessionSummaryPromptData(columns=session_events[0], results=session_events[1]))
-                ),
-                start=start_time,
+    with timer("generate_prompt"):
+        prompt_data = deduplicate_urls(
+            collapse_sequence_of_events(
+                format_dates(
+                    reduce_elements_chain(
+                        simplify_window_id(
+                            SessionSummaryPromptData(columns=session_events[0], results=session_events[1])
+                        )
+                    ),
+                    start=start_time,
+                )
             )
         )
-    )
 
     instance_region = get_instance_region() or "HOBBY"
     messages = [
@@ -318,17 +326,19 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
             generate no text other than the summary.""",
         },
     ]
-    result = openai.ChatCompletion.create(
-        # model="gpt-4-1106-preview",  # allows 128k tokens
-        model="gpt-4",  # allows 8k tokens
-        temperature=0.7,
-        messages=messages,
-        user=f"{instance_region}/{user.pk}",  # The user ID is for tracking within OpenAI in case of overuse/abuse
-    )
 
-    usage = result.get("usage", {}).get("prompt_tokens", None)
-    if usage:
-        TOKENS_IN_PROMPT_HISTOGRAM.observe(usage)
+    with timer("openai_completion"):
+        result = openai.ChatCompletion.create(
+            # model="gpt-4-1106-preview",  # allows 128k tokens
+            model="gpt-4",  # allows 8k tokens
+            temperature=0.7,
+            messages=messages,
+            user=f"{instance_region}/{user.pk}",  # The user ID is for tracking within OpenAI in case of overuse/abuse
+        )
+
+        usage = result.get("usage", {}).get("prompt_tokens", None)
+        if usage:
+            TOKENS_IN_PROMPT_HISTOGRAM.observe(usage)
 
     content: str = result.get("choices", [{}])[0].get("message", {}).get("content", "")
-    return {"ai_result": result, "content": content, "prompt": messages}
+    return {"ai_result": result, "content": content, "prompt": messages, "timings": timer.get_all_timings()}
