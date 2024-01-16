@@ -1709,7 +1709,7 @@
             "description": "HogQL Query Options are automatically set per team. However, they can be overriden in the query.",
             "properties": {
                 "inCohortVia": {
-                    "enum": ["leftjoin", "subquery"],
+                    "enum": ["leftjoin", "subquery", "leftjoin_conjoined"],
                     "type": "string"
                 },
                 "materializationMode": {
@@ -3741,13 +3741,13 @@
         "TrendsFilter": {
             "additionalProperties": false,
             "properties": {
-                "aggregation_axis_format": {
+                "aggregationAxisFormat": {
                     "$ref": "#/definitions/AggregationAxisFormat"
                 },
-                "aggregation_axis_postfix": {
+                "aggregationAxisPostfix": {
                     "type": "string"
                 },
-                "aggregation_axis_prefix": {
+                "aggregationAxisPrefix": {
                     "type": "string"
                 },
                 "breakdown_histogram_bin_count": {
@@ -3756,7 +3756,7 @@
                 "compare": {
                     "type": "boolean"
                 },
-                "decimal_places": {
+                "decimalPlaces": {
                     "type": "number"
                 },
                 "display": {
@@ -3771,13 +3771,13 @@
                     },
                     "type": "array"
                 },
-                "show_labels_on_series": {
+                "showLabelsOnSeries": {
+                    "type": "boolean"
+                },
+                "showPercentStackView": {
                     "type": "boolean"
                 },
                 "show_legend": {
-                    "type": "boolean"
-                },
-                "show_percent_stack_view": {
                     "type": "boolean"
                 },
                 "show_values_on_series": {

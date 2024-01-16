@@ -340,7 +340,7 @@ class PluginViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 | Q(is_global=True)
                 | Q(
                     id__in=PluginConfig.objects.filter(  # If a config exists the org can see the plugin
-                        team__organization_id=self.organization_id
+                        team__organization_id=self.organization_id, deleted=False
                     ).values_list("plugin_id", flat=True)
                 )
             )
