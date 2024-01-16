@@ -373,21 +373,20 @@ def _insight_filter(filter: Dict):
     elif _insight_type(filter) == "PATHS":
         insight_filter = {
             "pathsFilter": PathsFilter(
-                # path_type=filter.get('path_type'), # legacy
-                paths_hogql_expression=filter.get("paths_hogql_expression"),
-                include_event_types=filter.get("include_event_types"),
-                start_point=filter.get("start_point"),
-                end_point=filter.get("end_point"),
-                path_groupings=filter.get("path_groupings"),
-                exclude_events=filter.get("exclude_events"),
-                step_limit=filter.get("step_limit"),
-                path_replacements=filter.get("path_replacements"),
-                local_path_cleaning_filters=filter.get("local_path_cleaning_filters"),
-                edge_limit=filter.get("edge_limit"),
-                min_edge_weight=filter.get("min_edge_weight"),
-                max_edge_weight=filter.get("max_edge_weight"),
-                funnel_paths=filter.get("funnel_paths"),
-                funnel_filter=filter.get("funnel_filter"),
+                pathsHogqlExpression=filter.get("paths_hogql_expression"),
+                includeEventTypes=filter.get("include_event_types"),
+                startPoint=filter.get("start_point"),
+                endPoint=filter.get("end_point"),
+                pathGroupings=filter.get("path_groupings"),
+                excludeEvents=filter.get("exclude_events"),
+                stepLimit=filter.get("step_limit"),
+                pathReplacements=filter.get("path_replacements"),
+                localPathCleaningFilters=filter.get("local_path_cleaning_filters"),
+                edgeLimit=filter.get("edge_limit"),
+                minEdgeWeight=filter.get("min_edge_weight"),
+                maxEdgeWeight=filter.get("max_edge_weight"),
+                funnelPaths=filter.get("funnel_paths"),
+                funnelFilter=filter.get("funnel_filter"),
             )
         }
     elif _insight_type(filter) == "LIFECYCLE":

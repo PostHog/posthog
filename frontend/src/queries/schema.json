@@ -2194,58 +2194,58 @@
         "PathsFilter": {
             "additionalProperties": false,
             "properties": {
-                "edge_limit": {
+                "edgeLimit": {
                     "type": "number"
                 },
-                "end_point": {
+                "endPoint": {
                     "type": "string"
                 },
-                "exclude_events": {
+                "excludeEvents": {
                     "items": {
                         "type": "string"
                     },
                     "type": "array"
                 },
-                "funnel_filter": {
+                "funnelFilter": {
                     "type": "object"
                 },
-                "funnel_paths": {
+                "funnelPaths": {
                     "$ref": "#/definitions/FunnelPathType"
                 },
-                "include_event_types": {
+                "includeEventTypes": {
                     "items": {
                         "$ref": "#/definitions/PathType"
                     },
                     "type": "array"
                 },
-                "local_path_cleaning_filters": {
+                "localPathCleaningFilters": {
                     "items": {
                         "$ref": "#/definitions/PathCleaningFilter"
                     },
                     "type": "array"
                 },
-                "max_edge_weight": {
+                "maxEdgeWeight": {
                     "type": "number"
                 },
-                "min_edge_weight": {
+                "minEdgeWeight": {
                     "type": "number"
                 },
-                "path_groupings": {
+                "pathGroupings": {
                     "items": {
                         "type": "string"
                     },
                     "type": "array"
                 },
-                "path_replacements": {
+                "pathReplacements": {
                     "type": "boolean"
                 },
-                "paths_hogql_expression": {
+                "pathsHogqlExpression": {
                     "type": "string"
                 },
-                "start_point": {
+                "startPoint": {
                     "type": "string"
                 },
-                "step_limit": {
+                "stepLimit": {
                     "type": "number"
                 }
             },

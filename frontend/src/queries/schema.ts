@@ -605,20 +605,20 @@ export type PathsFilterLegacy = Omit<
 >
 
 export type PathsFilter = {
-    edge_limit?: PathsFilterLegacy['edge_limit']
-    paths_hogql_expression?: PathsFilterLegacy['paths_hogql_expression']
-    include_event_types?: PathsFilterLegacy['include_event_types']
-    start_point?: PathsFilterLegacy['start_point']
-    end_point?: PathsFilterLegacy['end_point']
-    path_groupings?: PathsFilterLegacy['path_groupings']
-    exclude_events?: PathsFilterLegacy['exclude_events']
-    step_limit?: PathsFilterLegacy['step_limit']
-    path_replacements?: PathsFilterLegacy['path_replacements']
-    local_path_cleaning_filters?: PathsFilterLegacy['local_path_cleaning_filters']
-    min_edge_weight?: PathsFilterLegacy['min_edge_weight']
-    max_edge_weight?: PathsFilterLegacy['max_edge_weight']
-    funnel_paths?: PathsFilterLegacy['funnel_paths']
-    funnel_filter?: PathsFilterLegacy['funnel_filter']
+    edgeLimit?: PathsFilterLegacy['edge_limit']
+    pathsHogqlExpression?: PathsFilterLegacy['paths_hogql_expression']
+    includeEventTypes?: PathsFilterLegacy['include_event_types']
+    startPoint?: PathsFilterLegacy['start_point']
+    endPoint?: PathsFilterLegacy['end_point']
+    pathGroupings?: PathsFilterLegacy['path_groupings']
+    excludeEvents?: PathsFilterLegacy['exclude_events']
+    stepLimit?: PathsFilterLegacy['step_limit']
+    pathReplacements?: PathsFilterLegacy['path_replacements']
+    localPathCleaningFilters?: PathsFilterLegacy['local_path_cleaning_filters']
+    minEdgeWeight?: PathsFilterLegacy['min_edge_weight']
+    maxEdgeWeight?: PathsFilterLegacy['max_edge_weight']
+    funnelPaths?: PathsFilterLegacy['funnel_paths']
+    funnelFilter?: PathsFilterLegacy['funnel_filter']
 }
 
 export interface PathsQuery extends InsightsQueryBase {

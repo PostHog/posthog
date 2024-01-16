@@ -392,20 +392,20 @@ class PathsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    edge_limit: Optional[float] = None
-    end_point: Optional[str] = None
-    exclude_events: Optional[List[str]] = None
-    funnel_filter: Optional[Dict[str, Any]] = None
-    funnel_paths: Optional[FunnelPathType] = None
-    include_event_types: Optional[List[PathType]] = None
-    local_path_cleaning_filters: Optional[List[PathCleaningFilter]] = None
-    max_edge_weight: Optional[float] = None
-    min_edge_weight: Optional[float] = None
-    path_groupings: Optional[List[str]] = None
-    path_replacements: Optional[bool] = None
-    paths_hogql_expression: Optional[str] = None
-    start_point: Optional[str] = None
-    step_limit: Optional[float] = None
+    edgeLimit: Optional[float] = None
+    endPoint: Optional[str] = None
+    excludeEvents: Optional[List[str]] = None
+    funnelFilter: Optional[Dict[str, Any]] = None
+    funnelPaths: Optional[FunnelPathType] = None
+    includeEventTypes: Optional[List[PathType]] = None
+    localPathCleaningFilters: Optional[List[PathCleaningFilter]] = None
+    maxEdgeWeight: Optional[float] = None
+    minEdgeWeight: Optional[float] = None
+    pathGroupings: Optional[List[str]] = None
+    pathReplacements: Optional[bool] = None
+    pathsHogqlExpression: Optional[str] = None
+    startPoint: Optional[str] = None
+    stepLimit: Optional[float] = None
 
 
 class PathsFilterLegacy(BaseModel):
