@@ -10,6 +10,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { AvailableFeature } from '~/types'
 import { ActivityScope } from '~/types'
 
 import { canGloballyManagePlugins, canViewPlugins } from './access'
@@ -25,9 +26,11 @@ export const scene: SceneExport = {
 }
 
 export function AppsScene(): JSX.Element | null {
-    const { user } = useValues(userLogic)
+    const { user, hasAvailableFeature } = useValues(userLogic)
     const { pluginTab } = useValues(pluginsLogic)
     const { setPluginTab } = useActions(pluginsLogic)
+
+    const hasDataPipelines = hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
 
     useEffect(() => {
         if (!canViewPlugins(user?.organization)) {
@@ -42,10 +45,9 @@ export function AppsScene(): JSX.Element | null {
     return (
         <>
             <PageHeader
-                title="Apps & Exports"
                 tabbedPage
                 buttons={
-                    pluginTab === PluginTab.BatchExports ? (
+                    hasDataPipelines && pluginTab === PluginTab.BatchExports ? (
                         <LemonButton type="primary" to={urls.batchExportNew()}>
                             Create export workflow
                         </LemonButton>
@@ -58,7 +60,11 @@ export function AppsScene(): JSX.Element | null {
                 onChange={(newKey) => setPluginTab(newKey)}
                 tabs={[
                     { key: PluginTab.Apps, label: 'Apps', content: <AppsTab /> },
-                    { key: PluginTab.BatchExports, label: 'Batch Exports', content: <BatchExportsTab /> },
+                    {
+                        key: PluginTab.BatchExports,
+                        label: 'Batch Exports',
+                        content: <BatchExportsTab />,
+                    },
                     {
                         key: PluginTab.History,
                         label: 'History',

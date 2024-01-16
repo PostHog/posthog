@@ -37,7 +37,7 @@ export function loadPostHogJS(): void {
                         posthog.opt_in_capturing()
                     }
                 },
-                __preview_measure_pageview_stats: true,
+                scroll_root_selector: ['main', 'html'],
             })
         )
 

@@ -217,8 +217,8 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
             })
             .join(' & ')
 
-        if (query.breakdown?.breakdown_type) {
-            summary += `${query.series.length > 1 ? ',' : ''} by ${summarizeBreakdown(query.breakdown, context)}`
+        if (query.breakdownFilter?.breakdown_type) {
+            summary += `${query.series.length > 1 ? ',' : ''} by ${summarizeBreakdown(query.breakdownFilter, context)}`
         }
         if (query.trendsFilter?.formula) {
             summary = `${query.trendsFilter.formula} on ${summary}`
@@ -244,8 +244,8 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
             // Steps are the default viz type
             summary += ' rate'
         }
-        if (query.breakdown?.breakdown_type) {
-            summary += ` by ${summarizeBreakdown(query.breakdown, context)}`
+        if (query.breakdownFilter?.breakdown_type) {
+            summary += ` by ${summarizeBreakdown(query.breakdownFilter, context)}`
         }
         return summary
     } else if (isRetentionQuery(query)) {

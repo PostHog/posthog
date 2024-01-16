@@ -127,6 +127,7 @@ describe('sessionRecordingDataLogic', () => {
                 })
             resumeKeaLoadersErrors()
         })
+
         it('fetch metadata success and snapshots error', async () => {
             silenceKeaLoadersErrors()
             // Unmount and remount the logic to trigger fetching the data again after the mock change

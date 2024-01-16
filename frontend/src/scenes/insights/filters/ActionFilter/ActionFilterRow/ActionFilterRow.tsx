@@ -312,7 +312,7 @@ export function ActionFilterRow({
 
     return (
         <li
-            className={'ActionFilterRow'}
+            className="ActionFilterRow"
             ref={setNodeRef}
             {...attributes}
             // eslint-disable-next-line react/forbid-dom-props

@@ -69,6 +69,8 @@ interface DataTableProps {
     /* Cached Results are provided when shared or exported,
     the data node logic becomes read only implicitly */
     cachedResults?: AnyResponseType
+    // Override the data logic node key if needed
+    dataNodeLogicKey?: string
 }
 
 const eventGroupTypes = [
@@ -81,14 +83,21 @@ const personGroupTypes = [TaxonomicFilterGroupType.HogQLExpression, TaxonomicFil
 
 let uniqueNode = 0
 
-export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }: DataTableProps): JSX.Element {
+export function DataTable({
+    uniqueKey,
+    query,
+    setQuery,
+    context,
+    cachedResults,
+    dataNodeLogicKey,
+}: DataTableProps): JSX.Element {
     const [uniqueNodeKey] = useState(() => uniqueNode++)
     const [dataKey] = useState(() => `DataNode.${uniqueKey || uniqueNodeKey}`)
     const [vizKey] = useState(() => `DataTable.${uniqueNodeKey}`)
 
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
-        key: dataKey,
+        key: dataNodeLogicKey ?? dataKey,
         cachedResults: cachedResults,
     }
     const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)
@@ -105,7 +114,13 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         backToSourceQuery,
     } = useValues(builtDataNodeLogic)
 
-    const dataTableLogicProps: DataTableLogicProps = { query, vizKey: vizKey, dataKey: dataKey, context }
+    const dataTableLogicProps: DataTableLogicProps = {
+        query,
+        vizKey: vizKey,
+        dataKey: dataKey,
+        dataNodeLogicKey,
+        context,
+    }
     const { dataTableRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort, sourceFeatures } = useValues(
         dataTableLogic(dataTableLogicProps)
     )
@@ -139,7 +154,6 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
         : columnsInQuery
 
     const groupTypes = isActorsQuery(query.source) ? personGroupTypes : eventGroupTypes
-    const hogQLTable = isActorsQuery(query.source) ? 'persons' : 'events'
 
     const lemonColumns: LemonTableColumn<DataTableRow, any>[] = [
         ...columnsInLemonTable.map((key, index) => ({
@@ -177,7 +191,7 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value={key}
                             groupTypes={groupTypes}
-                            hogQLTable={hogQLTable}
+                            metadataSource={query.source}
                             renderValue={() => <>Edit column</>}
                             type="tertiary"
                             fullWidth
@@ -249,9 +263,9 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                         ) : null}
                         <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
-                            value={''}
+                            value=""
                             groupTypes={groupTypes}
-                            hogQLTable={hogQLTable}
+                            metadataSource={query.source}
                             placeholder={<span className="not-italic">Add column left</span>}
                             data-attr="datatable-add-column-left"
                             type="tertiary"
@@ -278,9 +292,9 @@ export function DataTable({ uniqueKey, query, setQuery, context, cachedResults }
                         />
                         <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
-                            value={''}
+                            value=""
                             groupTypes={groupTypes}
-                            hogQLTable={hogQLTable}
+                            metadataSource={query.source}
                             placeholder={<span className="not-italic">Add column right</span>}
                             data-attr="datatable-add-column-right"
                             type="tertiary"

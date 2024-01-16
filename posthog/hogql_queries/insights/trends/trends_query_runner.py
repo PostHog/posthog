@@ -13,6 +13,7 @@ from posthog.caching.insights_api import (
 from posthog.caching.utils import is_stale
 
 from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql_queries.insights.trends.breakdown_values import (
@@ -38,6 +39,7 @@ from posthog.schema import (
     ChartDisplayType,
     EventsNode,
     HogQLQueryResponse,
+    InCohortVia,
     TrendsQuery,
     TrendsQueryResponse,
     HogQLQueryModifiers,
@@ -55,7 +57,7 @@ class TrendsQueryRunner(QueryRunner):
         team: Team,
         timings: Optional[HogQLTimings] = None,
         modifiers: Optional[HogQLQueryModifiers] = None,
-        limit_context: Optional[bool] = None,
+        limit_context: Optional[LimitContext] = None,
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
         self.series = self.setup_series()
@@ -82,7 +84,7 @@ class TrendsQueryRunner(QueryRunner):
 
         return refresh_frequency
 
-    def to_query(self) -> List[ast.SelectQuery]:
+    def to_query(self) -> List[ast.SelectQuery | ast.SelectUnionQuery]:  # type: ignore
         queries = []
         with self.timings.measure("trends_query"):
             for series in self.series:
@@ -97,6 +99,7 @@ class TrendsQueryRunner(QueryRunner):
                     query_date_range=query_date_range,
                     series=series.series,
                     timings=self.timings,
+                    modifiers=self.modifiers,
                 )
                 queries.append(query_builder.build_query())
 
@@ -117,6 +120,7 @@ class TrendsQueryRunner(QueryRunner):
                     query_date_range=query_date_range,
                     series=series.series,
                     timings=self.timings,
+                    modifiers=self.modifiers,
                 )
                 queries.append(query_builder.build_persons_query())
 
@@ -251,7 +255,7 @@ class TrendsQueryRunner(QueryRunner):
                 series_object["labels"] = labels
 
             # Modifications for when breakdowns are active
-            if self.query.breakdown is not None and self.query.breakdown.breakdown is not None:
+            if self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdown is not None:
                 remapped_label = None
 
                 if self._is_breakdown_field_boolean():
@@ -265,7 +269,7 @@ class TrendsQueryRunner(QueryRunner):
 
                     series_object["label"] = "{} - {}".format(series_object["label"], remapped_label)
                     series_object["breakdown_value"] = remapped_label
-                elif self.query.breakdown.breakdown_type == "cohort":
+                elif self.query.breakdownFilter.breakdown_type == "cohort":
                     cohort_id = get_value("breakdown_value", val)
                     cohort_name = "all users" if str(cohort_id) == "0" else Cohort.objects.get(pk=cohort_id).name
 
@@ -340,17 +344,21 @@ class TrendsQueryRunner(QueryRunner):
             for series in self.query.series
         ]
 
-        if self.query.breakdown is not None and self.query.breakdown.breakdown_type == "cohort":
+        if (
+            self.modifiers.inCohortVia != InCohortVia.leftjoin_conjoined
+            and self.query.breakdownFilter is not None
+            and self.query.breakdownFilter.breakdown_type == "cohort"
+        ):
             updated_series = []
-            if isinstance(self.query.breakdown.breakdown, List):
-                cohort_ids = self.query.breakdown.breakdown
+            if isinstance(self.query.breakdownFilter.breakdown, List):
+                cohort_ids = self.query.breakdownFilter.breakdown
             else:
-                cohort_ids = [self.query.breakdown.breakdown]
+                cohort_ids = [self.query.breakdownFilter.breakdown]  # type: ignore
 
             for cohort_id in cohort_ids:
                 for series in series_with_extras:
                     copied_query = deepcopy(self.query)
-                    copied_query.breakdown.breakdown = cohort_id
+                    copied_query.breakdownFilter.breakdown = cohort_id  # type: ignore
 
                     updated_series.append(
                         SeriesWithExtras(
@@ -415,23 +423,23 @@ class TrendsQueryRunner(QueryRunner):
 
     def _is_breakdown_field_boolean(self):
         if (
-            self.query.breakdown.breakdown_type == "hogql"
-            or self.query.breakdown.breakdown_type == "cohort"
-            or self.query.breakdown.breakdown_type == "session"
+            self.query.breakdownFilter.breakdown_type == "hogql"
+            or self.query.breakdownFilter.breakdown_type == "cohort"
+            or self.query.breakdownFilter.breakdown_type == "session"
         ):
             return False
 
-        if self.query.breakdown.breakdown_type == "person":
+        if self.query.breakdownFilter.breakdown_type == "person":
             property_type = PropertyDefinition.Type.PERSON
-        elif self.query.breakdown.breakdown_type == "group":
+        elif self.query.breakdownFilter.breakdown_type == "group":
             property_type = PropertyDefinition.Type.GROUP
         else:
             property_type = PropertyDefinition.Type.EVENT
 
         field_type = self._event_property(
-            self.query.breakdown.breakdown,
+            self.query.breakdownFilter.breakdown,
             property_type,
-            self.query.breakdown.breakdown_group_type_index,
+            self.query.breakdownFilter.breakdown_group_type_index,
         )
         return field_type == "Boolean"
 
@@ -452,6 +460,7 @@ class TrendsQueryRunner(QueryRunner):
             group_type_index=group_type_index if field_type == PropertyDefinition.Type.GROUP else None,
         ).property_type
 
+    # TODO: Move this to posthog/hogql_queries/legacy_compatibility/query_to_filter.py
     def _query_to_filter(self) -> Dict[str, Any]:
         filter_dict = {
             "insight": "TRENDS",
@@ -468,8 +477,8 @@ class TrendsQueryRunner(QueryRunner):
         if self.query.trendsFilter is not None:
             filter_dict.update(self.query.trendsFilter.__dict__)
 
-        if self.query.breakdown is not None:
-            filter_dict.update(**self.query.breakdown.__dict__)
+        if self.query.breakdownFilter is not None:
+            filter_dict.update(**self.query.breakdownFilter.__dict__)
 
         return {k: v for k, v in filter_dict.items() if v is not None}
 

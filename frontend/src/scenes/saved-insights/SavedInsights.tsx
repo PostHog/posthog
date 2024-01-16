@@ -360,7 +360,7 @@ function SavedInsightsGrid(): JSX.Element {
                                 callback: loadInsights,
                             })
                         }
-                        placement={'SavedInsightGrid'}
+                        placement="SavedInsightGrid"
                     />
                 ))}
                 {insightsLoading && (
@@ -463,7 +463,7 @@ export function SavedInsights(): JSX.Element {
             dataIndex: 'last_modified_at',
             render: function renderLastModified(last_modified_at: string) {
                 return (
-                    <div className={'whitespace-nowrap'}>{last_modified_at && <TZLabel time={last_modified_at} />}</div>
+                    <div className="whitespace-nowrap">{last_modified_at && <TZLabel time={last_modified_at} />}</div>
                 )
             },
         },
@@ -490,7 +490,7 @@ export function SavedInsights(): JSX.Element {
                                 </LemonButton>
                                 <LemonButton
                                     onClick={() => duplicateInsight(insight)}
-                                    data-attr={`duplicate-insight-from-list-view`}
+                                    data-attr="duplicate-insight-from-list-view"
                                     fullWidth
                                 >
                                     Duplicate
@@ -520,10 +520,7 @@ export function SavedInsights(): JSX.Element {
 
     return (
         <div className="saved-insights">
-            <PageHeader
-                title="Product analytics"
-                buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />}
-            />
+            <PageHeader buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />} />
             <LemonTabs
                 activeKey={tab}
                 onChange={(tab) => setSavedInsightsFilters({ tab })}

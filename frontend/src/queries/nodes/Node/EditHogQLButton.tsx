@@ -11,7 +11,7 @@ export interface EditHogQLButtonProps extends LemonButtonWithoutSideActionProps 
 export function EditHogQLButton({ hogql, ...props }: EditHogQLButtonProps): JSX.Element {
     return (
         <LemonButton
-            data-attr={'open-json-editor-button'}
+            data-attr="open-json-editor-button"
             type="secondary"
             to={urls.insightNew(
                 undefined,
@@ -23,7 +23,7 @@ export function EditHogQLButton({ hogql, ...props }: EditHogQLButtonProps): JSX.
                 })
             )}
             icon={<IconQueryEditor />}
-            tooltip={'Edit SQL directly'}
+            tooltip="Edit SQL directly"
             {...props}
         />
     )

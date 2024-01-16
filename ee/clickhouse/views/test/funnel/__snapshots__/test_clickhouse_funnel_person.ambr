@@ -1,5 +1,6 @@
+# serializer version: 1
 # name: TestFunnelPerson.test_funnel_actors_with_groups_search
-  '
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT aggregation_target AS actor_id
   FROM
@@ -103,6 +104,7 @@
   WHERE steps IN [1, 2, 3]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0
-  '
----
+  OFFSET 0 SETTINGS max_ast_elements=1000000,
+                    max_expanded_ast_elements=1000000
+  '''
+# ---

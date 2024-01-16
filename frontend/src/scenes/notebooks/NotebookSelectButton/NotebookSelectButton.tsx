@@ -46,7 +46,7 @@ function NotebooksChoiceList(props: {
     return (
         <div>
             {props.notebooks.length === 0 ? (
-                <div className={'px-2 py-1'}>{props.emptyState}</div>
+                <div className="px-2 py-1">{props.emptyState}</div>
             ) : (
                 props.notebooks.map((notebook, i) => {
                     return (
@@ -147,7 +147,7 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
             <LemonDivider />
             <div className="overflow-y-auto flex-1">
                 {notebooksLoading && !notebooksNotContainingResource.length && !notebooksContainingResource.length ? (
-                    <div className={'px-2 py-1 flex flex-row items-center space-x-1'}>
+                    <div className="px-2 py-1 flex flex-row items-center space-x-1">
                         {notebooksLoading ? (
                             'Loading...'
                         ) : searchQuery.length ? (

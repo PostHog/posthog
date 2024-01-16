@@ -372,7 +372,7 @@ export function FeatureFlagReleaseConditions({
                                 'The matching Early Access Feature was not found. You can create it in the Early Access Management tab.'
                             }
                             aria-label="more"
-                            data-attr={'feature-flag-feature-list-button'}
+                            data-attr="feature-flag-feature-list-button"
                             size="small"
                             onClick={() =>
                                 featureFlag.features &&

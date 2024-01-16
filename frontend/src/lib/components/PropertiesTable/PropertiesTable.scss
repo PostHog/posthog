@@ -4,38 +4,6 @@
     max-width: 24rem;
 }
 
-.property-value-type {
-    display: flex;
-    align-items: center;
-    width: fit-content;
-    height: 1.25rem;
-    padding: 0.125rem 0.25rem;
-    font-size: 0.625rem;
-    font-weight: 500;
-    color: var(--muted-alt);
-    text-transform: uppercase;
-    letter-spacing: 0.25px;
-    white-space: nowrap;
-    cursor: default;
-    background: var(--mid);
-    border: 1px solid var(--border-light);
-    border-radius: var(--radius);
-
-    .posthog-3000 & {
-        padding: 0.075rem 0.25rem;
-        font-family: var(--font-mono);
-        font-size: 0.688rem;
-        background: none;
-        border-style: solid;
-        border-width: 1px;
-        border-radius: calc(var(--radius) * 0.75);
-    }
-
-    &:not(:first-child) {
-        margin-left: 0.25rem;
-    }
-}
-
 .properties-table-value {
     display: flex;
     align-items: center;

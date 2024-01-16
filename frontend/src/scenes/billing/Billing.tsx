@@ -29,7 +29,7 @@ export const scene: SceneExport = {
 }
 
 export function BillingPageHeader(): JSX.Element {
-    return <PageHeader title="Billing &amp; usage" />
+    return <PageHeader />
 }
 
 export function Billing(): JSX.Element {
@@ -134,7 +134,7 @@ export function Billing(): JSX.Element {
             {showLicenseDirectInput && (
                 <>
                     <Form logic={billingLogic} formKey="activateLicense" enableFormOnSubmit className="space-y-4">
-                        <Field name="license" label={'Activate license key'}>
+                        <Field name="license" label="Activate license key">
                             <LemonInput fullWidth autoFocus />
                         </Field>
 
@@ -325,7 +325,7 @@ export function Billing(): JSX.Element {
                                 </LemonButton>
                             </div>
                         </div>
-                        <div className="h-24 self-end -scale-x-1 -ml-20 -mb-2">
+                        <div className="h-24 self-end -scale-x-100 -ml-20 -mb-2">
                             <SurprisedHog className="max-h-full w-auto object-contain" />
                         </div>
                     </div>

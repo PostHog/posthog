@@ -1,4 +1,4 @@
-import { LemonBanner, LemonButton, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -7,7 +7,6 @@ import { FlagSelector } from 'lib/components/FlagSelector'
 import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -104,7 +103,7 @@ function NetworkCaptureSettings(): JSX.Element {
             </p>
             <FlaggedFeature flag={FEATURE_FLAGS.NETWORK_PAYLOAD_CAPTURE} match={true}>
                 <h5>Network payloads</h5>
-                <div className={'flex flex-row space-x-2'}>
+                <div className="flex flex-row space-x-2">
                     <LemonSwitch
                         data-attr="opt-in-capture-network-headers-switch"
                         onChange={(checked) => {
@@ -181,37 +180,28 @@ export function ReplayCostControl(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const samplingControlFeatureEnabled = hasAvailableFeature(AvailableFeature.SESSION_REPLAY_SAMPLING)
     const recordingDurationMinimumFeatureEnabled = hasAvailableFeature(AvailableFeature.RECORDING_DURATION_MINIMUM)
     const featureFlagRecordingFeatureEnabled = hasAvailableFeature(AvailableFeature.FEATURE_FLAG_BASED_RECORDING)
-    const costControlFeaturesEnabled =
-        featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SAMPLING] ||
-        samplingControlFeatureEnabled ||
-        recordingDurationMinimumFeatureEnabled ||
-        featureFlagRecordingFeatureEnabled
 
-    return costControlFeaturesEnabled ? (
+    return (
         <>
             <p>
                 PostHog offers several tools to let you control the number of recordings you collect and which users you
                 collect recordings for.{' '}
                 <Link
-                    to={'https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record'}
-                    target={'blank'}
+                    to="https://posthog.com/docs/session-replay/how-to-control-which-sessions-you-record"
+                    target="blank"
                 >
-                    Learn more in our docs
+                    Learn more in our docs.
                 </Link>
             </p>
-            <LemonBanner className="mb-4" type={'info'}>
-                Requires posthog-js version 1.88.2 or greater
-            </LemonBanner>
-            {(featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SAMPLING] || samplingControlFeatureEnabled) && (
+
+            {samplingControlFeatureEnabled && (
                 <>
-                    <div className={'flex flex-row justify-between'}>
+                    <div className="flex flex-row justify-between">
                         <LemonLabel className="text-base">Sampling</LemonLabel>
                         <LemonSelect
-                            data-attr={'session-recording-config-sampling'}
                             onChange={(v) => {
                                 updateCurrentTeam({ session_recording_sample_rate: v })
                             }}
@@ -316,12 +306,11 @@ export function ReplayCostControl(): JSX.Element {
                     </p>
                 </>
             )}
-            {(featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SAMPLING] || recordingDurationMinimumFeatureEnabled) && (
+            {recordingDurationMinimumFeatureEnabled && (
                 <>
-                    <div className={'flex flex-row justify-between'}>
+                    <div className="flex flex-row justify-between">
                         <LemonLabel className="text-base">Minimum session duration (seconds)</LemonLabel>
                         <LemonSelect
-                            data-attr={'session-recording-config-minimum-duration'}
                             dropdownMatchSelectWidth={false}
                             onChange={(v) => {
                                 updateCurrentTeam({ session_recording_minimum_duration_milliseconds: v })
@@ -336,11 +325,11 @@ export function ReplayCostControl(): JSX.Element {
                     </p>
                 </>
             )}
-            {(featureFlags[FEATURE_FLAGS.SESSION_RECORDING_SAMPLING] || featureFlagRecordingFeatureEnabled) && (
+            {featureFlagRecordingFeatureEnabled && (
                 <>
-                    <div className={'flex flex-col space-y-2'}>
+                    <div className="flex flex-col space-y-2">
                         <LemonLabel className="text-base">Enable recordings using feature flag</LemonLabel>
-                        <div className={'flex flex-row justify-start space-x-2'}>
+                        <div className="flex flex-row justify-start">
                             <FlagSelector
                                 value={currentTeam?.session_recording_linked_flag?.id ?? undefined}
                                 onChange={(id, key) => {
@@ -355,7 +344,6 @@ export function ReplayCostControl(): JSX.Element {
                                     type="secondary"
                                     onClick={() => updateCurrentTeam({ session_recording_linked_flag: null })}
                                     title="Clear selected flag"
-                                    data-attr={'session-recording-config-clear-linked-flag'}
                                 />
                             )}
                         </div>
@@ -367,7 +355,5 @@ export function ReplayCostControl(): JSX.Element {
                 </>
             )}
         </>
-    ) : (
-        <></>
     )
 }

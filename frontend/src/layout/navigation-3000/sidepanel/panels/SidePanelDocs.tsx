@@ -13,7 +13,7 @@ type Menu = {
     url?: string
 }
 
-function SidePanelDocsSkeleton(): JSX.Element {
+export function SidePanelDocsSkeleton(): JSX.Element {
     return (
         <div className="absolute inset-0 p-4 space-y-2">
             <LemonSkeleton className="w-full h-10 mb-12" />
