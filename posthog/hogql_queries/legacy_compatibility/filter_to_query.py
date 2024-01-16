@@ -315,7 +315,7 @@ def _insight_filter(filter: Dict):
         insight_filter = {
             "trendsFilter": TrendsFilter(
                 smoothingIntervals=filter.get("smoothing_intervals"),
-                # show_legend=filter.get('show_legend'),
+                showLegend=filter.get("show_legend"),
                 # hidden_legend_indexes=cleanHiddenLegendIndexes(filter.get('hidden_legend_keys')),
                 compare=filter.get("compare"),
                 aggregationAxisFormat=filter.get("aggregation_axis_format"),
@@ -401,7 +401,7 @@ def _insight_filter(filter: Dict):
         insight_filter = {
             "stickinessFilter": StickinessFilter(
                 compare=filter.get("compare"),
-                # show_legend=filter.get('show_legend'),
+                showLegend=filter.get("show_legend"),
                 # hidden_legend_indexes: cleanHiddenLegendIndexes(filter.get('hidden_legend_keys')),
                 show_values_on_series=filter.get("show_values_on_series"),
             )

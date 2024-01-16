@@ -85,9 +85,9 @@ export const getBreakdown = (query: InsightQueryNode): BreakdownFilter | undefin
 
 export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
     if (isStickinessQuery(query)) {
-        return query.stickinessFilter?.show_legend
+        return query.stickinessFilter?.showLegend
     } else if (isTrendsQuery(query)) {
-        return query.trendsFilter?.show_legend
+        return query.trendsFilter?.showLegend
     } else {
         return undefined
     }

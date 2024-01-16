@@ -134,7 +134,7 @@ export function ActionsPie({
                         </div>
                     )}
                 </div>
-                {inCardView && trendsFilter?.show_legend && <InsightLegend inCardView />}
+                {inCardView && trendsFilter?.showLegend && <InsightLegend inCardView />}
             </div>
         ) : (
             <p className="text-center mt-16">We couldn't find any matching actions.</p>

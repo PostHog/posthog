@@ -157,6 +157,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         legacyProps.aggregation_axis_prefix = insightFilter.aggregationAxisPrefix
         legacyProps.show_labels_on_series = insightFilter.showLabelsOnSeries
         legacyProps.show_percent_stack_view = insightFilter.showPercentStackView
+        legacyProps.show_legend = insightFilter.showLegend
         delete insightFilter.smoothingIntervals
         delete insightFilter.decimalPlaces
         delete insightFilter.aggregationAxisFormat
@@ -164,6 +165,10 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         delete insightFilter.aggregationAxisPrefix
         delete insightFilter.showLabelsOnSeries
         delete insightFilter.showPercentStackView
+        delete insightFilter.showLegend
+    } else if (isStickinessFilter(query)) {
+        legacyProps.show_legend = insightFilter.showLegend
+        delete insightFilter.showLegend
     }
     Object.assign(filters, insightFilter)
     Object.assign(filters, legacyProps)

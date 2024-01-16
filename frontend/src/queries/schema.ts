@@ -513,7 +513,7 @@ export type TrendsFilter = {
     compare?: TrendsFilterLegacy['compare']
     formula?: TrendsFilterLegacy['formula']
     display?: TrendsFilterLegacy['display']
-    show_legend?: TrendsFilterLegacy['show_legend']
+    showLegend?: TrendsFilterLegacy['show_legend']
     breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
     aggregationAxisFormat?: TrendsFilterLegacy['aggregation_axis_format']
     aggregationAxisPrefix?: TrendsFilterLegacy['aggregation_axis_prefix']
@@ -606,10 +606,18 @@ export interface PathsQuery extends InsightsQueryBase {
 
 /** `StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params
  * and `hidden_legend_keys` replaced by `hidden_legend_indexes` */
-export type StickinessFilter = Omit<
+export type StickinessFilterLegacy = Omit<
     StickinessFilterType & { hidden_legend_indexes?: number[] },
     keyof FilterType | 'hidden_legend_keys' | 'stickiness_days' | 'shown_as'
 >
+
+export type StickinessFilter = {
+    compare?: StickinessFilterLegacy['compare']
+    display?: StickinessFilterLegacy['display']
+    showLegend?: StickinessFilterLegacy['show_legend']
+    show_values_on_series?: StickinessFilterLegacy['show_values_on_series']
+    hidden_legend_indexes?: StickinessFilterLegacy['hidden_legend_indexes']
+}
 
 export interface StickinessQueryResponse extends QueryResponse {
     results: Record<string, any>[]

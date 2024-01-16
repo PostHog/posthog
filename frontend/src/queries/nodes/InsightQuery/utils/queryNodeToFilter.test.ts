@@ -55,7 +55,7 @@ describe('queryNodeToFilter', () => {
                 formula: 'A + B',
                 display: ChartDisplayType.ActionsBar,
                 // breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count']
-                // show_legend?: TrendsFilterLegacy['show_legend']
+                showLegend: true,
                 aggregationAxisFormat: 'numeric',
                 aggregationAxisPrefix: 'M',
                 aggregationAxisPostfix: '$',
@@ -84,6 +84,7 @@ describe('queryNodeToFilter', () => {
             aggregation_axis_postfix: '$',
             show_labels_on_series: true,
             show_percent_stack_view: true,
+            show_legend: true,
         }
         expect(result).toEqual(filters)
     })

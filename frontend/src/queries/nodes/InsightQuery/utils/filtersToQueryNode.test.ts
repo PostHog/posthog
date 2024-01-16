@@ -325,7 +325,7 @@ describe('filtersToQueryNode', () => {
                 kind: NodeKind.TrendsQuery,
                 trendsFilter: {
                     smoothingIntervals: 1,
-                    show_legend: true,
+                    showLegend: true,
                     hidden_legend_indexes: [0, 10],
                     compare: true,
                     aggregationAxisFormat: 'numeric',
@@ -500,7 +500,7 @@ describe('filtersToQueryNode', () => {
                 kind: NodeKind.StickinessQuery,
                 stickinessFilter: {
                     compare: true,
-                    show_legend: true,
+                    showLegend: true,
                     hidden_legend_indexes: [0, 10],
                     display: ChartDisplayType.ActionsLineGraph,
                 },

@@ -1488,13 +1488,13 @@ class TestFilterToQuery(BaseTest):
         )
 
     def test_stickiness_filter(self):
-        filter = {"insight": "STICKINESS", "compare": True, "shown_as": "Stickiness"}
+        filter = {"insight": "STICKINESS", "compare": True, "show_legend": True, "shown_as": "Stickiness"}
 
         query = filter_to_query(filter)
 
         self.assertEqual(
             query.stickinessFilter,
-            StickinessFilter(compare=True),
+            StickinessFilter(compare=True, showLegend=True),
         )
 
     def test_lifecycle_filter(self):
