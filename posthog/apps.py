@@ -5,11 +5,10 @@ import structlog
 from django.apps import AppConfig
 from django.conf import settings
 from posthoganalytics.client import Client
+from posthog.git import get_git_branch, get_git_commit
 
 from posthog.settings import SELF_CAPTURE, SKIP_ASYNC_MIGRATIONS_SETUP
 from posthog.utils import (
-    get_git_branch,
-    get_git_commit,
     get_machine_id,
     get_self_capture_api_token,
 )
