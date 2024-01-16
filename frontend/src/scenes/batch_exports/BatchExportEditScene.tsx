@@ -1,6 +1,9 @@
 import { useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
+import { userLogic } from 'scenes/userLogic'
+
+import { AvailableFeature } from '~/types'
 
 import { BatchExportsEditForm } from './BatchExportEditForm'
 import { BatchExportsEditLogicProps } from './batchExportEditLogic'
@@ -15,6 +18,10 @@ export const scene: SceneExport = {
 }
 
 export function BatchExportsEditScene(): JSX.Element {
+    const { hasAvailableFeature } = useValues(userLogic)
+    if (!hasAvailableFeature(AvailableFeature.DATA_PIPELINES)) {
+        return <></>
+    }
     const { id } = useValues(batchExportsEditSceneLogic)
 
     return (

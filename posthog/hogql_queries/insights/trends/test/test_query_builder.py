@@ -1,5 +1,6 @@
 from datetime import datetime
 from freezegun import freeze_time
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
@@ -45,6 +46,7 @@ class TestQueryBuilder(BaseTest):
         )
 
         timings = HogQLTimings()
+        modifiers = create_default_modifiers_for_team(self.team)
 
         query_builder = TrendsQueryBuilder(
             trends_query=trends_query,
@@ -52,6 +54,7 @@ class TestQueryBuilder(BaseTest):
             query_date_range=query_date_range,
             series=trends_query.series[0],
             timings=timings,
+            modifiers=modifiers,
         )
 
         query = query_builder.build_query()

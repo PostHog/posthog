@@ -267,6 +267,7 @@ class HogQLNotice(BaseModel):
 class InCohortVia(str, Enum):
     leftjoin = "leftjoin"
     subquery = "subquery"
+    leftjoin_conjoined = "leftjoin_conjoined"
 
 
 class MaterializationMode(str, Enum):
@@ -642,18 +643,18 @@ class TrendsFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    aggregation_axis_format: Optional[AggregationAxisFormat] = None
-    aggregation_axis_postfix: Optional[str] = None
-    aggregation_axis_prefix: Optional[str] = None
+    aggregationAxisFormat: Optional[AggregationAxisFormat] = None
+    aggregationAxisPostfix: Optional[str] = None
+    aggregationAxisPrefix: Optional[str] = None
     breakdown_histogram_bin_count: Optional[float] = None
     compare: Optional[bool] = None
-    decimal_places: Optional[float] = None
+    decimalPlaces: Optional[float] = None
     display: Optional[ChartDisplayType] = None
     formula: Optional[str] = None
     hidden_legend_indexes: Optional[List[float]] = None
-    show_labels_on_series: Optional[bool] = None
+    showLabelsOnSeries: Optional[bool] = None
+    showPercentStackView: Optional[bool] = None
     show_legend: Optional[bool] = None
-    show_percent_stack_view: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
     smoothingIntervals: Optional[float] = None
 
