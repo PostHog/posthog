@@ -146,7 +146,7 @@ export function ProjectVariables(): JSX.Element {
             </div>
             {region ? (
                 <div className="flex-1">
-                    <h3 id="project-id" className="min-w-[25rem]">
+                    <h3 id="project-region" className="min-w-[25rem]">
                         Project Region
                     </h3>
                     <p>This is the region where your PostHog data is hosted.</p>
