@@ -1,13 +1,12 @@
 import './AccountPopover.scss'
 
-import { IconFeatures, IconGear, IconLive, IconPlusSmall, IconServer } from '@posthog/icons'
+import { IconCheckCircle, IconFeatures, IconGear, IconLive, IconPlusSmall, IconServer } from '@posthog/icons'
 import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { IconBill, IconLogout } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
-import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -133,11 +132,20 @@ function InstanceSettings(): JSX.Element | null {
     }
 
     return (
-        <Link to={urls.instanceStatus()}>
-            <LemonButton icon={<IconServer />} onClick={closeAccountPopover} fullWidth>
-                Instance panel
-            </LemonButton>
-        </Link>
+        <LemonButton
+            icon={<IconServer />}
+            onClick={closeAccountPopover}
+            fullWidth
+            to={urls.instanceStatus()}
+            sideAction={{
+                tooltip: 'Async migrations',
+                icon: <IconCheckCircle />,
+                to: urls.asyncMigrations(),
+                onClick: closeAccountPopover,
+            }}
+        >
+            Instance panel
+        </LemonButton>
     )
 }
 
