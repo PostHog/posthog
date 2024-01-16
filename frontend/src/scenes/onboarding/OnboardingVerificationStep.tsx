@@ -38,7 +38,7 @@ export const OnboardingVerificationStep = ({
                 reportIngestionContinueWithoutVerifying()
             }}
             continueOverride={<></>}
-            helpButtonEnabled
+            showHelpButton
         >
             <div className="text-center mt-8">
                 <Spinner className="text-5xl" />

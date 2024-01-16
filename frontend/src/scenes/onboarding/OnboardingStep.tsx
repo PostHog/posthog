@@ -16,9 +16,9 @@ export const OnboardingStep = ({
     subtitle,
     children,
     showSkip = false,
+    showHelpButton = false,
     onSkip,
     continueAction,
-    helpButtonEnabled = false,
     continueOverride,
     backActionOverride,
     hedgehog,
@@ -28,9 +28,9 @@ export const OnboardingStep = ({
     subtitle?: string
     children: React.ReactNode
     showSkip?: boolean
+    showHelpButton?: boolean
     onSkip?: () => void
     continueAction?: () => void
-    helpButtonEnabled?: boolean
     continueOverride?: JSX.Element
     backActionOverride?: () => void
     hedgehog?: JSX.Element
@@ -77,7 +77,7 @@ export const OnboardingStep = ({
                 <p>{subtitle}</p>
                 {children}
                 <div className="mt-8 flex justify-end gap-x-2">
-                    {helpButtonEnabled && (
+                    {showHelpButton && (
                         <LemonButton
                             type="secondary"
                             onClick={() => openSupportForm({ kind: 'support', target_area: 'onboarding' })}
