@@ -374,6 +374,7 @@ export const insightLogic = kea<insightLogicType>([
         /** filters for data that's being displayed, might not be same as `savedInsight.filters` or filters */
         loadedFilters: [(s) => [s.insight], (insight) => insight.filters],
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
+        isInDashboardContext: [() => [(_, props) => props], ({ dashboardId }) => !!dashboardId],
         hasDashboardItemId: [
             () => [(_, props) => props],
             (props: InsightLogicProps) =>
@@ -411,13 +412,6 @@ export const insightLogic = kea<insightLogicType>([
                     !objectsEqual(insight.tags || [], savedInsight.tags || [])
                 )
             },
-        ],
-        isInDashboardContext: [
-            () => [router.selectors.location],
-            ({ pathname }) =>
-                pathname.startsWith('/dashboard') ||
-                pathname.startsWith('/home') ||
-                pathname.startsWith('/shared-dashboard'),
         ],
         allEventNames: [
             (s) => [s.filters, actionsModel.selectors.actions],

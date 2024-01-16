@@ -305,8 +305,8 @@ class TrendsQueryBuilder:
 
         if (
             self.query.trendsFilter is not None
-            and self.query.trendsFilter.smoothing_intervals is not None
-            and self.query.trendsFilter.smoothing_intervals > 1
+            and self.query.trendsFilter.smoothingIntervals is not None
+            and self.query.trendsFilter.smoothingIntervals > 1
         ):
             rolling_average = ast.Alias(
                 alias="count",
@@ -321,7 +321,7 @@ class TrendsQueryBuilder:
                                 frame_method="ROWS",
                                 frame_start=ast.WindowFrameExpr(
                                     frame_type="PRECEDING",
-                                    frame_value=int(self.query.trendsFilter.smoothing_intervals - 1),
+                                    frame_value=int(self.query.trendsFilter.smoothingIntervals - 1),
                                 ),
                                 frame_end=ast.WindowFrameExpr(frame_type="CURRENT ROW"),
                             ),

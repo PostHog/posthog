@@ -11,8 +11,8 @@ import { PipelineAppKind, PipelineAppTab, PipelineTab } from '~/types'
 import batchExports from './__mocks__/batchExports.json'
 import pluginConfigs from './__mocks__/pluginConfigs.json'
 import plugins from './__mocks__/plugins.json'
-import { appMetricsLogic } from './appMetricsLogic'
 import { appsManagementLogic } from './appsManagementLogic'
+import { pipelineAppMetricsLogic } from './pipelineAppMetricsLogic'
 import { pipelineLogic } from './pipelineLogic'
 
 export default {
@@ -125,7 +125,7 @@ export function PipelineAppMetrics(): JSX.Element {
     })
     useEffect(() => {
         router.actions.push(urls.pipelineApp(PipelineAppKind.Destination, geoIpConfigId, PipelineAppTab.Metrics))
-        appMetricsLogic({ pluginConfigId: geoIpConfigId }).mount()
+        pipelineAppMetricsLogic({ pluginConfigId: geoIpConfigId }).mount()
     }, [])
     return <App />
 }
@@ -139,7 +139,7 @@ export function PipelineAppMetricsErrorModal(): JSX.Element {
     })
     useEffect(() => {
         router.actions.push(urls.pipelineApp(PipelineAppKind.Destination, geoIpConfigId, PipelineAppTab.Metrics))
-        const logic = appMetricsLogic({ pluginConfigId: geoIpConfigId })
+        const logic = pipelineAppMetricsLogic({ pluginConfigId: geoIpConfigId })
         logic.mount()
         logic.actions.openErrorDetailsModal('Error')
     }, [])

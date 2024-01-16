@@ -193,7 +193,7 @@ def convert_filter_to_trends_query(filter: Filter) -> TrendsQuery:
             breakdown_histogram_bin_count=filter.breakdown_histogram_bin_count,
             compare=filter.compare,
             formula=filter.formula,
-            smoothing_intervals=filter.smoothing_intervals,
+            smoothingIntervals=filter.smoothing_intervals,
         ),
     )
 
