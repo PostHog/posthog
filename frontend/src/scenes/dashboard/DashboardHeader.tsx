@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { AddInsightFromDashboardModal } from 'lib/components/AddInsightFromDashboard/AddInsightFromDashboardModal'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
@@ -16,6 +17,7 @@ import { isLemonSelectSection } from 'lib/lemon-ui/LemonSelect'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
 import { humanFriendlyDetailedTime, slugify } from 'lib/utils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { useState } from 'react'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
@@ -65,6 +67,8 @@ export function DashboardHeader(): JSX.Element | null {
 
     const { push } = useActions(router)
 
+    const [addInsightFromDashboardModalOpen, setAddInsightFromDashboardModalOpen] = useState<boolean>(false)
+
     const exportOptions: ExportButtonItem[] = [
         {
             export_format: ExporterFormat.PNG,
@@ -105,12 +109,20 @@ export function DashboardHeader(): JSX.Element | null {
                         dashboardId={dashboard.id}
                     />
                     {canEditDashboard && (
-                        <TextCardModal
-                            isOpen={showTextTileModal}
-                            onClose={() => push(urls.dashboard(dashboard.id))}
-                            dashboard={dashboard}
-                            textTileId={textTileId}
-                        />
+                        <>
+                            <TextCardModal
+                                isOpen={showTextTileModal}
+                                onClose={() => push(urls.dashboard(dashboard.id))}
+                                dashboard={dashboard}
+                                textTileId={textTileId}
+                            />
+                            <AddInsightFromDashboardModal
+                                isOpen={addInsightFromDashboardModalOpen}
+                                closeModal={() => setAddInsightFromDashboardModalOpen(false)}
+                                dashboard={dashboard}
+                                canEditDashboard={canEditDashboard}
+                            />
+                        </>
                     )}
                     {canEditDashboard && <DeleteDashboardModal />}
                     {canEditDashboard && <DuplicateDashboardModal />}
@@ -270,7 +282,8 @@ export function DashboardHeader(): JSX.Element | null {
                             )}
                             {dashboard ? (
                                 <LemonButton
-                                    to={urls.insightNew(undefined, dashboard.id)}
+                                    onClick={() => setAddInsightFromDashboardModalOpen(true)}
+                                    // to={urls.insightNew(undefined, dashboard.id)}
                                     type="primary"
                                     data-attr="dashboard-add-graph-header"
                                     disabledReason={canEditDashboard ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
