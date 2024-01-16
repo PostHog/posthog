@@ -150,7 +150,7 @@ export function ProjectVariables(): JSX.Element {
                         Project Region
                     </h3>
                     <p>This is the region where your PostHog data is hosted.</p>
-                    <CodeSnippet thing="project ID">{region === 'EU' ? 'EU Cloud' : 'US Cloud'}</CodeSnippet>
+                    <CodeSnippet thing="project ID">{`${region} Cloud`}</CodeSnippet>
                 </div>
             ) : null}
         </div>
