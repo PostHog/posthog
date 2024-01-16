@@ -91,6 +91,7 @@ class DashboardTemplateViewSet(StructuredViewSetMixin, ForbidDestroyModel, views
     def get_queryset(self, *args, **kwargs):
         filters = self.request.GET.dict()
         scope = filters.pop("scope", None)
+        search = filters.pop("search", None)
 
         # if scope is feature flag, then only return feature flag templates
         # they're implicitly global, so they are not associated with any teams
@@ -101,5 +102,10 @@ class DashboardTemplateViewSet(StructuredViewSetMixin, ForbidDestroyModel, views
         # otherwise we are in the new dashboard context so show global templates and ones from this team
         else:
             query_condition = Q(team_id=self.team_id) | Q(scope=DashboardTemplate.Scope.GLOBAL)
+
+        if search:
+            query_condition &= (
+                Q(template_name__search=search) | Q(dashboard_description__search=search) | Q(tags__contains=[search])
+            )
 
         return DashboardTemplate.objects.filter(query_condition)

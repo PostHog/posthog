@@ -1,3 +1,5 @@
+from typing import Dict
+
 from rest_framework import status
 
 from posthog.models import User
@@ -445,12 +447,52 @@ class TestDashboardTemplates(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["results"][0]["scope"] == "global"
 
+    def test_search_when_listing_templates(self):
+        # ensure there are no templates
+        DashboardTemplate.objects.all().delete()
+
+        self.create_template({"scope": DashboardTemplate.Scope.GLOBAL, "template_name": "pony template"})
+        self.create_template(
+            {
+                "scope": DashboardTemplate.Scope.GLOBAL,
+                "template_name": "wat template",
+                "dashboard_description": "description with pony",
+            }
+        )
+        self.create_template(
+            {"scope": DashboardTemplate.Scope.GLOBAL, "template_name": "tagged wat template", "tags": ["pony", "horse"]}
+        )
+        self.create_template(
+            {
+                "scope": DashboardTemplate.Scope.GLOBAL,
+                "template_name": "tagged ponies template",
+                "tags": ["goat", "horse"],
+            }
+        )
+        not_pony_template_id = self.create_template(
+            {"scope": DashboardTemplate.Scope.GLOBAL, "template_name": "goat template"}
+        )
+
+        default_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/")
+        assert default_response.status_code == status.HTTP_200_OK
+        assert len(default_response.json()["results"]) == 5
+
+        # will match pony and ponies
+        pony_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/?search=pony")
+        assert pony_response.status_code == status.HTTP_200_OK
+        assert len(pony_response.json()["results"]) == 4
+        assert not_pony_template_id not in [r["id"] for r in pony_response.json()["results"]]
+
     def test_filter_template_list_by_scope(self):
         # ensure there are no templates
         DashboardTemplate.objects.all().delete()
 
-        flag_template_id = self.create_scoped_template(DashboardTemplate.Scope.FEATURE_FLAG, "flag scoped template")
-        global_template_id = self.create_scoped_template(DashboardTemplate.Scope.GLOBAL, "globally scoped template")
+        flag_template_id = self.create_template(
+            {"scope": DashboardTemplate.Scope.FEATURE_FLAG, "template_name": "flag scoped template"}
+        )
+        global_template_id = self.create_template(
+            {"scope": DashboardTemplate.Scope.GLOBAL, "template_name": "globally scoped template"}
+        )
 
         default_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/")
         assert default_response.status_code == status.HTTP_200_OK
@@ -466,17 +508,15 @@ class TestDashboardTemplates(APIBaseTest):
         assert [(r["id"], r["scope"]) for r in global_response.json()["results"]] == [(global_template_id, "global")]
         assert [(r["id"], r["scope"]) for r in flag_response.json()["results"]] == [(flag_template_id, "feature_flag")]
 
-    def create_scoped_template(self, scope: str, name: str) -> str:
+    def create_template(self, overrides: Dict[str, str]) -> str:
+        template = {**variable_template, **overrides}
         response = self.client.post(
             f"/api/projects/{self.team.pk}/dashboard_templates",
-            {**variable_template, "template_name": name},
+            template,
         )
         assert response.status_code == status.HTTP_201_CREATED
         id = response.json()["id"]
-        self.client.patch(
-            f"/api/projects/{self.team.pk}/dashboard_templates/{id}",
-            {"scope": scope},
-        )
+
         return id
 
     def test_cannot_escape_team__when_filtering_template_list(self):
