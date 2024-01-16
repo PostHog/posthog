@@ -203,7 +203,6 @@ class MultipleInCohortResolver(TraversingVisitor):
                         SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id
                         FROM raw_cohort_people
                         WHERE {dynamic_clause}
-                        GROUP BY cohort_person_id, cohort_id, version
                     """,
                     placeholders={"static_clause": static_clause, "dynamic_clause": dynamic_clause},
                 )
@@ -224,8 +223,6 @@ class MultipleInCohortResolver(TraversingVisitor):
                         SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id
                         FROM raw_cohort_people
                         WHERE {cohort_clause}
-                        GROUP BY cohort_person_id, cohort_id, version
-                        HAVING sum(sign) > 0
                     """,
                     placeholders={"cohort_clause": clause},
                 )
