@@ -3,11 +3,12 @@ import './PropertyValue.scss'
 import { AutoComplete } from 'antd'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { RollingDateRangeFilter } from 'lib/components/DateFilter/RollingDateRangeFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
 import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
-import { isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
+import { isOperatorDate, isOperatorFlag, isOperatorMulti, isOperatorRelativeDate, toString } from 'lib/utils'
 import { useEffect, useRef, useState } from 'react'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -58,6 +59,7 @@ export function PropertyValue({
 
     const isMultiSelect = operator && isOperatorMulti(operator)
     const isDateTimeProperty = operator && isOperatorDate(operator)
+    const isRelativeDateTimeProperty = operator && isOperatorRelativeDate(operator)
     const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(type)
 
     const isDurationProperty =
@@ -195,6 +197,21 @@ export function PropertyValue({
 
     return isDateTimeProperty ? (
         <PropertyFilterDatePicker autoFocus={autoFocus} operator={operator} value={value} setValue={setValue} />
+    ) : isRelativeDateTimeProperty ? (
+        <RollingDateRangeFilter
+            dateRangeFilterLabel="the last"
+            // :TRICKY: This filter adds a default negative sign to the value, which we don't need
+            dateFrom={`-${String(value)}`}
+            onChange={(newValue) => setValue(newValue.slice(1))}
+            max={10000}
+            makeLabel={(_, startOfRange) => (
+                <span className="hide-when-small">
+                    Matches all values {operator === PropertyOperator.IsRelativeDateBefore ? 'before' : 'after'}{' '}
+                    {startOfRange}
+                </span>
+            )}
+            forceUpdateDefaults
+        />
     ) : isDurationProperty ? (
         <DurationPicker autoFocus={autoFocus} value={value as number} onChange={setValue} />
     ) : (

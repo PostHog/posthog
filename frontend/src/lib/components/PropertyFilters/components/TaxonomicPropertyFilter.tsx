@@ -44,6 +44,8 @@ export function TaxonomicPropertyFilter({
     hasRowOperator,
     metadataSource,
     propertyAllowList,
+    taxonomicFilterOptionsFromProp,
+    allowRelativeDateOperators,
 }: PropertyFilterInternalProps): JSX.Element {
     const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
     const groupTypes = taxonomicGroupTypes || [
@@ -108,6 +110,7 @@ export function TaxonomicPropertyFilter({
             metadataSource={metadataSource}
             eventNames={eventNames}
             propertyAllowList={propertyAllowList}
+            optionsFromProp={taxonomicFilterOptionsFromProp}
         />
     )
 
@@ -194,6 +197,7 @@ export function TaxonomicPropertyFilter({
                                 placeholder="Enter value..."
                                 endpoint={filter?.key && activeTaxonomicGroup?.valuesEndpoint?.(filter.key)}
                                 eventNames={eventNames}
+                                addRelativeDateTimeOperators={allowRelativeDateOperators}
                                 onChange={(newOperator, newValue) => {
                                     if (filter?.key && filter?.type) {
                                         setFilter(index, {

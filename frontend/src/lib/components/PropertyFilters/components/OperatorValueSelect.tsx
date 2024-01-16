@@ -27,6 +27,7 @@ export interface OperatorValueSelectProps {
     eventNames?: string[]
     propertyDefinitions: PropertyDefinition[]
     defaultOpen?: boolean
+    addRelativeDateTimeOperators?: boolean
 }
 
 interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
@@ -67,6 +68,7 @@ export function OperatorValueSelect({
     propertyDefinitions = [],
     eventNames = [],
     defaultOpen,
+    addRelativeDateTimeOperators,
 }: OperatorValueSelectProps): JSX.Element {
     const propertyDefinition = propertyDefinitions.find((pd) => pd.name === propkey)
 
@@ -82,7 +84,8 @@ export function OperatorValueSelect({
     useEffect(() => {
         const limitedElementProperty = propkey === 'selector' || propkey === 'tag_name'
         const operatorMapping: Record<string, string> = chooseOperatorMap(
-            limitedElementProperty ? PropertyType.Selector : propertyDefinition?.property_type
+            limitedElementProperty ? PropertyType.Selector : propertyDefinition?.property_type,
+            addRelativeDateTimeOperators
         )
         const operators = Object.keys(operatorMapping) as Array<PropertyOperator>
         setOperators(operators)

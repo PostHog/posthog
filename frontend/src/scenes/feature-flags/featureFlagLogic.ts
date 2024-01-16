@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { sum, toParams } from 'lib/utils'
@@ -950,6 +950,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
                 { key: [Scene.FeatureFlag, featureFlag.id || 'unknown'], name: featureFlag.key || 'Unnamed' },
             ],
+        ],
+        featureFlagTaxonomicOptions: [
+            (s) => [s.groupTypes],
+            (groupTypes) => {
+                const taxonomicOptions: TaxonomicFilterProps['optionsFromProp'] = {
+                    [TaxonomicFilterGroupType.PersonProperties]: [{ name: '$current_distinct_id' }],
+                }
+                Array.from(groupTypes.values()).map(
+                    (type) =>
+                        (taxonomicOptions[
+                            `${TaxonomicFilterGroupType.GroupsPrefix}_${type.group_type_index}` as unknown as TaxonomicFilterGroupType
+                        ] = [{ name: '$group_key' }])
+                )
+                return taxonomicOptions
+            },
         ],
         propertySelectErrors: [
             (s) => [s.featureFlag],

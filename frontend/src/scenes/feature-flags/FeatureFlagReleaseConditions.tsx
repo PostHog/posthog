@@ -15,7 +15,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
+import { capitalizeFirstLetter, dateFilterToText, humanFriendlyNumber } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -50,6 +50,7 @@ export function FeatureFlagReleaseConditions({
         computeBlastRadiusPercentage,
         affectedUsers,
         totalUsers,
+        featureFlagTaxonomicOptions,
     } = useValues(logic)
     const {
         setAggregationGroupTypeIndex,
@@ -140,48 +141,60 @@ export function FeatureFlagReleaseConditions({
                     {readOnly ? (
                         <>
                             {group.properties?.map((property, idx) => (
-                                <>
-                                    <div className="feature-flag-property-display" key={idx}>
-                                        {idx === 0 ? (
-                                            <LemonButton
-                                                icon={<IconSubArrowRight className="arrow-right" />}
-                                                size="small"
-                                            />
-                                        ) : (
-                                            <LemonButton icon={<span className="text-sm">&</span>} size="small" />
-                                        )}
-                                        <span className="simple-tag tag-light-blue text-primary-alt">
-                                            {property.type === 'cohort' ? 'Cohort' : property.key}{' '}
-                                        </span>
-                                        {isPropertyFilterWithOperator(property) ? (
-                                            <span>{allOperatorsToHumanName(property.operator)} </span>
-                                        ) : null}
+                                <div className="feature-flag-property-display" key={idx}>
+                                    {idx === 0 ? (
+                                        <LemonButton
+                                            icon={<IconSubArrowRight className="arrow-right" />}
+                                            size="small"
+                                        />
+                                    ) : (
+                                        <LemonButton icon={<span className="text-sm">&</span>} size="small" />
+                                    )}
+                                    <span className="simple-tag tag-light-blue text-primary-alt">
+                                        {property.type === 'cohort' ? 'Cohort' : property.key}{' '}
+                                    </span>
+                                    {isPropertyFilterWithOperator(property) ? (
+                                        <span>{allOperatorsToHumanName(property.operator)} </span>
+                                    ) : null}
 
-                                        {property.type === 'cohort' ? (
-                                            <LemonButton
-                                                type="secondary"
-                                                size="xsmall"
-                                                to={urls.cohort(property.value)}
-                                                sideIcon={<IconOpenInNew />}
-                                                targetBlank
-                                            >
-                                                {(property.value && cohortsById[property.value]?.name) ||
-                                                    `ID ${property.value}`}
-                                            </LemonButton>
-                                        ) : (
-                                            [
-                                                ...(Array.isArray(property.value) ? property.value : [property.value]),
-                                            ].map((val, idx) => (
+                                    {property.type === 'cohort' ? (
+                                        <LemonButton
+                                            type="secondary"
+                                            size="xsmall"
+                                            to={urls.cohort(property.value)}
+                                            sideIcon={<IconOpenInNew />}
+                                            targetBlank
+                                        >
+                                            {(property.value && cohortsById[property.value]?.name) ||
+                                                `ID ${property.value}`}
+                                        </LemonButton>
+                                    ) : (
+                                        [...(Array.isArray(property.value) ? property.value : [property.value])].map(
+                                            (val, idx) => (
                                                 <span
                                                     key={idx}
                                                     className="simple-tag tag-light-blue text-primary-alt display-value"
                                                 >
                                                     {val}
+                                                    {isPropertyFilterWithOperator(property) &&
+                                                    ['is_relative_date_before', 'is_relative_date_after'].includes(
+                                                        property.operator
+                                                    )
+                                                        ? ` ( ${dateFilterToText(
+                                                              '-' + String(val),
+                                                              undefined,
+                                                              '',
+                                                              [],
+                                                              false,
+                                                              'MMMM D, YYYY',
+                                                              true
+                                                          )} )`
+                                                        : ''}
                                                 </span>
-                                            ))
-                                        )}
-                                    </div>
-                                </>
+                                            )
+                                        )
+                                    )}
+                                </div>
                             ))}
                         </>
                     ) : (
@@ -196,8 +209,10 @@ export function FeatureFlagReleaseConditions({
                                 addText="Add condition"
                                 onChange={(properties) => updateConditionSet(index, undefined, properties)}
                                 taxonomicGroupTypes={taxonomicGroupTypes}
+                                taxonomicFilterOptionsFromProp={featureFlagTaxonomicOptions}
                                 hasRowOperator={false}
                                 sendAllKeyUpdates
+                                allowRelativeDateOperators
                                 errorMessages={
                                     propertySelectErrors?.[index]?.properties?.some((message) => !!message.value)
                                         ? propertySelectErrors[index].properties?.map((message, index) => {
