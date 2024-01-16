@@ -26,6 +26,7 @@ from posthog.auth import SharingAccessTokenAuthentication
 from posthog.cloud_utils import is_cloud
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
 from posthog.models import User, Team
+from posthog.models.element import chain_to_elements
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person.person import PersonDistinctId
 from posthog.session_recordings.models.session_recording import SessionRecording
@@ -181,9 +182,149 @@ def list_recordings_response(
     return response
 
 
+def is_boring_string(element: str) -> bool:
+    return element in ["a", "div", "span", "p", "h1", "h2", "h3", "h4", "h5", "h6"]
+
+
+def reduce_elements_chain(session_events: Tuple[List | None, List | None]) -> Tuple[List | None, List | None]:
+    columns, results = session_events
+
+    if columns is None or results is None:
+        return columns, results
+
+    # find elements_chain column index
+    elements_chain_index = None
+    for i, column in enumerate(columns):
+        if column == "elements_chain":
+            elements_chain_index = i
+            break
+
+    reduced_results = []
+    for result in results:
+        if elements_chain_index is None:
+            reduced_results.append(result)
+            continue
+
+        elements_chain: str | None = result[elements_chain_index]
+        if not elements_chain:
+            reduced_results.append(result)
+            continue
+
+        # the elements chain has lots of information that we don't need
+        elements = [e for e in chain_to_elements(elements_chain) if e.tag_name in e.USEFUL_ELEMENTS]
+
+        result_list = list(result)
+        result_list[elements_chain_index] = [{"tag": e.tag_name, "text": e.text, "href": e.href} for e in elements]
+        reduced_results.append(tuple(result_list))
+
+    return columns, reduced_results
+
+
+def simplify_window_id(session_events: Tuple[List | None, List | None]) -> Tuple[List | None, List | None]:
+    columns, results = session_events
+
+    if columns is None or results is None:
+        return columns, results
+
+    # find window_id column index
+    window_id_index = None
+    for i, column in enumerate(columns):
+        if column == "$window_id":
+            window_id_index = i
+            break
+
+    window_id_mapping: Dict[str, int] = {}
+    simplified_results = []
+    for result in results:
+        if window_id_index is None:
+            simplified_results.append(result)
+            continue
+
+        window_id: str | None = result[window_id_index]
+        if not window_id:
+            simplified_results.append(result)
+            continue
+
+        if window_id not in window_id_mapping:
+            window_id_mapping[window_id] = len(window_id_mapping) + 1
+
+        result_list = list(result)
+        result_list[window_id_index] = window_id_mapping[window_id]
+        simplified_results.append(tuple(result_list))
+
+    return columns, simplified_results
+
+
+def deduplicate_urls(
+    session_events: Tuple[List | None, List | None]
+) -> Tuple[List | None, List | None, Dict[str, str]]:
+    columns, results = session_events
+
+    if columns is None or results is None:
+        return columns, results, {}
+
+    # find url column index
+    url_index = None
+    for i, column in enumerate(columns):
+        if column == "$current_url":
+            url_index = i
+            break
+
+    url_mapping: Dict[str, str] = {}
+    deduplicated_results = []
+    for result in results:
+        if url_index is None:
+            deduplicated_results.append(result)
+            continue
+
+        url: str | None = result[url_index]
+        if not url:
+            deduplicated_results.append(result)
+            continue
+
+        if url not in url_mapping:
+            url_mapping[url] = f"url_{len(url_mapping) + 1}"
+
+        result_list = list(result)
+        result_list[url_index] = url_mapping[url]
+        deduplicated_results.append(tuple(result_list))
+
+    return columns, deduplicated_results, url_mapping
+
+
+def format_dates(session_events: Tuple[List | None, List | None]) -> Tuple[List | None, List | None]:
+    columns, results = session_events
+
+    if columns is None or results is None:
+        return columns, results
+
+    # find timestamp column index
+    timestamp_index = None
+    for i, column in enumerate(columns):
+        if column == "timestamp":
+            timestamp_index = i
+            break
+
+    formatted_results = []
+    for result in results:
+        if timestamp_index is None:
+            formatted_results.append(result)
+            continue
+
+        timestamp: datetime | None = result[timestamp_index]
+        if not timestamp:
+            formatted_results.append(result)
+            continue
+
+        result_list = list(result)
+        result_list[timestamp_index] = timestamp.isoformat()
+        formatted_results.append(tuple(result_list))
+
+    return columns, formatted_results
+
+
 def summarize_recording(recording: SessionRecording, user: User, team: Team):
     session_metadata = SessionReplayEvents().get_metadata(session_id=str(recording.session_id), team=team)
-
     session_events = SessionReplayEvents().get_events(
         session_id=str(recording.session_id),
         team=team,
@@ -192,6 +333,15 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
             "$feature_flag_called",
         ],
     )
+
+    del session_metadata["distinct_id"]
+    session_metadata["start_time"] = session_metadata["start_time"].isoformat()
+    session_metadata["end_time"] = session_metadata["end_time"].isoformat()
+
+    session_events_columns, session_events_results, url_mapping = deduplicate_urls(
+        format_dates(reduce_elements_chain(simplify_window_id(session_events)))
+    )
+
     instance_region = get_instance_region() or "HOBBY"
     messages = [
         {
@@ -210,8 +360,14 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
         },
         {
             "role": "user",
-            "content": f"""the session events I have are {session_events[1]}.
-            with columns {session_events[0]}.
+            "content": f"""
+            URLs associated with the events can be found in this mapping {url_mapping}.
+            """,
+        },
+        {
+            "role": "user",
+            "content": f"""the session events I have are {session_events_results}.
+            with columns {session_events_columns}.
             they give an idea of what happened and when,
             if present the elements_chain extracted from the html can aid in understanding
             but should not be directly used in your response""",
@@ -232,7 +388,7 @@ def summarize_recording(recording: SessionRecording, user: User, team: Team):
         user=f"{instance_region}/{user.pk}",  # The user ID is for tracking within OpenAI in case of overuse/abuse
     )
     content: str = result.get("choices", [{}])[0].get("message", {}).get("content", "")
-    return {"ai_result": result, "content": content}
+    return {"ai_result": result, "content": content, "prompt": messages}
 
 
 class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
