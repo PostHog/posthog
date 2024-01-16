@@ -4,6 +4,7 @@ import datetime as dt
 import json
 import typing
 from dataclasses import dataclass
+import csv
 
 import psycopg
 from django.conf import settings
@@ -20,7 +21,8 @@ from posthog.temporal.batch_exports.batch_exports import (
     create_export_run,
     execute_batch_export_insert_activity,
     get_data_interval,
-    get_results_iterator,
+    iter_records,
+    default_fields,
     get_rows_count,
 )
 from posthog.temporal.batch_exports.clickhouse import get_client
@@ -81,14 +83,15 @@ async def copy_tsv_to_postgres(
     async with postgres_connection.cursor() as cursor:
         if schema:
             await cursor.execute(sql.SQL("SET search_path TO {schema}").format(schema=sql.Identifier(schema)))
-            async with cursor.copy(
-                sql.SQL("COPY {table_name} ({fields}) FROM STDIN WITH DELIMITER AS '\t'").format(
-                    table_name=sql.Identifier(table_name),
-                    fields=sql.SQL(",").join((sql.Identifier(column) for column in schema_columns)),
-                )
-            ) as copy:
-                while data := tsv_file.read():
-                    await copy.write(data)
+
+        async with cursor.copy(
+            sql.SQL("COPY {table_name} ({fields}) FROM STDIN WITH (FORMAT CSV, DELIMITER '\t')").format(
+                table_name=sql.Identifier(table_name),
+                fields=sql.SQL(",").join((sql.Identifier(column) for column in schema_columns)),
+            )
+        ) as copy:
+            while data := tsv_file.read():
+                await copy.write(data)
 
 
 Field = tuple[str, str]
@@ -187,13 +190,20 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
 
         logger.info("BatchExporting %s rows", count)
 
-        results_iterator = get_results_iterator(
+        fields = default_fields()
+        fields.append({"expression": "nullIf(JSONExtractString(properties, '$ip'), '')", "alias": "ip"})
+        # Fields kept for backwards compatibility with legacy apps schema.
+        fields.append({"expression": "elements_chain", "alias": "elements"})
+        fields.append({"expression": "''", "alias": "site_url"})
+
+        records_iterator = iter_records(
             client=client,
             team_id=inputs.team_id,
             interval_start=inputs.data_interval_start,
             interval_end=inputs.data_interval_end,
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
+            fields=fields,
         )
         async with postgres_connection(inputs) as connection:
             await create_table_in_postgres(
@@ -228,18 +238,12 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
             "site_url",
             "timestamp",
         ]
-        json_columns = ("properties", "elements", "set", "set_once")
 
         rows_exported = get_rows_exported_metric()
         bytes_exported = get_bytes_exported_metric()
 
         with BatchExportTemporaryFile() as pg_file:
             async with postgres_connection(inputs) as connection:
-                for result in results_iterator:
-                    row = {
-                        key: json.dumps(result[key]) if key in json_columns else result[key] for key in schema_columns
-                    }
-                    pg_file.write_records_to_tsv([row], fieldnames=schema_columns)
 
                 async def flush_to_postgres():
                     logger.debug(
@@ -257,12 +261,12 @@ async def insert_into_postgres_activity(inputs: PostgresInsertInputs):
                     rows_exported.add(pg_file.records_since_last_reset)
                     bytes_exported.add(pg_file.bytes_since_last_reset)
 
-                for result in results_iterator:
-                    row = {
-                        key: json.dumps(result[key]) if key in json_columns and result[key] is not None else result[key]
-                        for key in schema_columns
-                    }
-                    pg_file.write_records_to_tsv([row], fieldnames=schema_columns)
+                for record, _ in records_iterator:
+                    row = record
+                    row["elements"] = json.dumps(row["elements"])
+                    pg_file.write_records_to_tsv(
+                        [row], fieldnames=schema_columns, quoting=csv.QUOTE_MINIMAL, escapechar=None
+                    )
 
                     if pg_file.tell() > settings.BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES:
                         await flush_to_postgres()
