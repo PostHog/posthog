@@ -269,6 +269,9 @@ export const sceneConfigurations: Record<Scene, SceneConfig> = {
         projectBased: true,
         layout: 'plain',
     },
+    [Scene.OnboardingProductIntroduction]: {
+        projectBased: true,
+    },
     [Scene.ToolbarLaunch]: {
         projectBased: true,
         name: 'Launch toolbar',
@@ -535,6 +538,7 @@ export const routes: Record<string, Scene> = {
     [urls.passwordResetComplete(':uuid', ':token')]: Scene.PasswordResetComplete,
     [urls.products()]: Scene.Products,
     [urls.onboarding(':productKey')]: Scene.Onboarding,
+    [urls.onboardingProductIntroduction(':productKey')]: Scene.OnboardingProductIntroduction,
     [urls.verifyEmail()]: Scene.VerifyEmail,
     [urls.verifyEmail(':uuid')]: Scene.VerifyEmail,
     [urls.verifyEmail(':uuid', ':token')]: Scene.VerifyEmail,
