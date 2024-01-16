@@ -46,7 +46,7 @@ export function OtherOrganizationButton({
 }
 
 export function NewOrganizationButton(): JSX.Element {
-    const { closeSitePopover } = useActions(navigationLogic)
+    const { closeAccountPopover } = useActions(navigationLogic)
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
     const { guardAvailableFeature } = useActions(sceneLogic)
 
@@ -59,7 +59,7 @@ export function NewOrganizationButton(): JSX.Element {
                     'multiple organizations',
                     'Organizations group people building products together. An organization can have multiple projects.',
                     () => {
-                        closeSitePopover()
+                        closeAccountPopover()
                         showCreateOrganizationModal()
                     },
                     {
