@@ -3,6 +3,7 @@ from datetime import timedelta
 from itertools import groupby
 from math import ceil
 from operator import itemgetter
+import threading
 from typing import List, Optional, Any, Dict
 
 from django.utils.timezone import datetime
@@ -40,6 +41,7 @@ from posthog.schema import (
     EventsNode,
     HogQLQueryResponse,
     InCohortVia,
+    QueryTiming,
     TrendsQuery,
     TrendsQueryResponse,
     HogQLQueryModifiers,
@@ -129,10 +131,10 @@ class TrendsQueryRunner(QueryRunner):
     def calculate(self):
         queries = self.to_query()
 
-        res = []
-        timings = []
+        res_matrix: List[List[Any] | Any | None] = [None] * len(queries)
+        timings_matrix: List[List[QueryTiming] | None] = [None] * len(queries)
 
-        for index, query in enumerate(queries):
+        def run_parallel(index: int, query: ast.SelectQuery):
             series_with_extra = self.series[index]
 
             response = execute_hogql_query(
@@ -143,9 +145,33 @@ class TrendsQueryRunner(QueryRunner):
                 modifiers=self.modifiers,
             )
 
-            timings.extend(response.timings)
+            timings_matrix[index] = response.timings
+            res_matrix[index] = self.build_series_response(response, series_with_extra, len(queries))
 
-            res.extend(self.build_series_response(response, series_with_extra, len(queries)))
+        jobs = [threading.Thread(target=run_parallel, args=(index, query)) for index, query in enumerate(queries)]
+
+        # Start the threads
+        for j in jobs:
+            j.start()
+
+        # Ensure all of the threads have finished
+        for j in jobs:
+            j.join()
+
+        # Flatten res and timings
+        res = []
+        for result in res_matrix:
+            if isinstance(result, List):
+                res.extend(result)
+            else:
+                res.append(result)
+
+        timings = []
+        for result in timings_matrix:
+            if isinstance(result, List):
+                timings.extend(result)
+            else:
+                timings.append(result)
 
         if (
             self.query.trendsFilter is not None
