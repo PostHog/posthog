@@ -4,7 +4,7 @@ import { detectPropertyDefinitionTypes } from '../../../src/worker/ingestion/pro
 describe('property definitions auto discovery', () => {
     describe('can detect numbers', () => {
         it('can detect "10"', () => {
-            expect(detectPropertyDefinitionTypes('10', 'anything')).toEqual(PropertyType.Numeric)
+            expect(detectPropertyDefinitionTypes('10', 'anything')).toEqual(PropertyType.String)
         })
 
         it('can detect 10', () => {

@@ -7,10 +7,7 @@ import { PostgresUse } from '../../../src/utils/db/postgres'
 import { posthog } from '../../../src/utils/posthog'
 import { UUIDT } from '../../../src/utils/utils'
 import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manager'
-import {
-    dateTimePropertyTypeFormatPatterns,
-    isNumericString,
-} from '../../../src/worker/ingestion/property-definitions-auto-discovery'
+import { dateTimePropertyTypeFormatPatterns } from '../../../src/worker/ingestion/property-definitions-auto-discovery'
 import { NULL_AFTER_PROPERTY_TYPE_DETECTION } from '../../../src/worker/ingestion/property-definitions-cache'
 import { PropertyDefinitionsManager } from '../../../src/worker/ingestion/property-definitions-manager'
 import { createOrganization, createOrganizationMembership, createTeam, createUser } from '../../helpers/sql'
@@ -607,7 +604,7 @@ describe('PropertyDefinitionsManager()', () => {
                 const toNotMatch = {
                     ...toEdit,
                     propertyKey: toEdit.propertyKey.replace('timestamp', 'as a string'),
-                    expectedPropertyType: isNumericString(toEdit.date) ? PropertyType.Numeric : PropertyType.String,
+                    expectedPropertyType: PropertyType.String,
                 }
 
                 return [testcase, toMatchWithJustTimeInName, toNotMatch]
