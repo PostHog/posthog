@@ -14,7 +14,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { TableCellSparkline } from 'lib/lemon-ui/LemonTable/TableCellSparkline'
+import { Sparkline } from 'lib/lemon-ui/Sparkline'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 
@@ -223,7 +223,7 @@ function DestinationSparkLine({ destination }: { destination: DestinationType })
         }
 
         return (
-            <TableCellSparkline
+            <Sparkline
                 labels={appMetricsResponse.metrics.dates}
                 data={[
                     { color: 'danger', name: 'failures', values: appMetricsResponse.metrics.failures },

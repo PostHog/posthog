@@ -1,5 +1,3 @@
-import './TableCellSparkline.scss'
-
 import { offset } from '@floating-ui/react'
 import { Chart, ChartItem, TooltipModel } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
@@ -7,25 +5,24 @@ import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import React from 'react'
 import { useEffect, useRef, useState } from 'react'
 
-export interface SparkLineTimeSeries {
-    name: string | null // used in the tooltip
-    color: string // check vars.css for available colors
+interface SparkLineTimeSeries {
+    name: string | null
+    /** Check vars.scss for available colors */
+    color: string
     values: number[]
 }
 
-function isSparkLineTimeSeries(data: number[] | SparkLineTimeSeries[]): data is SparkLineTimeSeries[] {
-    return typeof data[0] !== 'number'
+interface SparklineProps {
+    /** Optional labels for the X axis. */
+    labels?: string[]
+    /** Either a list of numbers for a muted graph or an array of time series */
+    data: number[] | SparkLineTimeSeries[]
 }
 
-// @param labels - optional labels for the x-axis
-// @param data - either a list of numbers for a gray graph or an array of multiple timerseries
-export function TableCellSparkline({
+export function Sparkline({
     labels,
     data,
-}: {
-    labels?: string[]
-    data: number[] | SparkLineTimeSeries[]
-}): JSX.Element {
+}: SparklineProps): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const tooltipRef = useRef<HTMLDivElement | null>(null)
 
@@ -119,8 +116,8 @@ export function TableCellSparkline({
     }, [labels, data])
 
     return (
-        <div className="TableCellSparkline">
-            <canvas ref={canvasRef} />
+        <div className="w-full">
+            <canvas ref={canvasRef} className='h-9' />
             <Popover
                 visible={!!popoverContent}
                 overlay={popoverContent}
@@ -131,4 +128,9 @@ export function TableCellSparkline({
             </Popover>
         </div>
     )
+}
+
+
+function isSparkLineTimeSeries(data: number[] | SparkLineTimeSeries[]): data is SparkLineTimeSeries[] {
+    return typeof data[0] !== 'number'
 }
