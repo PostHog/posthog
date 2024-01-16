@@ -3,12 +3,12 @@ import './DashboardTemplateChooser.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
-import {Spinner} from "lib/lemon-ui/Spinner";
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import BlankDashboardHog from 'public/blank-dashboard-hog.png'
 import { useState } from 'react'
 import {
     DashboardTemplateProps,
-    dashboardTemplatesLogic
+    dashboardTemplatesLogic,
 } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
@@ -49,45 +49,49 @@ export function DashboardTemplateChooser({ scope = 'default' }: DashboardTemplat
                     index={0}
                     data-attr="create-dashboard-blank"
                 />
-                {allTemplatesLoading ? <Spinner className="text-6xl"/> : allTemplates.map((template, index) => (
-                    <TemplateItem
-                        key={index}
-                        template={template}
-                        onClick={() => {
-                            if (isLoading) {
-                                return
-                            }
-                            setIsLoading(true)
-                            // while we might receive templates from the external repository
-                            // we need to handle templates that don't have variables
-                            if ((template.variables || []).length === 0) {
-                                if (template.variables === null) {
-                                    template.variables = []
+                {allTemplatesLoading ? (
+                    <Spinner className="text-6xl" />
+                ) : (
+                    allTemplates.map((template, index) => (
+                        <TemplateItem
+                            key={index}
+                            template={template}
+                            onClick={() => {
+                                if (isLoading) {
+                                    return
                                 }
-                                createDashboardFromTemplate(template, template.variables || [])
-                            } else {
-                                if (!newDashboardModalVisible) {
-                                    showVariableSelectModal(template)
+                                setIsLoading(true)
+                                // while we might receive templates from the external repository
+                                // we need to handle templates that don't have variables
+                                if ((template.variables || []).length === 0) {
+                                    if (template.variables === null) {
+                                        template.variables = []
+                                    }
+                                    createDashboardFromTemplate(template, template.variables || [])
                                 } else {
-                                    setActiveDashboardTemplate(template)
+                                    if (!newDashboardModalVisible) {
+                                        showVariableSelectModal(template)
+                                    } else {
+                                        setActiveDashboardTemplate(template)
+                                    }
                                 }
-                            }
-                        }}
-                        index={index + 1}
-                        data-attr="create-dashboard-from-template"
-                    />
-                ))}
+                            }}
+                            index={index + 1}
+                            data-attr="create-dashboard-from-template"
+                        />
+                    ))
+                )}
             </div>
         </div>
     )
 }
 
 function TemplateItem({
-                          template,
-                          onClick,
-                          index,
-                          'data-attr': dataAttr,
-                      }: {
+    template,
+    onClick,
+    index,
+    'data-attr': dataAttr,
+}: {
     template: Pick<DashboardTemplateType, 'template_name' | 'dashboard_description' | 'image_url'>
     onClick: () => void
     index: number

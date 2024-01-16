@@ -1,8 +1,8 @@
-import {LemonButton, LemonInput} from '@posthog/lemon-ui'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { pluralize } from 'lib/utils'
-import {dashboardTemplatesLogic} from "scenes/dashboard/dashboards/templates/dashboardTemplatesLogic";
+import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 import { DashboardTemplateChooser } from './DashboardTemplateChooser'
@@ -44,7 +44,9 @@ export function NewDashboardModal(): JSX.Element {
     const { hideNewDashboardModal } = useActions(newDashboardLogic)
     const { newDashboardModalVisible, activeDashboardTemplate } = useValues(newDashboardLogic)
 
-   const templatesLogic = dashboardTemplatesLogic({ scope: builtLogic.props.featureFlagId ? 'feature_flag' : 'default' })
+    const templatesLogic = dashboardTemplatesLogic({
+        scope: builtLogic.props.featureFlagId ? 'feature_flag' : 'default',
+    })
     const { templateFilter } = useValues(templatesLogic)
     const { setTemplateFilter } = useActions(templatesLogic)
 
@@ -69,9 +71,12 @@ export function NewDashboardModal(): JSX.Element {
                     <div className="flex flex-col gap-2">
                         <div>Choose a template or start with a blank slate</div>
                         <div>
-                            <LemonInput type="search" placeholder="Filter templates" onChange={setTemplateFilter}
-                                        value={templateFilter}
-                                        fullWidth={true}
+                            <LemonInput
+                                type="search"
+                                placeholder="Filter templates"
+                                onChange={setTemplateFilter}
+                                value={templateFilter}
+                                fullWidth={true}
                             />
                         </div>
                     </div>
@@ -79,7 +84,7 @@ export function NewDashboardModal(): JSX.Element {
             }
         >
             <div className="NewDashboardModal">
-                {activeDashboardTemplate ? <DashboardTemplatePreview/> : _dashboardTemplateChooser}
+                {activeDashboardTemplate ? <DashboardTemplatePreview /> : _dashboardTemplateChooser}
             </div>
         </LemonModal>
     )
