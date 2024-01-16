@@ -773,9 +773,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 dateRange,
                                 filterTestAccounts: true,
                                 retentionFilter: {
-                                    retention_type: RETENTION_FIRST_TIME,
-                                    retention_reference: 'total',
-                                    total_intervals: isGreaterThanMd ? 8 : 5,
+                                    retentionType: RETENTION_FIRST_TIME,
+                                    retentionReference: 'total',
+                                    totalIntervals: isGreaterThanMd ? 8 : 5,
                                     period: RetentionPeriod.Week,
                                 },
                             },

@@ -358,13 +358,13 @@ def _insight_filter(filter: Dict):
     elif _insight_type(filter) == "RETENTION":
         insight_filter = {
             "retentionFilter": RetentionFilter(
-                retention_type=filter.get("retention_type"),
-                retention_reference=filter.get("retention_reference"),
-                total_intervals=filter.get("total_intervals"),
-                returning_entity=to_base_entity_dict(filter.get("returning_entity"))
+                retentionType=filter.get("retention_type"),
+                retentionReference=filter.get("retention_reference"),
+                totalIntervals=filter.get("total_intervals"),
+                returningEntity=to_base_entity_dict(filter.get("returning_entity"))
                 if filter.get("returning_entity") is not None
                 else None,
-                target_entity=to_base_entity_dict(filter.get("target_entity"))
+                targetEntity=to_base_entity_dict(filter.get("target_entity"))
                 if filter.get("target_entity") is not None
                 else None,
                 period=filter.get("period"),

@@ -574,7 +574,16 @@ export interface FunnelsQuery extends InsightsQueryBase {
 }
 
 /** `RetentionFilterType` minus everything inherited from `FilterType` */
-export type RetentionFilter = Omit<RetentionFilterType, keyof FilterType>
+export type RetentionFilterLegacy = Omit<RetentionFilterType, keyof FilterType>
+
+export type RetentionFilter = {
+    retentionType?: RetentionFilterLegacy['retention_type']
+    retentionReference?: RetentionFilterLegacy['retention_reference']
+    totalIntervals?: RetentionFilterLegacy['total_intervals']
+    returningEntity?: RetentionFilterLegacy['returning_entity']
+    targetEntity?: RetentionFilterLegacy['target_entity']
+    period?: RetentionFilterLegacy['period']
+}
 
 export interface RetentionValue {
     /** @asType integer */
