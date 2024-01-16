@@ -70,6 +70,13 @@ export const TARGET_AREA_TO_NAME = {
     'posthog-3000': 'PostHog 3000',
 }
 
+export const SEVERITY_LEVEL_TO_NAME = {
+    critical: 'Critical - Outage / Data loss / Breach',
+    high: 'High - Feature unavailable / Significant impact',
+    medium: 'Medium - Feature not working as expected',
+    low: 'Low - Feature request or Question',
+}
+
 export const SUPPORT_KIND_TO_SUBJECT = {
     bug: 'Bug Report',
     feedback: 'Feedback',
@@ -145,6 +152,7 @@ export const supportLogic = kea<supportLogicType>([
                 name: '',
                 email: '',
                 kind: 'support',
+                severity_level: null,
                 target_area: null,
                 message: '',
             } as SupportFormFields,
@@ -154,6 +162,7 @@ export const supportLogic = kea<supportLogicType>([
                     email: !values.user ? (!email ? 'Please enter your email' : '') : '',
                     message: !message ? 'Please enter a message' : '',
                     kind: !kind ? 'Please choose' : undefined,
+                    severity_level: !target_area ? 'Please choose' : undefined,
                     target_area: !target_area ? 'Please choose' : undefined,
                 }
             },

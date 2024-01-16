@@ -11,7 +11,7 @@ import { useRef } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { supportLogic, SupportTicketKind, TARGET_AREA_TO_NAME } from './supportLogic'
+import { SEVERITY_LEVEL_TO_NAME, supportLogic, SupportTicketKind, TARGET_AREA_TO_NAME } from './supportLogic'
 
 const SUPPORT_TICKET_OPTIONS: LemonSegmentedButtonOption<SupportTicketKind>[] = [
     {
@@ -75,6 +75,15 @@ export function SupportForm(): JSX.Element | null {
             )}
             <Field name="kind" label="What type of message is this?">
                 <LemonSegmentedButton fullWidth options={SUPPORT_TICKET_OPTIONS} />
+            </Field>
+            <Field name="severity_level" label="What is the severity of this issue?">
+                <LemonSelect
+                    fullWidth
+                    options={Object.entries(SEVERITY_LEVEL_TO_NAME).map(([key, value]) => ({
+                        label: value,
+                        value: key,
+                    }))}
+                />
             </Field>
             <Field name="target_area" label="What area does this best relate to?">
                 <LemonSelect
